@@ -142,6 +142,83 @@ export const uploadCommand = new Command("upload")
     }
   });
 
+type ResolvedArtifact = PresignArtifactRequest & { localPath: string };
+
+/** Pair every collected artifact with the server-assigned testResultId.
+ * Entries whose clientKey has no matching server id are dropped and counted. */
+function resolveArtifacts(
+  manifest: {
+    artifacts: Awaited<ReturnType<typeof collectArtifacts>>["artifacts"];
+  },
+  mapping: Array<{ clientKey: string; testResultId: string }>,
+): { requests: ResolvedArtifact[]; skipped: number } {
+  const byClientKey = new Map(
+    mapping.map((m) => [m.clientKey, m.testResultId]),
+  );
+  const requests: ResolvedArtifact[] = [];
+  let skipped = 0;
+  for (const a of manifest.artifacts) {
+    const testResultId = byClientKey.get(a.clientKey);
+    if (!testResultId) {
+      skipped++;
+      continue;
+    }
+    requests.push({
+      testResultId,
+      type: a.type,
+      name: a.name,
+      contentType: a.contentType,
+      sizeBytes: a.sizeBytes,
+      localPath: a.localPath,
+    });
+  }
+  return { requests, skipped };
+}
+
+/** Presign + PUT a single batch with bounded concurrency.
+ * Returns per-batch counts and never throws — callers summarise over the full run. */
+async function uploadBatch(
+  client: ApiClient,
+  runId: string,
+  batchLabel: string,
+  chunk: ResolvedArtifact[],
+): Promise<{ uploaded: number; failed: number }> {
+  let uploads;
+  try {
+    uploads = await client.presign(runId, chunk);
+  } catch (err) {
+    logger.printArtifactError(
+      batchLabel,
+      err instanceof Error ? err.message : "presign failed",
+    );
+    return { uploaded: 0, failed: chunk.length };
+  }
+
+  const tasks = chunk.map((req, idx) => async () => {
+    const upload = uploads[idx];
+    await client.uploadArtifact(
+      upload.url,
+      req.localPath,
+      req.contentType,
+      req.sizeBytes,
+    );
+  });
+  const results = await runWithLimit(UPLOAD_CONCURRENCY, tasks);
+
+  let uploaded = 0;
+  let failed = 0;
+  for (let j = 0; j < results.length; j++) {
+    const result = results[j];
+    if (result.ok) {
+      uploaded++;
+    } else {
+      failed++;
+      logger.printArtifactError(chunk[j].name, result.error.message);
+    }
+  }
+  return { uploaded, failed };
+}
+
 async function uploadArtifactsBestEffort(
   client: ApiClient,
   runId: string,
@@ -162,72 +239,20 @@ async function uploadArtifactsBestEffort(
   const manifest = await collectArtifacts(report, mode);
   if (manifest.artifacts.length === 0) return;
 
-  const byClientKey = new Map(
-    mapping.map((m) => [m.clientKey, m.testResultId]),
-  );
-
-  const presignRequests: Array<PresignArtifactRequest & { localPath: string }> =
-    [];
-  let skipped = 0;
-  for (const a of manifest.artifacts) {
-    const testResultId = byClientKey.get(a.clientKey);
-    if (!testResultId) {
-      skipped++;
-      continue;
-    }
-    presignRequests.push({
-      testResultId,
-      type: a.type,
-      name: a.name,
-      contentType: a.contentType,
-      sizeBytes: a.sizeBytes,
-      localPath: a.localPath,
-    });
-  }
-
-  if (presignRequests.length === 0) {
+  const { requests, skipped } = resolveArtifacts(manifest, mapping);
+  if (requests.length === 0) {
     logger.printArtifactsSummary(0, skipped, 0);
     return;
   }
 
   let uploaded = 0;
   let failed = 0;
-
-  // Batch presign to stay under request-size limits
-  for (let i = 0; i < presignRequests.length; i += PRESIGN_BATCH_SIZE) {
-    const chunk = presignRequests.slice(i, i + PRESIGN_BATCH_SIZE);
-    let uploads;
-    try {
-      uploads = await client.presign(runId, chunk);
-    } catch (err) {
-      failed += chunk.length;
-      logger.printArtifactError(
-        `batch ${i / PRESIGN_BATCH_SIZE}`,
-        err instanceof Error ? err.message : "presign failed",
-      );
-      continue;
-    }
-
-    const tasks = chunk.map((req, idx) => async () => {
-      const upload = uploads[idx];
-      await client.uploadArtifact(
-        upload.url,
-        req.localPath,
-        req.contentType,
-        req.sizeBytes,
-      );
-    });
-
-    const results = await runWithLimit(UPLOAD_CONCURRENCY, tasks);
-    for (let j = 0; j < results.length; j++) {
-      const result = results[j];
-      if (result.ok) {
-        uploaded++;
-      } else {
-        failed++;
-        logger.printArtifactError(chunk[j].name, result.error.message);
-      }
-    }
+  for (let i = 0; i < requests.length; i += PRESIGN_BATCH_SIZE) {
+    const chunk = requests.slice(i, i + PRESIGN_BATCH_SIZE);
+    const batchLabel = `batch ${i / PRESIGN_BATCH_SIZE}`;
+    const result = await uploadBatch(client, runId, batchLabel, chunk);
+    uploaded += result.uploaded;
+    failed += result.failed;
   }
 
   logger.printArtifactsSummary(uploaded, skipped, failed);

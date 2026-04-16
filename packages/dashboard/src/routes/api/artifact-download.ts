@@ -3,14 +3,9 @@ import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
 import { artifacts } from "@/db/schema";
 import { presignGet, readR2Config } from "@/lib/r2-presign";
+import { readIntVar } from "@/lib/env-parse";
 
 const DEFAULT_GET_TTL_SECONDS = 600;
-
-function readIntVar(raw: string, fallback: number): number {
-  if (raw.length === 0) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
 
 /**
  * GET /api/artifacts/:id/download

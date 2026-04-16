@@ -1,35 +1,12 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { runs, testResults } from "@/db/schema";
-import { requestInfo } from "rwsdk/worker";
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, React.CSSProperties> = {
-    passed: { color: "#16a34a" },
-    failed: { color: "#dc2626" },
-    flaky: { color: "#ea580c" },
-    skipped: { color: "#9ca3af" },
-    timedout: { color: "#ea580c" },
-  };
-  return (
-    <span style={colors[status] || { color: "#6b7280" }}>
-      {status.toUpperCase()}
-    </span>
-  );
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
-}
+import { StatusBadge } from "@/app/components/status-badge";
+import { formatDuration } from "@/lib/time-format";
+import { param } from "@/lib/route-params";
 
 export async function RunDetailPage() {
-  // rwsdk types params as DefaultAppContext; widen to access route params
-  const runId = String((requestInfo.params as Record<string, unknown>)["id"]);
+  const runId = param("id");
 
   const db = getDb();
 

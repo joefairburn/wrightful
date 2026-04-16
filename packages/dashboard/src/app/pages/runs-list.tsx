@@ -1,41 +1,8 @@
 import { desc } from "drizzle-orm";
 import { getDb } from "@/db";
 import { runs } from "@/db/schema";
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, React.CSSProperties> = {
-    passed: { color: "#16a34a" },
-    failed: { color: "#dc2626" },
-    timedout: { color: "#ea580c" },
-    interrupted: { color: "#9333ea" },
-  };
-  return (
-    <span style={colors[status] || { color: "#6b7280" }}>
-      {status.toUpperCase()}
-    </span>
-  );
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
-}
-
-function formatRelativeTime(date: Date): string {
-  const now = Date.now();
-  const diff = now - date.getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+import { StatusBadge } from "@/app/components/status-badge";
+import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 export async function RunsListPage() {
   const db = getDb();

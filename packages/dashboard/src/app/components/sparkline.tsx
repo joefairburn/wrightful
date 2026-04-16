@@ -1,12 +1,7 @@
-export type SparklineStatus =
-  | "passed"
-  | "failed"
-  | "flaky"
-  | "skipped"
-  | "timedout";
+import { statusColor, type Status } from "@/lib/status";
 
 export interface SparklinePoint {
-  status: SparklineStatus;
+  status: Status;
   /** Optional label shown via the native `<title>` tooltip on hover. */
   label?: string;
 }
@@ -20,14 +15,6 @@ export interface SparklineProps {
   /** Gap between bars in px. */
   gap?: number;
 }
-
-const COLORS: Record<SparklineStatus, string> = {
-  passed: "#16a34a",
-  failed: "#dc2626",
-  flaky: "#ea580c",
-  skipped: "#9ca3af",
-  timedout: "#dc2626",
-};
 
 /**
  * Minimal status sparkline — renders one bar per data point, coloured by
@@ -79,7 +66,7 @@ export function Sparkline({
             y={0}
             width={barWidth}
             height={height}
-            fill={COLORS[p.status]}
+            fill={statusColor(p.status)}
           >
             {p.label && <title>{p.label}</title>}
           </rect>

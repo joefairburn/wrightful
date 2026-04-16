@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { requestInfo } from "rwsdk/worker";
 import { getDb } from "@/db";
 import {
   artifacts,
@@ -7,31 +8,9 @@ import {
   testResults,
   testTags,
 } from "@/db/schema";
-import { requestInfo } from "rwsdk/worker";
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, React.CSSProperties> = {
-    passed: { color: "#16a34a" },
-    failed: { color: "#dc2626" },
-    flaky: { color: "#ea580c" },
-    skipped: { color: "#9ca3af" },
-    timedout: { color: "#ea580c" },
-  };
-  return (
-    <span style={colors[status] || { color: "#6b7280" }}>
-      {status.toUpperCase()}
-    </span>
-  );
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
-}
+import { StatusBadge } from "@/app/components/status-badge";
+import { formatDuration } from "@/lib/time-format";
+import { param } from "@/lib/route-params";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -47,22 +26,22 @@ interface Artifact {
   sizeBytes: number;
 }
 
-/** Build a trace.playwright.dev link wrapping a presigned R2 GET URL. */
+/** Build a trace.playwright.dev link wrapping a presigned R2 GET URL.
+ *
+ * Our own download endpoint 302s to the presigned R2 URL. trace.playwright.dev
+ * follows the redirect and loads the underlying .zip.
+ *
+ * NOTE: this is a link-out for now. A self-hosted trace-viewer component is
+ * tracked for Phase 5 so teams running Greenroom behind a corporate firewall
+ * (where trace.playwright.dev may not be reachable) aren't blocked. */
 function traceViewerUrl(origin: string, artifactId: string): string {
-  // Our own download endpoint 302s to the presigned R2 URL. trace.playwright.dev
-  // follows the redirect and loads the underlying .zip.
-  //
-  // NOTE: this is a link-out for now. A self-hosted trace-viewer component is
-  // tracked for Phase 5 so teams running Greenroom behind a corporate firewall
-  // (where trace.playwright.dev may not be reachable) aren't blocked.
   const downloadUrl = `${origin}/api/artifacts/${artifactId}/download`;
   return `https://trace.playwright.dev/?trace=${encodeURIComponent(downloadUrl)}`;
 }
 
 export async function TestDetailPage() {
-  const params = requestInfo.params as Record<string, unknown>;
-  const runId = String(params["runId"]);
-  const testResultId = String(params["testResultId"]);
+  const runId = param("runId");
+  const testResultId = param("testResultId");
   const origin = new URL(requestInfo.request.url).origin;
 
   const db = getDb();

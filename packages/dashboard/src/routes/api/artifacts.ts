@@ -5,6 +5,7 @@ import { getDb } from "@/db";
 import { artifacts, testResults } from "@/db/schema";
 import { PresignPayloadSchema, type PresignPayload } from "./schemas";
 import { presignPut, readR2Config } from "@/lib/r2-presign";
+import { readIntVar } from "@/lib/env-parse";
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 52_428_800; // 50 MiB
 const DEFAULT_PUT_TTL_SECONDS = 900;
@@ -14,12 +15,6 @@ function jsonResponse(body: unknown, status: number) {
     status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-function readIntVar(raw: string, fallback: number): number {
-  if (raw.length === 0) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export async function presignHandler({ request }: { request: Request }) {

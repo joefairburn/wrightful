@@ -1,31 +1,13 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { runs, testResults } from "@/db/schema";
-import { requestInfo } from "rwsdk/worker";
-import { Sparkline, type SparklineStatus } from "@/app/components/sparkline";
+import { Sparkline } from "@/app/components/sparkline";
 import { DurationChart } from "@/app/components/duration-chart";
+import { formatDuration, formatRelativeTime } from "@/lib/time-format";
+import { param } from "@/lib/route-params";
+import { statusColor, type Status } from "@/lib/status";
 
 const HISTORY_LIMIT = 50;
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
-}
-
-function formatRelativeTime(date: Date): string {
-  const diff = Date.now() - date.getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 function flakinessPercent(rows: Array<{ status: string }>): {
   ran: number;
@@ -43,8 +25,7 @@ function flakinessPercent(rows: Array<{ status: string }>): {
 }
 
 export async function TestHistoryPage() {
-  const params = requestInfo.params as Record<string, unknown>;
-  const testId = String(params["testId"]);
+  const testId = param("testId");
 
   const db = getDb();
 
@@ -145,7 +126,7 @@ export async function TestHistoryPage() {
           </div>
           <Sparkline
             points={[...history].reverse().map((h) => ({
-              status: h.status as SparklineStatus,
+              status: h.status as Status,
               label: `${h.status} — ${formatDuration(h.durationMs)} — ${formatRelativeTime(h.createdAt)}`,
             }))}
             width={300}
@@ -238,20 +219,4 @@ export async function TestHistoryPage() {
       </table>
     </div>
   );
-}
-
-function statusColor(status: string): string {
-  switch (status) {
-    case "passed":
-      return "#16a34a";
-    case "failed":
-    case "timedout":
-      return "#dc2626";
-    case "flaky":
-      return "#ea580c";
-    case "skipped":
-      return "#9ca3af";
-    default:
-      return "#6b7280";
-  }
 }
