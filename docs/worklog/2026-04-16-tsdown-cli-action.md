@@ -12,8 +12,8 @@ User preference to standardize on rolldown. tsdown was chosen over direct `rolld
 
 | Package                    | Removed       | Added            |
 | -------------------------- | ------------- | ---------------- |
-| `@greenroom/cli`           | `tsup@^8.5.1` | `tsdown@^0.21.9` |
-| `@greenroom/github-action` | `tsup@^8.5.1` | `tsdown@^0.21.9` |
+| `@wrightful/cli`           | `tsup@^8.5.1` | `tsdown@^0.21.9` |
+| `@wrightful/github-action` | `tsup@^8.5.1` | `tsdown@^0.21.9` |
 
 tsdown 0.21.9 pulls `rolldown@1.0.0-rc.16` (coexists with Vitest 4's `rolldown@1.0.0-rc.15` in the lockfile — minor version drift, harmless).
 
@@ -95,13 +95,13 @@ Both `tsup` mentions updated to `tsdown` (package description + build command co
 
 | Check                                          | Result                                                                                            |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `pnpm --filter @greenroom/cli build`           | `dist/index.js` 20.92 KB, gzip 6.59 KB, built in 22ms                                             |
-| `pnpm --filter @greenroom/github-action build` | `dist/index.js` 0.24 KB (src is placeholder)                                                      |
+| `pnpm --filter @wrightful/cli build`           | `dist/index.js` 20.92 KB, gzip 6.59 KB, built in 22ms                                             |
+| `pnpm --filter @wrightful/github-action build` | `dist/index.js` 0.24 KB (src is placeholder)                                                      |
 | `head -1 packages/cli/dist/index.js`           | `#!/usr/bin/env node`                                                                             |
 | `ls -l packages/cli/dist/index.js`             | `-rwxr-xr-x` (execute bit set by tsdown)                                                          |
 | `node packages/cli/dist/index.js --help`       | Commander help renders, upload subcommand listed                                                  |
 | CLI externals check                            | `import { Command } from "commander"` preserved in bundle — commander/cosmiconfig/zod not inlined |
-| `pnpm --filter @greenroom/cli test`            | 83/83 tests pass                                                                                  |
+| `pnpm --filter @wrightful/cli test`            | 83/83 tests pass                                                                                  |
 | `pnpm typecheck`                               | 0 errors (CLI + Dashboard)                                                                        |
 | `pnpm lint`                                    | 0 errors, 5 pre-existing warnings (unrelated)                                                     |
 
