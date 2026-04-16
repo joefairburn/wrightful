@@ -16,7 +16,7 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@redwoodjs/agent-ci": "^0.1.0",
+    "@redwoodjs/agent-ci": "^0.10.7",
     "@typescript/native-preview": "7.0.0-dev.20260416.2",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
