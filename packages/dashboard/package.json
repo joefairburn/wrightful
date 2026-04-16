@@ -28,7 +28,7 @@
     "react-server-dom-webpack": "19.2.5",
     "rwsdk": "^1.2.0",
     "ulid": "^3.0.2",
-    "zod": "^3.25.76"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.32.3",
@@ -38,9 +38,9 @@
     "@types/react-dom": "^19.2.3",
     "@typescript/native-preview": "7.0.0-dev.20260416.2",
     "drizzle-kit": "^0.31.10",
-    "typescript": "~5.8.3",
-    "vite": "~7.3.2",
-    "vitest": "^3.2.4",
+    "typescript": "~6.0.2",
+    "vite": "~8.0.8",
+    "vitest": "^4.1.4",
     "wrangler": "^4.83.0"
   }
 }
