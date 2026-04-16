@@ -17,9 +17,9 @@ declare namespace Cloudflare {
     // Widen vars (wrangler emits literal types from wrangler.jsonc values)
     R2_ACCOUNT_ID: string;
     R2_BUCKET_NAME: string;
-    GREENROOM_MAX_ARTIFACT_BYTES: string;
-    GREENROOM_PRESIGN_PUT_TTL_SECONDS: string;
-    GREENROOM_PRESIGN_GET_TTL_SECONDS: string;
+    WRIGHTFUL_MAX_ARTIFACT_BYTES: string;
+    WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS: string;
+    WRIGHTFUL_PRESIGN_GET_TTL_SECONDS: string;
 
     // Secrets — set via `wrangler secret put`, not declared in wrangler.jsonc
     R2_ACCESS_KEY_ID: string;

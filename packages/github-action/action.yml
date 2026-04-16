@@ -1,11 +1,11 @@
-name: "Greenroom PR Comment"
+name: "Wrightful PR Comment"
 description: "Posts a PR comment with Playwright test run summary and link to dashboard"
 inputs:
   api-url:
-    description: "Greenroom dashboard URL"
+    description: "Wrightful dashboard URL"
     required: true
   api-key:
-    description: "Greenroom API key"
+    description: "Wrightful API key"
     required: true
 runs:
   using: "node20"

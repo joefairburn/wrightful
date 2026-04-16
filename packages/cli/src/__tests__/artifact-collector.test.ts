@@ -42,7 +42,7 @@ describe("collectArtifacts", () => {
   let screenshotPath: string;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "greenroom-artifacts-test-"));
+    tmpDir = await mkdtemp(join(tmpdir(), "wrightful-artifacts-test-"));
     tracePath = join(tmpDir, "trace.zip");
     screenshotPath = join(tmpDir, "shot.png");
     await writeFile(tracePath, Buffer.alloc(128, 0x41));

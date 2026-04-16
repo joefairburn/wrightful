@@ -22,7 +22,7 @@ function sh(cmd: string, opts: { cwd?: string } = {}): string {
     .trim();
 }
 
-describe("Greenroom E2E", () => {
+describe("Wrightful E2E", () => {
   beforeAll(() => {
     if (!existsSync(REPORT_PATH)) {
       throw new Error(`Playwright report not found at ${REPORT_PATH}`);
@@ -66,7 +66,7 @@ describe("Greenroom E2E", () => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
-          "X-Greenroom-Version": "1",
+          "X-Wrightful-Version": "1",
         },
         body: JSON.stringify({ bad: "payload" }),
       });
@@ -81,7 +81,7 @@ describe("Greenroom E2E", () => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
-          "X-Greenroom-Version": "99",
+          "X-Wrightful-Version": "99",
         },
         body: JSON.stringify({}),
       });
@@ -139,7 +139,7 @@ describe("Greenroom E2E", () => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
-          "X-Greenroom-Version": "1",
+          "X-Wrightful-Version": "1",
         },
         body: JSON.stringify({}),
       });
@@ -152,7 +152,7 @@ describe("Greenroom E2E", () => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
-          "X-Greenroom-Version": "1",
+          "X-Wrightful-Version": "1",
         },
         body: JSON.stringify({
           runId,
@@ -188,7 +188,7 @@ describe("Greenroom E2E", () => {
       expect(Number.isNaN(Date.parse(upload.expiresAt ?? ""))).toBe(false);
 
       const countJson = sh(
-        `npx wrangler d1 execute greenroom --local --json --command "SELECT COUNT(*) AS n FROM artifacts WHERE test_result_id = '${testResultId}';"`,
+        `npx wrangler d1 execute wrightful --local --json --command "SELECT COUNT(*) AS n FROM artifacts WHERE test_result_id = '${testResultId}';"`,
         { cwd: DASHBOARD_DIR },
       );
       const count = JSON.parse(countJson)[0]?.results?.[0]?.n;
@@ -201,7 +201,7 @@ describe("Greenroom E2E", () => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
-          "X-Greenroom-Version": "1",
+          "X-Wrightful-Version": "1",
         },
         body: JSON.stringify({
           runId: "nonexistent-run",
@@ -223,7 +223,7 @@ describe("Greenroom E2E", () => {
 
 function readSeededTestResult(): { runId: string; testResultId: string } {
   const rowJson = sh(
-    `npx wrangler d1 execute greenroom --local --json --command "SELECT tr.id AS test_result_id, tr.run_id AS run_id FROM test_results tr LIMIT 1;"`,
+    `npx wrangler d1 execute wrightful --local --json --command "SELECT tr.id AS test_result_id, tr.run_id AS run_id FROM test_results tr LIMIT 1;"`,
     { cwd: DASHBOARD_DIR },
   );
   const rows = JSON.parse(rowJson)[0]?.results ?? [];

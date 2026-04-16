@@ -6,7 +6,7 @@ Added a forward-compatibility testing strategy to ensure the CLI parser doesn't 
 
 ## Context
 
-The CLI parses Playwright JSON report files using hand-written TypeScript interfaces (`packages/cli/src/types.ts`). These types intentionally cover only the ~15 fields Greenroom needs out of the 50+ in Playwright's `JSONReport` interfaces. The parser was already resilient to additive changes (optional chaining, defaults), but there was no test proving this, no automation for detecting Playwright updates, and no documentation of why the types are hand-written.
+The CLI parses Playwright JSON report files using hand-written TypeScript interfaces (`packages/cli/src/types.ts`). These types intentionally cover only the ~15 fields Wrightful needs out of the 50+ in Playwright's `JSONReport` interfaces. The parser was already resilient to additive changes (optional chaining, defaults), but there was no test proving this, no automation for detecting Playwright updates, and no documentation of why the types are hand-written.
 
 Key design decision: **do not import types from `@playwright/test`**. The CLI has zero Playwright dependency and must stay that way — `@playwright/test` pulls browser binaries as transitive deps, and users may run any Playwright version.
 
@@ -47,7 +47,7 @@ The e2e CI job already generates a real Playwright JSON report and feeds it thro
 
 ## Verification
 
-- `pnpm --filter @greenroom/cli test` — 66 tests pass (including 4 new compat tests)
+- `pnpm --filter @wrightful/cli test` — 66 tests pass (including 4 new compat tests)
 - `pnpm lint` — 0 warnings, 0 errors
 - `pnpm format` — all files formatted correctly
-- `pnpm --filter @greenroom/cli typecheck` — clean
+- `pnpm --filter @wrightful/cli typecheck` — clean

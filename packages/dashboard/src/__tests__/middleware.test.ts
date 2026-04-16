@@ -83,7 +83,7 @@ describe("negotiateVersion", () => {
 
   it("passes through for valid version 1", () => {
     const result = (negotiateVersion as any)({
-      request: makeRequest({ "X-Greenroom-Version": "1" }),
+      request: makeRequest({ "X-Wrightful-Version": "1" }),
       ctx: {},
       rw: { nonce: "" },
       response: { headers: new Headers() },
@@ -94,7 +94,7 @@ describe("negotiateVersion", () => {
 
   it("passes through for valid version 2", () => {
     const result = (negotiateVersion as any)({
-      request: makeRequest({ "X-Greenroom-Version": "2" }),
+      request: makeRequest({ "X-Wrightful-Version": "2" }),
       ctx: {},
       rw: { nonce: "" },
       response: { headers: new Headers() },
@@ -105,7 +105,7 @@ describe("negotiateVersion", () => {
 
   it("returns 400 for non-numeric version", () => {
     const result = (negotiateVersion as any)({
-      request: makeRequest({ "X-Greenroom-Version": "abc" }),
+      request: makeRequest({ "X-Wrightful-Version": "abc" }),
       ctx: {},
       rw: { nonce: "" },
       response: { headers: new Headers() },
@@ -117,7 +117,7 @@ describe("negotiateVersion", () => {
 
   it("returns 409 for version too old", async () => {
     const result = (negotiateVersion as any)({
-      request: makeRequest({ "X-Greenroom-Version": "0" }),
+      request: makeRequest({ "X-Wrightful-Version": "0" }),
       ctx: {},
       rw: { nonce: "" },
       response: { headers: new Headers() },
@@ -133,7 +133,7 @@ describe("negotiateVersion", () => {
 
   it("returns 409 for version too new", async () => {
     const result = (negotiateVersion as any)({
-      request: makeRequest({ "X-Greenroom-Version": "99" }),
+      request: makeRequest({ "X-Wrightful-Version": "99" }),
       ctx: {},
       rw: { nonce: "" },
       response: { headers: new Headers() },

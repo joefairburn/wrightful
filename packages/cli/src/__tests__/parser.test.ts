@@ -121,7 +121,7 @@ describe("parseReport", () => {
   it("throws on invalid JSON", async () => {
     // Create a temp file with bad JSON
     const { writeFile, unlink } = await import("node:fs/promises");
-    const tmp = "/tmp/greenroom-bad.json";
+    const tmp = "/tmp/wrightful-bad.json";
     await writeFile(tmp, "not json");
     await expect(parseReport(tmp)).rejects.toThrow("Failed to parse JSON");
     await unlink(tmp);
@@ -129,7 +129,7 @@ describe("parseReport", () => {
 
   it("throws on missing suites", async () => {
     const { writeFile, unlink } = await import("node:fs/promises");
-    const tmp = "/tmp/greenroom-no-suites.json";
+    const tmp = "/tmp/wrightful-no-suites.json";
     await writeFile(tmp, JSON.stringify({ config: {}, stats: {} }));
     await expect(parseReport(tmp)).rejects.toThrow("Invalid Playwright report");
     await unlink(tmp);

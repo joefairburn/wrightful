@@ -1,8 +1,8 @@
 {
-  "name": "@greenroom/cli",
-  "version": "0.0.0",
+  "name": "@wrightful/cli",
+  "version": "0.1.0",
   "bin": {
-    "greenroom": "./dist/index.js"
+    "wrightful": "./dist/index.js"
   },
   "files": [
     "dist"

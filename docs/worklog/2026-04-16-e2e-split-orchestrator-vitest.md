@@ -14,10 +14,10 @@ This happened in two steps within the same day, and landed as one change. The in
 
 ## Why `globalSetup`
 
-- **Single entry point.** `pnpm --filter @greenroom/e2e test` → `vitest run`. No bespoke JS driver.
+- **Single entry point.** `pnpm --filter @wrightful/e2e test` → `vitest run`. No bespoke JS driver.
 - **Lifecycle guarantees.** Vitest always calls `teardown()` if `setup()` returned, including after a test throws. The named-exports form (`export function setup` + `export function teardown`) means teardown can also clean up partial setup state — we track `devServer` and `devVarsBackedUp` at module scope so teardown works regardless of where setup stopped.
 - **Typed value plumbing.** `project.provide("dashboardUrl", url)` in setup + `inject("dashboardUrl")` in tests. A `declare module "vitest"` block augments `ProvidedContext` so the keys are checked at compile time.
-- **Single-file iteration works.** `pnpm --filter @greenroom/e2e exec vitest run src/e2e.test.ts` triggers full setup then runs only that file.
+- **Single-file iteration works.** `pnpm --filter @wrightful/e2e exec vitest run src/e2e.test.ts` triggers full setup then runs only that file.
 - **Faster.** ~20s total vs ~60s before; the previous split rebuilt the CLI in two places during some runs.
 
 ## Files
@@ -54,9 +54,9 @@ Alongside the restructure, bumped `vitest` 3.2.4 → 4.1.4 and `@playwright/test
 
 ## Verification
 
-- `pnpm --filter @greenroom/cli test` — 83/83 pass on vitest 4.
-- `pnpm --filter @greenroom/dashboard test` — 43/43 pass on vitest 4.
-- `pnpm --filter @greenroom/e2e test` — 11/11 pass end-to-end on vitest 4 + playwright 1.59.1. Total ~20s.
+- `pnpm --filter @wrightful/cli test` — 83/83 pass on vitest 4.
+- `pnpm --filter @wrightful/dashboard test` — 43/43 pass on vitest 4.
+- `pnpm --filter @wrightful/e2e test` — 11/11 pass end-to-end on vitest 4 + playwright 1.59.1. Total ~20s.
 - `pnpm lint` — 5 pre-existing warnings (`cli/src/lib/api-client.ts`, `dashboard/src/lib/status.ts`, `dashboard/src/app/pages/test-history.tsx`). No new warnings.
 - `packages/e2e` and `packages/dashboard` typecheck clean under tsgo. `packages/cli` has pre-existing tsgo errors (`Cannot find name 'process'`, `node:crypto` etc. — `@types/node` not picked up under tsgo's resolution); verified these fail on the committed state too, so unrelated to this change.
 - `oxfmt --check` on changed files — clean.

@@ -1,6 +1,6 @@
 {
-  "name": "@greenroom/dashboard",
-  "version": "0.0.0",
+  "name": "@wrightful/dashboard",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,8 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply greenroom --local",
-    "db:migrate:remote": "wrangler d1 migrations apply greenroom --remote"
+    "db:migrate:local": "wrangler d1 migrations apply wrightful --local",
+    "db:migrate:remote": "wrangler d1 migrations apply wrightful --remote"
   },
   "dependencies": {
     "aws4fetch": "^1.0.20",

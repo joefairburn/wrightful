@@ -2,15 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What is Greenroom
+## What is Wrightful
 
-Greenroom is a Playwright test reporting dashboard. A CLI parses Playwright JSON report files and uploads results to a Cloudflare Workers-based dashboard that stores data in D1 (SQLite) and artifacts in R2. It also ships a GitHub Action for CI integration.
+Wrightful is a Playwright test reporting dashboard. A CLI parses Playwright JSON report files and uploads results to a Cloudflare Workers-based dashboard that stores data in D1 (SQLite) and artifacts in R2. It also ships a GitHub Action for CI integration.
 
 ## Monorepo Structure
 
 pnpm workspace with four packages:
 
-- **`packages/cli`** — Node CLI (`greenroom upload <report>`). Built with Commander, tsdown (rolldown). Parses Playwright JSON reports, detects CI env, uploads to dashboard API.
+- **`packages/cli`** — Node CLI (`wrightful upload <report>`). Built with Commander, tsdown (rolldown). Parses Playwright JSON reports, detects CI env, uploads to dashboard API.
 - **`packages/dashboard`** — Cloudflare Worker app using [RedwoodSDK (rwsdk)](https://docs.rwsdk.com). Vite + React 19 RSC. Drizzle ORM on D1. Serves both the API (`/api/ingest`, `/api/artifacts/presign`) and the dashboard UI (`/`, `/runs/:id`).
 - **`packages/e2e`** — Playwright E2E tests that run against the Playwright docs site (demo suite used to generate test reports for dogfooding).
 - **`packages/github-action`** — GitHub Action scaffold wrapping the CLI.
@@ -26,17 +26,17 @@ pnpm dev
 
 # Build
 pnpm build                              # dashboard (vite build)
-pnpm --filter @greenroom/cli build      # cli (tsdown)
+pnpm --filter @wrightful/cli build      # cli (tsdown)
 
 # Tests
 pnpm test                               # cli + dashboard unit tests (vitest)
-pnpm --filter @greenroom/cli test       # cli tests only
-pnpm --filter @greenroom/dashboard test # dashboard tests only
+pnpm --filter @wrightful/cli test       # cli tests only
+pnpm --filter @wrightful/dashboard test # dashboard tests only
 pnpm test:e2e                           # e2e (playwright)
 
 # Single test file
-pnpm --filter @greenroom/cli exec vitest run src/__tests__/parser.test.ts
-pnpm --filter @greenroom/dashboard exec vitest run src/__tests__/schemas.test.ts
+pnpm --filter @wrightful/cli exec vitest run src/__tests__/parser.test.ts
+pnpm --filter @wrightful/dashboard exec vitest run src/__tests__/schemas.test.ts
 
 # Lint & format (oxc toolchain — not eslint/prettier)
 pnpm lint                               # oxlint (check)
@@ -48,9 +48,9 @@ pnpm format:fix                         # oxfmt --write
 pnpm typecheck                          # both cli + dashboard
 
 # Database migrations (dashboard)
-pnpm --filter @greenroom/dashboard db:generate       # generate migration from schema
-pnpm --filter @greenroom/dashboard db:migrate:local  # apply to local D1
-pnpm --filter @greenroom/dashboard db:migrate:remote # apply to remote D1
+pnpm --filter @wrightful/dashboard db:generate       # generate migration from schema
+pnpm --filter @wrightful/dashboard db:migrate:local  # apply to local D1
+pnpm --filter @wrightful/dashboard db:migrate:remote # apply to remote D1
 ```
 
 ## Key Architecture Details
@@ -63,7 +63,7 @@ pnpm --filter @greenroom/dashboard db:migrate:remote # apply to remote D1
 
 **Auth**: API key auth via `Authorization: Bearer <key>`. Keys are SHA-256 hashed, looked up by 8-char prefix, then hash-compared. Defined in `packages/dashboard/src/lib/auth.ts`.
 
-**Protocol versioning**: `X-Greenroom-Version` header for forward/backward compatibility between CLI and dashboard versions. Currently version 1.
+**Protocol versioning**: `X-Wrightful-Version` header for forward/backward compatibility between CLI and dashboard versions. Currently version 1.
 
 ## Worklogs
 

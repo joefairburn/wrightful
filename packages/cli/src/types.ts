@@ -3,7 +3,7 @@
 // These types are hand-written intentionally. The CLI must not depend on
 // @playwright/test (which pulls browser binaries as transitive deps).
 // They represent the subset of Playwright's JSON reporter output that
-// Greenroom actually uses — roughly 15 fields out of 50+.
+// Wrightful actually uses — roughly 15 fields out of 50+.
 //
 // The parser (lib/parser.ts) is designed to be resilient to additive changes:
 // it uses optional chaining and defaults, so new fields from newer Playwright
@@ -150,7 +150,7 @@ export interface IngestResponse {
   results?: Array<{ clientKey: string; testResultId: string }>;
 }
 
-export interface GreenroomConfig {
+export interface WrightfulConfig {
   url: string;
   token: string;
   artifacts: "all" | "failed" | "none";

@@ -5,11 +5,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockEnv } = vi.hoisted(() => ({
   mockEnv: {
     R2_ACCOUNT_ID: "account-123",
-    R2_BUCKET_NAME: "greenroom-artifacts",
+    R2_BUCKET_NAME: "wrightful-artifacts",
     R2_ACCESS_KEY_ID: "AKIAEXAMPLE",
     R2_SECRET_ACCESS_KEY: "secret-example",
-    GREENROOM_MAX_ARTIFACT_BYTES: "52428800",
-    GREENROOM_PRESIGN_PUT_TTL_SECONDS: "900",
+    WRIGHTFUL_MAX_ARTIFACT_BYTES: "52428800",
+    WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS: "900",
   } as Record<string, string>,
 }));
 
@@ -26,7 +26,7 @@ vi.mock("@/lib/r2-presign", async () => {
     ...actual,
     presignPut: vi.fn(
       async (_cfg: unknown, key: string, expiresSeconds: number) =>
-        `https://account-123.r2.cloudflarestorage.com/greenroom-artifacts/${encodeURIComponent(key)}?X-Amz-Expires=${expiresSeconds}&X-Amz-Signature=fake`,
+        `https://account-123.r2.cloudflarestorage.com/wrightful-artifacts/${encodeURIComponent(key)}?X-Amz-Expires=${expiresSeconds}&X-Amz-Signature=fake`,
     ),
   };
 });
@@ -77,11 +77,11 @@ describe("presignHandler", () => {
     // reset env mutations
     Object.assign(mockEnv, {
       R2_ACCOUNT_ID: "account-123",
-      R2_BUCKET_NAME: "greenroom-artifacts",
+      R2_BUCKET_NAME: "wrightful-artifacts",
       R2_ACCESS_KEY_ID: "AKIAEXAMPLE",
       R2_SECRET_ACCESS_KEY: "secret-example",
-      GREENROOM_MAX_ARTIFACT_BYTES: "52428800",
-      GREENROOM_PRESIGN_PUT_TTL_SECONDS: "900",
+      WRIGHTFUL_MAX_ARTIFACT_BYTES: "52428800",
+      WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS: "900",
     });
   });
 
@@ -94,7 +94,7 @@ describe("presignHandler", () => {
   });
 
   it("413s when an artifact exceeds the size cap", async () => {
-    mockEnv.GREENROOM_MAX_ARTIFACT_BYTES = "1024";
+    mockEnv.WRIGHTFUL_MAX_ARTIFACT_BYTES = "1024";
     const db = makeDbMock([]);
     mockedGetDb.mockReturnValue(db as never);
 

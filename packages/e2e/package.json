@@ -1,6 +1,6 @@
 {
-  "name": "@greenroom/e2e",
-  "version": "0.0.0",
+  "name": "@wrightful/e2e",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {

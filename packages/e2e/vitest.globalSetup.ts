@@ -1,5 +1,5 @@
 /**
- * Vitest globalSetup for the Greenroom e2e suite.
+ * Vitest globalSetup for the Wrightful e2e suite.
  *
  * Runs once before any test worker starts, and the corresponding teardown runs
  * once after all tests complete (even if setup or a test threw). Sets up the
@@ -44,7 +44,7 @@ const API_KEY_HASH = createHash("sha256").update(API_KEY).digest("hex");
 const FAKE_R2_VARS =
   [
     `R2_ACCOUNT_ID=e2e-fake-account`,
-    `R2_BUCKET_NAME=greenroom-artifacts`,
+    `R2_BUCKET_NAME=wrightful-artifacts`,
     `R2_ACCESS_KEY_ID=AKIAE2EFAKE`,
     `R2_SECRET_ACCESS_KEY=e2e-fake-secret`,
   ].join("\n") + "\n";
@@ -86,11 +86,11 @@ export async function setup(project: TestProject): Promise<void> {
 
   log("Step 3: Clean existing data and seed API key");
   run(
-    `npx wrangler d1 execute greenroom --local --command "DELETE FROM test_tags; DELETE FROM test_annotations; DELETE FROM artifacts; DELETE FROM test_results; DELETE FROM runs;"`,
+    `npx wrangler d1 execute wrightful --local --command "DELETE FROM test_tags; DELETE FROM test_annotations; DELETE FROM artifacts; DELETE FROM test_results; DELETE FROM runs;"`,
     { cwd: DASHBOARD_DIR },
   );
   const seedSql = `INSERT OR IGNORE INTO api_keys (id, label, key_hash, key_prefix, created_at) VALUES ('01TESTKEY000000000000000000', 'e2e-test', '${API_KEY_HASH}', '${API_KEY_PREFIX}', ${Math.floor(Date.now() / 1000)});`;
-  run(`npx wrangler d1 execute greenroom --local --command "${seedSql}"`, {
+  run(`npx wrangler d1 execute wrightful --local --command "${seedSql}"`, {
     cwd: DASHBOARD_DIR,
   });
 

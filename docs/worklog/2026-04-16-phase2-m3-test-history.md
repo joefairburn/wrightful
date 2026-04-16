@@ -30,8 +30,8 @@ Two pieces:
 - `pnpm typecheck` — clean.
 - `npx oxlint` — 0 errors, 7 warnings (unchanged count + 1 incidental on the template-literal label; all `no-unsafe-type-assertion` or benign).
 - `npx oxfmt --check .` — clean.
-- `pnpm --filter @greenroom/dashboard test` — 43 tests passing (was 37 after M2, +6 for the chart components).
-- `pnpm --filter @greenroom/cli test` — 83 tests (unchanged — M3 is dashboard-only).
+- `pnpm --filter @wrightful/dashboard test` — 43 tests passing (was 37 after M2, +6 for the chart components).
+- `pnpm --filter @wrightful/cli test` — 83 tests (unchanged — M3 is dashboard-only).
 
 ## End of Phase 2
 
@@ -45,4 +45,4 @@ Natural next steps per `docs/PRD.md`:
 
 - **Phase 3** — dashboard-wide flaky test detection and trend insights (the flakiness percent on this page is a taste; Phase 3 ranks across every test).
 - **Phase 4** — GitHub Action PR comments (the CLI is ready; the action is still a `console.log` stub).
-- Manual end-to-end validation against a live R2 bucket — worth doing before publishing anything. An opt-in integration test gated on `GREENROOM_E2E_R2=1` would be cheap and would catch any aws4fetch / R2 SigV4 surprises.
+- Manual end-to-end validation against a live R2 bucket — worth doing before publishing anything. An opt-in integration test gated on `WRIGHTFUL_E2E_R2=1` would be cheap and would catch any aws4fetch / R2 SigV4 surprises.

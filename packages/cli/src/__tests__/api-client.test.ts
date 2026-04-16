@@ -51,7 +51,7 @@ describe("ApiClient", () => {
         headers: expect.objectContaining({
           Authorization: "Bearer grn_test123",
           "Content-Type": "application/json",
-          "X-Greenroom-Version": "2",
+          "X-Wrightful-Version": "2",
         }),
       }),
     );

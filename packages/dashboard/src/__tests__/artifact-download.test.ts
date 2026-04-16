@@ -3,10 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockEnv } = vi.hoisted(() => ({
   mockEnv: {
     R2_ACCOUNT_ID: "account-123",
-    R2_BUCKET_NAME: "greenroom-artifacts",
+    R2_BUCKET_NAME: "wrightful-artifacts",
     R2_ACCESS_KEY_ID: "AKIAEXAMPLE",
     R2_SECRET_ACCESS_KEY: "secret-example",
-    GREENROOM_PRESIGN_GET_TTL_SECONDS: "600",
+    WRIGHTFUL_PRESIGN_GET_TTL_SECONDS: "600",
   } as Record<string, string>,
 }));
 
@@ -48,10 +48,10 @@ describe("artifactDownloadHandler", () => {
     vi.clearAllMocks();
     Object.assign(mockEnv, {
       R2_ACCOUNT_ID: "account-123",
-      R2_BUCKET_NAME: "greenroom-artifacts",
+      R2_BUCKET_NAME: "wrightful-artifacts",
       R2_ACCESS_KEY_ID: "AKIAEXAMPLE",
       R2_SECRET_ACCESS_KEY: "secret-example",
-      GREENROOM_PRESIGN_GET_TTL_SECONDS: "600",
+      WRIGHTFUL_PRESIGN_GET_TTL_SECONDS: "600",
     });
   });
 

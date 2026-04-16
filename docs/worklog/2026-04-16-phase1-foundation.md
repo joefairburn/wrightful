@@ -2,7 +2,7 @@
 
 ## What we built
 
-Scaffolded the entire Greenroom monorepo from a blank repo (just `.gitignore` and `docs/PRD.md`) into a working product with CLI, dashboard, and full test coverage.
+Scaffolded the entire Wrightful monorepo from a blank repo (just `.gitignore` and `docs/PRD.md`) into a working product with CLI, dashboard, and full test coverage.
 
 ### Monorepo structure
 
@@ -27,11 +27,11 @@ Scaffolded the entire Greenroom monorepo from a blank repo (just `.gitignore` an
 
 **Stack:** TypeScript, tsup (ESM, 13.5KB bundle), commander, cosmiconfig, zod
 
-- **Parser** — Recursive Playwright suite tree walker. Handles nested describes, maps `expected`/`unexpected`/`flaky`/`skipped` to Greenroom statuses, extracts errors from the correct retry for flaky tests, sums durations across retries, rounds fractional milliseconds to integers.
+- **Parser** — Recursive Playwright suite tree walker. Handles nested describes, maps `expected`/`unexpected`/`flaky`/`skipped` to Wrightful statuses, extracts errors from the correct retry for flaky tests, sums durations across retries, rounds fractional milliseconds to integers.
 - **Stable test IDs** — SHA-256 of `file + titlePath + projectName` with null-byte separators, truncated to 16 hex chars
 - **CI detection** — GitHub Actions, GitLab CI, CircleCI, generic CI. Extracts build ID, branch, commit SHA, PR number, repo from provider-specific env vars.
 - **Idempotency** — `{ciBuildId}-{shardIndex}` in CI (retry-safe), random UUID for local runs
-- **Config resolution** — CLI flags > `GREENROOM_URL`/`GREENROOM_API_KEY` env vars > cosmiconfig rc file
+- **Config resolution** — CLI flags > `WRIGHTFUL_URL`/`WRIGHTFUL_API_KEY` env vars > cosmiconfig rc file
 - **API client** — Native fetch with retry (exponential backoff on 500/429, no retry on 400/401/409)
 - **`--dry-run` mode** — Parse report and print payload as JSON without uploading
 - **Artifact collector** — Phase 1 no-op stub
@@ -90,5 +90,5 @@ pnpm dev          # Start dashboard on localhost:5173
 pnpm test         # Run 88 unit tests (CLI + dashboard)
 pnpm test:e2e     # Run 18 e2e tests (full product flow)
 pnpm ci:local     # Run GitHub Actions workflow locally
-pnpm --filter @greenroom/cli build   # Build CLI to dist/
+pnpm --filter @wrightful/cli build   # Build CLI to dist/
 ```

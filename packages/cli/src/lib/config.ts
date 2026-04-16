@@ -1,6 +1,6 @@
 import { cosmiconfig } from "cosmiconfig";
 import { z } from "zod";
-import type { GreenroomConfig } from "../types.js";
+import type { WrightfulConfig } from "../types.js";
 
 const ConfigSchema = z.object({
   url: z.string().url(),
@@ -16,21 +16,21 @@ interface CliOptions {
 
 export async function resolveConfig(
   cliOptions: CliOptions,
-): Promise<GreenroomConfig> {
+): Promise<WrightfulConfig> {
   // Load config file
-  const explorer = cosmiconfig("greenroom");
+  const explorer = cosmiconfig("wrightful");
   const fileConfig = await explorer.search();
 
   // Merge: CLI flags > env vars > config file
   const raw = {
-    url: cliOptions.url || process.env.GREENROOM_URL || fileConfig?.config?.url,
+    url: cliOptions.url || process.env.WRIGHTFUL_URL || fileConfig?.config?.url,
     token:
       cliOptions.token ||
-      process.env.GREENROOM_API_KEY ||
+      process.env.WRIGHTFUL_API_KEY ||
       fileConfig?.config?.token,
     artifacts:
       cliOptions.artifacts ||
-      process.env.GREENROOM_ARTIFACTS ||
+      process.env.WRIGHTFUL_ARTIFACTS ||
       fileConfig?.config?.artifacts ||
       "failed",
   };
@@ -38,9 +38,9 @@ export async function resolveConfig(
   const result = ConfigSchema.safeParse(raw);
   if (!result.success) {
     const missing: string[] = [];
-    if (!raw.url) missing.push("url (--url, GREENROOM_URL, or config file)");
+    if (!raw.url) missing.push("url (--url, WRIGHTFUL_URL, or config file)");
     if (!raw.token)
-      missing.push("token (--token, GREENROOM_API_KEY, or config file)");
+      missing.push("token (--token, WRIGHTFUL_API_KEY, or config file)");
 
     if (missing.length > 0) {
       throw new Error(`Missing required config:\n  ${missing.join("\n  ")}`);
