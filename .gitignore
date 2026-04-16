@@ -1,3 +1,13 @@
+.DS_Store
+
+# Cloudflare / Wrangler
+.wrangler/
+worker-configuration.d.ts
+
+# Playwright
+playwright-report.json
+test-results/
+
 # Logs
 logs
 *.log
