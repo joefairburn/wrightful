@@ -6,13 +6,8 @@ import { presignGet, readR2Config } from "@/lib/r2-presign";
 
 const DEFAULT_GET_TTL_SECONDS = 600;
 
-function readIntEnv(
-  envRecord: Record<string, unknown>,
-  key: string,
-  fallback: number,
-): number {
-  const raw = envRecord[key];
-  if (typeof raw !== "string" || raw.length === 0) return fallback;
+function readIntVar(raw: string, fallback: number): number {
+  if (raw.length === 0) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
@@ -50,15 +45,14 @@ export async function artifactDownloadHandler({
 
   let cfg;
   try {
-    cfg = readR2Config(env as unknown as Record<string, unknown>);
+    cfg = readR2Config(env);
   } catch (err) {
     const message = err instanceof Error ? err.message : "R2 not configured";
     return new Response(message, { status: 500 });
   }
 
-  const ttl = readIntEnv(
-    env as unknown as Record<string, unknown>,
-    "GREENROOM_PRESIGN_GET_TTL_SECONDS",
+  const ttl = readIntVar(
+    env.GREENROOM_PRESIGN_GET_TTL_SECONDS,
     DEFAULT_GET_TTL_SECONDS,
   );
   const url = await presignGet(cfg, rows[0].r2Key, ttl);

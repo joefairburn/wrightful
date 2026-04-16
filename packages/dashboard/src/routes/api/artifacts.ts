@@ -16,13 +16,8 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
-function readIntEnv(
-  envRecord: Record<string, unknown>,
-  key: string,
-  fallback: number,
-): number {
-  const raw = envRecord[key];
-  if (typeof raw !== "string" || raw.length === 0) return fallback;
+function readIntVar(raw: string, fallback: number): number {
+  if (raw.length === 0) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
@@ -37,15 +32,12 @@ export async function presignHandler({ request }: { request: Request }) {
     return jsonResponse({ error: "Validation failed", details: message }, 400);
   }
 
-  const envRecord = env as unknown as Record<string, unknown>;
-  const maxBytes = readIntEnv(
-    envRecord,
-    "GREENROOM_MAX_ARTIFACT_BYTES",
+  const maxBytes = readIntVar(
+    env.GREENROOM_MAX_ARTIFACT_BYTES,
     DEFAULT_MAX_ARTIFACT_BYTES,
   );
-  const ttl = readIntEnv(
-    envRecord,
-    "GREENROOM_PRESIGN_PUT_TTL_SECONDS",
+  const ttl = readIntVar(
+    env.GREENROOM_PRESIGN_PUT_TTL_SECONDS,
     DEFAULT_PUT_TTL_SECONDS,
   );
 
@@ -62,7 +54,7 @@ export async function presignHandler({ request }: { request: Request }) {
 
   let r2Config;
   try {
-    r2Config = readR2Config(envRecord);
+    r2Config = readR2Config(env);
   } catch (err) {
     const message = err instanceof Error ? err.message : "R2 not configured";
     return jsonResponse({ error: message }, 500);

@@ -15,11 +15,11 @@ export interface R2PresignConfig {
 }
 
 /** Validated config read from env; throws with a clear error when incomplete. */
-export function readR2Config(env: Record<string, unknown>): R2PresignConfig {
-  const accountId = asString(env.R2_ACCOUNT_ID);
-  const bucketName = asString(env.R2_BUCKET_NAME);
-  const accessKeyId = asString(env.R2_ACCESS_KEY_ID);
-  const secretAccessKey = asString(env.R2_SECRET_ACCESS_KEY);
+export function readR2Config(env: Cloudflare.Env): R2PresignConfig {
+  const accountId = env.R2_ACCOUNT_ID;
+  const bucketName = env.R2_BUCKET_NAME;
+  const accessKeyId = env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = env.R2_SECRET_ACCESS_KEY;
 
   const missing: string[] = [];
   if (!accountId) missing.push("R2_ACCOUNT_ID");
@@ -34,10 +34,6 @@ export function readR2Config(env: Record<string, unknown>): R2PresignConfig {
   }
 
   return { accountId, bucketName, accessKeyId, secretAccessKey };
-}
-
-function asString(v: unknown): string {
-  return typeof v === "string" ? v : "";
 }
 
 function endpoint(cfg: R2PresignConfig, key: string): string {
