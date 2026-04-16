@@ -1,0 +1,12 @@
+name: "Greenroom PR Comment"
+description: "Posts a PR comment with Playwright test run summary and link to dashboard"
+inputs:
+  api-url:
+    description: "Greenroom dashboard URL"
+    required: true
+  api-key:
+    description: "Greenroom API key"
+    required: true
+runs:
+  using: "node20"
+  main: "dist/index.js"

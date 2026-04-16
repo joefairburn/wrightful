@@ -1,0 +1,27 @@
+{
+  "name": "greenroom",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @greenroom/dashboard dev",
+    "build": "pnpm --filter @greenroom/dashboard build",
+    "cli": "pnpm --filter @greenroom/cli",
+    "test": "pnpm --filter @greenroom/cli test && pnpm --filter @greenroom/dashboard test",
+    "test:e2e": "pnpm --filter @greenroom/e2e test",
+    "ci:local": "npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml"
+  },
+  "devDependencies": {
+    "@redwoodjs/agent-ci": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd",
+      "better-sqlite3"
+    ]
+  }
+}
