@@ -153,6 +153,25 @@ describe("IngestPayloadSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("accepts optional clientKey on results (v2)", () => {
+    const result = IngestPayloadSchema.safeParse({
+      ...validPayload,
+      results: [{ ...validPayload.results[0], clientKey: "ck-abc-0" }],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.results[0].clientKey).toBe("ck-abc-0");
+    }
+  });
+
+  it("rejects empty clientKey", () => {
+    const result = IngestPayloadSchema.safeParse({
+      ...validPayload,
+      results: [{ ...validPayload.results[0], clientKey: "" }],
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("PresignPayloadSchema", () => {

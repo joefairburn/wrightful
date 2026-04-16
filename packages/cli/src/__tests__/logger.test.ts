@@ -39,6 +39,7 @@ describe("logger", () => {
       "https://dash.example.com",
       [
         {
+          clientKey: "1",
           status: "passed",
           title: "t1",
           testId: "1",
@@ -53,6 +54,7 @@ describe("logger", () => {
           annotations: [],
         },
         {
+          clientKey: "2",
           status: "failed",
           title: "t2",
           testId: "2",

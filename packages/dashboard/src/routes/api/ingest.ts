@@ -96,13 +96,20 @@ export async function ingestHandler({ request }: { request: Request }) {
     createdAt: now,
   });
 
-  // Prepare test results, tags, and annotations with generated IDs
+  // Prepare test results, tags, and annotations with generated IDs.
+  // We also build a clientKey -> testResultId mapping so the CLI can later
+  // attach artifacts to the correct row (protocol v2).
   const resultRows: (typeof testResults.$inferInsert)[] = [];
   const tagRows: (typeof testTags.$inferInsert)[] = [];
   const annotationRows: (typeof testAnnotations.$inferInsert)[] = [];
+  const resultMapping: Array<{ clientKey: string; testResultId: string }> = [];
 
   for (const result of payload.results) {
     const testResultId = ulid();
+
+    if (result.clientKey) {
+      resultMapping.push({ clientKey: result.clientKey, testResultId });
+    }
 
     resultRows.push({
       id: testResultId,
@@ -165,6 +172,7 @@ export async function ingestHandler({ request }: { request: Request }) {
     {
       runId,
       runUrl: `/runs/${runId}`,
+      results: resultMapping,
     },
     201,
   );

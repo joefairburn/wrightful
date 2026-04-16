@@ -92,6 +92,17 @@ describe("negotiateVersion", () => {
     expect(result).toBeUndefined();
   });
 
+  it("passes through for valid version 2", () => {
+    const result = (negotiateVersion as any)({
+      request: makeRequest({ "X-Greenroom-Version": "2" }),
+      ctx: {},
+      rw: { nonce: "" },
+      response: { headers: new Headers() },
+    });
+
+    expect(result).toBeUndefined();
+  });
+
   it("returns 400 for non-numeric version", () => {
     const result = (negotiateVersion as any)({
       request: makeRequest({ "X-Greenroom-Version": "abc" }),
@@ -116,7 +127,7 @@ describe("negotiateVersion", () => {
     expect(result.status).toBe(409);
     const body = await result.json();
     expect(body.minimumVersion).toBe(1);
-    expect(body.maximumVersion).toBe(1);
+    expect(body.maximumVersion).toBe(2);
     expect(body.error).toContain("CLI version too old");
   });
 

@@ -9,7 +9,8 @@
       "@cloudflare/workers-types",
       "./worker-configuration.d.ts",
       "./types/rw.d.ts",
-      "./types/vite.d.ts"
+      "./types/vite.d.ts",
+      "./types/env.d.ts"
     ],
     "paths": {
       "@/*": ["./src/*"]

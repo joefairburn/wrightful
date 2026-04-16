@@ -1,35 +1,12 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { runs, testResults } from "@/db/schema";
-import { requestInfo } from "rwsdk/worker";
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, React.CSSProperties> = {
-    passed: { color: "#16a34a" },
-    failed: { color: "#dc2626" },
-    flaky: { color: "#ea580c" },
-    skipped: { color: "#9ca3af" },
-    timedout: { color: "#ea580c" },
-  };
-  return (
-    <span style={colors[status] || { color: "#6b7280" }}>
-      {status.toUpperCase()}
-    </span>
-  );
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
-}
+import { StatusBadge } from "@/app/components/status-badge";
+import { formatDuration } from "@/lib/time-format";
+import { param } from "@/lib/route-params";
 
 export async function RunDetailPage() {
-  // rwsdk types params as DefaultAppContext; widen to access route params
-  const runId = String((requestInfo.params as Record<string, unknown>)["id"]);
+  const runId = param("id");
 
   const db = getDb();
 
@@ -163,40 +140,50 @@ export async function RunDetailPage() {
           </tr>
         </thead>
         <tbody>
-          {results.map((result) => (
-            <tr key={result.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-              <td style={{ padding: "0.5rem" }}>
-                <StatusBadge status={result.status} />
-              </td>
-              <td style={{ padding: "0.5rem" }}>
-                {result.title}
-                {result.retryCount > 0 && (
-                  <span
-                    style={{
-                      marginLeft: "0.5rem",
-                      fontSize: "0.75rem",
-                      color: "#9ca3af",
-                    }}
+          {results.map((result) => {
+            const detailHref = `/runs/${runId}/tests/${result.id}`;
+            return (
+              <tr key={result.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                <td style={{ padding: "0.5rem" }}>
+                  <a href={detailHref} style={{ textDecoration: "none" }}>
+                    <StatusBadge status={result.status} />
+                  </a>
+                </td>
+                <td style={{ padding: "0.5rem" }}>
+                  <a
+                    href={detailHref}
+                    style={{ color: "inherit", textDecoration: "none" }}
                   >
-                    (retry {result.retryCount})
-                  </span>
-                )}
-              </td>
-              <td
-                style={{
-                  padding: "0.5rem",
-                  fontFamily: "monospace",
-                  fontSize: "0.8rem",
-                  color: "#6b7280",
-                }}
-              >
-                {result.file}
-              </td>
-              <td style={{ padding: "0.5rem" }}>
-                {formatDuration(result.durationMs)}
-              </td>
-            </tr>
-          ))}
+                    {result.title}
+                  </a>
+                  {result.retryCount > 0 && (
+                    <span
+                      style={{
+                        marginLeft: "0.5rem",
+                        fontSize: "0.75rem",
+                        color: "#9ca3af",
+                      }}
+                    >
+                      (retry {result.retryCount})
+                    </span>
+                  )}
+                </td>
+                <td
+                  style={{
+                    padding: "0.5rem",
+                    fontFamily: "monospace",
+                    fontSize: "0.8rem",
+                    color: "#6b7280",
+                  }}
+                >
+                  {result.file}
+                </td>
+                <td style={{ padding: "0.5rem" }}>
+                  {formatDuration(result.durationMs)}
+                </td>
+              </tr>
+            );
+          })}
           {results.length > 0 &&
             results
               .filter(

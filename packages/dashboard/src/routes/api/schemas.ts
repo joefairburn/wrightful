@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 const TestResultSchema = z.object({
+  // v2 addition: opaque client-generated key used to correlate each test
+  // result in the request with the server-assigned testResultId returned in
+  // the ingest response. Optional for v1 compatibility.
+  clientKey: z.string().min(1).optional(),
   testId: z.string().min(1),
   title: z.string().min(1),
   file: z.string().min(1),

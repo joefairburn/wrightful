@@ -20,7 +20,7 @@
 import { execSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync, renameSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +30,8 @@ const DASHBOARD_DIR = resolve(ROOT, "packages/dashboard");
 const CLI_DIR = resolve(ROOT, "packages/cli");
 const E2E_DIR = resolve(ROOT, "packages/e2e");
 const REPORT_PATH = resolve(E2E_DIR, "playwright-report.json");
+const DEV_VARS_PATH = resolve(DASHBOARD_DIR, ".dev.vars");
+const DEV_VARS_BACKUP_PATH = resolve(DASHBOARD_DIR, ".dev.vars.e2e-backup");
 
 const PORT = 5188;
 const DASHBOARD_URL = `http://localhost:${PORT}`;
@@ -37,7 +39,20 @@ const API_KEY = "grn_e2e_test_key_00000000";
 const API_KEY_PREFIX = API_KEY.slice(0, 8);
 const API_KEY_HASH = createHash("sha256").update(API_KEY).digest("hex");
 
+// Fake R2 creds used only for presign-URL signing during e2e. Signatures
+// computed with these will not authenticate against real R2, but that's fine —
+// the e2e test only asserts the endpoint returns 201 with a well-formed
+// response; it does not attempt to PUT to the returned URL.
+const FAKE_R2_VARS =
+  [
+    `R2_ACCOUNT_ID=e2e-fake-account`,
+    `R2_BUCKET_NAME=greenroom-artifacts`,
+    `R2_ACCESS_KEY_ID=AKIAE2EFAKE`,
+    `R2_SECRET_ACCESS_KEY=e2e-fake-secret`,
+  ].join("\n") + "\n";
+
 let devServer;
+let devVarsRestored = false;
 let passed = 0;
 let failed = 0;
 
@@ -98,7 +113,15 @@ async function main() {
     });
     log("  API key seeded.");
 
-    log("Step 4: Start dashboard dev server");
+    log("Step 4: Write fake R2 creds to .dev.vars for presign signing");
+    if (existsSync(DEV_VARS_PATH)) {
+      renameSync(DEV_VARS_PATH, DEV_VARS_BACKUP_PATH);
+      log("  Existing .dev.vars backed up.");
+    }
+    writeFileSync(DEV_VARS_PATH, FAKE_R2_VARS, "utf8");
+    log("  .dev.vars written (fake R2 creds, restored on teardown).");
+
+    log("Step 5: Start dashboard dev server");
     devServer = spawn("npx", ["vite", "dev", "--port", String(PORT)], {
       cwd: DASHBOARD_DIR,
       stdio: "pipe",
@@ -112,7 +135,7 @@ async function main() {
     await waitForServer(DASHBOARD_URL);
     log("  Dashboard ready.");
 
-    log("Step 5: Run Playwright tests to generate a real JSON report");
+    log("Step 6: Run Playwright tests to generate a real JSON report");
     if (existsSync(REPORT_PATH)) unlinkSync(REPORT_PATH);
     try {
       run("npx playwright test", { cwd: E2E_DIR });
@@ -241,10 +264,14 @@ async function main() {
       }
     }
 
-    // Test 9: Artifacts presign endpoint (not yet implemented)
+    // Test 9: Artifacts presign endpoint — real integration via /api/artifacts/presign.
+    // Pulls a run + test_result from D1 (seeded by Test 6's CLI upload), POSTs a
+    // valid payload, and asserts the endpoint signs a URL and eagerly inserts an
+    // artifact row.
     log("\nTest 9: Artifacts presign");
     {
-      const res = await fetch(`${DASHBOARD_URL}/api/artifacts/presign`, {
+      // 9a: Invalid payload still rejected
+      const invalidRes = await fetch(`${DASHBOARD_URL}/api/artifacts/presign`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -254,9 +281,114 @@ async function main() {
         body: JSON.stringify({}),
       });
       assert(
-        res.status === 501,
-        "Presign endpoint returns 501 Not Implemented",
+        invalidRes.status === 400,
+        "Rejects invalid presign payload with 400",
       );
+
+      // 9b: Grab a real runId + testResultId seeded by Test 6
+      const rowJson = run(
+        `npx wrangler d1 execute greenroom --local --json --command "SELECT tr.id AS test_result_id, tr.run_id AS run_id FROM test_results tr LIMIT 1;"`,
+        { cwd: DASHBOARD_DIR },
+      );
+      // wrangler --json returns an array; first entry has .results
+      const parsed = JSON.parse(rowJson);
+      const rows = parsed[0]?.results ?? [];
+      assert(rows.length === 1, "Can read a seeded test_result from D1");
+
+      if (rows.length === 1) {
+        const { run_id: runId, test_result_id: testResultId } = rows[0];
+
+        const validRes = await fetch(`${DASHBOARD_URL}/api/artifacts/presign`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${API_KEY}`,
+            "X-Greenroom-Version": "1",
+          },
+          body: JSON.stringify({
+            runId,
+            artifacts: [
+              {
+                testResultId,
+                type: "trace",
+                name: "trace.zip",
+                contentType: "application/zip",
+                sizeBytes: 1024,
+              },
+            ],
+          }),
+        });
+        assert(validRes.status === 201, "Presign returns 201 on valid payload");
+
+        const body = await validRes.json();
+        const upload = body.uploads?.[0];
+        assert(
+          Array.isArray(body.uploads) && body.uploads.length === 1,
+          "Response contains exactly one upload descriptor",
+        );
+        assert(
+          typeof upload?.url === "string" &&
+            upload.url.startsWith("https://") &&
+            upload.url.includes("X-Amz-Signature="),
+          "Upload URL is a signed https URL",
+        );
+        assert(
+          typeof upload?.r2Key === "string" &&
+            upload.r2Key.startsWith(`runs/${runId}/${testResultId}/`) &&
+            upload.r2Key.endsWith("/trace.zip"),
+          "r2Key follows runs/<runId>/<testResultId>/<artifactId>/<name>",
+        );
+        assert(
+          typeof upload?.artifactId === "string" &&
+            upload.artifactId.length > 0,
+          "Response includes artifactId",
+        );
+        assert(
+          typeof upload?.expiresAt === "string" &&
+            !Number.isNaN(Date.parse(upload.expiresAt)),
+          "Response includes ISO expiresAt",
+        );
+
+        // 9c: Artifact row eagerly inserted
+        const artifactCountJson = run(
+          `npx wrangler d1 execute greenroom --local --json --command "SELECT COUNT(*) AS n FROM artifacts WHERE test_result_id = '${testResultId}';"`,
+          { cwd: DASHBOARD_DIR },
+        );
+        const artifactCount = JSON.parse(artifactCountJson)[0]?.results?.[0]?.n;
+        assert(
+          artifactCount === 1,
+          "Artifact row was eagerly inserted for the test result",
+        );
+
+        // 9d: runId mismatch is rejected
+        const mismatchRes = await fetch(
+          `${DASHBOARD_URL}/api/artifacts/presign`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${API_KEY}`,
+              "X-Greenroom-Version": "1",
+            },
+            body: JSON.stringify({
+              runId: "nonexistent-run",
+              artifacts: [
+                {
+                  testResultId,
+                  type: "trace",
+                  name: "trace.zip",
+                  contentType: "application/zip",
+                  sizeBytes: 1024,
+                },
+              ],
+            }),
+          },
+        );
+        assert(
+          mismatchRes.status === 400,
+          "Rejects testResultId that doesn't belong to the given runId",
+        );
+      }
     }
 
     // --- Summary ---
@@ -269,6 +401,20 @@ async function main() {
   } finally {
     if (devServer) {
       devServer.kill("SIGTERM");
+    }
+    // Restore or remove the .dev.vars file we wrote
+    if (!devVarsRestored) {
+      try {
+        if (existsSync(DEV_VARS_BACKUP_PATH)) {
+          if (existsSync(DEV_VARS_PATH)) unlinkSync(DEV_VARS_PATH);
+          renameSync(DEV_VARS_BACKUP_PATH, DEV_VARS_PATH);
+        } else if (existsSync(DEV_VARS_PATH)) {
+          unlinkSync(DEV_VARS_PATH);
+        }
+        devVarsRestored = true;
+      } catch (err) {
+        console.error(`[e2e] Failed to restore .dev.vars: ${err.message}`);
+      }
     }
   }
 
