@@ -23,12 +23,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      # Generate dashboard's worker-configuration.d.ts from wrangler.jsonc.
-      # The file is gitignored (regenerated whenever wrangler.jsonc changes)
-      # but is referenced by tsconfig.json, so lint + typecheck both need it.
-      - name: Generate dashboard env types
-        run: pnpm --filter @greenroom/dashboard exec wrangler types --include-runtime false
-
       - name: Lint (oxlint)
         run: pnpm lint
 
