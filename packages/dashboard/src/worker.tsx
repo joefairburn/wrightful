@@ -10,6 +10,7 @@ import { artifactDownloadHandler } from "@/routes/api/artifact-download";
 import { RunsListPage } from "@/app/pages/runs-list";
 import { RunDetailPage } from "@/app/pages/run-detail";
 import { TestDetailPage } from "@/app/pages/test-detail";
+import { TestHistoryPage } from "@/app/pages/test-history";
 
 export type AppContext = {
   apiKey?: {
@@ -42,5 +43,6 @@ export default defineApp([
     route("/", RunsListPage),
     route("/runs/:id", RunDetailPage),
     route("/runs/:runId/tests/:testResultId", TestDetailPage),
+    route("/tests/:testId", TestHistoryPage),
   ]),
 ]);
