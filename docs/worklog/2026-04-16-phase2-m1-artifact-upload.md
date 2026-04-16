@@ -12,15 +12,13 @@ Three discrete pieces came together:
 
 ## Details
 
-| Area | Change |
-| --- | --- |
-| Dashboard dep | Added `aws4fetch@^1.0.20` (~6 KB, Workers-native) |
-| Dashboard vars | `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `GREENROOM_MAX_ARTIFACT_BYTES` (default 52428800), `GREENROOM_PRESIGN_PUT_TTL_SECONDS` (default 900), `GREENROOM_PRESIGN_GET_TTL_SECONDS` (default 600) in `wrangler.jsonc` |
-| Dashboard secrets | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` — set via `wrangler secret put` (see "R2 credential setup" below) |
-| New file | `packages/dashboard/src/lib/r2-presign.ts` — thin `AwsClient` wrapper exposing `presignPut` / `presignGet` |
-| Protocol | `X-Greenroom-Version` range is now 1–2 (was 1). v2 adds `clientKey` field on request results and `results: [{ clientKey, testResultId }]` on the response. |
-| CLI dep | None added. A tiny internal `runWithLimit` handles the 4-way concurrent `PUT` fan-out (no `p-limit` dependency). |
-| CLI behaviour | New `--artifacts` modes unchanged (`all | failed | none`), but now actually do something. After a successful `ingest`, the CLI presigns up to 50 artifacts per call, streams files via `fetch` with `duplex: 'half'`, and logs per-file failures as warnings without failing the command. |
+- **Dashboard dep:** added `aws4fetch@^1.0.20` (~6 KB, Workers-native).
+- **Dashboard vars:** `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `GREENROOM_MAX_ARTIFACT_BYTES` (default 52428800), `GREENROOM_PRESIGN_PUT_TTL_SECONDS` (default 900), `GREENROOM_PRESIGN_GET_TTL_SECONDS` (default 600) in `wrangler.jsonc`.
+- **Dashboard secrets:** `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` — set via `wrangler secret put` (see "R2 credential setup" below).
+- **New file:** `packages/dashboard/src/lib/r2-presign.ts` — thin `AwsClient` wrapper exposing `presignPut` / `presignGet`.
+- **Protocol:** `X-Greenroom-Version` range is now 1–2 (was 1). v2 adds `clientKey` on request results and `results: [{ clientKey, testResultId }]` on the response.
+- **CLI dep:** none added. A tiny internal `runWithLimit` handles the 4-way concurrent `PUT` fan-out.
+- **CLI behaviour:** `--artifacts` modes (`all`, `failed`, `none`) are now live. After a successful `ingest`, the CLI presigns up to 50 artifacts per call, streams files via `fetch` with `duplex: 'half'`, and logs per-file failures as warnings without failing the command.
 
 ## Files modified
 
@@ -31,16 +29,16 @@ Three discrete pieces came together:
 - [packages/dashboard/src/routes/api/schemas.ts](../../packages/dashboard/src/routes/api/schemas.ts) — optional `clientKey` on each test result
 - [packages/dashboard/src/routes/api/ingest.ts](../../packages/dashboard/src/routes/api/ingest.ts) — builds and returns `results` mapping
 - [packages/dashboard/src/routes/api/middleware.ts](../../packages/dashboard/src/routes/api/middleware.ts) — max version bumped to 2
-- [packages/dashboard/src/__tests__/artifacts.test.ts](../../packages/dashboard/src/__tests__/artifacts.test.ts) — **new** (5 tests)
-- [packages/dashboard/src/__tests__/schemas.test.ts](../../packages/dashboard/src/__tests__/schemas.test.ts) — + `clientKey` cases
-- [packages/dashboard/src/__tests__/middleware.test.ts](../../packages/dashboard/src/__tests__/middleware.test.ts) — v2 accepted
+- [packages/dashboard/src/\_\_tests\_\_/artifacts.test.ts](../../packages/dashboard/src/__tests__/artifacts.test.ts) — **new** (5 tests)
+- [packages/dashboard/src/\_\_tests\_\_/schemas.test.ts](../../packages/dashboard/src/__tests__/schemas.test.ts) — + `clientKey` cases
+- [packages/dashboard/src/\_\_tests\_\_/middleware.test.ts](../../packages/dashboard/src/__tests__/middleware.test.ts) — v2 accepted
 - [packages/cli/src/lib/artifact-collector.ts](../../packages/cli/src/lib/artifact-collector.ts) — real implementation
 - [packages/cli/src/lib/api-client.ts](../../packages/cli/src/lib/api-client.ts) — `presign`, `uploadArtifact`, `runWithLimit`; bumped `X-Greenroom-Version` to `2`
 - [packages/cli/src/lib/parser.ts](../../packages/cli/src/lib/parser.ts) — sets `clientKey: testId` on each result; exposes raw `report`
 - [packages/cli/src/commands/upload.ts](../../packages/cli/src/commands/upload.ts) — wires the presign + PUT fan-out after ingest
 - [packages/cli/src/types.ts](../../packages/cli/src/types.ts) — `clientKey` field + v2 `IngestResponse.results`
-- [packages/cli/src/__tests__/artifact-collector.test.ts](../../packages/cli/src/__tests__/artifact-collector.test.ts) — **new** (12 tests)
-- [packages/cli/src/__tests__/api-client.test.ts](../../packages/cli/src/__tests__/api-client.test.ts) — + presign + `runWithLimit` cases
+- [packages/cli/src/\_\_tests\_\_/artifact-collector.test.ts](../../packages/cli/src/__tests__/artifact-collector.test.ts) — **new** (12 tests)
+- [packages/cli/src/\_\_tests\_\_/api-client.test.ts](../../packages/cli/src/__tests__/api-client.test.ts) — + presign + `runWithLimit` cases
 
 ## Design decisions
 

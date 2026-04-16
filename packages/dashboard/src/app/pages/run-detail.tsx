@@ -163,40 +163,50 @@ export async function RunDetailPage() {
           </tr>
         </thead>
         <tbody>
-          {results.map((result) => (
-            <tr key={result.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-              <td style={{ padding: "0.5rem" }}>
-                <StatusBadge status={result.status} />
-              </td>
-              <td style={{ padding: "0.5rem" }}>
-                {result.title}
-                {result.retryCount > 0 && (
-                  <span
-                    style={{
-                      marginLeft: "0.5rem",
-                      fontSize: "0.75rem",
-                      color: "#9ca3af",
-                    }}
+          {results.map((result) => {
+            const detailHref = `/runs/${runId}/tests/${result.id}`;
+            return (
+              <tr key={result.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                <td style={{ padding: "0.5rem" }}>
+                  <a href={detailHref} style={{ textDecoration: "none" }}>
+                    <StatusBadge status={result.status} />
+                  </a>
+                </td>
+                <td style={{ padding: "0.5rem" }}>
+                  <a
+                    href={detailHref}
+                    style={{ color: "inherit", textDecoration: "none" }}
                   >
-                    (retry {result.retryCount})
-                  </span>
-                )}
-              </td>
-              <td
-                style={{
-                  padding: "0.5rem",
-                  fontFamily: "monospace",
-                  fontSize: "0.8rem",
-                  color: "#6b7280",
-                }}
-              >
-                {result.file}
-              </td>
-              <td style={{ padding: "0.5rem" }}>
-                {formatDuration(result.durationMs)}
-              </td>
-            </tr>
-          ))}
+                    {result.title}
+                  </a>
+                  {result.retryCount > 0 && (
+                    <span
+                      style={{
+                        marginLeft: "0.5rem",
+                        fontSize: "0.75rem",
+                        color: "#9ca3af",
+                      }}
+                    >
+                      (retry {result.retryCount})
+                    </span>
+                  )}
+                </td>
+                <td
+                  style={{
+                    padding: "0.5rem",
+                    fontFamily: "monospace",
+                    fontSize: "0.8rem",
+                    color: "#6b7280",
+                  }}
+                >
+                  {result.file}
+                </td>
+                <td style={{ padding: "0.5rem" }}>
+                  {formatDuration(result.durationMs)}
+                </td>
+              </tr>
+            );
+          })}
           {results.length > 0 &&
             results
               .filter(

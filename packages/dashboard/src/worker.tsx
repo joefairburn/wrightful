@@ -6,8 +6,10 @@ import { setCommonHeaders } from "@/app/headers";
 import { requireAuth, negotiateVersion } from "@/routes/api/middleware";
 import { ingestHandler } from "@/routes/api/ingest";
 import { presignHandler } from "@/routes/api/artifacts";
+import { artifactDownloadHandler } from "@/routes/api/artifact-download";
 import { RunsListPage } from "@/app/pages/runs-list";
 import { RunDetailPage } from "@/app/pages/run-detail";
+import { TestDetailPage } from "@/app/pages/test-detail";
 
 export type AppContext = {
   apiKey?: {
@@ -19,7 +21,11 @@ export type AppContext = {
 export default defineApp([
   setCommonHeaders(),
 
-  // API routes — return raw JSON, not wrapped in Document
+  // Unauthenticated artifact download — unguessable ulid gates access.
+  // Declared before the authenticated /api prefix so requireAuth doesn't run.
+  route("/api/artifacts/:id/download", artifactDownloadHandler),
+
+  // Authenticated API routes — return raw JSON, not wrapped in Document
   prefix("/api", [
     requireAuth,
     negotiateVersion,
@@ -35,5 +41,6 @@ export default defineApp([
   render(Document, [
     route("/", RunsListPage),
     route("/runs/:id", RunDetailPage),
+    route("/runs/:runId/tests/:testResultId", TestDetailPage),
   ]),
 ]);
