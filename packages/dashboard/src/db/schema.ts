@@ -125,7 +125,5 @@ export const artifacts = sqliteTable(
     r2Key: text("r2_key").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
-  (table) => [
-    index("artifacts_test_result_id_idx").on(table.testResultId),
-  ],
+  (table) => [index("artifacts_test_result_id_idx").on(table.testResultId)],
 );

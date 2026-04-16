@@ -44,18 +44,18 @@ Placeholder with `action.yml` inputs defined. Implementation deferred to Phase 4
 
 **88 unit tests + 18 e2e tests = 106 total**
 
-| Suite | Count | Covers |
-|-------|-------|--------|
-| `cli/test-id` | 8 | Determinism, collision avoidance, null-byte separators |
-| `cli/ci-detect` | 9 | GitHub Actions, GitLab CI, CircleCI, generic, local |
-| `cli/idempotency` | 6 | CI key format, shard defaults, UUID fallback |
-| `cli/parser` | 17 | Status mapping, error extraction, flaky handling, title paths, tags, annotations, shard info, invalid input |
-| `cli/api-client` | 8 | Auth headers, success/duplicate, 401/409, retry on 500/429, no retry on 400 |
-| `cli/config` | 7 | Precedence, defaults, validation |
-| `cli/logger` | 7 | All output functions, formatting |
-| `dashboard/schemas` | 18 | All Zod schemas, enums, defaults, nullable fields, boundaries |
-| `dashboard/middleware` | 8 | Auth 401/passthrough, version negotiation 400/409 |
-| `e2e` | 18 | Full pipeline: real Playwright report generation, CLI upload, auth, validation, versioning, SSR rendering, run detail, artifacts presign |
+| Suite                  | Count | Covers                                                                                                                                   |
+| ---------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli/test-id`          | 8     | Determinism, collision avoidance, null-byte separators                                                                                   |
+| `cli/ci-detect`        | 9     | GitHub Actions, GitLab CI, CircleCI, generic, local                                                                                      |
+| `cli/idempotency`      | 6     | CI key format, shard defaults, UUID fallback                                                                                             |
+| `cli/parser`           | 17    | Status mapping, error extraction, flaky handling, title paths, tags, annotations, shard info, invalid input                              |
+| `cli/api-client`       | 8     | Auth headers, success/duplicate, 401/409, retry on 500/429, no retry on 400                                                              |
+| `cli/config`           | 7     | Precedence, defaults, validation                                                                                                         |
+| `cli/logger`           | 7     | All output functions, formatting                                                                                                         |
+| `dashboard/schemas`    | 18    | All Zod schemas, enums, defaults, nullable fields, boundaries                                                                            |
+| `dashboard/middleware` | 8     | Auth 401/passthrough, version negotiation 400/409                                                                                        |
+| `e2e`                  | 18    | Full pipeline: real Playwright report generation, CLI upload, auth, validation, versioning, SSR rendering, run detail, artifacts presign |
 
 ### E2E flow (`packages/e2e/`)
 

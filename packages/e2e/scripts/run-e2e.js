@@ -56,7 +56,9 @@ function assert(condition, msg) {
 }
 
 function run(cmd, opts = {}) {
-  return execSync(cmd, { stdio: "pipe", ...opts }).toString().trim();
+  return execSync(cmd, { stdio: "pipe", ...opts })
+    .toString()
+    .trim();
 }
 
 async function waitForServer(url, maxAttempts = 40) {
@@ -251,13 +253,16 @@ async function main() {
         },
         body: JSON.stringify({}),
       });
-      assert(res.status === 501, "Presign endpoint returns 501 Not Implemented");
+      assert(
+        res.status === 501,
+        "Presign endpoint returns 501 Not Implemented",
+      );
     }
 
     // --- Summary ---
-    console.log(`\n${"=".repeat(50)}`);
+    console.log("\n" + "=".repeat(50));
     console.log(`[e2e] ${passed} passed, ${failed} failed`);
-    console.log(`${"=".repeat(50)}`);
+    console.log("=".repeat(50));
   } catch (err) {
     console.error(`\n[e2e] FATAL: ${err.message}`);
     failed++;
@@ -270,4 +275,4 @@ async function main() {
   process.exit(failed > 0 ? 1 : 0);
 }
 
-main();
+void main();

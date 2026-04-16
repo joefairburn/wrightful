@@ -56,9 +56,9 @@ describe("resolveConfig", () => {
   });
 
   it("throws when URL is missing", async () => {
-    await expect(
-      resolveConfig({ token: "grn_key" }),
-    ).rejects.toThrow("Missing required config");
+    await expect(resolveConfig({ token: "grn_key" })).rejects.toThrow(
+      "Missing required config",
+    );
   });
 
   it("throws when token is missing", async () => {

@@ -58,10 +58,9 @@ describe("ApiClient", () => {
 
   it("returns IngestResponse on 201", async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ runId: "run1", runUrl: "/runs/run1" }),
-        { status: 201 },
-      ),
+      new Response(JSON.stringify({ runId: "run1", runUrl: "/runs/run1" }), {
+        status: 201,
+      }),
     );
 
     const result = await client.ingest(validPayload);
@@ -97,10 +96,7 @@ describe("ApiClient", () => {
 
   it("throws on 409 version mismatch", async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ error: "CLI too old" }),
-        { status: 409 },
-      ),
+      new Response(JSON.stringify({ error: "CLI too old" }), { status: 409 }),
     );
 
     await expect(client.ingest(validPayload)).rejects.toThrow(
@@ -110,14 +106,11 @@ describe("ApiClient", () => {
 
   it("retries on 500 errors", async () => {
     mockFetch
+      .mockResolvedValueOnce(new Response("Server error", { status: 500 }))
       .mockResolvedValueOnce(
-        new Response("Server error", { status: 500 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ runId: "run1", runUrl: "/runs/run1" }),
-          { status: 201 },
-        ),
+        new Response(JSON.stringify({ runId: "run1", runUrl: "/runs/run1" }), {
+          status: 201,
+        }),
       );
 
     const result = await client.ingest(validPayload);
@@ -134,10 +127,9 @@ describe("ApiClient", () => {
         }),
       )
       .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ runId: "run1", runUrl: "/runs/run1" }),
-          { status: 201 },
-        ),
+        new Response(JSON.stringify({ runId: "run1", runUrl: "/runs/run1" }), {
+          status: 201,
+        }),
       );
 
     const result = await client.ingest(validPayload);
@@ -147,10 +139,7 @@ describe("ApiClient", () => {
 
   it("does not retry on 400", async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ error: "Bad request" }),
-        { status: 400 },
-      ),
+      new Response(JSON.stringify({ error: "Bad request" }), { status: 400 }),
     );
 
     await expect(client.ingest(validPayload)).rejects.toThrow("Upload failed");

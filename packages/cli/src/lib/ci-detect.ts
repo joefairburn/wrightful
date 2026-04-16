@@ -24,9 +24,7 @@ export function detectCI(): CIInfo | null {
       ciProvider: "github-actions",
       ciBuildId: process.env.GITHUB_RUN_ID ?? null,
       branch:
-        process.env.GITHUB_HEAD_REF ||
-        process.env.GITHUB_REF_NAME ||
-        null,
+        process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || null,
       commitSha: process.env.GITHUB_SHA ?? null,
       commitMessage: null,
       prNumber: extractGitHubPrNumber(),

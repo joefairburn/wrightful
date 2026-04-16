@@ -126,9 +126,7 @@
       "indexes": {
         "artifacts_test_result_id_idx": {
           "name": "artifacts_test_result_id_idx",
-          "columns": [
-            "test_result_id"
-          ],
+          "columns": ["test_result_id"],
           "isUnique": false
         }
       },
@@ -137,12 +135,8 @@
           "name": "artifacts_test_result_id_test_results_id_fk",
           "tableFrom": "artifacts",
           "tableTo": "test_results",
-          "columnsFrom": [
-            "test_result_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["test_result_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -305,32 +299,22 @@
       "indexes": {
         "runs_idempotency_key_idx": {
           "name": "runs_idempotency_key_idx",
-          "columns": [
-            "idempotency_key"
-          ],
+          "columns": ["idempotency_key"],
           "isUnique": true
         },
         "runs_ci_build_id_idx": {
           "name": "runs_ci_build_id_idx",
-          "columns": [
-            "ci_build_id"
-          ],
+          "columns": ["ci_build_id"],
           "isUnique": false
         },
         "runs_branch_created_at_idx": {
           "name": "runs_branch_created_at_idx",
-          "columns": [
-            "branch",
-            "created_at"
-          ],
+          "columns": ["branch", "created_at"],
           "isUnique": false
         },
         "runs_repo_created_at_idx": {
           "name": "runs_repo_created_at_idx",
-          "columns": [
-            "repo",
-            "created_at"
-          ],
+          "columns": ["repo", "created_at"],
           "isUnique": false
         }
       },
@@ -374,9 +358,7 @@
       "indexes": {
         "test_annotations_test_result_id_idx": {
           "name": "test_annotations_test_result_id_idx",
-          "columns": [
-            "test_result_id"
-          ],
+          "columns": ["test_result_id"],
           "isUnique": false
         }
       },
@@ -385,12 +367,8 @@
           "name": "test_annotations_test_result_id_test_results_id_fk",
           "tableFrom": "test_annotations",
           "tableTo": "test_results",
-          "columnsFrom": [
-            "test_result_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["test_result_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -498,25 +476,17 @@
       "indexes": {
         "test_results_test_id_created_at_idx": {
           "name": "test_results_test_id_created_at_idx",
-          "columns": [
-            "test_id",
-            "created_at"
-          ],
+          "columns": ["test_id", "created_at"],
           "isUnique": false
         },
         "test_results_run_id_idx": {
           "name": "test_results_run_id_idx",
-          "columns": [
-            "run_id"
-          ],
+          "columns": ["run_id"],
           "isUnique": false
         },
         "test_results_status_created_at_idx": {
           "name": "test_results_status_created_at_idx",
-          "columns": [
-            "status",
-            "created_at"
-          ],
+          "columns": ["status", "created_at"],
           "isUnique": false
         }
       },
@@ -525,12 +495,8 @@
           "name": "test_results_run_id_runs_id_fk",
           "tableFrom": "test_results",
           "tableTo": "runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -567,16 +533,12 @@
       "indexes": {
         "test_tags_tag_idx": {
           "name": "test_tags_tag_idx",
-          "columns": [
-            "tag"
-          ],
+          "columns": ["tag"],
           "isUnique": false
         },
         "test_tags_test_result_id_idx": {
           "name": "test_tags_test_result_id_idx",
-          "columns": [
-            "test_result_id"
-          ],
+          "columns": ["test_result_id"],
           "isUnique": false
         }
       },
@@ -585,12 +547,8 @@
           "name": "test_tags_test_result_id_test_results_id_fk",
           "tableFrom": "test_tags",
           "tableTo": "test_results",
-          "columnsFrom": [
-            "test_result_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["test_result_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

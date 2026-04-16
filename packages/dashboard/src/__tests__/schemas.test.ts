@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { IngestPayloadSchema, PresignPayloadSchema } from "../routes/api/schemas";
+import {
+  IngestPayloadSchema,
+  PresignPayloadSchema,
+} from "../routes/api/schemas";
 
 describe("IngestPayloadSchema", () => {
   const validPayload = {
@@ -77,7 +80,8 @@ describe("IngestPayloadSchema", () => {
   });
 
   it("defaults retryCount to 0", () => {
-    const { retryCount, ...withoutRetry } = validPayload.results[0];
+    const { retryCount: _retryCount, ...withoutRetry } =
+      validPayload.results[0];
     const result = IngestPayloadSchema.safeParse({
       ...validPayload,
       results: [withoutRetry],
@@ -89,7 +93,7 @@ describe("IngestPayloadSchema", () => {
   });
 
   it("defaults tags to empty array", () => {
-    const { tags, ...withoutTags } = validPayload.results[0];
+    const { tags: _tags, ...withoutTags } = validPayload.results[0];
     const result = IngestPayloadSchema.safeParse({
       ...validPayload,
       results: [withoutTags],
@@ -101,7 +105,8 @@ describe("IngestPayloadSchema", () => {
   });
 
   it("defaults annotations to empty array", () => {
-    const { annotations, ...withoutAnnotations } = validPayload.results[0];
+    const { annotations: _annotations, ...withoutAnnotations } =
+      validPayload.results[0];
     const result = IngestPayloadSchema.safeParse({
       ...validPayload,
       results: [withoutAnnotations],

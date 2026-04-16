@@ -12,6 +12,7 @@
     "release": "rw-scripts ensure-deploy-env && npm run clean && npm run build && wrangler deploy",
     "generate": "rw-scripts ensure-env && wrangler types --include-runtime false",
     "check": "npm run generate && npm run types",
+    "typecheck": "tsgo --noEmit",
     "types": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -34,10 +35,11 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@typescript/native-preview": "^7.0.0-dev",
     "drizzle-kit": "^0.31.10",
-    "vitest": "^3.0.0",
     "typescript": "~5.8.0",
     "vite": "~7.3.2",
+    "vitest": "^3.0.0",
     "wrangler": "^4.83.0"
   }
 }

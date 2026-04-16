@@ -114,9 +114,7 @@ export const uploadCommand = new Command("upload")
         parsed.run.durationMs,
       );
     } catch (err) {
-      logger.printError(
-        err instanceof Error ? err.message : "Upload failed",
-      );
+      logger.printError(err instanceof Error ? err.message : "Upload failed");
       process.exit(1);
     }
   });

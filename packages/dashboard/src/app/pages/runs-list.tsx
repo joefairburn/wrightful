@@ -47,17 +47,13 @@ export async function RunsListPage() {
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "1.5rem" }}>
-        Test Runs
-      </h1>
+      <h1 style={{ fontSize: "1.5rem", marginBottom: "1.5rem" }}>Test Runs</h1>
       {allRuns.length === 0 ? (
         <div style={{ color: "#6b7280", padding: "2rem", textAlign: "center" }}>
           <p style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>
             No test runs yet.
           </p>
-          <p>
-            Upload your first Playwright report using the CLI:
-          </p>
+          <p>Upload your first Playwright report using the CLI:</p>
           <code
             style={{
               display: "inline-block",

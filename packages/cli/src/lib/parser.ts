@@ -3,8 +3,6 @@ import { computeTestId } from "./test-id.js";
 import type {
   PlaywrightReport,
   PlaywrightSuite,
-  PlaywrightSpec,
-  PlaywrightTest,
   TestResultPayload,
   RunPayload,
 } from "../types.js";
@@ -22,6 +20,8 @@ function mapStatus(
       return "skipped";
     case "unexpected":
       return lastResultStatus === "timedOut" ? "timedout" : "failed";
+    default:
+      return "failed";
   }
 }
 
@@ -70,7 +70,9 @@ function parseSuites(
           file: spec.file,
           projectName: projectName || null,
           status,
-          durationMs: Math.round(test.results.reduce((sum, r) => sum + r.duration, 0)),
+          durationMs: Math.round(
+            test.results.reduce((sum, r) => sum + r.duration, 0),
+          ),
           retryCount: test.results.length - 1,
           errorMessage: errorSource?.errors?.[0]?.message ?? null,
           errorStack: errorSource?.errors?.[0]?.stack ?? null,
@@ -92,7 +94,17 @@ function parseSuites(
 
 export interface ParsedReport {
   results: TestResultPayload[];
-  run: Omit<RunPayload, "ciProvider" | "ciBuildId" | "branch" | "commitSha" | "commitMessage" | "prNumber" | "repo" | "reporterVersion">;
+  run: Omit<
+    RunPayload,
+    | "ciProvider"
+    | "ciBuildId"
+    | "branch"
+    | "commitSha"
+    | "commitMessage"
+    | "prNumber"
+    | "repo"
+    | "reporterVersion"
+  >;
   playwrightVersion: string;
   shardIndex: number | null;
   shardTotal: number | null;

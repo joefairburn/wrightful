@@ -28,16 +28,12 @@ function formatDuration(ms: number): string {
 }
 
 export async function RunDetailPage() {
-  const { params } = requestInfo;
-  const runId = params.id;
+  // rwsdk types params as DefaultAppContext; widen to access route params
+  const runId = String((requestInfo.params as Record<string, unknown>)["id"]);
 
   const db = getDb();
 
-  const [run] = await db
-    .select()
-    .from(runs)
-    .where(eq(runs.id, runId))
-    .limit(1);
+  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
 
   if (!run) {
     return (
@@ -73,9 +69,7 @@ export async function RunDetailPage() {
         </a>
       </div>
 
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>
-        Run Detail
-      </h1>
+      <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>Run Detail</h1>
 
       {/* Summary */}
       <div
@@ -170,10 +164,7 @@ export async function RunDetailPage() {
         </thead>
         <tbody>
           {results.map((result) => (
-            <tr
-              key={result.id}
-              style={{ borderBottom: "1px solid #f3f4f6" }}
-            >
+            <tr key={result.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
               <td style={{ padding: "0.5rem" }}>
                 <StatusBadge status={result.status} />
               </td>

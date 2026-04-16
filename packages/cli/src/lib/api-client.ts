@@ -75,14 +75,21 @@ export class ApiClient {
       }
       if (response.status === 409) {
         throw new Error(
-          `CLI version incompatible with dashboard: ${body.error || "version mismatch"}`,
+          `CLI version incompatible with dashboard: ${String(body.error) || "version mismatch"}`,
         );
       }
       throw new Error(
-        `Upload failed (${response.status}): ${body.error || response.statusText}`,
+        `Upload failed (${response.status}): ${String(body.error) || response.statusText}`,
       );
     }
 
-    return body as unknown as IngestResponse;
+    const result: IngestResponse = {
+      runId: String(body.runId),
+      runUrl: String(body.runUrl),
+    };
+    if (typeof body.duplicate === "boolean") {
+      result.duplicate = body.duplicate;
+    }
+    return result;
   }
 }

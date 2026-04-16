@@ -2,9 +2,7 @@
   "config": {
     "rootDir": "/home/user/project",
     "version": "1.50.0",
-    "projects": [
-      { "id": "chromium", "name": "chromium" }
-    ]
+    "projects": [{ "id": "chromium", "name": "chromium" }]
   },
   "suites": [
     {

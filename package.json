@@ -7,10 +7,29 @@
     "cli": "pnpm --filter @greenroom/cli",
     "test": "pnpm --filter @greenroom/cli test && pnpm --filter @greenroom/dashboard test",
     "test:e2e": "pnpm --filter @greenroom/e2e test",
-    "ci:local": "npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml"
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt --write .",
+    "typecheck": "pnpm --filter @greenroom/cli typecheck && pnpm --filter @greenroom/dashboard typecheck",
+    "ci:local": "npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml",
+    "prepare": "husky"
   },
   "devDependencies": {
-    "@redwoodjs/agent-ci": "^0.1.0"
+    "@redwoodjs/agent-ci": "^0.1.0",
+    "@typescript/native-preview": "^7.0.0-dev",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "oxfmt": "^0.45.0",
+    "oxlint": "^1.60.0",
+    "oxlint-tsgolint": "^0.21.1"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs}": [
+      "oxlint --fix",
+      "oxfmt --write"
+    ],
+    "*.{json,jsonc,md,yaml,yml,css}": "oxfmt --write"
   },
   "engines": {
     "node": ">=20"

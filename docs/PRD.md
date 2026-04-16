@@ -26,14 +26,14 @@ Non-goals (explicitly out of scope):
 
 ## Tech Stack
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Framework | **RedwoodSDK** | Server-first React on Cloudflare. RSC means routes can query D1 directly and return JSX — no separate API layer needed. Vite plugin, local dev runs on actual `workerd` runtime via Miniflare. |
-| Database | **Cloudflare D1** + **Drizzle ORM** | SQLite at the edge. 500MB free, 10GB on $5/month plan. Drizzle has first-class D1 support with migrations. |
-| Object Storage | **Cloudflare R2** | S3-compatible storage for traces, screenshots, videos. 10GB free, zero egress charges ever. Artifacts served via presigned URLs. |
-| CLI | **`@greenroom/cli`** | Reads Playwright's JSON report output, transforms and uploads to the dashboard API. Handles artifact collection and upload. |
-| CI Integration | **GitHub Action** | Optional action that posts PR comments with run summary, flaky warnings, and dashboard link. |
-| Auth | **API key** | Multiple API keys with labels, stored as hashed values in D1. One key per pipeline/repo/environment. |
+| Layer          | Technology                          | Why                                                                                                                                                                                            |
+| -------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework      | **RedwoodSDK**                      | Server-first React on Cloudflare. RSC means routes can query D1 directly and return JSX — no separate API layer needed. Vite plugin, local dev runs on actual `workerd` runtime via Miniflare. |
+| Database       | **Cloudflare D1** + **Drizzle ORM** | SQLite at the edge. 500MB free, 10GB on $5/month plan. Drizzle has first-class D1 support with migrations.                                                                                     |
+| Object Storage | **Cloudflare R2**                   | S3-compatible storage for traces, screenshots, videos. 10GB free, zero egress charges ever. Artifacts served via presigned URLs.                                                               |
+| CLI            | **`@greenroom/cli`**                | Reads Playwright's JSON report output, transforms and uploads to the dashboard API. Handles artifact collection and upload.                                                                    |
+| CI Integration | **GitHub Action**                   | Optional action that posts PR comments with run summary, flaky warnings, and dashboard link.                                                                                                   |
+| Auth           | **API key**                         | Multiple API keys with labels, stored as hashed values in D1. One key per pipeline/repo/environment.                                                                                           |
 
 ### Why RedwoodSDK over Hono + React SPA
 
@@ -120,78 +120,86 @@ D1 is single-writer (~100–300 inserts/sec). Mitigations:
 ```typescript
 // schema.ts
 
-export const apiKeys = sqliteTable('api_keys', {
-  id: text('id').primaryKey(), // ulid
-  label: text('label').notNull(), // e.g. "github-actions-main", "local-dev"
-  keyHash: text('key_hash').notNull(), // bcrypt or SHA-256 hash of the raw key
-  keyPrefix: text('key_prefix').notNull(), // first 8 chars for identification in UI
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
-  revokedAt: integer('revoked_at', { mode: 'timestamp' }),
+export const apiKeys = sqliteTable("api_keys", {
+  id: text("id").primaryKey(), // ulid
+  label: text("label").notNull(), // e.g. "github-actions-main", "local-dev"
+  keyHash: text("key_hash").notNull(), // bcrypt or SHA-256 hash of the raw key
+  keyPrefix: text("key_prefix").notNull(), // first 8 chars for identification in UI
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
 });
 
-export const runs = sqliteTable('runs', {
-  id: text('id').primaryKey(), // ulid
-  idempotencyKey: text('idempotency_key').unique(), // client-generated, prevents duplicate uploads
-  ciProvider: text('ci_provider'), // 'github-actions', 'gitlab-ci', etc.
-  ciBuildId: text('ci_build_id'), // links shards together (e.g. GITHUB_RUN_ID)
-  branch: text('branch'),
-  commitSha: text('commit_sha'),
-  commitMessage: text('commit_message'),
-  prNumber: integer('pr_number'),
-  repo: text('repo'),
-  shardIndex: integer('shard_index'),
-  shardTotal: integer('shard_total'),
-  totalTests: integer('total_tests').notNull(),
-  passed: integer('passed').notNull(),
-  failed: integer('failed').notNull(),
-  flaky: integer('flaky').notNull(),
-  skipped: integer('skipped').notNull(),
-  durationMs: integer('duration_ms').notNull(),
-  status: text('status').notNull(), // 'passed' | 'failed' | 'timedout' | 'interrupted'
-  reporterVersion: text('reporter_version'),
-  playwrightVersion: text('playwright_version'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+export const runs = sqliteTable("runs", {
+  id: text("id").primaryKey(), // ulid
+  idempotencyKey: text("idempotency_key").unique(), // client-generated, prevents duplicate uploads
+  ciProvider: text("ci_provider"), // 'github-actions', 'gitlab-ci', etc.
+  ciBuildId: text("ci_build_id"), // links shards together (e.g. GITHUB_RUN_ID)
+  branch: text("branch"),
+  commitSha: text("commit_sha"),
+  commitMessage: text("commit_message"),
+  prNumber: integer("pr_number"),
+  repo: text("repo"),
+  shardIndex: integer("shard_index"),
+  shardTotal: integer("shard_total"),
+  totalTests: integer("total_tests").notNull(),
+  passed: integer("passed").notNull(),
+  failed: integer("failed").notNull(),
+  flaky: integer("flaky").notNull(),
+  skipped: integer("skipped").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  status: text("status").notNull(), // 'passed' | 'failed' | 'timedout' | 'interrupted'
+  reporterVersion: text("reporter_version"),
+  playwrightVersion: text("playwright_version"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
-export const testResults = sqliteTable('test_results', {
-  id: text('id').primaryKey(), // ulid
-  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
-  testId: text('test_id').notNull(), // stable hash of file + title path + projectName (for cross-run tracking)
-  title: text('title').notNull(), // full title path: "Payment flow > should complete checkout"
-  file: text('file').notNull(), // relative file path
-  projectName: text('project_name'), // playwright project (chromium, firefox, etc.)
-  status: text('status').notNull(), // 'passed' | 'failed' | 'flaky' | 'skipped' | 'timedout'
-  durationMs: integer('duration_ms').notNull(),
-  retryCount: integer('retry_count').notNull().default(0),
-  errorMessage: text('error_message'),
-  errorStack: text('error_stack'),
-  workerIndex: integer('worker_index'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+export const testResults = sqliteTable("test_results", {
+  id: text("id").primaryKey(), // ulid
+  runId: text("run_id")
+    .notNull()
+    .references(() => runs.id, { onDelete: "cascade" }),
+  testId: text("test_id").notNull(), // stable hash of file + title path + projectName (for cross-run tracking)
+  title: text("title").notNull(), // full title path: "Payment flow > should complete checkout"
+  file: text("file").notNull(), // relative file path
+  projectName: text("project_name"), // playwright project (chromium, firefox, etc.)
+  status: text("status").notNull(), // 'passed' | 'failed' | 'flaky' | 'skipped' | 'timedout'
+  durationMs: integer("duration_ms").notNull(),
+  retryCount: integer("retry_count").notNull().default(0),
+  errorMessage: text("error_message"),
+  errorStack: text("error_stack"),
+  workerIndex: integer("worker_index"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
-export const testTags = sqliteTable('test_tags', {
-  id: text('id').primaryKey(), // ulid
-  testResultId: text('test_result_id').notNull().references(() => testResults.id, { onDelete: 'cascade' }),
-  tag: text('tag').notNull(), // e.g. "@smoke", "@regression", "@payments"
+export const testTags = sqliteTable("test_tags", {
+  id: text("id").primaryKey(), // ulid
+  testResultId: text("test_result_id")
+    .notNull()
+    .references(() => testResults.id, { onDelete: "cascade" }),
+  tag: text("tag").notNull(), // e.g. "@smoke", "@regression", "@payments"
 });
 
-export const testAnnotations = sqliteTable('test_annotations', {
-  id: text('id').primaryKey(), // ulid
-  testResultId: text('test_result_id').notNull().references(() => testResults.id, { onDelete: 'cascade' }),
-  type: text('type').notNull(), // e.g. "fixme", "slow", "issue"
-  description: text('description'),
+export const testAnnotations = sqliteTable("test_annotations", {
+  id: text("id").primaryKey(), // ulid
+  testResultId: text("test_result_id")
+    .notNull()
+    .references(() => testResults.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // e.g. "fixme", "slow", "issue"
+  description: text("description"),
 });
 
-export const artifacts = sqliteTable('artifacts', {
-  id: text('id').primaryKey(), // ulid
-  testResultId: text('test_result_id').notNull().references(() => testResults.id, { onDelete: 'cascade' }),
-  type: text('type').notNull(), // 'trace' | 'screenshot' | 'video' | 'other'
-  name: text('name').notNull(),
-  contentType: text('content_type').notNull(),
-  sizeBytes: integer('size_bytes').notNull(),
-  r2Key: text('r2_key').notNull(), // R2 object key
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+export const artifacts = sqliteTable("artifacts", {
+  id: text("id").primaryKey(), // ulid
+  testResultId: text("test_result_id")
+    .notNull()
+    .references(() => testResults.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // 'trace' | 'screenshot' | 'video' | 'other'
+  name: text("name").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  r2Key: text("r2_key").notNull(), // R2 object key
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
 // Indexes
@@ -284,8 +292,8 @@ npx @greenroom/cli upload ./report.json --artifacts=none
 ```typescript
 export default defineConfig({
   reporter: [
-    ['html'],  // keep the built-in HTML reporter for local debugging
-    ['json', { outputFile: 'playwright-report.json' }],  // Greenroom reads this
+    ["html"], // keep the built-in HTML reporter for local debugging
+    ["json", { outputFile: "playwright-report.json" }], // Greenroom reads this
   ],
 });
 ```
@@ -311,6 +319,7 @@ export default defineConfig({
 Receives test results from the CLI. Authenticated via Bearer token.
 
 **Headers:**
+
 - `Authorization: Bearer <api-key>`
 - `X-Greenroom-Version: 1` — protocol version for compatibility negotiation
 - `Content-Type: application/json`
@@ -355,6 +364,7 @@ Receives test results from the CLI. Authenticated via Bearer token.
 ```
 
 **Responses:**
+
 - `201 Created` — `{ "runId": "...", "runUrl": "...", "artifactUploadUrls": {...} }`
 - `200 OK` — idempotent hit, returns existing run: `{ "runId": "...", "runUrl": "...", "duplicate": true }`
 - `400 Bad Request` — validation error: `{ "error": "...", "details": [...] }`
@@ -691,10 +701,10 @@ npm install @greenroom/cli
 
 ## Decisions (Resolved)
 
-| Question | Decision | Rationale |
-|----------|----------|-----------|
-| Support non-Playwright runners? | No | Playwright-specific features (traces, annotations, projects) are core differentiators. Generalization would dilute the product. |
-| SQLite alternative to D1? | No | Split maintenance focus kills OSS projects. Community contribution if demand exists. |
-| License | MIT | Lower friction for adoption, matches Playwright itself. |
-| Monorepo tooling | pnpm workspaces | Skip Turborepo unless pain is felt — overhead for 3 packages. |
-| Naming | Greenroom | Unique, memorable, theater metaphor without being too literal. Good for npm scope and SEO. |
+| Question                        | Decision        | Rationale                                                                                                                       |
+| ------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Support non-Playwright runners? | No              | Playwright-specific features (traces, annotations, projects) are core differentiators. Generalization would dilute the product. |
+| SQLite alternative to D1?       | No              | Split maintenance focus kills OSS projects. Community contribution if demand exists.                                            |
+| License                         | MIT             | Lower friction for adoption, matches Playwright itself.                                                                         |
+| Monorepo tooling                | pnpm workspaces | Skip Turborepo unless pain is felt — overhead for 3 packages.                                                                   |
+| Naming                          | Greenroom       | Unique, memorable, theater metaphor without being too literal. Good for npm scope and SEO.                                      |

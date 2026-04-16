@@ -23,10 +23,7 @@ export async function resolveConfig(
 
   // Merge: CLI flags > env vars > config file
   const raw = {
-    url:
-      cliOptions.url ||
-      process.env.GREENROOM_URL ||
-      fileConfig?.config?.url,
+    url: cliOptions.url || process.env.GREENROOM_URL || fileConfig?.config?.url,
     token:
       cliOptions.token ||
       process.env.GREENROOM_API_KEY ||

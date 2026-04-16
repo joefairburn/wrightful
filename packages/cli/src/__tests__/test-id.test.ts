@@ -3,7 +3,11 @@ import { computeTestId } from "../lib/test-id.js";
 
 describe("computeTestId", () => {
   it("produces a 16-character hex string", () => {
-    const id = computeTestId("tests/foo.spec.ts", ["describe", "test"], "chromium");
+    const id = computeTestId(
+      "tests/foo.spec.ts",
+      ["describe", "test"],
+      "chromium",
+    );
     expect(id).toMatch(/^[0-9a-f]{16}$/);
   });
 

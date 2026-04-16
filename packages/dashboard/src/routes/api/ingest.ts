@@ -1,12 +1,7 @@
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { getDb } from "@/db";
-import {
-  runs,
-  testResults,
-  testTags,
-  testAnnotations,
-} from "@/db/schema";
+import { runs, testResults, testTags, testAnnotations } from "@/db/schema";
 import { IngestPayloadSchema, type IngestPayload } from "./schemas";
 
 const MAX_STATEMENTS_PER_BATCH = 900;
@@ -18,18 +13,13 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
-export async function ingestHandler({
-  request,
-}: {
-  request: Request;
-}) {
+export async function ingestHandler({ request }: { request: Request }) {
   let payload: IngestPayload;
   try {
     const body = await request.json();
     payload = IngestPayloadSchema.parse(body);
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Invalid request body";
+    const message = err instanceof Error ? err.message : "Invalid request body";
     return jsonResponse({ error: "Validation failed", details: message }, 400);
   }
 
@@ -165,11 +155,7 @@ export async function ingestHandler({
 
   // Batch insert annotations
   if (annotationRows.length > 0) {
-    for (
-      let i = 0;
-      i < annotationRows.length;
-      i += MAX_STATEMENTS_PER_BATCH
-    ) {
+    for (let i = 0; i < annotationRows.length; i += MAX_STATEMENTS_PER_BATCH) {
       const chunk = annotationRows.slice(i, i + MAX_STATEMENTS_PER_BATCH);
       await db.insert(testAnnotations).values(chunk);
     }

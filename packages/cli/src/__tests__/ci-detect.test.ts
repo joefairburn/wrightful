@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { detectCI } from "../lib/ci-detect.js";
 
 describe("detectCI", () => {
-  const originalEnv = process.env;
+  const _originalEnv = process.env;
 
   beforeEach(() => {
     vi.unstubAllEnvs();
