@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node scripts/run-e2e.js",
+    "test": "vitest run",
     "test:playwright": "npx playwright test",
     "test:upload": "node scripts/test-upload.js"
   },
   "devDependencies": {
-    "@playwright/test": "^1.50.0"
+    "@playwright/test": "^1.59.1",
+    "vitest": "^4.1.4"
   }
 }
