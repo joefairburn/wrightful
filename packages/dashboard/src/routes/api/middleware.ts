@@ -2,7 +2,10 @@ import type { RouteMiddleware } from "rwsdk/router";
 import { validateApiKey } from "@/lib/auth";
 
 const PROTOCOL_VERSION_MIN = 1;
-const PROTOCOL_VERSION_MAX = 1;
+// v2: ingest response includes `results: [{ clientKey, testResultId }]`
+// mapping so the CLI can attach artifacts. v1 requests are still accepted —
+// they simply don't receive the mapping (and can't upload artifacts).
+const PROTOCOL_VERSION_MAX = 2;
 
 export const requireAuth: RouteMiddleware = async ({ request, ctx }) => {
   const authHeader = request.headers.get("Authorization");

@@ -24,5 +24,20 @@
       "bucket_name": "greenroom-artifacts",
     },
   ],
-  "vars": {},
+  "vars": {
+    // Cloudflare account id that owns the R2 bucket (used to build the
+    // S3-compatible endpoint for presigning).
+    "R2_ACCOUNT_ID": "",
+    // R2 bucket name — must match the `bucket_name` in r2_buckets above.
+    "R2_BUCKET_NAME": "greenroom-artifacts",
+    // Per-artifact upload size cap, enforced in /api/artifacts/presign.
+    // Default 50 MiB (52428800 bytes). Override in production via wrangler vars.
+    "GREENROOM_MAX_ARTIFACT_BYTES": "52428800",
+    // Presigned URL TTL (seconds). Defaults to 900 (15 min) for PUT, 600 for GET.
+    "GREENROOM_PRESIGN_PUT_TTL_SECONDS": "900",
+    "GREENROOM_PRESIGN_GET_TTL_SECONDS": "600",
+  },
+  // Secrets (set via `wrangler secret put`):
+  //   R2_ACCESS_KEY_ID       — R2 access key ID (Account → R2 → Manage API Tokens)
+  //   R2_SECRET_ACCESS_KEY   — R2 secret access key
 }

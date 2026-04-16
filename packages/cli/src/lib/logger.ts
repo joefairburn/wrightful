@@ -77,3 +77,19 @@ export function printSuccess(
 export function printError(message: string) {
   console.error(`\nError: ${message}`);
 }
+
+export function printArtifactsSummary(
+  uploaded: number,
+  skipped: number,
+  failed: number,
+) {
+  if (uploaded === 0 && skipped === 0 && failed === 0) return;
+  const parts = [`${uploaded} uploaded`];
+  if (skipped > 0) parts.push(`${skipped} skipped`);
+  if (failed > 0) parts.push(`${failed} failed`);
+  console.log(`  Artifacts: ${parts.join(", ")}`);
+}
+
+export function printArtifactError(name: string, message: string) {
+  console.warn(`  WARN  artifact "${name}" failed: ${message}`);
+}

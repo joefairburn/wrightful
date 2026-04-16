@@ -65,6 +65,7 @@ function parseSuites(
         const errorSource = status === "flaky" ? failingResult : lastResult;
 
         results.push({
+          clientKey: testId,
           testId,
           title: specTitlePath.join(" > "),
           file: spec.file,
@@ -108,6 +109,8 @@ export interface ParsedReport {
   playwrightVersion: string;
   shardIndex: number | null;
   shardTotal: number | null;
+  /** The raw Playwright report — retained so the artifact collector can walk attachments without re-reading the file. */
+  report: PlaywrightReport;
 }
 
 export async function parseReport(filePath: string): Promise<ParsedReport> {
@@ -144,5 +147,6 @@ export async function parseReport(filePath: string): Promise<ParsedReport> {
     playwrightVersion: report.config.version || "unknown",
     shardIndex,
     shardTotal,
+    report,
   };
 }

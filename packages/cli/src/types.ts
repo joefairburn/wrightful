@@ -121,6 +121,13 @@ export interface RunPayload {
 }
 
 export interface TestResultPayload {
+  /**
+   * Opaque identifier chosen by the CLI, returned alongside the server-assigned
+   * testResultId in the ingest response. Used to attach artifacts after upload.
+   * Currently equals `testId`; kept as a separate field so the correlation
+   * scheme can evolve without a wire-format change.
+   */
+  clientKey: string;
   testId: string;
   title: string;
   file: string;
@@ -139,6 +146,8 @@ export interface IngestResponse {
   runId: string;
   runUrl: string;
   duplicate?: boolean;
+  /** Present on v2+ responses; maps each CLI-supplied clientKey to its DB id. */
+  results?: Array<{ clientKey: string; testResultId: string }>;
 }
 
 export interface GreenroomConfig {
