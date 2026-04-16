@@ -10,7 +10,7 @@ Greenroom is a Playwright test reporting dashboard. A CLI parses Playwright JSON
 
 pnpm workspace with four packages:
 
-- **`packages/cli`** — Node CLI (`greenroom upload <report>`). Built with Commander, tsup. Parses Playwright JSON reports, detects CI env, uploads to dashboard API.
+- **`packages/cli`** — Node CLI (`greenroom upload <report>`). Built with Commander, tsdown (rolldown). Parses Playwright JSON reports, detects CI env, uploads to dashboard API.
 - **`packages/dashboard`** — Cloudflare Worker app using [RedwoodSDK (rwsdk)](https://docs.rwsdk.com). Vite + React 19 RSC. Drizzle ORM on D1. Serves both the API (`/api/ingest`, `/api/artifacts/presign`) and the dashboard UI (`/`, `/runs/:id`).
 - **`packages/e2e`** — Playwright E2E tests that run against the Playwright docs site (demo suite used to generate test reports for dogfooding).
 - **`packages/github-action`** — GitHub Action scaffold wrapping the CLI.
@@ -26,7 +26,7 @@ pnpm dev
 
 # Build
 pnpm build                              # dashboard (vite build)
-pnpm --filter @greenroom/cli build      # cli (tsup)
+pnpm --filter @greenroom/cli build      # cli (tsdown)
 
 # Tests
 pnpm test                               # cli + dashboard unit tests (vitest)
