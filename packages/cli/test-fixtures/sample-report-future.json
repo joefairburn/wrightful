@@ -1,0 +1,287 @@
+{
+  "config": {
+    "rootDir": "/home/user/project",
+    "version": "1.59.1",
+    "globalTimeout": 0,
+    "fullyParallel": true,
+    "forbidOnly": false,
+    "maxFailures": 0,
+    "workers": 4,
+    "projects": [
+      {
+        "id": "chromium",
+        "name": "chromium",
+        "outputDir": "/home/user/project/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {},
+        "testDir": "/home/user/project/tests",
+        "testIgnore": [],
+        "testMatch": ["**/*.spec.ts"],
+        "timeout": 30000
+      }
+    ]
+  },
+  "suites": [
+    {
+      "title": "tests/payment.spec.ts",
+      "file": "tests/payment.spec.ts",
+      "line": 0,
+      "column": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Payment flow",
+          "file": "tests/payment.spec.ts",
+          "line": 3,
+          "column": 0,
+          "specs": [
+            {
+              "title": "should complete checkout",
+              "ok": true,
+              "tags": ["@smoke", "@payments"],
+              "id": "pw-internal-1",
+              "file": "tests/payment.spec.ts",
+              "line": 4,
+              "column": 0,
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1234,
+                      "errors": [],
+                      "retry": 0,
+                      "startTime": "2026-01-01T00:00:00.000Z",
+                      "attachments": [],
+                      "stdout": [{ "text": "Payment processed\n" }],
+                      "stderr": [],
+                      "steps": [
+                        {
+                          "title": "page.goto",
+                          "category": "pw:api",
+                          "startTime": "2026-01-01T00:00:00.000Z",
+                          "duration": 500,
+                          "steps": []
+                        }
+                      ],
+                      "annotations": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ]
+            },
+            {
+              "title": "should handle refund",
+              "ok": false,
+              "tags": ["@payments"],
+              "id": "pw-internal-2",
+              "file": "tests/payment.spec.ts",
+              "line": 10,
+              "column": 0,
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [{ "type": "issue", "description": "GH-42" }],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "shardIndex": 0,
+                      "status": "failed",
+                      "duration": 8100,
+                      "errors": [
+                        {
+                          "message": "Expected element to be visible",
+                          "stack": "Error: Expected element to be visible\n    at tests/payment.spec.ts:12:5",
+                          "location": {
+                            "file": "tests/payment.spec.ts",
+                            "line": 12,
+                            "column": 5
+                          }
+                        }
+                      ],
+                      "retry": 0,
+                      "startTime": "2026-01-01T00:00:01.000Z",
+                      "attachments": [],
+                      "stdout": [],
+                      "stderr": [{ "text": "Error trace...\n" }],
+                      "steps": [
+                        {
+                          "title": "page.click",
+                          "category": "pw:api",
+                          "startTime": "2026-01-01T00:00:01.000Z",
+                          "duration": 8000,
+                          "error": {
+                            "message": "Expected element to be visible"
+                          },
+                          "steps": []
+                        }
+                      ],
+                      "annotations": [],
+                      "errorLocation": {
+                        "file": "tests/payment.spec.ts",
+                        "line": 12,
+                        "column": 5
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ]
+            }
+          ],
+          "suites": []
+        }
+      ]
+    },
+    {
+      "title": "tests/auth.spec.ts",
+      "file": "tests/auth.spec.ts",
+      "line": 0,
+      "column": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Auth",
+          "file": "tests/auth.spec.ts",
+          "line": 3,
+          "column": 0,
+          "specs": [
+            {
+              "title": "should redirect to login",
+              "ok": true,
+              "tags": [],
+              "id": "pw-internal-3",
+              "file": "tests/auth.spec.ts",
+              "line": 4,
+              "column": 0,
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 2100,
+                      "errors": [
+                        {
+                          "message": "Timeout exceeded",
+                          "stack": "Error: Timeout\n    at tests/auth.spec.ts:6:3"
+                        }
+                      ],
+                      "retry": 0,
+                      "startTime": "2026-01-01T00:00:02.000Z",
+                      "attachments": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "steps": [],
+                      "annotations": [
+                        {
+                          "type": "retry-reason",
+                          "description": "flaky network"
+                        }
+                      ]
+                    },
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3200,
+                      "errors": [],
+                      "retry": 1,
+                      "startTime": "2026-01-01T00:00:04.000Z",
+                      "attachments": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "steps": [],
+                      "annotations": []
+                    }
+                  ],
+                  "status": "flaky"
+                }
+              ]
+            },
+            {
+              "title": "should show dashboard after login",
+              "ok": true,
+              "tags": ["@smoke"],
+              "id": "pw-internal-4",
+              "file": "tests/auth.spec.ts",
+              "line": 12,
+              "column": 0,
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [{ "type": "slow" }],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 4500,
+                      "errors": [],
+                      "retry": 0,
+                      "startTime": "2026-01-01T00:00:02.000Z",
+                      "attachments": [],
+                      "stdout": [{ "text": "Dashboard loaded\n" }],
+                      "stderr": [],
+                      "steps": [
+                        {
+                          "title": "page.goto",
+                          "category": "pw:api",
+                          "startTime": "2026-01-01T00:00:02.000Z",
+                          "duration": 1200,
+                          "steps": []
+                        },
+                        {
+                          "title": "expect.toBeVisible",
+                          "category": "expect",
+                          "startTime": "2026-01-01T00:00:03.200Z",
+                          "duration": 100,
+                          "steps": []
+                        }
+                      ],
+                      "annotations": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ]
+            }
+          ],
+          "suites": []
+        }
+      ]
+    }
+  ],
+  "stats": {
+    "startTime": "2026-01-01T00:00:00.000Z",
+    "duration": 19134,
+    "expected": 2,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 1
+  },
+  "errors": [],
+  "unknownFutureField": "this should be silently ignored"
+}

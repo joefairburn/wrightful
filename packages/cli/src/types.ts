@@ -1,4 +1,17 @@
 // --- Playwright JSON Report types (input) ---
+//
+// These types are hand-written intentionally. The CLI must not depend on
+// @playwright/test (which pulls browser binaries as transitive deps).
+// They represent the subset of Playwright's JSON reporter output that
+// Greenroom actually uses — roughly 15 fields out of 50+.
+//
+// The parser (lib/parser.ts) is designed to be resilient to additive changes:
+// it uses optional chaining and defaults, so new fields from newer Playwright
+// versions are silently ignored. See __tests__/playwright-compat.test.ts for
+// the forward-compatibility contract.
+//
+// Last verified against: Playwright 1.59.1 JSONReport interfaces
+// (node_modules/playwright/types/testReporter.d.ts)
 
 export interface PlaywrightReport {
   config: {

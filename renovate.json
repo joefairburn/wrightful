@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchPackageNames": ["@playwright/test", "playwright"],
+      "groupName": "playwright",
+      "labels": ["playwright-update"],
+      "schedule": ["before 9am on monday"]
+    }
+  ]
+}

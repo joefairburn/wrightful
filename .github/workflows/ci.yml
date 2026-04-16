@@ -81,6 +81,11 @@ jobs:
         env:
           CI: true
 
+  # Playwright version canary: This job generates a real Playwright JSON report
+  # and feeds it through the CLI parser → dashboard ingest pipeline. When Renovate
+  # bumps @playwright/test and opens a PR, this full flow runs automatically.
+  # If Playwright changes the JSON report format, this job will fail — making it
+  # the early warning system for format incompatibilities.
   test-e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
