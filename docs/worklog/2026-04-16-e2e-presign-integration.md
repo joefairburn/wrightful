@@ -23,12 +23,12 @@ the implemented endpoint:
 
 ## Details
 
-| Change                          | Rationale                                                                                                                                                             |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Change                          | Rationale                                                                                                                                                              |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Write fake `.dev.vars` in setup | `readR2Config` throws (→500) if any of `R2_ACCOUNT_ID`/`R2_BUCKET_NAME`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY` are missing. Local dev has none of these by default. |
-| Back up real `.dev.vars`        | If a developer has a real `.dev.vars`, we move it to `.dev.vars.e2e-backup` for the duration of the run and restore in `finally`.                                     |
-| Fake-creds are safe             | Signatures built with `AKIAE2EFAKE`/`e2e-fake-secret` won't authenticate against R2, but the e2e only asserts response shape — it never PUTs to the signed URL.       |
-| Renumber step log               | Added "Step 4: Write fake R2 creds", so "Run Playwright tests…" became Step 6 (was duplicated as Step 5).                                                             |
+| Back up real `.dev.vars`        | If a developer has a real `.dev.vars`, we move it to `.dev.vars.e2e-backup` for the duration of the run and restore in `finally`.                                      |
+| Fake-creds are safe             | Signatures built with `AKIAE2EFAKE`/`e2e-fake-secret` won't authenticate against R2, but the e2e only asserts response shape — it never PUTs to the signed URL.        |
+| Renumber step log               | Added "Step 4: Write fake R2 creds", so "Run Playwright tests…" became Step 6 (was duplicated as Step 5).                                                              |
 
 ## Files changed
 
