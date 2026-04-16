@@ -5,7 +5,7 @@ describe("ApiClient", () => {
   const mockFetch = vi.fn();
 
   beforeEach(() => {
-    mockFetch.mockClear();
+    mockFetch.mockReset();
     vi.stubGlobal("fetch", mockFetch);
   });
 
