@@ -26,21 +26,21 @@
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "react-server-dom-webpack": "19.2.5",
-    "rwsdk": "^1.1.0",
-    "ulid": "^2.3.0",
-    "zod": "^3.24.0"
+    "rwsdk": "^1.2.0",
+    "ulid": "^2.4.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.32.3",
-    "@cloudflare/workers-types": "^4.20260405.1",
-    "@types/node": "^22.0.0",
+    "@cloudflare/workers-types": "^4.20260416.2",
+    "@types/node": "^22.19.17",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "^7.0.0-dev",
+    "@typescript/native-preview": "7.0.0-dev.20260416.2",
     "drizzle-kit": "^0.31.10",
-    "typescript": "~5.8.0",
+    "typescript": "~5.8.3",
     "vite": "~7.3.2",
-    "vitest": "^3.0.0",
+    "vitest": "^3.2.4",
     "wrangler": "^4.83.0"
   }
 }
