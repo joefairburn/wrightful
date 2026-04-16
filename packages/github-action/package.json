@@ -1,5 +1,5 @@
 {
-  "name": "@greenroom/github-action",
+  "name": "@wrightful/github-action",
   "version": "0.1.0",
   "private": true,
   "type": "module",

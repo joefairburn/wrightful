@@ -29,8 +29,8 @@ Two discrete pieces:
 - `pnpm typecheck` — clean.
 - `npx oxlint` — 0 errors, 6 warnings (all `no-unsafe-type-assertion` on intentional `env` / `fetch` boundary casts).
 - `npx oxfmt --check .` — clean.
-- `pnpm --filter @greenroom/dashboard test` — 37 tests passing (was 34 after M1, +3 in the download handler suite).
-- `pnpm --filter @greenroom/cli test` — 83 tests (unchanged — M2 is dashboard-only).
+- `pnpm --filter @wrightful/dashboard test` — 37 tests passing (was 34 after M1, +3 in the download handler suite).
+- `pnpm --filter @wrightful/cli test` — 83 tests (unchanged — M2 is dashboard-only).
 
 Manual end-to-end verification deliberately deferred until M3, when the "View history" cross-link (already present on the detail page) will have a target page to open.
 

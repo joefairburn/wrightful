@@ -27,8 +27,8 @@ describe("resolveConfig", () => {
   });
 
   it("falls back to env vars when no CLI flags", async () => {
-    vi.stubEnv("GREENROOM_URL", "https://env.example.com");
-    vi.stubEnv("GREENROOM_API_KEY", "grn_env_key");
+    vi.stubEnv("WRIGHTFUL_URL", "https://env.example.com");
+    vi.stubEnv("WRIGHTFUL_API_KEY", "grn_env_key");
 
     const config = await resolveConfig({});
     expect(config.url).toBe("https://env.example.com");
@@ -36,8 +36,8 @@ describe("resolveConfig", () => {
   });
 
   it("CLI flags override env vars", async () => {
-    vi.stubEnv("GREENROOM_URL", "https://env.example.com");
-    vi.stubEnv("GREENROOM_API_KEY", "grn_env_key");
+    vi.stubEnv("WRIGHTFUL_URL", "https://env.example.com");
+    vi.stubEnv("WRIGHTFUL_API_KEY", "grn_env_key");
 
     const config = await resolveConfig({
       url: "https://cli.example.com",

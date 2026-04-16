@@ -64,7 +64,7 @@ export class ApiClient {
     return {
       Authorization: `Bearer ${this.token}`,
       "Content-Type": "application/json",
-      "X-Greenroom-Version": String(PROTOCOL_VERSION),
+      "X-Wrightful-Version": String(PROTOCOL_VERSION),
     };
   }
 

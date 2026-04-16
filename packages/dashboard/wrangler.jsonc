@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "greenroom",
+  "name": "wrightful",
   "main": "src/worker.tsx",
   "compatibility_date": "2025-08-21",
   "compatibility_flags": ["nodejs_compat"],
@@ -13,7 +13,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "greenroom",
+      "database_name": "wrightful",
       "database_id": "LOCAL_PLACEHOLDER",
       "migrations_dir": "drizzle",
     },
@@ -21,7 +21,7 @@
   "r2_buckets": [
     {
       "binding": "R2",
-      "bucket_name": "greenroom-artifacts",
+      "bucket_name": "wrightful-artifacts",
     },
   ],
   "vars": {
@@ -29,13 +29,13 @@
     // S3-compatible endpoint for presigning).
     "R2_ACCOUNT_ID": "",
     // R2 bucket name — must match the `bucket_name` in r2_buckets above.
-    "R2_BUCKET_NAME": "greenroom-artifacts",
+    "R2_BUCKET_NAME": "wrightful-artifacts",
     // Per-artifact upload size cap, enforced in /api/artifacts/presign.
     // Default 50 MiB (52428800 bytes). Override in production via wrangler vars.
-    "GREENROOM_MAX_ARTIFACT_BYTES": "52428800",
+    "WRIGHTFUL_MAX_ARTIFACT_BYTES": "52428800",
     // Presigned URL TTL (seconds). Defaults to 900 (15 min) for PUT, 600 for GET.
-    "GREENROOM_PRESIGN_PUT_TTL_SECONDS": "900",
-    "GREENROOM_PRESIGN_GET_TTL_SECONDS": "600",
+    "WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS": "900",
+    "WRIGHTFUL_PRESIGN_GET_TTL_SECONDS": "600",
   },
   // Secrets (set via `wrangler secret put`):
   //   R2_ACCESS_KEY_ID       — R2 access key ID (Account → R2 → Manage API Tokens)

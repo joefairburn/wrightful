@@ -32,7 +32,7 @@ interface Artifact {
  * follows the redirect and loads the underlying .zip.
  *
  * NOTE: this is a link-out for now. A self-hosted trace-viewer component is
- * tracked for Phase 5 so teams running Greenroom behind a corporate firewall
+ * tracked for Phase 5 so teams running Wrightful behind a corporate firewall
  * (where trace.playwright.dev may not be reachable) aren't blocked. */
 function traceViewerUrl(origin: string, artifactId: string): string {
   const downloadUrl = `${origin}/api/artifacts/${artifactId}/download`;

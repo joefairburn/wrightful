@@ -37,7 +37,7 @@ the implemented endpoint:
 ## Verification
 
 ```
-pnpm --filter @greenroom/e2e test
+pnpm --filter @wrightful/e2e test
 # → 25 passed, 0 failed (was 15 passed, 1 failed)
 pnpm lint
 # → 5 pre-existing warnings, 0 errors

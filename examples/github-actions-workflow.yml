@@ -29,9 +29,9 @@ jobs:
       - name: Run Playwright tests
         run: npx playwright test --shard=${{ matrix.shard }}
 
-      - name: Upload to Greenroom
+      - name: Upload to Wrightful
         if: always()
-        run: npx @greenroom/cli upload ./playwright-report.json
+        run: npx @wrightful/cli upload ./playwright-report.json
         env:
-          GREENROOM_URL: ${{ secrets.GREENROOM_URL }}
-          GREENROOM_API_KEY: ${{ secrets.GREENROOM_API_KEY }}
+          WRIGHTFUL_URL: ${{ secrets.WRIGHTFUL_URL }}
+          WRIGHTFUL_API_KEY: ${{ secrets.WRIGHTFUL_API_KEY }}

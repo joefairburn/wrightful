@@ -12,7 +12,7 @@ function formatDuration(ms: number): string {
 }
 
 export function printHeader() {
-  console.log(`Greenroom v${CLI_VERSION}\n`);
+  console.log(`Wrightful v${CLI_VERSION}\n`);
 }
 
 export function printReportInfo(filePath: string, testCount: number) {

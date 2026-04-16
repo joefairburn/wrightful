@@ -52,7 +52,7 @@ describe("Playwright forward compatibility", () => {
   });
 
   it("handles unknown top-level keys without errors", async () => {
-    const tmp = "/tmp/greenroom-unknown-keys.json";
+    const tmp = "/tmp/wrightful-unknown-keys.json";
     const report = {
       config: {
         rootDir: "/project",
@@ -126,7 +126,7 @@ describe("Playwright forward compatibility", () => {
   });
 
   it("handles extra fields on suites and specs", async () => {
-    const tmp = "/tmp/greenroom-extra-suite-fields.json";
+    const tmp = "/tmp/wrightful-extra-suite-fields.json";
     const report = {
       config: {
         rootDir: "/project",

@@ -84,7 +84,7 @@ Both were needed for type-aware linting to resolve types in those packages.
 
 ## Pre-existing bug fixed
 
-CI called `pnpm --filter @greenroom/dashboard typecheck` but that script didn't exist (only `types` and `check`). Dashboard also had a TS2339 error on `params.id`. Both are now fixed — typecheck passes clean.
+CI called `pnpm --filter @wrightful/dashboard typecheck` but that script didn't exist (only `types` and `check`). Dashboard also had a TS2339 error on `params.id`. Both are now fixed — typecheck passes clean.
 
 ## Verification
 

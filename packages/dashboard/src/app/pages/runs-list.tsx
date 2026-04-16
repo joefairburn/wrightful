@@ -30,7 +30,7 @@ export async function RunsListPage() {
               borderRadius: "4px",
             }}
           >
-            npx @greenroom/cli upload ./playwright-report.json
+            npx @wrightful/cli upload ./playwright-report.json
           </code>
         </div>
       ) : (

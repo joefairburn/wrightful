@@ -12,7 +12,7 @@ describe("logger", () => {
 
   it("printHeader includes version", () => {
     logger.printHeader();
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Greenroom v"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Wrightful v"));
   });
 
   it("printReportInfo shows file path and test count", () => {

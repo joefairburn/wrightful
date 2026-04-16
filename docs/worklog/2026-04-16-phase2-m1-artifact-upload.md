@@ -13,10 +13,10 @@ Three discrete pieces came together:
 ## Details
 
 - **Dashboard dep:** added `aws4fetch@^1.0.20` (~6 KB, Workers-native).
-- **Dashboard vars:** `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `GREENROOM_MAX_ARTIFACT_BYTES` (default 52428800), `GREENROOM_PRESIGN_PUT_TTL_SECONDS` (default 900), `GREENROOM_PRESIGN_GET_TTL_SECONDS` (default 600) in `wrangler.jsonc`.
+- **Dashboard vars:** `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `WRIGHTFUL_MAX_ARTIFACT_BYTES` (default 52428800), `WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS` (default 900), `WRIGHTFUL_PRESIGN_GET_TTL_SECONDS` (default 600) in `wrangler.jsonc`.
 - **Dashboard secrets:** `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` — set via `wrangler secret put` (see "R2 credential setup" below).
 - **New file:** `packages/dashboard/src/lib/r2-presign.ts` — thin `AwsClient` wrapper exposing `presignPut` / `presignGet`.
-- **Protocol:** `X-Greenroom-Version` range is now 1–2 (was 1). v2 adds `clientKey` on request results and `results: [{ clientKey, testResultId }]` on the response.
+- **Protocol:** `X-Wrightful-Version` range is now 1–2 (was 1). v2 adds `clientKey` on request results and `results: [{ clientKey, testResultId }]` on the response.
 - **CLI dep:** none added. A tiny internal `runWithLimit` handles the 4-way concurrent `PUT` fan-out.
 - **CLI behaviour:** `--artifacts` modes (`all`, `failed`, `none`) are now live. After a successful `ingest`, the CLI presigns up to 50 artifacts per call, streams files via `fetch` with `duplex: 'half'`, and logs per-file failures as warnings without failing the command.
 
@@ -33,7 +33,7 @@ Three discrete pieces came together:
 - [packages/dashboard/src/\_\_tests\_\_/schemas.test.ts](../../packages/dashboard/src/__tests__/schemas.test.ts) — + `clientKey` cases
 - [packages/dashboard/src/\_\_tests\_\_/middleware.test.ts](../../packages/dashboard/src/__tests__/middleware.test.ts) — v2 accepted
 - [packages/cli/src/lib/artifact-collector.ts](../../packages/cli/src/lib/artifact-collector.ts) — real implementation
-- [packages/cli/src/lib/api-client.ts](../../packages/cli/src/lib/api-client.ts) — `presign`, `uploadArtifact`, `runWithLimit`; bumped `X-Greenroom-Version` to `2`
+- [packages/cli/src/lib/api-client.ts](../../packages/cli/src/lib/api-client.ts) — `presign`, `uploadArtifact`, `runWithLimit`; bumped `X-Wrightful-Version` to `2`
 - [packages/cli/src/lib/parser.ts](../../packages/cli/src/lib/parser.ts) — sets `clientKey: testId` on each result; exposes raw `report`
 - [packages/cli/src/commands/upload.ts](../../packages/cli/src/commands/upload.ts) — wires the presign + PUT fan-out after ingest
 - [packages/cli/src/types.ts](../../packages/cli/src/types.ts) — `clientKey` field + v2 `IngestResponse.results`
@@ -50,7 +50,7 @@ Three discrete pieces came together:
 
 ## Backwards compatibility
 
-The version negotiator accepts both v1 and v2. A CLI still sending `X-Greenroom-Version: 1` will continue to work — the response simply won't include the `results` mapping, so artifact upload will degrade to a clear warning ("server did not return a clientKey → testResultId mapping"). We will drop v1 support once a v2 CLI is published.
+The version negotiator accepts both v1 and v2. A CLI still sending `X-Wrightful-Version: 1` will continue to work — the response simply won't include the `results` mapping, so artifact upload will degrade to a clear warning ("server did not return a clientKey → testResultId mapping"). We will drop v1 support once a v2 CLI is published.
 
 ## R2 credential setup (for self-hosters)
 
@@ -58,7 +58,7 @@ The presigned URL flow needs R2 API credentials. These live as Worker secrets, n
 
 ```bash
 # 1. In the Cloudflare dashboard: R2 → Manage API Tokens → Create API Token
-#    Permissions: Object Read & Write, scoped to the greenroom-artifacts bucket.
+#    Permissions: Object Read & Write, scoped to the wrightful-artifacts bucket.
 
 # 2. Set secrets on the deployed Worker:
 wrangler secret put R2_ACCESS_KEY_ID
@@ -75,12 +75,12 @@ If any of the four are missing, the presign endpoint responds `500` with a clear
 - `pnpm typecheck` — clean across both packages.
 - `npx oxfmt --check .` — clean (5 files re-formatted during implementation).
 - `npx oxlint` — 0 errors, 4 warnings (all `no-unsafe-type-assertion` on intentional casts at the `fetch` streaming boundary / env access).
-- `pnpm --filter @greenroom/cli test` — 83 tests passing (was 66 in Phase 1, +17 new in artifact-collector and api-client presign/runWithLimit coverage).
-- `pnpm --filter @greenroom/dashboard test` — 34 tests passing (was 29 in Phase 1, +5 new in artifacts handler coverage).
+- `pnpm --filter @wrightful/cli test` — 83 tests passing (was 66 in Phase 1, +17 new in artifact-collector and api-client presign/runWithLimit coverage).
+- `pnpm --filter @wrightful/dashboard test` — 34 tests passing (was 29 in Phase 1, +5 new in artifacts handler coverage).
 
 Manual end-to-end validation against a live R2 bucket is deliberately deferred to after M2 so we can exercise the full upload-view-download loop (download endpoint arrives in M2).
 
 ## Risks carried forward
 
-- **aws4fetch + R2 edge cases.** No real-R2 integration test yet; added unit coverage of the handler around a mocked signer. An opt-in integration test (gated on `GREENROOM_E2E_R2=1`) is worth adding before the first real deployment.
+- **aws4fetch + R2 edge cases.** No real-R2 integration test yet; added unit coverage of the handler around a mocked signer. An opt-in integration test (gated on `WRIGHTFUL_E2E_R2=1`) is worth adding before the first real deployment.
 - **Protocol v1 deprecation.** Need to decide a cut-off after first public CLI release.

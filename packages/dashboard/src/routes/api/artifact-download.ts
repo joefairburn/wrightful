@@ -47,7 +47,7 @@ export async function artifactDownloadHandler({
   }
 
   const ttl = readIntVar(
-    env.GREENROOM_PRESIGN_GET_TTL_SECONDS,
+    env.WRIGHTFUL_PRESIGN_GET_TTL_SECONDS,
     DEFAULT_GET_TTL_SECONDS,
   );
   const url = await presignGet(cfg, rows[0].r2Key, ttl);

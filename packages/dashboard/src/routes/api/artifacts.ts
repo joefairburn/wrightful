@@ -28,11 +28,11 @@ export async function presignHandler({ request }: { request: Request }) {
   }
 
   const maxBytes = readIntVar(
-    env.GREENROOM_MAX_ARTIFACT_BYTES,
+    env.WRIGHTFUL_MAX_ARTIFACT_BYTES,
     DEFAULT_MAX_ARTIFACT_BYTES,
   );
   const ttl = readIntVar(
-    env.GREENROOM_PRESIGN_PUT_TTL_SECONDS,
+    env.WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS,
     DEFAULT_PUT_TTL_SECONDS,
   );
 

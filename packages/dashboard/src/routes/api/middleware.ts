@@ -22,13 +22,13 @@ export const requireAuth: RouteMiddleware = async ({ request, ctx }) => {
 };
 
 export const negotiateVersion: RouteMiddleware = ({ request }) => {
-  const versionHeader = request.headers.get("X-Greenroom-Version");
+  const versionHeader = request.headers.get("X-Wrightful-Version");
   if (!versionHeader) return; // allow requests without version header for now
 
   const version = parseInt(versionHeader, 10);
   if (isNaN(version)) {
     return new Response(
-      JSON.stringify({ error: "Invalid X-Greenroom-Version header" }),
+      JSON.stringify({ error: "Invalid X-Wrightful-Version header" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
   }
@@ -37,7 +37,7 @@ export const negotiateVersion: RouteMiddleware = ({ request }) => {
     return new Response(
       JSON.stringify({
         error:
-          "CLI version too old. Please upgrade @greenroom/cli to the latest version.",
+          "CLI version too old. Please upgrade @wrightful/cli to the latest version.",
         minimumVersion: PROTOCOL_VERSION_MIN,
         maximumVersion: PROTOCOL_VERSION_MAX,
       }),
@@ -49,7 +49,7 @@ export const negotiateVersion: RouteMiddleware = ({ request }) => {
     return new Response(
       JSON.stringify({
         error:
-          "Dashboard version too old. Please upgrade your Greenroom dashboard.",
+          "Dashboard version too old. Please upgrade your Wrightful dashboard.",
         minimumVersion: PROTOCOL_VERSION_MIN,
         maximumVersion: PROTOCOL_VERSION_MAX,
       }),

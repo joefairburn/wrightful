@@ -1,4 +1,4 @@
-# Greenroom — Open Source Playwright Dashboard on Cloudflare
+# Wrightful — Open Source Playwright Dashboard on Cloudflare
 
 > An open-source Playwright test reporter and analytics dashboard that anyone can self-host on Cloudflare for free. Built with RedwoodSDK, D1, R2, and Drizzle.
 
@@ -31,7 +31,7 @@ Non-goals (explicitly out of scope):
 | Framework      | **RedwoodSDK**                      | Server-first React on Cloudflare. RSC means routes can query D1 directly and return JSX — no separate API layer needed. Vite plugin, local dev runs on actual `workerd` runtime via Miniflare. |
 | Database       | **Cloudflare D1** + **Drizzle ORM** | SQLite at the edge. 500MB free, 10GB on $5/month plan. Drizzle has first-class D1 support with migrations.                                                                                     |
 | Object Storage | **Cloudflare R2**                   | S3-compatible storage for traces, screenshots, videos. 10GB free, zero egress charges ever. Artifacts served via presigned URLs.                                                               |
-| CLI            | **`@greenroom/cli`**                | Reads Playwright's JSON report output, transforms and uploads to the dashboard API. Handles artifact collection and upload.                                                                    |
+| CLI            | **`@wrightful/cli`**                | Reads Playwright's JSON report output, transforms and uploads to the dashboard API. Handles artifact collection and upload.                                                                    |
 | CI Integration | **GitHub Action**                   | Optional action that posts PR comments with run summary, flaky warnings, and dashboard link.                                                                                                   |
 | Auth           | **API key**                         | Multiple API keys with labels, stored as hashed values in D1. One key per pipeline/repo/environment.                                                                                           |
 
@@ -53,7 +53,7 @@ Non-goals (explicitly out of scope):
 │  Playwright tests    │     │  ┌────────────────────────────┐  │
 │  + JSON reporter     │     │  │  RedwoodSDK Worker         │  │
 │                      │     │  │                            │  │
-│  npx @greenroom/cli  │────▶│  │  /api/ingest — receives    │  │
+│  npx @wrightful/cli  │────▶│  │  /api/ingest — receives    │  │
 │    upload            │POST │  │    test results (batch)    │  │
 │    ./playwright-json │     │  │  /api/artifacts — receives │  │
 │    --token=abc       │────▶│  │    binary uploads → R2     │  │
@@ -74,10 +74,10 @@ Non-goals (explicitly out of scope):
 
 ### CLI Upload Approach (not a custom Reporter)
 
-Instead of implementing Playwright's `Reporter` interface, Greenroom uses a CLI that reads Playwright's built-in JSON reporter output:
+Instead of implementing Playwright's `Reporter` interface, Wrightful uses a CLI that reads Playwright's built-in JSON reporter output:
 
 1. User adds `['json', { outputFile: 'playwright-report.json' }]` to their Playwright config's reporter list
-2. After tests complete, user runs: `npx @greenroom/cli upload ./playwright-report.json --token=abc --url=https://your-dashboard.example.com`
+2. After tests complete, user runs: `npx @wrightful/cli upload ./playwright-report.json --token=abc --url=https://your-dashboard.example.com`
 3. The CLI parses the JSON report, computes stable test IDs, and batch-POSTs structured data to `/api/ingest`
 4. The CLI then collects and uploads artifacts (traces, screenshots, videos) to `/api/artifacts`
 
@@ -236,15 +236,15 @@ The CLI generates an idempotency key per upload (e.g., `{ciBuildId}-{shardIndex}
 - If the key already exists: return `200 OK` with the existing run ID, skip insertion
 - This makes retries safe — a flaky network in CI won't create duplicate runs
 
-## CLI Package (`@greenroom/cli`)
+## CLI Package (`@wrightful/cli`)
 
 ### Upload Flow
 
 ```bash
 # After Playwright tests finish, upload results
-npx @greenroom/cli upload ./playwright-report.json \
+npx @wrightful/cli upload ./playwright-report.json \
   --url https://your-dashboard.example.com \
-  --token $GREENROOM_API_KEY
+  --token $WRIGHTFUL_API_KEY
 ```
 
 The CLI:
@@ -261,18 +261,18 @@ The CLI:
 ### Configuration
 
 ```bash
-# Config file (~/.greenroomrc or .greenroomrc in project root)
+# Config file (~/.wrightfulrc or .wrightfulrc in project root)
 {
   "url": "https://your-dashboard.example.com",
   "token": "grn_abc123..."
 }
 
 # Or environment variables
-GREENROOM_URL=https://your-dashboard.example.com
-GREENROOM_API_KEY=grn_abc123...
+WRIGHTFUL_URL=https://your-dashboard.example.com
+WRIGHTFUL_API_KEY=grn_abc123...
 
 # Or CLI flags (override config/env)
-npx @greenroom/cli upload ./report.json --url=... --token=...
+npx @wrightful/cli upload ./report.json --url=... --token=...
 ```
 
 ### Artifact Upload Strategy
@@ -281,10 +281,10 @@ By default, the CLI uploads artifacts only for **failed and flaky tests** to con
 
 ```bash
 # Override: upload all artifacts
-npx @greenroom/cli upload ./report.json --artifacts=all
+npx @wrightful/cli upload ./report.json --artifacts=all
 
 # Override: skip artifact upload entirely
-npx @greenroom/cli upload ./report.json --artifacts=none
+npx @wrightful/cli upload ./report.json --artifacts=none
 ```
 
 ### Usage in playwright.config.ts
@@ -293,7 +293,7 @@ npx @greenroom/cli upload ./report.json --artifacts=none
 export default defineConfig({
   reporter: [
     ["html"], // keep the built-in HTML reporter for local debugging
-    ["json", { outputFile: "playwright-report.json" }], // Greenroom reads this
+    ["json", { outputFile: "playwright-report.json" }], // Wrightful reads this
   ],
 });
 ```
@@ -304,12 +304,12 @@ export default defineConfig({
 - name: Run Playwright tests
   run: npx playwright test
 
-- name: Upload to Greenroom
+- name: Upload to Wrightful
   if: always() # upload even if tests failed
-  run: npx @greenroom/cli upload ./playwright-report.json
+  run: npx @wrightful/cli upload ./playwright-report.json
   env:
-    GREENROOM_URL: ${{ secrets.GREENROOM_URL }}
-    GREENROOM_API_KEY: ${{ secrets.GREENROOM_API_KEY }}
+    WRIGHTFUL_URL: ${{ secrets.WRIGHTFUL_URL }}
+    WRIGHTFUL_API_KEY: ${{ secrets.WRIGHTFUL_API_KEY }}
 ```
 
 ## API Design
@@ -321,7 +321,7 @@ Receives test results from the CLI. Authenticated via Bearer token.
 **Headers:**
 
 - `Authorization: Bearer <api-key>`
-- `X-Greenroom-Version: 1` — protocol version for compatibility negotiation
+- `X-Wrightful-Version: 1` — protocol version for compatibility negotiation
 - `Content-Type: application/json`
 
 **Request body:**
@@ -410,7 +410,7 @@ Returns presigned R2 upload URLs. The CLI then PUTs directly to R2.
 
 ### Version Negotiation
 
-The `X-Greenroom-Version` header declares the protocol version the CLI speaks. The dashboard supports a range of versions:
+The `X-Wrightful-Version` header declares the protocol version the CLI speaks. The dashboard supports a range of versions:
 
 - If the version is within range: process normally
 - If the version is too old: return `409` with a clear error message telling the user to upgrade their CLI
@@ -472,10 +472,10 @@ The protocol version increments when the request/response schema changes in a ba
 A lightweight GitHub Action that runs after the CLI uploads results:
 
 ```yaml
-- uses: greenroom/github-action@v1
+- uses: wrightful/github-action@v1
   with:
-    api-url: ${{ secrets.GREENROOM_URL }}
-    api-key: ${{ secrets.GREENROOM_API_KEY }}
+    api-url: ${{ secrets.WRIGHTFUL_URL }}
+    api-key: ${{ secrets.WRIGHTFUL_API_KEY }}
 ```
 
 Posts a comment like:
@@ -498,9 +498,9 @@ View full report: https://your-dashboard.example.com/runs/abc123
 ## Project Structure
 
 ```
-greenroom/
+wrightful/
 ├── packages/
-│   ├── cli/                          # npm package: @greenroom/cli
+│   ├── cli/                          # npm package: @wrightful/cli
 │   │   ├── src/
 │   │   │   ├── index.ts              # CLI entry point (upload command)
 │   │   │   ├── parser.ts             # Reads Playwright JSON report → structured data
@@ -572,7 +572,7 @@ greenroom/
 - [ ] Build API key management — create/revoke keys, hash storage, validation middleware
 - [ ] Build `/api/ingest` endpoint — accepts batch test results, validates with Zod, chunks into D1 batch transactions (≤1000 per batch), inserts tags and annotations into separate tables
 - [ ] Implement idempotency — check `idempotency_key` unique constraint, return existing run on duplicate
-- [ ] Implement version negotiation — `X-Greenroom-Version` header check with clear error messages
+- [ ] Implement version negotiation — `X-Wrightful-Version` header check with clear error messages
 - [ ] Build the CLI package — reads Playwright JSON report, computes stable test IDs, detects CI env, POSTs to dashboard
 - [ ] Build runs list page — simple table, no filters yet
 - [ ] Build run detail page — test list with status, duration, errors
@@ -615,7 +615,7 @@ greenroom/
 - [ ] Search across test names
 - [ ] README with setup guide, screenshots, architecture diagram
 - [ ] Example GitHub Actions workflow in `/examples`
-- [ ] Publish CLI to npm (`@greenroom/cli`), action to GitHub Marketplace
+- [ ] Publish CLI to npm (`@wrightful/cli`), action to GitHub Marketplace
 - [ ] Write tests for version negotiation to ensure backwards compatibility with older CLI versions
 
 ### Phase 5: Community + Growth (ongoing)
@@ -633,7 +633,7 @@ greenroom/
 
 ### CLI + JSON report, not a custom Reporter
 
-The Greenroom CLI reads Playwright's built-in JSON reporter output instead of implementing a custom `Reporter` class. This decouples from Playwright's internal API, is simpler to test and debug (the JSON file is inspectable), and works as a natural CI pipeline stage. The JSON output format is stable across Playwright versions.
+The Wrightful CLI reads Playwright's built-in JSON reporter output instead of implementing a custom `Reporter` class. This decouples from Playwright's internal API, is simpler to test and debug (the JSON file is inspectable), and works as a natural CI pipeline stage. The JSON output format is stable across Playwright versions.
 
 ### Batch ingestion, not streaming
 
@@ -673,28 +673,28 @@ The target experience for a new user:
 
 ```bash
 # 1. Clone and deploy
-npx degit greenroom/greenroom my-dashboard
+npx degit wrightful/wrightful my-dashboard
 cd my-dashboard
 pnpm install
 
 # 2. Create Cloudflare resources
-npx wrangler d1 create greenroom
-npx wrangler r2 bucket create greenroom
+npx wrangler d1 create wrightful
+npx wrangler r2 bucket create wrightful-artifacts
 
 # 3. Update wrangler.jsonc with the D1 database ID
 
 # 4. Run migrations
-npx wrangler d1 migrations apply greenroom
+npx wrangler d1 migrations apply wrightful
 
 # 5. Deploy
 pnpm run deploy
 
 # 6. Create your first API key (via dashboard UI or CLI)
-npx wrangler d1 execute greenroom --command "INSERT INTO api_keys ..."
+npx wrangler d1 execute wrightful --command "INSERT INTO api_keys ..."
 # (or a seed script / dashboard admin page)
 
 # 7. Add to your project
-npm install @greenroom/cli
+npm install @wrightful/cli
 ```
 
 **Cloudflare free tier supports:** 100K Worker requests/day, 5M D1 reads/day, 100K D1 writes/day, 10GB R2 storage. This covers most small-to-medium teams comfortably. Larger teams upgrade to the $5/month Workers Paid plan.
@@ -707,4 +707,4 @@ npm install @greenroom/cli
 | SQLite alternative to D1?       | No              | Split maintenance focus kills OSS projects. Community contribution if demand exists.                                            |
 | License                         | MIT             | Lower friction for adoption, matches Playwright itself.                                                                         |
 | Monorepo tooling                | pnpm workspaces | Skip Turborepo unless pain is felt — overhead for 3 packages.                                                                   |
-| Naming                          | Greenroom       | Unique, memorable, theater metaphor without being too literal. Good for npm scope and SEO.                                      |
+| Naming                          | Wrightful       | Rebranded from "Greenroom" on 2026-04-16. Short, memorable, pairs with the `wrightful.dev` domain.                              |

@@ -20,7 +20,7 @@ const PRESIGN_BATCH_SIZE = 50;
 const UPLOAD_CONCURRENCY = 4;
 
 export const uploadCommand = new Command("upload")
-  .description("Upload Playwright test results to your Greenroom dashboard")
+  .description("Upload Playwright test results to your Wrightful dashboard")
   .argument("<report-file>", "Path to the Playwright JSON report file")
   .option("--url <url>", "Dashboard URL")
   .option("--token <token>", "API key")
