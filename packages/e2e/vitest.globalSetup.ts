@@ -49,17 +49,13 @@ const TEST_EMAIL = "e2e@wrightful.test";
 const TEST_PASSWORD = "e2e-e2e-e2e-password";
 const TEST_NAME = "E2E Tester";
 
-// Fake secrets + vars scoped to the e2e dev server. R2 creds are fake (they
-// sign presign URLs but never authenticate real PUTs — the e2e only asserts
-// response shape). BETTER_AUTH_SECRET is a fixed local value.
-// WRIGHTFUL_PUBLIC_URL overrides the wrangler.jsonc var so Better Auth's
-// origin check matches our ephemeral port.
+// Fake secrets + vars scoped to the e2e dev server. BETTER_AUTH_SECRET is a
+// fixed local value. WRIGHTFUL_PUBLIC_URL overrides the wrangler.jsonc var so
+// Better Auth's origin check matches our ephemeral port. Artifact uploads hit
+// the R2 binding — miniflare provisions an in-memory bucket from wrangler's
+// r2_buckets block, so no S3 creds are needed.
 const DEV_VARS =
   [
-    `R2_ACCOUNT_ID=e2e-fake-account`,
-    `R2_BUCKET_NAME=wrightful-artifacts`,
-    `R2_ACCESS_KEY_ID=AKIAE2EFAKE`,
-    `R2_SECRET_ACCESS_KEY=e2e-fake-secret`,
     `BETTER_AUTH_SECRET=e2e-local-only-not-a-secret-openssl-rand-base64-32ch`,
     `WRIGHTFUL_PUBLIC_URL=${DASHBOARD_URL}`,
   ].join("\n") + "\n";

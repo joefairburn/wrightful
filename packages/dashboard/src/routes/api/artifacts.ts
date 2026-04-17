@@ -3,13 +3,14 @@ import { ulid } from "ulid";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
 import { artifacts, runs, testResults } from "@/db/schema";
-import { PresignPayloadSchema, type PresignPayload } from "./schemas";
-import { presignPut, readR2Config } from "@/lib/r2-presign";
+import {
+  RegisterArtifactsPayloadSchema,
+  type RegisterArtifactsPayload,
+} from "./schemas";
 import { readIntVar } from "@/lib/env-parse";
 import type { AppContext } from "@/worker";
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 52_428_800; // 50 MiB
-const DEFAULT_PUT_TTL_SECONDS = 900;
 
 function jsonResponse(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
@@ -18,7 +19,7 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
-export async function presignHandler({
+export async function registerHandler({
   request,
   ctx,
 }: {
@@ -30,10 +31,10 @@ export async function presignHandler({
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
-  let payload: PresignPayload;
+  let payload: RegisterArtifactsPayload;
   try {
     const body = await request.json();
-    payload = PresignPayloadSchema.parse(body);
+    payload = RegisterArtifactsPayloadSchema.parse(body);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Invalid request body";
     return jsonResponse({ error: "Validation failed", details: message }, 400);
@@ -42,10 +43,6 @@ export async function presignHandler({
   const maxBytes = readIntVar(
     env.WRIGHTFUL_MAX_ARTIFACT_BYTES,
     DEFAULT_MAX_ARTIFACT_BYTES,
-  );
-  const ttl = readIntVar(
-    env.WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS,
-    DEFAULT_PUT_TTL_SECONDS,
   );
 
   const oversized = payload.artifacts.find((a) => a.sizeBytes > maxBytes);
@@ -59,18 +56,10 @@ export async function presignHandler({
     );
   }
 
-  let r2Config;
-  try {
-    r2Config = readR2Config(env);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "R2 not configured";
-    return jsonResponse({ error: message }, 500);
-  }
-
   const db = getDb();
 
   // Validate the run belongs to this API key's project before touching any
-  // testResultId. Without this check a caller could presign uploads against
+  // testResultId. Without this check a caller could register uploads against
   // another tenant's run by guessing its ULID.
   const [ownerRun] = await db
     .select({ id: runs.id })
@@ -107,14 +96,12 @@ export async function presignHandler({
   }
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + ttl * 1000).toISOString();
 
   const rows: (typeof artifacts.$inferInsert)[] = [];
   const uploads: Array<{
     artifactId: string;
-    url: string;
+    uploadUrl: string;
     r2Key: string;
-    expiresAt: string;
   }> = [];
 
   for (const a of payload.artifacts) {
@@ -130,8 +117,11 @@ export async function presignHandler({
       r2Key,
       createdAt: now,
     });
-    const url = await presignPut(r2Config, r2Key, ttl);
-    uploads.push({ artifactId, url, r2Key, expiresAt });
+    uploads.push({
+      artifactId,
+      uploadUrl: `/api/artifacts/${artifactId}/upload`,
+      r2Key,
+    });
   }
 
   // Eager insert — row existence == artifact was promised. A failed PUT leaves

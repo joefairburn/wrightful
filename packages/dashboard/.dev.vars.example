@@ -9,11 +9,3 @@ BETTER_AUTH_SECRET=replace-me-with-32-plus-char-random-secret
 # http://localhost:5173/api/auth/callback/github).
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=
-
-# R2 S3-compatible credentials for presigning artifact upload/download URLs.
-# Create at: Cloudflare dashboard -> R2 -> Manage API Tokens -> Create API Token
-# Scope: the R2 bucket provisioned for this worker; permissions: Object Read & Write.
-# Leave blank if you're not testing artifacts locally; presign endpoints will
-# 500 with a clear error.
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=

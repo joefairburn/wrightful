@@ -6,7 +6,7 @@ import { generateIdempotencyKey } from "../lib/idempotency.js";
 import {
   ApiClient,
   runWithLimit,
-  type PresignArtifactRequest,
+  type RegisterArtifactRequest,
 } from "../lib/api-client.js";
 import { resolveConfig } from "../lib/config.js";
 import {
@@ -16,7 +16,7 @@ import {
 import * as logger from "../lib/logger.js";
 import type { IngestPayload } from "../types.js";
 
-const PRESIGN_BATCH_SIZE = 50;
+const REGISTER_BATCH_SIZE = 50;
 const UPLOAD_CONCURRENCY = 4;
 
 export const uploadCommand = new Command("upload")
@@ -142,7 +142,7 @@ export const uploadCommand = new Command("upload")
     }
   });
 
-type ResolvedArtifact = PresignArtifactRequest & { localPath: string };
+type ResolvedArtifact = RegisterArtifactRequest & { localPath: string };
 
 /** Pair every collected artifact with the server-assigned testResultId.
  * Entries whose clientKey has no matching server id are dropped and counted. */
@@ -175,7 +175,7 @@ function resolveArtifacts(
   return { requests, skipped };
 }
 
-/** Presign + PUT a single batch with bounded concurrency.
+/** Register + PUT a single batch with bounded concurrency.
  * Returns per-batch counts and never throws — callers summarise over the full run. */
 async function uploadBatch(
   client: ApiClient,
@@ -185,11 +185,11 @@ async function uploadBatch(
 ): Promise<{ uploaded: number; failed: number }> {
   let uploads;
   try {
-    uploads = await client.presign(runId, chunk);
+    uploads = await client.register(runId, chunk);
   } catch (err) {
     logger.printArtifactError(
       batchLabel,
-      err instanceof Error ? err.message : "presign failed",
+      err instanceof Error ? err.message : "register failed",
     );
     return { uploaded: 0, failed: chunk.length };
   }
@@ -197,7 +197,7 @@ async function uploadBatch(
   const tasks = chunk.map((req, idx) => async () => {
     const upload = uploads[idx];
     await client.uploadArtifact(
-      upload.url,
+      upload.uploadUrl,
       req.localPath,
       req.contentType,
       req.sizeBytes,
@@ -247,9 +247,9 @@ async function uploadArtifactsBestEffort(
 
   let uploaded = 0;
   let failed = 0;
-  for (let i = 0; i < requests.length; i += PRESIGN_BATCH_SIZE) {
-    const chunk = requests.slice(i, i + PRESIGN_BATCH_SIZE);
-    const batchLabel = `batch ${i / PRESIGN_BATCH_SIZE}`;
+  for (let i = 0; i < requests.length; i += REGISTER_BATCH_SIZE) {
+    const chunk = requests.slice(i, i + REGISTER_BATCH_SIZE);
+    const batchLabel = `batch ${i / REGISTER_BATCH_SIZE}`;
     const result = await uploadBatch(client, runId, batchLabel, chunk);
     uploaded += result.uploaded;
     failed += result.failed;

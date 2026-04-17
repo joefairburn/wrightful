@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   IngestPayloadSchema,
-  PresignPayloadSchema,
+  RegisterArtifactsPayloadSchema,
 } from "../routes/api/schemas";
 
 describe("IngestPayloadSchema", () => {
@@ -174,7 +174,7 @@ describe("IngestPayloadSchema", () => {
   });
 });
 
-describe("PresignPayloadSchema", () => {
+describe("RegisterArtifactsPayloadSchema", () => {
   const validPayload = {
     runId: "run-123",
     artifacts: [
@@ -189,13 +189,13 @@ describe("PresignPayloadSchema", () => {
   };
 
   it("accepts a valid payload", () => {
-    const result = PresignPayloadSchema.safeParse(validPayload);
+    const result = RegisterArtifactsPayloadSchema.safeParse(validPayload);
     expect(result.success).toBe(true);
   });
 
   it("accepts all artifact types", () => {
     for (const type of ["trace", "screenshot", "video", "other"]) {
-      const result = PresignPayloadSchema.safeParse({
+      const result = RegisterArtifactsPayloadSchema.safeParse({
         ...validPayload,
         artifacts: [{ ...validPayload.artifacts[0], type }],
       });
@@ -204,7 +204,7 @@ describe("PresignPayloadSchema", () => {
   });
 
   it("rejects invalid artifact type", () => {
-    const result = PresignPayloadSchema.safeParse({
+    const result = RegisterArtifactsPayloadSchema.safeParse({
       ...validPayload,
       artifacts: [{ ...validPayload.artifacts[0], type: "pdf" }],
     });
@@ -212,7 +212,7 @@ describe("PresignPayloadSchema", () => {
   });
 
   it("rejects empty artifacts array", () => {
-    const result = PresignPayloadSchema.safeParse({
+    const result = RegisterArtifactsPayloadSchema.safeParse({
       runId: "run-123",
       artifacts: [],
     });
@@ -220,7 +220,7 @@ describe("PresignPayloadSchema", () => {
   });
 
   it("rejects empty runId", () => {
-    const result = PresignPayloadSchema.safeParse({
+    const result = RegisterArtifactsPayloadSchema.safeParse({
       ...validPayload,
       runId: "",
     });
@@ -228,7 +228,7 @@ describe("PresignPayloadSchema", () => {
   });
 
   it("rejects negative sizeBytes", () => {
-    const result = PresignPayloadSchema.safeParse({
+    const result = RegisterArtifactsPayloadSchema.safeParse({
       ...validPayload,
       artifacts: [{ ...validPayload.artifacts[0], sizeBytes: -1 }],
     });

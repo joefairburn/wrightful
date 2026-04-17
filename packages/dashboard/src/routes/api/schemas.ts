@@ -58,9 +58,11 @@ const ArtifactRequestSchema = z.object({
   sizeBytes: z.number().int().min(0),
 });
 
-export const PresignPayloadSchema = z.object({
+export const RegisterArtifactsPayloadSchema = z.object({
   runId: z.string().min(1),
   artifacts: z.array(ArtifactRequestSchema).min(1),
 });
 
-export type PresignPayload = z.infer<typeof PresignPayloadSchema>;
+export type RegisterArtifactsPayload = z.infer<
+  typeof RegisterArtifactsPayloadSchema
+>;
