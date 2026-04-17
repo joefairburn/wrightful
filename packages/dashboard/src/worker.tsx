@@ -81,6 +81,7 @@ export default defineApp([
   render(Document, [
     loadSession,
     route("/login", LoginPage),
+    route("/signup", LoginPage),
     route("/", [requireUser, TeamPickerPage]),
     route("/t/:teamSlug", [requireUser, ProjectPickerPage]),
     route("/t/:teamSlug/p/:projectSlug", [requireUser, RunsListPage]),

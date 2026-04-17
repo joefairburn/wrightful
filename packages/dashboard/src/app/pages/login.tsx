@@ -1,12 +1,4 @@
 import { requestInfo } from "rwsdk/worker";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardPanel,
-  CardTitle,
-} from "@/app/components/ui/card";
-import { Separator } from "@/app/components/ui/separator";
 import { hasGithubOAuthConfigured } from "@/lib/better-auth";
 import { LoginForm } from "./login-form";
 import { LoginGithubButton } from "./login-github-button";
@@ -15,61 +7,68 @@ export function LoginPage() {
   const url = new URL(requestInfo.request.url);
   const next = url.searchParams.get("next") ?? "/";
   const callbackURL = encodeURIComponent(next);
-  const mode = url.searchParams.get("mode") === "signup" ? "signup" : "signin";
+  const mode =
+    url.pathname === "/signup" || url.searchParams.get("mode") === "signup"
+      ? "signup"
+      : "signin";
   const showGithub = hasGithubOAuthConfigured();
 
+  const copy = {
+    signin: {
+      title: "Sign in",
+      subtitle: "Access your test dashboard",
+      switchText: "Need an account? Sign up",
+      switchHref: `/signup?next=${callbackURL}`,
+    },
+    signup: {
+      title: "Create your account",
+      subtitle: "Sign up to access this Wrightful instance",
+      switchText: "Already have an account? Sign in",
+      switchHref: `/login?next=${callbackURL}`,
+    },
+  }[mode];
+
   return (
-    <div className="mx-auto max-w-sm px-6 py-16">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-center">
-            {mode === "signup" ? "Create an account" : "Sign in to Wrightful"}
-          </CardTitle>
-          <CardDescription className="text-center">
-            {mode === "signup"
-              ? "Set up a password to get started."
-              : "Welcome back."}
-          </CardDescription>
-        </CardHeader>
-        <CardPanel className="flex flex-col gap-4">
-          <LoginForm mode={mode} callbackURL={next} />
-
-          <p className="text-center text-muted-foreground text-sm">
-            {mode === "signup" ? (
-              <>
-                Have an account?{" "}
-                <a
-                  href={`/login?next=${callbackURL}`}
-                  className="text-foreground underline-offset-4 hover:underline"
-                >
-                  Sign in
-                </a>
-              </>
-            ) : (
-              <>
-                New to Wrightful?{" "}
-                <a
-                  href={`/login?mode=signup&next=${callbackURL}`}
-                  className="text-foreground underline-offset-4 hover:underline"
-                >
-                  Create an account
-                </a>
-              </>
-            )}
+    <main className="min-h-screen flex items-center justify-center p-6 bg-background">
+      <div className="w-full max-w-[400px] bg-card rounded-xl flex flex-col p-8">
+        <div className="mb-10 text-center">
+          <span className="font-bold text-xl tracking-tighter text-foreground mb-6 block">
+            Wrightful
+          </span>
+          <h1 className="font-medium text-2xl tracking-tighter text-foreground mb-2">
+            {copy.title}
+          </h1>
+          <p className="font-label text-sm text-muted-foreground">
+            {copy.subtitle}
           </p>
+        </div>
 
-          {showGithub && (
-            <>
-              <div className="flex items-center gap-3 text-muted-foreground text-xs">
-                <Separator className="flex-1" />
-                or
-                <Separator className="flex-1" />
-              </div>
+        {showGithub && (
+          <>
+            <div className="flex flex-col gap-3 mb-8">
               <LoginGithubButton callbackURL={next} />
-            </>
-          )}
-        </CardPanel>
-      </Card>
-    </div>
+            </div>
+            <div className="flex items-center gap-4 mb-8">
+              <div className="h-px bg-secondary flex-grow" />
+              <span className="font-label text-xs text-muted-foreground uppercase tracking-widest">
+                Or
+              </span>
+              <div className="h-px bg-secondary flex-grow" />
+            </div>
+          </>
+        )}
+
+        <LoginForm mode={mode} callbackURL={next} />
+
+        <div className="mt-8 text-center">
+          <a
+            href={copy.switchHref}
+            className="font-label text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {copy.switchText}
+          </a>
+        </div>
+      </div>
+    </main>
   );
 }
