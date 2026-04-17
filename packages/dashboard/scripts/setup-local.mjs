@@ -37,4 +37,17 @@ if (migrate.status !== 0) {
 }
 
 console.log("");
-console.log("done — start the dev server with: pnpm dev");
+console.log("seeding demo user/team/project/api-key...");
+const seed = spawnSync("node", ["scripts/seed-demo.mjs"], {
+  stdio: "inherit",
+  cwd: dashboardDir,
+});
+if (seed.status !== 0) {
+  process.exit(seed.status ?? 1);
+}
+
+console.log("");
+console.log("done — next steps:");
+console.log("  1. pnpm dev               # start dashboard on :5173");
+console.log("  2. pnpm fixtures:generate # upload example runs (optional)");
+console.log("     sign in: demo@wrightful.local / demo1234");

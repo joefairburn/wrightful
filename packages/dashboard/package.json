@@ -21,6 +21,8 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:seed-api-key": "node scripts/seed-api-key.mjs",
+    "db:seed-demo": "node scripts/seed-demo.mjs",
+    "fixtures:generate": "node scripts/upload-fixtures.mjs",
     "setup:local": "node scripts/setup-local.mjs"
   },
   "dependencies": {
@@ -49,6 +51,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.32.3",
     "@cloudflare/workers-types": "^4.20260416.2",
+    "@playwright/test": "^1.59.1",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
