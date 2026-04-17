@@ -107,8 +107,6 @@ export interface ParsedReport {
     | "reporterVersion"
   >;
   playwrightVersion: string;
-  shardIndex: number | null;
-  shardTotal: number | null;
   /** The raw Playwright report — retained so the artifact collector can walk attachments without re-reading the file. */
   report: PlaywrightReport;
 }
@@ -130,23 +128,14 @@ export async function parseReport(filePath: string): Promise<ParsedReport> {
 
   const results = parseSuites(report.suites, []);
 
-  const shardIndex = report.config.shard
-    ? report.config.shard.current - 1 // Playwright uses 1-based, we store 0-based
-    : null;
-  const shardTotal = report.config.shard?.total ?? null;
-
   return {
     results,
     run: {
-      shardIndex,
-      shardTotal,
       status: computeRunStatus(results),
       durationMs: Math.round(report.stats.duration),
       playwrightVersion: report.config.version || "unknown",
     },
     playwrightVersion: report.config.version || "unknown",
-    shardIndex,
-    shardTotal,
     report,
   };
 }

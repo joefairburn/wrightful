@@ -34,8 +34,6 @@ const RunMetadataSchema = z.object({
   commitMessage: z.string().nullable().optional(),
   prNumber: z.number().int().nullable().optional(),
   repo: z.string().nullable().optional(),
-  shardIndex: z.number().int().nullable().optional(),
-  shardTotal: z.number().int().nullable().optional(),
   status: z.enum(["passed", "failed", "timedout", "interrupted"]),
   durationMs: z.number().int().min(0),
   reporterVersion: z.string().nullable().optional(),

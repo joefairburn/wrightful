@@ -25,8 +25,6 @@ describe("ApiClient", () => {
       commitMessage: null,
       prNumber: null,
       repo: null,
-      shardIndex: null,
-      shardTotal: null,
       status: "passed" as const,
       durationMs: 1000,
       reporterVersion: "0.1.0",

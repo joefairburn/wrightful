@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "239da29c-9533-432d-a23a-35acdf581dc3",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "a42c62ab-d94d-471b-a336-0603422d14c0",
+  "prevId": "239da29c-9533-432d-a23a-35acdf581dc3",
   "tables": {
     "account": {
       "name": "account",
@@ -491,20 +491,6 @@
         "repo": {
           "name": "repo",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "shard_index": {
-          "name": "shard_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "shard_total": {
-          "name": "shard_total",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

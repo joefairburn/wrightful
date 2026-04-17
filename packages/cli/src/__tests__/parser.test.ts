@@ -108,12 +108,6 @@ describe("parseReport", () => {
     }
   });
 
-  it("handles null shard info", async () => {
-    const result = await parseReport(FIXTURE_PATH);
-    expect(result.shardIndex).toBeNull();
-    expect(result.shardTotal).toBeNull();
-  });
-
   it("throws on nonexistent file", async () => {
     await expect(parseReport("/nonexistent/file.json")).rejects.toThrow();
   });

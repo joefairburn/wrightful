@@ -180,8 +180,6 @@ export const runs = sqliteTable(
     commitMessage: text("commit_message"),
     prNumber: integer("pr_number"),
     repo: text("repo"),
-    shardIndex: integer("shard_index"),
-    shardTotal: integer("shard_total"),
     totalTests: integer("total_tests").notNull(),
     passed: integer("passed").notNull(),
     failed: integer("failed").notNull(),

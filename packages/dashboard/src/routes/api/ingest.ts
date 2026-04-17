@@ -122,8 +122,6 @@ export async function ingestHandler({
     commitMessage: payload.run.commitMessage ?? null,
     prNumber: payload.run.prNumber ?? null,
     repo: payload.run.repo ?? null,
-    shardIndex: payload.run.shardIndex ?? null,
-    shardTotal: payload.run.shardTotal ?? null,
     totalTests,
     passed,
     failed,

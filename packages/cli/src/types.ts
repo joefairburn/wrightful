@@ -112,8 +112,6 @@ export interface RunPayload {
   commitMessage: string | null;
   prNumber: number | null;
   repo: string | null;
-  shardIndex: number | null;
-  shardTotal: number | null;
   status: "passed" | "failed" | "timedout" | "interrupted";
   durationMs: number;
   reporterVersion: string;

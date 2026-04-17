@@ -63,10 +63,7 @@ export const uploadCommand = new Command("upload")
     logger.printCIInfo(ci?.ciProvider ?? null);
 
     // Generate idempotency key
-    const idempotencyKey = generateIdempotencyKey(
-      ci?.ciBuildId,
-      parsed.shardIndex,
-    );
+    const idempotencyKey = generateIdempotencyKey(ci?.ciBuildId);
 
     // Build the ingest payload
     const payload: IngestPayload = {
@@ -79,8 +76,6 @@ export const uploadCommand = new Command("upload")
         commitMessage: ci?.commitMessage ?? null,
         prNumber: ci?.prNumber ?? null,
         repo: ci?.repo ?? null,
-        shardIndex: parsed.shardIndex,
-        shardTotal: parsed.shardTotal,
         status: parsed.run.status,
         durationMs: parsed.run.durationMs,
         reporterVersion: "0.1.0",
