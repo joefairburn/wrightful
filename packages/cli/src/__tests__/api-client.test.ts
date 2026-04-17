@@ -13,7 +13,7 @@ describe("ApiClient", () => {
     vi.restoreAllMocks();
   });
 
-  const client = new ApiClient("https://dashboard.example.com", "grn_test123");
+  const client = new ApiClient("https://dashboard.example.com", "wrf_test123");
 
   const validPayload = {
     idempotencyKey: "test-key",
@@ -49,7 +49,7 @@ describe("ApiClient", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          Authorization: "Bearer grn_test123",
+          Authorization: "Bearer wrf_test123",
           "Content-Type": "application/json",
           "X-Wrightful-Version": "2",
         }),

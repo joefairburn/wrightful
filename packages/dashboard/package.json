@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf ./node_modules/.vite",
     "release": "rw-scripts ensure-deploy-env && npm run clean && npm run build && wrangler deploy",
+    "deploy": "npm run build && npm run db:migrate:remote && wrangler deploy",
     "generate": "rw-scripts ensure-env && wrangler types --include-runtime false",
     "check": "npm run generate && npm run types",
     "typecheck": "tsgo --noEmit",
@@ -17,8 +18,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply wrightful --local",
-    "db:migrate:remote": "wrangler d1 migrations apply wrightful --remote"
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:seed-api-key": "node scripts/seed-api-key.mjs"
   },
   "dependencies": {
     "@base-ui-components/react": "1.0.0-rc.0",
@@ -57,5 +59,18 @@
     "vite": "~7.3.2",
     "vitest": "^4.1.4",
     "wrangler": "^4.83.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "DB": {
+        "description": "D1 database storing runs, test results, tags, annotations, and API keys."
+      },
+      "R2": {
+        "description": "R2 bucket storing uploaded artifacts (traces, screenshots, videos)."
+      },
+      "ASSETS": {
+        "description": "Static assets built by Vite."
+      }
+    }
   }
 }

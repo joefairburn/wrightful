@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "wrightful",
   "main": "src/worker.tsx",
-  "compatibility_date": "2025-08-21",
+  "compatibility_date": "2026-04-17",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "binding": "ASSETS",
@@ -14,6 +14,11 @@
     {
       "binding": "DB",
       "database_name": "wrightful",
+      // Placeholder — overwritten with the provisioned D1 UUID by the
+      // "Deploy to Cloudflare" flow. Must be a non-empty string so miniflare
+      // can construct a bindings map for local dev / e2e (an empty string
+      // trips the `assert(databaseId)` check inside the explorer binding
+      // map construction).
       "database_id": "LOCAL_PLACEHOLDER",
       "migrations_dir": "drizzle",
     },

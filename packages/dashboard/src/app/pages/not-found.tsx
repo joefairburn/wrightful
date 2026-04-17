@@ -1,4 +1,7 @@
+import { requestInfo } from "rwsdk/worker";
+
 export function NotFoundPage() {
+  requestInfo.response.status = 404;
   return (
     <div className="mx-auto max-w-2xl p-6 sm:p-8">
       <h1 className="mb-2 font-semibold text-2xl">Not found</h1>

@@ -191,6 +191,24 @@ Production:
   `GITHUB_CLIENT_SECRET` — the GitHub OAuth app callback URL is
   `${WRIGHTFUL_PUBLIC_URL}/api/auth/callback/github`.
 
+## Post-review fixes
+
+Two issues flagged in code review and addressed in-place:
+
+- **API-key reveal no longer flows through the URL.** The POST /keys handler
+  previously redirected to `?key=<raw>`, leaking the bearer credential into
+  the `Location` header, browser URL bar / history, and any access logs in
+  front of the Worker. Replaced with a short-lived `HttpOnly; Secure;
+SameSite=Lax; Max-Age=60` cookie scoped to the keys page path
+  (`wrightful_reveal_key`). The GET page reads the cookie, renders the key
+  once, and clears it via `Max-Age=0` on the same response.
+- **Unauthorized RSC pages now return HTTP 404.** `NotFoundPage` mutates
+  `requestInfo.response.status = 404`, so every page that bails with
+  `<NotFoundPage />` (runs-list, run-detail, test-detail, test-history,
+  team-picker, project-picker, and the admin surfaces) now matches the
+  API-side 404 behaviour and the documented "404 shell" contract in
+  `active-project.ts`.
+
 ## Out of scope (noted for later)
 
 - **Email invitations.** Requires an email provider. Memberships can still
