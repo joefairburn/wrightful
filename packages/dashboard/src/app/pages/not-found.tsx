@@ -1,4 +1,7 @@
+import { requestInfo } from "rwsdk/worker";
+
 export function NotFoundPage() {
+  requestInfo.response.status = 404;
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
       <h1>Not found</h1>

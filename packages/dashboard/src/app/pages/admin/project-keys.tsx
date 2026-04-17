@@ -26,6 +26,28 @@ function generateApiKey(): string {
   return `wrf_${b64}`;
 }
 
+const REVEAL_COOKIE = "wrightful_reveal_key";
+
+function readRevealCookie(request: Request): string | null {
+  const header = request.headers.get("cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (name === REVEAL_COOKIE) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+}
+
+function revealCookie(
+  teamSlug: string,
+  projectSlug: string,
+  value: string | null,
+): string {
+  const path = `/admin/t/${teamSlug}/p/${projectSlug}/keys`;
+  const base = `${REVEAL_COOKIE}=${value ? encodeURIComponent(value) : ""}; Path=${path}; HttpOnly; Secure; SameSite=Lax`;
+  return value ? `${base}; Max-Age=60` : `${base}; Max-Age=0`;
+}
+
 export async function AdminProjectKeysPage() {
   const ctx = requestInfo.ctx as AppContext;
   if (!ctx.user) return <NotFoundPage />;
@@ -39,8 +61,13 @@ export async function AdminProjectKeysPage() {
   );
   if (!project || project.role !== "owner") return <NotFoundPage />;
 
-  const url = new URL(requestInfo.request.url);
-  const revealedKey = url.searchParams.get("key");
+  const revealedKey = readRevealCookie(requestInfo.request);
+  if (revealedKey) {
+    requestInfo.response.headers.append(
+      "Set-Cookie",
+      revealCookie(project.teamSlug, project.slug, null),
+    );
+  }
 
   const db = getDb();
   const rows = await db
@@ -237,7 +264,13 @@ export async function projectKeysHandler({
       keyPrefix: rawKey.slice(0, 8),
       createdAt: new Date(),
     });
-    return Response.redirect(`${back}?key=${encodeURIComponent(rawKey)}`, 302);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: back,
+        "Set-Cookie": revealCookie(project.teamSlug, project.slug, rawKey),
+      },
+    });
   }
 
   if (action === "revoke") {
