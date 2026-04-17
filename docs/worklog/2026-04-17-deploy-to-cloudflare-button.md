@@ -31,3 +31,15 @@ R2 API tokens (the S3-compatible access key pair used by `src/lib/r2-presign.ts`
 - `pnpm --filter @wrightful/dashboard exec wrangler deploy --dry-run --config dist/worker/wrangler.json` — wrangler parses the edited config, prints all bindings (`DB`, `R2`, `ASSETS`, vars) correctly.
 - `pnpm test` — 126 tests pass.
 - End-to-end deploy button flow will be smoke-tested against a scratch Cloudflare account once merged; not exercised locally since it mutates real Cloudflare state.
+
+## Follow-up: `database_id` must be non-empty for local dev
+
+The initial draft blanked `d1_databases[0].database_id` entirely
+(`""`). That broke `pnpm dev` and `pnpm test:e2e`: miniflare asserts
+`databaseId` is truthy while building its explorer binding map, and
+aborts vite dev-server startup with `AssertionError: (databaseId)`. The
+deploy flow overwrites the value with the provisioned D1 UUID
+regardless, so a placeholder string is fine. Restored the pre-existing
+`"LOCAL_PLACEHOLDER"` sentinel (with a comment explaining why it has to
+be non-empty). `pnpm test:e2e` now boots the dev server and all 12
+tests pass.
