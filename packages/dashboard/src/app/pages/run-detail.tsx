@@ -1,11 +1,37 @@
 import { and, eq } from "drizzle-orm";
+import type React from "react";
+import { StatusBadge } from "@/app/components/status-badge";
+import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
+import { Card, CardPanel } from "@/app/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/app/components/ui/table";
+import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { runs, testResults } from "@/db/schema";
-import { StatusBadge } from "@/app/components/status-badge";
-import { formatDuration } from "@/lib/time-format";
-import { param } from "@/lib/route-params";
 import { getActiveProject } from "@/lib/active-project";
-import { NotFoundPage } from "@/app/pages/not-found";
+import { param } from "@/lib/route-params";
+import { formatDuration } from "@/lib/time-format";
+
+function Stat({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="text-muted-foreground text-xs">{label}</div>
+      <div>{children}</div>
+    </div>
+  );
+}
 
 export async function RunDetailPage() {
   const runId = param("id");
@@ -25,9 +51,11 @@ export async function RunDetailPage() {
 
   if (!run) {
     return (
-      <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-        <h1>Run not found</h1>
-        <a href={base}>Back to runs</a>
+      <div className="mx-auto max-w-6xl p-6 sm:p-8">
+        <h1 className="mb-4 font-semibold text-2xl">Run not found</h1>
+        <a href={base} className="text-muted-foreground hover:underline">
+          Back to runs
+        </a>
       </div>
     );
   }
@@ -50,187 +78,115 @@ export async function RunDetailPage() {
   );
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <div style={{ marginBottom: "1rem" }}>
-        <a href={base} style={{ color: "#6b7280", textDecoration: "none" }}>
+    <div className="mx-auto max-w-6xl p-6 sm:p-8">
+      <div className="mb-2">
+        <a
+          href={base}
+          className="text-muted-foreground text-sm hover:underline"
+        >
           &larr; All runs
         </a>
       </div>
 
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>Run Detail</h1>
+      <h1 className="mb-4 font-semibold text-2xl">Run Detail</h1>
 
-      {/* Summary */}
-      <div
-        style={{
-          display: "flex",
-          gap: "2rem",
-          marginBottom: "1.5rem",
-          padding: "1rem",
-          background: "#f9fafb",
-          borderRadius: "8px",
-        }}
-      >
-        <div>
-          <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>Status</div>
-          <StatusBadge status={run.status} />
-        </div>
-        <div>
-          <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>Tests</div>
-          <div>{run.totalTests}</div>
-        </div>
-        <div>
-          <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>Passed</div>
-          <div style={{ color: "#16a34a" }}>{run.passed}</div>
-        </div>
-        <div>
-          <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>Failed</div>
-          <div style={{ color: "#dc2626" }}>{run.failed}</div>
-        </div>
-        <div>
-          <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>Flaky</div>
-          <div style={{ color: "#ea580c" }}>{run.flaky}</div>
-        </div>
-        <div>
-          <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>Skipped</div>
-          <div style={{ color: "#9ca3af" }}>{run.skipped}</div>
-        </div>
-        <div>
-          <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>Duration</div>
-          <div>{formatDuration(run.durationMs)}</div>
-        </div>
-        {run.branch && (
-          <div>
-            <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>Branch</div>
-            <div>{run.branch}</div>
-          </div>
-        )}
-        {run.commitSha && (
-          <div>
-            <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>Commit</div>
-            <div style={{ fontFamily: "monospace", fontSize: "0.85rem" }}>
-              {run.commitSha.slice(0, 7)}
-            </div>
-          </div>
-        )}
-      </div>
+      <Card className="mb-6">
+        <CardPanel className="flex flex-wrap gap-x-8 gap-y-4">
+          <Stat label="Status">
+            <StatusBadge status={run.status} />
+          </Stat>
+          <Stat label="Tests">{run.totalTests}</Stat>
+          <Stat label="Passed">
+            <span className="text-success-foreground">{run.passed}</span>
+          </Stat>
+          <Stat label="Failed">
+            <span className="text-destructive-foreground">{run.failed}</span>
+          </Stat>
+          <Stat label="Flaky">
+            <span className="text-warning-foreground">{run.flaky}</span>
+          </Stat>
+          <Stat label="Skipped">
+            <span className="text-muted-foreground">{run.skipped}</span>
+          </Stat>
+          <Stat label="Duration">{formatDuration(run.durationMs)}</Stat>
+          {run.branch && <Stat label="Branch">{run.branch}</Stat>}
+          {run.commitSha && (
+            <Stat label="Commit">
+              <span className="font-mono text-sm">
+                {run.commitSha.slice(0, 7)}
+              </span>
+            </Stat>
+          )}
+        </CardPanel>
+      </Card>
 
       {run.commitMessage && (
-        <p style={{ color: "#374151", marginBottom: "1rem" }}>
-          {run.commitMessage}
-        </p>
+        <p className="mb-4 text-foreground text-sm">{run.commitMessage}</p>
       )}
 
-      {/* Test Results */}
-      <h2
-        style={{
-          fontSize: "1.1rem",
-          marginBottom: "0.75rem",
-          marginTop: "1.5rem",
-        }}
-      >
+      <h2 className="mt-8 mb-3 font-semibold text-lg">
         Test Results ({results.length})
       </h2>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: "0.875rem",
-        }}
-      >
-        <thead>
-          <tr
-            style={{
-              borderBottom: "2px solid #e5e7eb",
-              textAlign: "left",
-            }}
-          >
-            <th style={{ padding: "0.5rem" }}>Status</th>
-            <th style={{ padding: "0.5rem" }}>Test</th>
-            <th style={{ padding: "0.5rem" }}>File</th>
-            <th style={{ padding: "0.5rem" }}>Duration</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Status</TableHead>
+            <TableHead>Test</TableHead>
+            <TableHead>File</TableHead>
+            <TableHead>Duration</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {results.map((result) => {
             const detailHref = `${base}/runs/${runId}/tests/${result.id}`;
             return (
-              <tr key={result.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                <td style={{ padding: "0.5rem" }}>
-                  <a href={detailHref} style={{ textDecoration: "none" }}>
+              <TableRow key={result.id}>
+                <TableCell>
+                  <a href={detailHref}>
                     <StatusBadge status={result.status} />
                   </a>
-                </td>
-                <td style={{ padding: "0.5rem" }}>
-                  <a
-                    href={detailHref}
-                    style={{ color: "inherit", textDecoration: "none" }}
-                  >
+                </TableCell>
+                <TableCell>
+                  <a href={detailHref} className="hover:underline">
                     {result.title}
                   </a>
                   {result.retryCount > 0 && (
-                    <span
-                      style={{
-                        marginLeft: "0.5rem",
-                        fontSize: "0.75rem",
-                        color: "#9ca3af",
-                      }}
-                    >
+                    <span className="ml-2 text-muted-foreground text-xs">
                       (retry {result.retryCount})
                     </span>
                   )}
-                </td>
-                <td
-                  style={{
-                    padding: "0.5rem",
-                    fontFamily: "monospace",
-                    fontSize: "0.8rem",
-                    color: "#6b7280",
-                  }}
-                >
+                </TableCell>
+                <TableCell className="font-mono text-muted-foreground text-xs">
                   {result.file}
-                </td>
-                <td style={{ padding: "0.5rem" }}>
-                  {formatDuration(result.durationMs)}
-                </td>
-              </tr>
+                </TableCell>
+                <TableCell>{formatDuration(result.durationMs)}</TableCell>
+              </TableRow>
             );
           })}
-          {results.length > 0 &&
-            results
-              .filter(
-                (r) =>
-                  r.errorMessage &&
-                  (r.status === "failed" || r.status === "timedout"),
-              )
-              .map((result) => (
-                <tr key={`${result.id}-error`}>
-                  <td colSpan={4}>
-                    <div
-                      style={{
-                        padding: "0.75rem",
-                        margin: "0.25rem 0",
-                        background: "#fef2f2",
-                        borderRadius: "4px",
-                        fontSize: "0.8rem",
-                      }}
-                    >
-                      <strong>{result.title}</strong>
-                      <pre
-                        style={{
-                          marginTop: "0.25rem",
-                          whiteSpace: "pre-wrap",
-                          color: "#991b1b",
-                          fontFamily: "monospace",
-                        }}
-                      >
+          {results
+            .filter(
+              (r) =>
+                r.errorMessage &&
+                (r.status === "failed" || r.status === "timedout"),
+            )
+            .map((result) => (
+              <TableRow key={`${result.id}-error`}>
+                <TableCell colSpan={4} className="whitespace-normal">
+                  <Alert variant="error" className="my-1">
+                    <AlertTitle className="font-mono text-xs">
+                      {result.title}
+                    </AlertTitle>
+                    <AlertDescription>
+                      <pre className="whitespace-pre-wrap font-mono text-xs">
                         {result.errorMessage}
                       </pre>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-        </tbody>
-      </table>
+                    </AlertDescription>
+                  </Alert>
+                </TableCell>
+              </TableRow>
+            ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }

@@ -1,5 +1,10 @@
 import { ulid } from "ulid";
 import { requestInfo } from "rwsdk/worker";
+import { Alert, AlertDescription } from "@/app/components/ui/alert";
+import { Button } from "@/app/components/ui/button";
+import { Card, CardPanel } from "@/app/components/ui/card";
+import { Field, FieldLabel } from "@/app/components/ui/field";
+import { Input } from "@/app/components/ui/input";
 import { getDb } from "@/db";
 import { memberships, teams } from "@/db/schema";
 import { readField } from "@/lib/form";
@@ -11,77 +16,45 @@ export function AdminTeamNewPage() {
   const url = new URL(requestInfo.request.url);
   const error = url.searchParams.get("error");
   return (
-    <div
-      style={{
-        fontFamily: "system-ui, sans-serif",
-        padding: "2rem",
-        maxWidth: 480,
-      }}
-    >
-      <div style={{ marginBottom: "1rem" }}>
+    <div className="mx-auto max-w-md p-6 sm:p-8">
+      <div className="mb-2">
         <a
           href="/admin/teams"
-          style={{ color: "#6b7280", textDecoration: "none" }}
+          className="text-muted-foreground text-sm hover:underline"
         >
           &larr; Teams
         </a>
       </div>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "1rem" }}>
-        Create a team
-      </h1>
-      {error && (
-        <p
-          style={{
-            color: "#991b1b",
-            background: "#fef2f2",
-            padding: "0.5rem 0.75rem",
-            borderRadius: "4px",
-            marginBottom: "1rem",
-          }}
-        >
-          {error}
-        </p>
-      )}
-      <form method="post" style={{ display: "grid", gap: "0.75rem" }}>
-        <label>
-          <span style={{ display: "block", fontSize: "0.85rem" }}>Name</span>
-          <input
-            name="name"
-            required
-            maxLength={60}
-            style={{ padding: "0.5rem", width: "100%" }}
-          />
-        </label>
-        <label>
-          <span style={{ display: "block", fontSize: "0.85rem" }}>
-            Slug (lowercase, used in URLs)
-          </span>
-          <input
-            name="slug"
-            required
-            pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
-            maxLength={40}
-            style={{
-              padding: "0.5rem",
-              width: "100%",
-              fontFamily: "monospace",
-            }}
-          />
-        </label>
-        <button
-          type="submit"
-          style={{
-            padding: "0.5rem 1rem",
-            background: "#111827",
-            color: "#fff",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-          }}
-        >
-          Create team
-        </button>
-      </form>
+      <h1 className="mb-6 font-semibold text-2xl">Create a team</h1>
+      <Card>
+        <CardPanel className="flex flex-col gap-4">
+          {error && (
+            <Alert variant="error">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <form method="post" className="flex flex-col gap-3">
+            <Field>
+              <FieldLabel>Name</FieldLabel>
+              <Input nativeInput name="name" required maxLength={60} />
+            </Field>
+            <Field>
+              <FieldLabel>Slug (lowercase, used in URLs)</FieldLabel>
+              <Input
+                nativeInput
+                name="slug"
+                required
+                pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
+                maxLength={40}
+                className="font-mono"
+              />
+            </Field>
+            <Button type="submit" className="mt-2 self-start">
+              Create team
+            </Button>
+          </form>
+        </CardPanel>
+      </Card>
     </div>
   );
 }

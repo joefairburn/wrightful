@@ -1,11 +1,16 @@
 export function NotFoundPage() {
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <h1>Not found</h1>
-      <p style={{ color: "#6b7280" }}>
+    <div className="mx-auto max-w-2xl p-6 sm:p-8">
+      <h1 className="mb-2 font-semibold text-2xl">Not found</h1>
+      <p className="mb-4 text-muted-foreground">
         This page doesn&apos;t exist, or you don&apos;t have access to it.
       </p>
-      <a href="/">Back home</a>
+      <a
+        href="/"
+        className="text-foreground underline-offset-4 hover:underline"
+      >
+        Back home
+      </a>
     </div>
   );
 }

@@ -1,10 +1,25 @@
 import { desc, eq } from "drizzle-orm";
+import { StatusBadge } from "@/app/components/status-badge";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/app/components/ui/empty";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/app/components/ui/table";
+import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { runs } from "@/db/schema";
-import { StatusBadge } from "@/app/components/status-badge";
-import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import { getActiveProject } from "@/lib/active-project";
-import { NotFoundPage } from "@/app/pages/not-found";
+import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 export async function RunsListPage() {
   const project = await getActiveProject();
@@ -21,113 +36,82 @@ export async function RunsListPage() {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "1.5rem" }}>Test Runs</h1>
+    <div className="mx-auto max-w-6xl p-6 sm:p-8">
+      <h1 className="mb-6 font-semibold text-2xl">Test Runs</h1>
       {allRuns.length === 0 ? (
-        <div style={{ color: "#6b7280", padding: "2rem", textAlign: "center" }}>
-          <p style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>
-            No test runs yet.
-          </p>
-          <p>Upload your first Playwright report using the CLI:</p>
-          <code
-            style={{
-              display: "inline-block",
-              marginTop: "0.5rem",
-              padding: "0.5rem 1rem",
-              background: "#f3f4f6",
-              borderRadius: "4px",
-            }}
-          >
-            npx @wrightful/cli upload ./playwright-report.json
-          </code>
-        </div>
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>No test runs yet</EmptyTitle>
+            <EmptyDescription>
+              Upload your first Playwright report using the CLI.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <code className="rounded-md bg-muted px-3 py-1.5 font-mono text-xs">
+              npx @wrightful/cli upload ./playwright-report.json
+            </code>
+          </EmptyContent>
+        </Empty>
       ) : (
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "0.875rem",
-          }}
-        >
-          <thead>
-            <tr
-              style={{
-                borderBottom: "2px solid #e5e7eb",
-                textAlign: "left",
-              }}
-            >
-              <th style={{ padding: "0.5rem" }}>Status</th>
-              <th style={{ padding: "0.5rem" }}>Branch</th>
-              <th style={{ padding: "0.5rem" }}>Commit</th>
-              <th style={{ padding: "0.5rem" }}>Tests</th>
-              <th style={{ padding: "0.5rem" }}>Duration</th>
-              <th style={{ padding: "0.5rem" }}>When</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Status</TableHead>
+              <TableHead>Branch</TableHead>
+              <TableHead>Commit</TableHead>
+              <TableHead>Tests</TableHead>
+              <TableHead>Duration</TableHead>
+              <TableHead>When</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {allRuns.map((run) => (
-              <tr
-                key={run.id}
-                style={{
-                  borderBottom: "1px solid #f3f4f6",
-                }}
-              >
-                <td style={{ padding: "0.5rem" }}>
-                  <a
-                    href={`${base}/runs/${run.id}`}
-                    style={{ textDecoration: "none" }}
-                  >
+              <TableRow key={run.id}>
+                <TableCell>
+                  <a href={`${base}/runs/${run.id}`}>
                     <StatusBadge status={run.status} />
                   </a>
-                </td>
-                <td style={{ padding: "0.5rem" }}>
+                </TableCell>
+                <TableCell>
                   <a
                     href={`${base}/runs/${run.id}`}
-                    style={{ color: "inherit", textDecoration: "none" }}
+                    className="hover:underline"
                   >
                     {run.branch || "-"}
                   </a>
-                </td>
-                <td
-                  style={{
-                    padding: "0.5rem",
-                    fontFamily: "monospace",
-                    fontSize: "0.8rem",
-                  }}
-                >
+                </TableCell>
+                <TableCell className="font-mono text-xs">
                   {run.commitSha?.slice(0, 7) || "-"}
-                </td>
-                <td style={{ padding: "0.5rem" }}>
-                  <span style={{ color: "#16a34a" }}>{run.passed}</span>
+                </TableCell>
+                <TableCell>
+                  <span className="text-success-foreground">{run.passed}</span>
                   {run.failed > 0 && (
-                    <span style={{ color: "#dc2626" }}>
+                    <span className="text-destructive-foreground">
                       {" / "}
                       {run.failed}
                     </span>
                   )}
                   {run.flaky > 0 && (
-                    <span style={{ color: "#ea580c" }}>
+                    <span className="text-warning-foreground">
                       {" / "}
                       {run.flaky}
                     </span>
                   )}
                   {run.skipped > 0 && (
-                    <span style={{ color: "#9ca3af" }}>
+                    <span className="text-muted-foreground">
                       {" / "}
                       {run.skipped}
                     </span>
                   )}
-                </td>
-                <td style={{ padding: "0.5rem" }}>
-                  {formatDuration(run.durationMs)}
-                </td>
-                <td style={{ padding: "0.5rem", color: "#6b7280" }}>
+                </TableCell>
+                <TableCell>{formatDuration(run.durationMs)}</TableCell>
+                <TableCell className="text-muted-foreground">
                   {formatRelativeTime(run.createdAt)}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
     </div>
   );

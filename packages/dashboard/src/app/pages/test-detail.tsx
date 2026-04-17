@@ -1,5 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { requestInfo } from "rwsdk/worker";
+import { StatusBadge } from "@/app/components/status-badge";
+import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
+import { Badge } from "@/app/components/ui/badge";
+import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import {
   artifacts,
@@ -8,11 +12,9 @@ import {
   testResults,
   testTags,
 } from "@/db/schema";
-import { StatusBadge } from "@/app/components/status-badge";
-import { formatDuration } from "@/lib/time-format";
-import { param } from "@/lib/route-params";
 import { getActiveProject } from "@/lib/active-project";
-import { NotFoundPage } from "@/app/pages/not-found";
+import { param } from "@/lib/route-params";
+import { formatDuration } from "@/lib/time-format";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -72,9 +74,14 @@ export async function TestDetailPage() {
 
   if (rows.length === 0) {
     return (
-      <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-        <h1>Test not found</h1>
-        <a href={`${base}/runs/${runId}`}>Back to run</a>
+      <div className="mx-auto max-w-6xl p-6 sm:p-8">
+        <h1 className="mb-2 font-semibold text-2xl">Test not found</h1>
+        <a
+          href={`${base}/runs/${runId}`}
+          className="text-foreground underline-offset-4 hover:underline"
+        >
+          Back to run
+        </a>
       </div>
     );
   }
@@ -106,35 +113,21 @@ export async function TestDetailPage() {
   ]);
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <div style={{ marginBottom: "1rem" }}>
+    <div className="mx-auto max-w-6xl p-6 sm:p-8">
+      <div className="mb-2">
         <a
           href={`${base}/runs/${runId}`}
-          style={{ color: "#6b7280", textDecoration: "none" }}
+          className="text-muted-foreground text-sm hover:underline"
         >
           &larr; Back to run
         </a>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.75rem",
-          marginBottom: "0.5rem",
-        }}
-      >
+      <div className="mb-2 flex items-center gap-3">
         <StatusBadge status={result.status} />
-        <h1 style={{ fontSize: "1.25rem", margin: 0 }}>{result.title}</h1>
+        <h1 className="font-semibold text-xl">{result.title}</h1>
       </div>
-      <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: "0.85rem",
-          color: "#6b7280",
-          marginBottom: "1.25rem",
-        }}
-      >
+      <div className="mb-5 font-mono text-muted-foreground text-sm">
         {result.file}
         {result.projectName && ` · ${result.projectName}`} ·{" "}
         {formatDuration(result.durationMs)}
@@ -142,144 +135,76 @@ export async function TestDetailPage() {
       </div>
 
       {run.commitMessage && (
-        <p style={{ color: "#374151", marginBottom: "1.25rem" }}>
-          <span style={{ color: "#6b7280", fontSize: "0.85rem" }}>
-            commit:{" "}
-          </span>
+        <p className="mb-5 text-sm">
+          <span className="text-muted-foreground">commit: </span>
           {run.commitMessage}
         </p>
       )}
 
-      <div style={{ marginBottom: "1.25rem" }}>
+      <div className="mb-5">
         <a
           href={`${base}/tests/${result.testId}`}
-          style={{ fontSize: "0.875rem", color: "#2563eb" }}
+          className="text-foreground text-sm underline-offset-4 hover:underline"
         >
           View history for this test &rarr;
         </a>
       </div>
 
       {(tagRows.length > 0 || annotationRows.length > 0) && (
-        <div
-          style={{
-            marginBottom: "1.25rem",
-            display: "flex",
-            gap: "0.5rem",
-            flexWrap: "wrap",
-          }}
-        >
+        <div className="mb-5 flex flex-wrap gap-2">
           {tagRows.map((t, i) => (
-            <span
-              key={`tag-${i}`}
-              style={{
-                padding: "0.15rem 0.5rem",
-                borderRadius: "999px",
-                background: "#e0e7ff",
-                color: "#3730a3",
-                fontSize: "0.75rem",
-              }}
-            >
+            <Badge key={`tag-${i}`} variant="info" size="sm">
               {t.tag}
-            </span>
+            </Badge>
           ))}
           {annotationRows.map((a, i) => (
-            <span
+            <Badge
               key={`ann-${i}`}
-              style={{
-                padding: "0.15rem 0.5rem",
-                borderRadius: "999px",
-                background: "#fef3c7",
-                color: "#92400e",
-                fontSize: "0.75rem",
-              }}
+              variant="warning"
+              size="sm"
               title={a.description ?? undefined}
             >
               {a.type}
               {a.description ? `: ${a.description}` : ""}
-            </span>
+            </Badge>
           ))}
         </div>
       )}
 
       {result.errorMessage && (
-        <div
-          style={{
-            padding: "1rem",
-            background: "#fef2f2",
-            borderRadius: "6px",
-            marginBottom: "1.25rem",
-          }}
-        >
-          <div
-            style={{
-              fontWeight: 600,
-              color: "#991b1b",
-              marginBottom: "0.5rem",
-            }}
-          >
-            {result.errorMessage.split("\n")[0]}
-          </div>
+        <Alert variant="error" className="mb-5">
+          <AlertTitle>{result.errorMessage.split("\n")[0]}</AlertTitle>
           {result.errorStack && (
-            <pre
-              style={{
-                whiteSpace: "pre-wrap",
-                fontFamily: "monospace",
-                fontSize: "0.8rem",
-                color: "#7f1d1d",
-                margin: 0,
-              }}
-            >
-              {result.errorStack}
-            </pre>
+            <AlertDescription>
+              <pre className="whitespace-pre-wrap font-mono text-xs">
+                {result.errorStack}
+              </pre>
+            </AlertDescription>
           )}
-        </div>
+        </Alert>
       )}
 
-      <h2
-        style={{
-          fontSize: "1.1rem",
-          marginBottom: "0.5rem",
-          marginTop: "1.5rem",
-        }}
-      >
+      <h2 className="mt-8 mb-3 font-semibold text-lg">
         Artifacts ({artifactRows.length})
       </h2>
       {artifactRows.length === 0 ? (
-        <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>
+        <p className="text-muted-foreground text-sm">
           No artifacts were uploaded for this test.
         </p>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul className="divide-y border-y">
           {artifactRows.map((a: Artifact) => (
-            <li
-              key={a.id}
-              style={{
-                padding: "0.5rem 0",
-                borderBottom: "1px solid #f3f4f6",
-                display: "flex",
-                alignItems: "center",
-                gap: "0.75rem",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "0.7rem",
-                  fontWeight: 600,
-                  padding: "0.15rem 0.4rem",
-                  background: "#f3f4f6",
-                  borderRadius: "3px",
-                  color: "#4b5563",
-                }}
-              >
+            <li key={a.id} className="flex items-center gap-3 py-2 text-sm">
+              <Badge variant="outline" size="sm">
                 {a.type.toUpperCase()}
-              </span>
+              </Badge>
               <a
                 href={`/api/artifacts/${a.id}/download`}
-                style={{ color: "#2563eb", textDecoration: "none" }}
+                className="text-foreground underline-offset-4 hover:underline"
               >
                 {a.name}
               </a>
-              <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>
+              <span className="text-muted-foreground text-xs">
                 {formatBytes(a.sizeBytes)}
               </span>
               {a.type === "trace" && (
@@ -287,11 +212,7 @@ export async function TestDetailPage() {
                   href={traceViewerUrl(origin, a.id)}
                   target="_blank"
                   rel="noreferrer"
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: "0.8rem",
-                    color: "#2563eb",
-                  }}
+                  className="ml-auto text-foreground text-xs underline-offset-4 hover:underline"
                 >
                   Open in Playwright Trace Viewer &rarr;
                 </a>

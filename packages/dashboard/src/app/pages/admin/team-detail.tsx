@@ -1,10 +1,11 @@
 import { eq } from "drizzle-orm";
 import { requestInfo } from "rwsdk/worker";
+import { Button } from "@/app/components/ui/button";
+import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { memberships, projects, user } from "@/db/schema";
 import { resolveTeamBySlug } from "@/lib/authz";
 import { param } from "@/lib/route-params";
-import { NotFoundPage } from "@/app/pages/not-found";
 import type { AppContext } from "@/worker";
 
 export async function AdminTeamDetailPage() {
@@ -34,46 +35,35 @@ export async function AdminTeamDetailPage() {
   ]);
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <div style={{ marginBottom: "1rem" }}>
+    <div className="mx-auto max-w-4xl p-6 sm:p-8">
+      <div className="mb-2">
         <a
           href="/admin/teams"
-          style={{ color: "#6b7280", textDecoration: "none" }}
+          className="text-muted-foreground text-sm hover:underline"
         >
           &larr; Teams
         </a>
       </div>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "1.5rem" }}>
-        {team.name}
-      </h1>
+      <h1 className="mb-8 font-semibold text-2xl">{team.name}</h1>
 
-      <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>Projects</h2>
+      <h2 className="mb-3 font-semibold text-lg">Projects</h2>
       {projectRows.length === 0 ? (
-        <p style={{ color: "#6b7280" }}>No projects yet.</p>
+        <p className="text-muted-foreground">No projects yet.</p>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul className="divide-y border-y">
           {projectRows.map((p) => (
-            <li
-              key={p.id}
-              style={{
-                padding: "0.5rem 0",
-                borderBottom: "1px solid #f3f4f6",
-                display: "flex",
-                gap: "1rem",
-                alignItems: "center",
-              }}
-            >
-              <strong style={{ flex: 1 }}>{p.name}</strong>
+            <li key={p.id} className="flex items-center gap-4 py-2 text-sm">
+              <strong className="flex-1 font-semibold">{p.name}</strong>
               <a
                 href={`/t/${team.slug}/p/${p.slug}`}
-                style={{ color: "#2563eb", textDecoration: "none" }}
+                className="text-foreground underline-offset-4 hover:underline"
               >
                 Runs
               </a>
               {team.role === "owner" && (
                 <a
                   href={`/admin/t/${team.slug}/p/${p.slug}/keys`}
-                  style={{ color: "#2563eb", textDecoration: "none" }}
+                  className="text-foreground underline-offset-4 hover:underline"
                 >
                   API keys
                 </a>
@@ -83,46 +73,24 @@ export async function AdminTeamDetailPage() {
         </ul>
       )}
       {team.role === "owner" && (
-        <a
-          href={`/admin/t/${team.slug}/projects/new`}
-          style={{
-            display: "inline-block",
-            marginTop: "1rem",
-            padding: "0.5rem 1rem",
-            background: "#111827",
-            color: "#fff",
-            textDecoration: "none",
-            borderRadius: "6px",
-          }}
-        >
-          Create project
-        </a>
+        <div className="mt-4">
+          <Button
+            render={
+              <a href={`/admin/t/${team.slug}/projects/new`}>Create project</a>
+            }
+          />
+        </div>
       )}
 
-      <h2
-        style={{
-          fontSize: "1.1rem",
-          marginTop: "2rem",
-          marginBottom: "0.5rem",
-        }}
-      >
-        Members
-      </h2>
-      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      <h2 className="mt-10 mb-3 font-semibold text-lg">Members</h2>
+      <ul className="divide-y border-y">
         {memberRows.map((m) => (
-          <li
-            key={m.userId}
-            style={{
-              padding: "0.5rem 0",
-              borderBottom: "1px solid #f3f4f6",
-              display: "flex",
-              gap: "1rem",
-            }}
-          >
-            <span style={{ flex: 1 }}>
-              {m.name} <span style={{ color: "#6b7280" }}>({m.email})</span>
+          <li key={m.userId} className="flex items-center gap-4 py-2 text-sm">
+            <span className="flex-1">
+              {m.name}{" "}
+              <span className="text-muted-foreground">({m.email})</span>
             </span>
-            <span style={{ color: "#6b7280" }}>{m.role}</span>
+            <span className="text-muted-foreground">{m.role}</span>
           </li>
         ))}
       </ul>

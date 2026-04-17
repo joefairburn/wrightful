@@ -1,8 +1,17 @@
 import { eq } from "drizzle-orm";
 import { requestInfo } from "rwsdk/worker";
+import { Button } from "@/app/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/app/components/ui/table";
+import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { memberships, teams } from "@/db/schema";
-import { NotFoundPage } from "@/app/pages/not-found";
 import type { AppContext } from "@/worker";
 
 export async function AdminTeamsPage() {
@@ -22,63 +31,46 @@ export async function AdminTeamsPage() {
     .where(eq(memberships.userId, ctx.user.id));
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "1rem" }}>Teams</h1>
+    <div className="mx-auto max-w-4xl p-6 sm:p-8">
+      <h1 className="mb-6 font-semibold text-2xl">Teams</h1>
       {rows.length === 0 ? (
-        <p style={{ color: "#6b7280" }}>You&apos;re not on any team yet.</p>
+        <p className="mb-6 text-muted-foreground">
+          You&apos;re not on any team yet.
+        </p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr
-              style={{ borderBottom: "2px solid #e5e7eb", textAlign: "left" }}
-            >
-              <th style={{ padding: "0.5rem" }}>Name</th>
-              <th style={{ padding: "0.5rem" }}>Slug</th>
-              <th style={{ padding: "0.5rem" }}>Role</th>
-              <th style={{ padding: "0.5rem" }}></th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Slug</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((t) => (
-              <tr key={t.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                <td style={{ padding: "0.5rem" }}>{t.name}</td>
-                <td
-                  style={{
-                    padding: "0.5rem",
-                    fontFamily: "monospace",
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  {t.slug}
-                </td>
-                <td style={{ padding: "0.5rem" }}>{t.role}</td>
-                <td style={{ padding: "0.5rem" }}>
+              <TableRow key={t.id}>
+                <TableCell>{t.name}</TableCell>
+                <TableCell className="font-mono text-xs">{t.slug}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {t.role}
+                </TableCell>
+                <TableCell>
                   <a
                     href={`/admin/t/${t.slug}`}
-                    style={{ color: "#2563eb", textDecoration: "none" }}
+                    className="text-foreground underline-offset-4 hover:underline"
                   >
                     Manage &rarr;
                   </a>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
-      <a
-        href="/admin/teams/new"
-        style={{
-          display: "inline-block",
-          marginTop: "1.5rem",
-          padding: "0.5rem 1rem",
-          background: "#111827",
-          color: "#fff",
-          textDecoration: "none",
-          borderRadius: "6px",
-        }}
-      >
-        Create team
-      </a>
+      <div className="mt-6">
+        <Button render={<a href="/admin/teams/new">Create team</a>} />
+      </div>
     </div>
   );
 }
