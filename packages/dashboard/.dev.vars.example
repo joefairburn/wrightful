@@ -1,0 +1,5 @@
+# R2 S3-compatible credentials for presigning artifact upload/download URLs.
+# Create at: Cloudflare dashboard -> R2 -> Manage API Tokens -> Create API Token
+# Scope: the R2 bucket provisioned for this worker; permissions: Object Read & Write.
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=

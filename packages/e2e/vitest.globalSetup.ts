@@ -33,7 +33,7 @@ const DEV_VARS_BACKUP_PATH = resolve(DASHBOARD_DIR, ".dev.vars.e2e-backup");
 
 const PORT = 5188;
 const DASHBOARD_URL = `http://localhost:${PORT}`;
-const API_KEY = "grn_e2e_test_key_00000000";
+const API_KEY = "wrf_e2e_test_key_00000000";
 const API_KEY_PREFIX = API_KEY.slice(0, 8);
 const API_KEY_HASH = createHash("sha256").update(API_KEY).digest("hex");
 

@@ -53,7 +53,7 @@ describe("Wrightful E2E", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: "Bearer grn_bad_key_99999999",
+          Authorization: "Bearer wrf_bad_key_99999999",
         },
         body: JSON.stringify({ test: true }),
       });

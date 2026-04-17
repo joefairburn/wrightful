@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "wrightful",
   "main": "src/worker.tsx",
-  "compatibility_date": "2025-08-21",
+  "compatibility_date": "2026-04-17",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "binding": "ASSETS",
@@ -14,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "wrightful",
-      "database_id": "LOCAL_PLACEHOLDER",
+      "database_id": "",
       "migrations_dir": "drizzle",
     },
   ],
