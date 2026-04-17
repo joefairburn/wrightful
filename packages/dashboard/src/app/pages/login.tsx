@@ -1,6 +1,4 @@
 import { requestInfo } from "rwsdk/worker";
-import { Alert, AlertDescription } from "@/app/components/ui/alert";
-import { Button } from "@/app/components/ui/button";
 import {
   Card,
   CardDescription,
@@ -8,10 +6,9 @@ import {
   CardPanel,
   CardTitle,
 } from "@/app/components/ui/card";
-import { Field, FieldLabel } from "@/app/components/ui/field";
-import { Input } from "@/app/components/ui/input";
 import { Separator } from "@/app/components/ui/separator";
 import { hasGithubOAuthConfigured } from "@/lib/better-auth";
+import { LoginForm } from "./login-form";
 import { LoginGithubButton } from "./login-github-button";
 
 export function LoginPage() {
@@ -19,11 +16,7 @@ export function LoginPage() {
   const next = url.searchParams.get("next") ?? "/";
   const callbackURL = encodeURIComponent(next);
   const mode = url.searchParams.get("mode") === "signup" ? "signup" : "signin";
-  const error = url.searchParams.get("error");
   const showGithub = hasGithubOAuthConfigured();
-
-  const formAction =
-    mode === "signup" ? "/api/auth/sign-up/email" : "/api/auth/sign-in/email";
 
   return (
     <div className="mx-auto max-w-sm px-6 py-16">
@@ -39,42 +32,7 @@ export function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardPanel className="flex flex-col gap-4">
-          {error && (
-            <Alert variant="error">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          <form
-            method="post"
-            action={formAction}
-            className="flex flex-col gap-3"
-          >
-            <input type="hidden" name="callbackURL" value={next} />
-            {mode === "signup" && (
-              <Field>
-                <FieldLabel>Name</FieldLabel>
-                <Input nativeInput name="name" required maxLength={80} />
-              </Field>
-            )}
-            <Field>
-              <FieldLabel>Email</FieldLabel>
-              <Input nativeInput name="email" type="email" required />
-            </Field>
-            <Field>
-              <FieldLabel>Password</FieldLabel>
-              <Input
-                nativeInput
-                name="password"
-                type="password"
-                required
-                minLength={8}
-              />
-            </Field>
-            <Button type="submit" size="lg" className="mt-2 w-full">
-              {mode === "signup" ? "Create account" : "Sign in"}
-            </Button>
-          </form>
+          <LoginForm mode={mode} callbackURL={next} />
 
           <p className="text-center text-muted-foreground text-sm">
             {mode === "signup" ? (
