@@ -264,12 +264,12 @@ The CLI:
 # Config file (~/.wrightfulrc or .wrightfulrc in project root)
 {
   "url": "https://your-dashboard.example.com",
-  "token": "grn_abc123..."
+  "token": "wrf_abc123..."
 }
 
 # Or environment variables
 WRIGHTFUL_URL=https://your-dashboard.example.com
-WRIGHTFUL_API_KEY=grn_abc123...
+WRIGHTFUL_API_KEY=wrf_abc123...
 
 # Or CLI flags (override config/env)
 npx @wrightful/cli upload ./report.json --url=... --token=...

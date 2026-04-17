@@ -62,7 +62,7 @@ describe("requireAuth", () => {
 
     const ctx = {} as any;
     const result = await (requireAuth as any)({
-      request: makeRequest({ Authorization: "Bearer grn_valid" }),
+      request: makeRequest({ Authorization: "Bearer wrf_valid" }),
       ctx,
       rw: { nonce: "" },
       response: { headers: new Headers() },

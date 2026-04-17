@@ -17,46 +17,46 @@ describe("resolveConfig", () => {
   it("resolves config from CLI flags", async () => {
     const config = await resolveConfig({
       url: "https://dash.example.com",
-      token: "grn_abc123",
+      token: "wrf_abc123",
       artifacts: "all",
     });
 
     expect(config.url).toBe("https://dash.example.com");
-    expect(config.token).toBe("grn_abc123");
+    expect(config.token).toBe("wrf_abc123");
     expect(config.artifacts).toBe("all");
   });
 
   it("falls back to env vars when no CLI flags", async () => {
     vi.stubEnv("WRIGHTFUL_URL", "https://env.example.com");
-    vi.stubEnv("WRIGHTFUL_API_KEY", "grn_env_key");
+    vi.stubEnv("WRIGHTFUL_API_KEY", "wrf_env_key");
 
     const config = await resolveConfig({});
     expect(config.url).toBe("https://env.example.com");
-    expect(config.token).toBe("grn_env_key");
+    expect(config.token).toBe("wrf_env_key");
   });
 
   it("CLI flags override env vars", async () => {
     vi.stubEnv("WRIGHTFUL_URL", "https://env.example.com");
-    vi.stubEnv("WRIGHTFUL_API_KEY", "grn_env_key");
+    vi.stubEnv("WRIGHTFUL_API_KEY", "wrf_env_key");
 
     const config = await resolveConfig({
       url: "https://cli.example.com",
-      token: "grn_cli_key",
+      token: "wrf_cli_key",
     });
     expect(config.url).toBe("https://cli.example.com");
-    expect(config.token).toBe("grn_cli_key");
+    expect(config.token).toBe("wrf_cli_key");
   });
 
   it("defaults artifacts to 'failed'", async () => {
     const config = await resolveConfig({
       url: "https://dash.example.com",
-      token: "grn_key",
+      token: "wrf_key",
     });
     expect(config.artifacts).toBe("failed");
   });
 
   it("throws when URL is missing", async () => {
-    await expect(resolveConfig({ token: "grn_key" })).rejects.toThrow(
+    await expect(resolveConfig({ token: "wrf_key" })).rejects.toThrow(
       "Missing required config",
     );
   });
@@ -69,7 +69,7 @@ describe("resolveConfig", () => {
 
   it("throws when URL is invalid", async () => {
     await expect(
-      resolveConfig({ url: "not-a-url", token: "grn_key" }),
+      resolveConfig({ url: "not-a-url", token: "wrf_key" }),
     ).rejects.toThrow();
   });
 });
