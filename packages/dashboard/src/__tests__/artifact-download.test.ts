@@ -126,6 +126,20 @@ describe("artifactDownloadHandler", () => {
     expect(res.headers.get("content-range")).toBe("bytes 0-3/100");
   });
 
+  it("returns 200 (not 206) when R2 ignores an unsatisfiable Range", async () => {
+    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    mockR2.get.mockResolvedValue(makeR2Body(bytes, { range: undefined }));
+
+    const res = await artifactDownloadHandler({
+      request: makeRequest("GET", { Range: "bytes=abc-def" }),
+      params: { id: "a-1" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-range")).toBeNull();
+  });
+
   it("HEAD returns headers without body via env.R2.head", async () => {
     mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     mockR2.head.mockResolvedValue({

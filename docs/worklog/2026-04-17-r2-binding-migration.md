@@ -43,6 +43,10 @@ The one-click "Deploy to Cloudflare" flow no longer needs a manual R2 token step
 - **Download endpoint stays unauthenticated, gated by unguessable ULID.** Unchanged from before. The previous `TODO(phase5)` for a signed-token challenge carries forward verbatim — flagged here as the security trust boundary shifts from "valid R2 signature" to "a valid ULID reaches our Worker", which is the same threat model (ULID leak = artifact leak) but now the bytes flow through our code rather than direct from R2.
 - **CORS must be set explicitly.** trace.playwright.dev (and any other cross-origin consumer) was relying on R2's default `ACAO: *`. After this change we own the response headers, so we set `*` explicitly on the download handler.
 
+## Review fixes
+
+- **`206` gated on both request intent and what R2 served.** Earlier draft selected the 206 status based on `request.headers.get("range") !== null` alone — but R2 ignores malformed/unparseable Range headers and returns the full body with no `object.range`, so that path would emit `206 Partial Content` with no `Content-Range` (RFC 7233 §4.1 violation). Now gated on `requestedRange && Boolean(object.range)`: miniflare populates `object.range` even for non-Range GETs (caught by the e2e "end-to-end register + upload + download" test), and production R2 drops unparseable Range values while still returning full body — both need to be false-proof to avoid a bogus 206. Regression test added (`artifact-download.test.ts`: "returns 200 (not 206) when R2 ignores an unsatisfiable Range").
+
 ## Verification
 
 - `pnpm typecheck` — clean (cli + dashboard).

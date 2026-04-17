@@ -56,9 +56,15 @@ export async function artifactDownloadHandler({
 
   const headers = buildHeaders(object);
   const hasBody = "body" in object && object.body !== null;
-  const hasRange = request.headers.get("range") !== null;
+  // 206 per RFC 7233 requires BOTH a client Range request AND the server
+  // serving that partial response. Miniflare populates object.range even
+  // without a request Range, and R2 production silently drops unparseable
+  // Range values while still returning the full body — gate on both signals.
+  const requestedRange = request.headers.get("range") !== null;
+  const servedRange =
+    requestedRange && "range" in object && Boolean(object.range);
 
-  if ("range" in object && object.range) {
+  if (servedRange && object.range) {
     const range = object.range;
     const offset = "offset" in range ? (range.offset ?? 0) : 0;
     const length =
@@ -78,7 +84,7 @@ export async function artifactDownloadHandler({
   }
 
   return new Response(object.body, {
-    status: hasRange ? 206 : 200,
+    status: servedRange ? 206 : 200,
     headers,
   });
 }
