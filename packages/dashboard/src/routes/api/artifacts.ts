@@ -2,10 +2,11 @@ import { and, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
-import { artifacts, testResults } from "@/db/schema";
+import { artifacts, runs, testResults } from "@/db/schema";
 import { PresignPayloadSchema, type PresignPayload } from "./schemas";
 import { presignPut, readR2Config } from "@/lib/r2-presign";
 import { readIntVar } from "@/lib/env-parse";
+import type { AppContext } from "@/worker";
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 52_428_800; // 50 MiB
 const DEFAULT_PUT_TTL_SECONDS = 900;
@@ -17,7 +18,18 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
-export async function presignHandler({ request }: { request: Request }) {
+export async function presignHandler({
+  request,
+  ctx,
+}: {
+  request: Request;
+  ctx: AppContext;
+}) {
+  const projectId = ctx.apiKey?.projectId;
+  if (!projectId) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
   let payload: PresignPayload;
   try {
     const body = await request.json();
@@ -56,6 +68,18 @@ export async function presignHandler({ request }: { request: Request }) {
   }
 
   const db = getDb();
+
+  // Validate the run belongs to this API key's project before touching any
+  // testResultId. Without this check a caller could presign uploads against
+  // another tenant's run by guessing its ULID.
+  const [ownerRun] = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(and(eq(runs.id, payload.runId), eq(runs.projectId, projectId)))
+    .limit(1);
+  if (!ownerRun) {
+    return jsonResponse({ error: "Run not found" }, 404);
+  }
 
   // Validate every testResultId belongs to the supplied runId
   const requestedIds = Array.from(

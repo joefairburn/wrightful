@@ -52,8 +52,12 @@ describe("requireAuth", () => {
     expect(result.status).toBe(401);
   });
 
-  it("sets ctx.apiKey when valid", async () => {
-    const fakeKey = { id: "key-1", label: "test" } as any;
+  it("sets ctx.apiKey when valid (includes projectId for scoping)", async () => {
+    const fakeKey = {
+      id: "key-1",
+      label: "test",
+      projectId: "proj-abc",
+    } as any;
     mockedValidateApiKey.mockResolvedValue(fakeKey);
 
     const ctx = {} as any;
@@ -66,6 +70,7 @@ describe("requireAuth", () => {
 
     expect(result).toBeUndefined(); // middleware passes through
     expect(ctx.apiKey).toEqual(fakeKey);
+    expect(ctx.apiKey.projectId).toBe("proj-abc");
   });
 });
 

@@ -1,16 +1,24 @@
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { runs } from "@/db/schema";
 import { StatusBadge } from "@/app/components/status-badge";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
+import { getActiveProject } from "@/lib/active-project";
+import { NotFoundPage } from "@/app/pages/not-found";
 
 export async function RunsListPage() {
+  const project = await getActiveProject();
+  if (!project) return <NotFoundPage />;
+
   const db = getDb();
   const allRuns = await db
     .select()
     .from(runs)
+    .where(eq(runs.projectId, project.id))
     .orderBy(desc(runs.createdAt))
     .limit(50);
+
+  const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
@@ -66,7 +74,7 @@ export async function RunsListPage() {
               >
                 <td style={{ padding: "0.5rem" }}>
                   <a
-                    href={`/runs/${run.id}`}
+                    href={`${base}/runs/${run.id}`}
                     style={{ textDecoration: "none" }}
                   >
                     <StatusBadge status={run.status} />
@@ -74,7 +82,7 @@ export async function RunsListPage() {
                 </td>
                 <td style={{ padding: "0.5rem" }}>
                   <a
-                    href={`/runs/${run.id}`}
+                    href={`${base}/runs/${run.id}`}
                     style={{ color: "inherit", textDecoration: "none" }}
                   >
                     {run.branch || "-"}

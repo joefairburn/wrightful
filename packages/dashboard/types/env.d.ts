@@ -20,9 +20,16 @@ declare namespace Cloudflare {
     WRIGHTFUL_MAX_ARTIFACT_BYTES: string;
     WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS: string;
     WRIGHTFUL_PRESIGN_GET_TTL_SECONDS: string;
+    WRIGHTFUL_PUBLIC_URL: string;
 
-    // Secrets — set via `wrangler secret put`, not declared in wrangler.jsonc
+    // Secrets — set via `wrangler secret put` (or .dev.vars locally).
     R2_ACCESS_KEY_ID: string;
     R2_SECRET_ACCESS_KEY: string;
+
+    // Required: signing secret for Better Auth sessions.
+    BETTER_AUTH_SECRET: string;
+    // Optional: enable GitHub OAuth by setting both.
+    GITHUB_CLIENT_ID?: string;
+    GITHUB_CLIENT_SECRET?: string;
   }
 }

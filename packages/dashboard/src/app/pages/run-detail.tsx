@@ -1,22 +1,33 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { runs, testResults } from "@/db/schema";
 import { StatusBadge } from "@/app/components/status-badge";
 import { formatDuration } from "@/lib/time-format";
 import { param } from "@/lib/route-params";
+import { getActiveProject } from "@/lib/active-project";
+import { NotFoundPage } from "@/app/pages/not-found";
 
 export async function RunDetailPage() {
   const runId = param("id");
 
+  const project = await getActiveProject();
+  if (!project) return <NotFoundPage />;
+
   const db = getDb();
 
-  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  const [run] = await db
+    .select()
+    .from(runs)
+    .where(and(eq(runs.id, runId), eq(runs.projectId, project.id)))
+    .limit(1);
+
+  const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
   if (!run) {
     return (
       <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
         <h1>Run not found</h1>
-        <a href="/">Back to runs</a>
+        <a href={base}>Back to runs</a>
       </div>
     );
   }
@@ -41,7 +52,7 @@ export async function RunDetailPage() {
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
       <div style={{ marginBottom: "1rem" }}>
-        <a href="/" style={{ color: "#6b7280", textDecoration: "none" }}>
+        <a href={base} style={{ color: "#6b7280", textDecoration: "none" }}>
           &larr; All runs
         </a>
       </div>
@@ -141,7 +152,7 @@ export async function RunDetailPage() {
         </thead>
         <tbody>
           {results.map((result) => {
-            const detailHref = `/runs/${runId}/tests/${result.id}`;
+            const detailHref = `${base}/runs/${runId}/tests/${result.id}`;
             return (
               <tr key={result.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
                 <td style={{ padding: "0.5rem" }}>

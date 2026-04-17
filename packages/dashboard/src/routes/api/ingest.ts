@@ -1,8 +1,16 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { getDb } from "@/db";
-import { runs, testResults, testTags, testAnnotations } from "@/db/schema";
+import {
+  projects,
+  runs,
+  teams,
+  testResults,
+  testTags,
+  testAnnotations,
+} from "@/db/schema";
 import { IngestPayloadSchema, type IngestPayload } from "./schemas";
+import type { AppContext } from "@/worker";
 
 const MAX_STATEMENTS_PER_BATCH = 900;
 
@@ -13,7 +21,18 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
-export async function ingestHandler({ request }: { request: Request }) {
+export async function ingestHandler({
+  request,
+  ctx,
+}: {
+  request: Request;
+  ctx: AppContext;
+}) {
+  const projectId = ctx.apiKey?.projectId;
+  if (!projectId) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
   let payload: IngestPayload;
   try {
     const body = await request.json();
@@ -25,18 +44,38 @@ export async function ingestHandler({ request }: { request: Request }) {
 
   const db = getDb();
 
-  // Check idempotency
+  // Resolve the team+project slugs once so every response below can return a
+  // scoped runUrl that the CLI can print as a clickable link.
+  const [scope] = await db
+    .select({ teamSlug: teams.slug, projectSlug: projects.slug })
+    .from(projects)
+    .innerJoin(teams, eq(teams.id, projects.teamId))
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  if (!scope) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  const runUrl = (id: string) =>
+    `/t/${scope.teamSlug}/p/${scope.projectSlug}/runs/${id}`;
+
+  // Idempotency is scoped to a project — two tenants using the same
+  // idempotencyKey must not collide or see each other's run.
   const existing = await db
     .select({ id: runs.id })
     .from(runs)
-    .where(eq(runs.idempotencyKey, payload.idempotencyKey))
+    .where(
+      and(
+        eq(runs.projectId, projectId),
+        eq(runs.idempotencyKey, payload.idempotencyKey),
+      ),
+    )
     .limit(1);
 
   if (existing.length > 0) {
     return jsonResponse(
       {
         runId: existing[0].id,
-        runUrl: `/runs/${existing[0].id}`,
+        runUrl: runUrl(existing[0].id),
         duplicate: true,
       },
       200,
@@ -74,6 +113,7 @@ export async function ingestHandler({ request }: { request: Request }) {
   // Insert run
   await db.insert(runs).values({
     id: runId,
+    projectId,
     idempotencyKey: payload.idempotencyKey,
     ciProvider: payload.run.ciProvider ?? null,
     ciBuildId: payload.run.ciBuildId ?? null,
@@ -171,7 +211,7 @@ export async function ingestHandler({ request }: { request: Request }) {
   return jsonResponse(
     {
       runId,
-      runUrl: `/runs/${runId}`,
+      runUrl: runUrl(runId),
       results: resultMapping,
     },
     201,

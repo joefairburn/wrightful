@@ -36,8 +36,15 @@
     // Presigned URL TTL (seconds). Defaults to 900 (15 min) for PUT, 600 for GET.
     "WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS": "900",
     "WRIGHTFUL_PRESIGN_GET_TTL_SECONDS": "600",
+    // Public origin of the dashboard, used by Better Auth for sign-in
+    // callbacks. Required. Locally this is "http://localhost:5173".
+    "WRIGHTFUL_PUBLIC_URL": "http://localhost:5173",
   },
-  // Secrets (set via `wrangler secret put`):
+  // Secrets (set via `wrangler secret put`, or placed in `.dev.vars` locally):
   //   R2_ACCESS_KEY_ID       — R2 access key ID (Account → R2 → Manage API Tokens)
   //   R2_SECRET_ACCESS_KEY   — R2 secret access key
+  //   BETTER_AUTH_SECRET     — Required. ≥32-char signing secret. Generate with
+  //                            `openssl rand -base64 32`.
+  //   GITHUB_CLIENT_ID       — Optional. GitHub OAuth app client id. Set both
+  //   GITHUB_CLIENT_SECRET     GitHub secrets to enable "Continue with GitHub".
 }

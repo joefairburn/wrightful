@@ -1,0 +1,16 @@
+# Copy to `.dev.vars` and fill in. Wrangler loads this file for `wrangler dev`.
+
+# Required — signing secret for Better Auth sessions.
+# Generate with: openssl rand -base64 32
+BETTER_AUTH_SECRET=replace-me-with-32-plus-char-random-secret
+
+# Optional — enable "Continue with GitHub" on the login page. Set both to
+# the values from your GitHub OAuth app (callback URL:
+# http://localhost:5173/api/auth/callback/github).
+# GITHUB_CLIENT_ID=
+# GITHUB_CLIENT_SECRET=
+
+# Required for artifact upload/download. Leave blank if you're not
+# testing artifacts locally; presign endpoints will 500 with a clear error.
+# R2_ACCESS_KEY_ID=
+# R2_SECRET_ACCESS_KEY=

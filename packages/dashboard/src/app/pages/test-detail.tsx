@@ -11,6 +11,8 @@ import {
 import { StatusBadge } from "@/app/components/status-badge";
 import { formatDuration } from "@/lib/time-format";
 import { param } from "@/lib/route-params";
+import { getActiveProject } from "@/lib/active-project";
+import { NotFoundPage } from "@/app/pages/not-found";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -44,9 +46,12 @@ export async function TestDetailPage() {
   const testResultId = param("testResultId");
   const origin = new URL(requestInfo.request.url).origin;
 
+  const project = await getActiveProject();
+  if (!project) return <NotFoundPage />;
+
   const db = getDb();
 
-  // Single-join verifies ownership AND fetches both rows
+  // Single-join verifies ownership AND fetches both rows, scoped to project.
   const rows = await db
     .select({
       run: runs,
@@ -54,14 +59,22 @@ export async function TestDetailPage() {
     })
     .from(testResults)
     .innerJoin(runs, eq(runs.id, testResults.runId))
-    .where(and(eq(testResults.id, testResultId), eq(testResults.runId, runId)))
+    .where(
+      and(
+        eq(testResults.id, testResultId),
+        eq(testResults.runId, runId),
+        eq(runs.projectId, project.id),
+      ),
+    )
     .limit(1);
+
+  const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
   if (rows.length === 0) {
     return (
       <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
         <h1>Test not found</h1>
-        <a href={`/runs/${runId}`}>Back to run</a>
+        <a href={`${base}/runs/${runId}`}>Back to run</a>
       </div>
     );
   }
@@ -96,7 +109,7 @@ export async function TestDetailPage() {
     <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
       <div style={{ marginBottom: "1rem" }}>
         <a
-          href={`/runs/${runId}`}
+          href={`${base}/runs/${runId}`}
           style={{ color: "#6b7280", textDecoration: "none" }}
         >
           &larr; Back to run
@@ -139,7 +152,7 @@ export async function TestDetailPage() {
 
       <div style={{ marginBottom: "1.25rem" }}>
         <a
-          href={`/tests/${result.testId}`}
+          href={`${base}/tests/${result.testId}`}
           style={{ fontSize: "0.875rem", color: "#2563eb" }}
         >
           View history for this test &rarr;

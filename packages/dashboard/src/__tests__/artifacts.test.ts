@@ -46,22 +46,42 @@ function makeRequest(body: unknown): Request {
   });
 }
 
+const AUTH_CTX = {
+  apiKey: { id: "key-1", label: "test", projectId: "proj-1" },
+};
+
 interface DbMock {
   select: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
   inserted: unknown[] | null;
 }
 
-function makeDbMock(validTestResultIds: string[]): DbMock {
-  const selectChain = {
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockResolvedValue(validTestResultIds.map((id) => ({ id }))),
-  };
-  const state: DbMock = {
-    select: vi.fn().mockReturnValue(selectChain),
-    insert: vi.fn(),
-    inserted: null,
-  };
+// Presign handler runs two selects: (1) run ownership by (runId, projectId),
+// (2) testResultId membership in that run. The mock returns those in order.
+function makeDbMock(opts: {
+  runOwned?: boolean;
+  validTestResultIds?: string[];
+}): DbMock {
+  const runOwned = opts.runOwned ?? true;
+  const validTestResultIds = opts.validTestResultIds ?? [];
+
+  const selectResults = [
+    runOwned ? [{ id: "run-1" }] : [],
+    validTestResultIds.map((id) => ({ id })),
+  ];
+
+  const select = vi.fn().mockImplementation(() => {
+    const result = selectResults.shift() ?? [];
+    return {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue(result),
+        then: (resolve: (v: unknown) => void) => resolve(result),
+      }),
+    };
+  });
+
+  const state: DbMock = { select, insert: vi.fn(), inserted: null };
   state.insert.mockImplementation(() => ({
     values: vi.fn().mockImplementation((rows: unknown[]) => {
       state.inserted = rows;
@@ -85,17 +105,27 @@ describe("presignHandler", () => {
     });
   });
 
+  it("401s when no API key is on the context", async () => {
+    mockedGetDb.mockReturnValue({} as never);
+    const res = await presignHandler({
+      request: makeRequest({ runId: "run-1", artifacts: [] }),
+      ctx: {},
+    });
+    expect(res.status).toBe(401);
+  });
+
   it("400s on invalid payload", async () => {
     mockedGetDb.mockReturnValue({} as never);
     const res = await presignHandler({
       request: makeRequest({ runId: "", artifacts: [] }),
+      ctx: AUTH_CTX,
     });
     expect(res.status).toBe(400);
   });
 
   it("413s when an artifact exceeds the size cap", async () => {
     mockEnv.WRIGHTFUL_MAX_ARTIFACT_BYTES = "1024";
-    const db = makeDbMock([]);
+    const db = makeDbMock({});
     mockedGetDb.mockReturnValue(db as never);
 
     const res = await presignHandler({
@@ -111,6 +141,7 @@ describe("presignHandler", () => {
           },
         ],
       }),
+      ctx: AUTH_CTX,
     });
     expect(res.status).toBe(413);
     const body = (await res.json()) as { maxBytes: number };
@@ -119,7 +150,7 @@ describe("presignHandler", () => {
 
   it("500s with clear error when R2 creds are missing", async () => {
     mockEnv.R2_ACCESS_KEY_ID = "";
-    const db = makeDbMock(["tr-1"]);
+    const db = makeDbMock({ validTestResultIds: ["tr-1"] });
     mockedGetDb.mockReturnValue(db as never);
 
     const res = await presignHandler({
@@ -135,15 +166,38 @@ describe("presignHandler", () => {
           },
         ],
       }),
+      ctx: AUTH_CTX,
     });
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("R2_ACCESS_KEY_ID");
   });
 
+  it("404s when the run doesn't belong to the caller's project", async () => {
+    const db = makeDbMock({ runOwned: false });
+    mockedGetDb.mockReturnValue(db as never);
+
+    const res = await presignHandler({
+      request: makeRequest({
+        runId: "run-1",
+        artifacts: [
+          {
+            testResultId: "tr-1",
+            type: "trace",
+            name: "trace.zip",
+            contentType: "application/zip",
+            sizeBytes: 1024,
+          },
+        ],
+      }),
+      ctx: AUTH_CTX,
+    });
+    expect(res.status).toBe(404);
+  });
+
   it("400s when a testResultId doesn't belong to the run", async () => {
     // db returns only "tr-ok"; we'll ask about "tr-ok" and "tr-bad"
-    const db = makeDbMock(["tr-ok"]);
+    const db = makeDbMock({ validTestResultIds: ["tr-ok"] });
     mockedGetDb.mockReturnValue(db as never);
 
     const res = await presignHandler({
@@ -166,6 +220,7 @@ describe("presignHandler", () => {
           },
         ],
       }),
+      ctx: AUTH_CTX,
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { unknownTestResultIds: string[] };
@@ -173,7 +228,7 @@ describe("presignHandler", () => {
   });
 
   it("returns 201 with signed URLs and eagerly inserts artifact rows", async () => {
-    const db = makeDbMock(["tr-1"]);
+    const db = makeDbMock({ validTestResultIds: ["tr-1"] });
     mockedGetDb.mockReturnValue(db as never);
 
     const res = await presignHandler({
@@ -189,6 +244,7 @@ describe("presignHandler", () => {
           },
         ],
       }),
+      ctx: AUTH_CTX,
     });
 
     expect(res.status).toBe(201);

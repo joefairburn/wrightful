@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { runs, testResults } from "@/db/schema";
 import { Sparkline } from "@/app/components/sparkline";
@@ -6,6 +6,8 @@ import { DurationChart } from "@/app/components/duration-chart";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import { param } from "@/lib/route-params";
 import { statusColor, type Status } from "@/lib/status";
+import { getActiveProject } from "@/lib/active-project";
+import { NotFoundPage } from "@/app/pages/not-found";
 
 const HISTORY_LIMIT = 50;
 
@@ -27,9 +29,12 @@ function flakinessPercent(rows: Array<{ status: string }>): {
 export async function TestHistoryPage() {
   const testId = param("testId");
 
+  const project = await getActiveProject();
+  if (!project) return <NotFoundPage />;
+
   const db = getDb();
 
-  // Left join runs for branch/commit context on each point
+  // Left join runs for branch/commit context on each point, scoped to project.
   const history = await db
     .select({
       testResultId: testResults.id,
@@ -45,9 +50,11 @@ export async function TestHistoryPage() {
     })
     .from(testResults)
     .innerJoin(runs, eq(runs.id, testResults.runId))
-    .where(eq(testResults.testId, testId))
+    .where(and(eq(testResults.testId, testId), eq(runs.projectId, project.id)))
     .orderBy(desc(testResults.createdAt))
     .limit(HISTORY_LIMIT);
+
+  const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
   if (history.length === 0) {
     return (
@@ -57,7 +64,7 @@ export async function TestHistoryPage() {
           This test identifier has no recorded runs. If you recently renamed the
           test, file, or project, it will appear as a new test id.
         </p>
-        <a href="/">Back to runs</a>
+        <a href={base}>Back to runs</a>
       </div>
     );
   }
@@ -69,7 +76,7 @@ export async function TestHistoryPage() {
     <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
       <div style={{ marginBottom: "1rem" }}>
         <a
-          href={`/runs/${mostRecent.runId}/tests/${mostRecent.testResultId}`}
+          href={`${base}/runs/${mostRecent.runId}/tests/${mostRecent.testResultId}`}
           style={{ color: "#6b7280", textDecoration: "none" }}
         >
           &larr; Back to latest run
@@ -188,7 +195,7 @@ export async function TestHistoryPage() {
             >
               <td style={{ padding: "0.5rem" }}>
                 <a
-                  href={`/runs/${h.runId}/tests/${h.testResultId}`}
+                  href={`${base}/runs/${h.runId}/tests/${h.testResultId}`}
                   style={{
                     color: statusColor(h.status),
                     textDecoration: "none",
