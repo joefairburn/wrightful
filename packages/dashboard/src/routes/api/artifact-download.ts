@@ -2,10 +2,6 @@ import { eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
 import { artifacts } from "@/db/schema";
-import { presignGet, readR2Config } from "@/lib/r2-presign";
-import { readIntVar } from "@/lib/env-parse";
-
-const DEFAULT_GET_TTL_SECONDS = 600;
 
 /**
  * GET /api/artifacts/:id/download
@@ -19,8 +15,10 @@ const DEFAULT_GET_TTL_SECONDS = 600;
  * TODO(phase5): replace ulid-in-URL with signed-token challenge.
  */
 export async function artifactDownloadHandler({
+  request,
   params,
 }: {
+  request: Request;
   params: Record<string, string>;
 }) {
   const artifactId = params.id;
@@ -38,18 +36,76 @@ export async function artifactDownloadHandler({
     return new Response("Not found", { status: 404 });
   }
 
-  let cfg;
-  try {
-    cfg = readR2Config(env);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "R2 not configured";
-    return new Response(message, { status: 500 });
+  const key = rows[0].r2Key;
+
+  if (request.method === "HEAD") {
+    const head = await env.R2.head(key);
+    if (!head) {
+      return new Response("Not found", { status: 404 });
+    }
+    return new Response(null, { status: 200, headers: buildHeaders(head) });
   }
 
-  const ttl = readIntVar(
-    env.WRIGHTFUL_PRESIGN_GET_TTL_SECONDS,
-    DEFAULT_GET_TTL_SECONDS,
+  const object = await env.R2.get(key, {
+    range: request.headers,
+    onlyIf: request.headers,
+  });
+  if (!object) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  const headers = buildHeaders(object);
+  const hasBody = "body" in object && object.body !== null;
+  // 206 per RFC 7233 requires BOTH a client Range request AND the server
+  // serving that partial response. Miniflare populates object.range even
+  // without a request Range, and R2 production silently drops unparseable
+  // Range values while still returning the full body — gate on both signals.
+  const requestedRange = request.headers.get("range") !== null;
+  const servedRange =
+    requestedRange && "range" in object && Boolean(object.range);
+
+  if (servedRange && object.range) {
+    const range = object.range;
+    const offset = "offset" in range ? (range.offset ?? 0) : 0;
+    const length =
+      "length" in range && range.length !== undefined
+        ? range.length
+        : object.size - offset;
+    headers.set(
+      "content-range",
+      `bytes ${offset}-${offset + length - 1}/${object.size}`,
+    );
+    headers.set("content-length", String(length));
+  }
+
+  // No body returned with onlyIf precondition failure -> 304 Not Modified.
+  if (!hasBody) {
+    return new Response(null, { status: 304, headers });
+  }
+
+  return new Response(object.body, {
+    status: servedRange ? 206 : 200,
+    headers,
+  });
+}
+
+function buildHeaders(object: R2Object): Headers {
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set("etag", object.httpEtag);
+  headers.set("content-length", String(object.size));
+  // Artifacts are immutable (ULID-keyed). Let the Cloudflare edge cache
+  // absorb repeat reads — the trace viewer reloads chunks of the zip on
+  // every navigation.
+  headers.set("cache-control", "public, max-age=31536000, immutable");
+  // trace.playwright.dev fetches cross-origin; the previous presigned-URL
+  // flow worked because R2's S3 endpoint sets ACAO:* by default.
+  headers.set("access-control-allow-origin", "*");
+  headers.set("access-control-allow-methods", "GET, HEAD, OPTIONS");
+  headers.set("access-control-allow-headers", "Range, If-Match, If-None-Match");
+  headers.set(
+    "access-control-expose-headers",
+    "Content-Length, Content-Range, ETag",
   );
-  const url = await presignGet(cfg, rows[0].r2Key, ttl);
-  return Response.redirect(url, 302);
+  return headers;
 }

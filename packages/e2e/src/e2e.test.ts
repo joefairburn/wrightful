@@ -146,7 +146,7 @@ describe("Wrightful E2E", () => {
     });
   });
 
-  describe("Artifacts presign", () => {
+  describe("Artifacts register + upload + download", () => {
     // Read once and share across the suite — re-running `wrangler d1 execute`
     // per test sometimes flakes the dev server connection (ECONNRESET).
     let runId: string;
@@ -157,8 +157,8 @@ describe("Wrightful E2E", () => {
       testResultId = seeded.testResultId;
     });
 
-    it("rejects an invalid presign payload (400)", async () => {
-      const res = await fetch(`${DASHBOARD_URL}/api/artifacts/presign`, {
+    it("rejects an invalid register payload (400)", async () => {
+      const res = await fetch(`${DASHBOARD_URL}/api/artifacts/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -170,46 +170,49 @@ describe("Wrightful E2E", () => {
       expect(res.status).toBe(400);
     });
 
-    it("signs a URL and eagerly inserts an artifact row", async () => {
-      const res = await fetch(`${DASHBOARD_URL}/api/artifacts/presign`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${API_KEY}`,
-          "X-Wrightful-Version": "1",
-        },
-        body: JSON.stringify({
-          runId,
-          artifacts: [
-            {
-              testResultId,
-              type: "trace",
-              name: "trace.zip",
-              contentType: "application/zip",
-              sizeBytes: 1024,
-            },
-          ],
-        }),
-      });
-      expect(res.status).toBe(201);
+    it("registers, uploads, and downloads an artifact end-to-end", async () => {
+      const payloadBytes = new TextEncoder().encode("hello-artifact-bytes");
 
-      const body = (await res.json()) as {
+      const registerRes = await fetch(
+        `${DASHBOARD_URL}/api/artifacts/register`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${API_KEY}`,
+            "X-Wrightful-Version": "1",
+          },
+          body: JSON.stringify({
+            runId,
+            artifacts: [
+              {
+                testResultId,
+                type: "trace",
+                name: "trace.zip",
+                contentType: "application/zip",
+                sizeBytes: payloadBytes.length,
+              },
+            ],
+          }),
+        },
+      );
+      expect(registerRes.status).toBe(201);
+
+      const registerBody = (await registerRes.json()) as {
         uploads?: Array<{
-          url?: string;
+          uploadUrl?: string;
           r2Key?: string;
           artifactId?: string;
-          expiresAt?: string;
         }>;
       };
-      expect(body.uploads).toHaveLength(1);
+      expect(registerBody.uploads).toHaveLength(1);
 
-      const upload = body.uploads![0];
-      expect(upload.url).toMatch(/^https:\/\/.*X-Amz-Signature=/);
+      const upload = registerBody.uploads![0];
+      expect(upload.uploadUrl).toMatch(/^\/api\/artifacts\/[^/]+\/upload$/);
       expect(upload.r2Key).toMatch(
         new RegExp(`^runs/${runId}/${testResultId}/.+/trace\\.zip$`),
       );
       expect(upload.artifactId).toBeTruthy();
-      expect(Number.isNaN(Date.parse(upload.expiresAt ?? ""))).toBe(false);
 
       const countJson = sh(
         `npx wrangler d1 execute wrightful --local --json --command "SELECT COUNT(*) AS n FROM artifacts WHERE test_result_id = '${testResultId}';"`,
@@ -217,10 +220,32 @@ describe("Wrightful E2E", () => {
       );
       const count = JSON.parse(countJson)[0]?.results?.[0]?.n;
       expect(count).toBe(1);
+
+      const putRes = await fetch(`${DASHBOARD_URL}${upload.uploadUrl}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          "X-Wrightful-Version": "1",
+          "Content-Type": "application/zip",
+          "Content-Length": String(payloadBytes.length),
+        },
+        body: payloadBytes,
+      });
+      expect(putRes.status).toBe(204);
+
+      const downloadRes = await fetch(
+        `${DASHBOARD_URL}/api/artifacts/${upload.artifactId}/download`,
+      );
+      expect(downloadRes.status).toBe(200);
+      expect(downloadRes.headers.get("access-control-allow-origin")).toBe("*");
+      const downloadedBytes = new Uint8Array(await downloadRes.arrayBuffer());
+      expect(new TextDecoder().decode(downloadedBytes)).toBe(
+        "hello-artifact-bytes",
+      );
     });
 
     it("rejects a run that doesn't belong to the caller's project (404)", async () => {
-      const res = await fetch(`${DASHBOARD_URL}/api/artifacts/presign`, {
+      const res = await fetch(`${DASHBOARD_URL}/api/artifacts/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

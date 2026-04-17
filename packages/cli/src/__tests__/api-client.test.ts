@@ -164,24 +164,23 @@ describe("ApiClient", () => {
     ]);
   });
 
-  describe("presign", () => {
-    it("POSTs to /api/artifacts/presign and returns uploads", async () => {
+  describe("register", () => {
+    it("POSTs to /api/artifacts/register and returns uploads", async () => {
       mockFetch.mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             uploads: [
               {
                 artifactId: "a-1",
-                url: "https://r2.example/put?sig=abc",
+                uploadUrl: "/api/artifacts/a-1/upload",
                 r2Key: "runs/r1/tr-1/a-1/trace.zip",
-                expiresAt: "2026-04-16T00:15:00.000Z",
               },
             ],
           }),
           { status: 201 },
         ),
       );
-      const uploads = await client.presign("r1", [
+      const uploads = await client.register("r1", [
         {
           testResultId: "tr-1",
           type: "trace",
@@ -192,8 +191,9 @@ describe("ApiClient", () => {
       ]);
       expect(uploads).toHaveLength(1);
       expect(uploads[0].artifactId).toBe("a-1");
+      expect(uploads[0].uploadUrl).toBe("/api/artifacts/a-1/upload");
       expect(mockFetch).toHaveBeenCalledWith(
-        "https://dashboard.example.com/api/artifacts/presign",
+        "https://dashboard.example.com/api/artifacts/register",
         expect.objectContaining({ method: "POST" }),
       );
     });
@@ -203,7 +203,7 @@ describe("ApiClient", () => {
         new Response(JSON.stringify({ error: "Oversized" }), { status: 413 }),
       );
       await expect(
-        client.presign("r1", [
+        client.register("r1", [
           {
             testResultId: "tr-1",
             type: "trace",

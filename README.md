@@ -10,20 +10,9 @@ A Playwright test reporting dashboard. Ships as three pieces:
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/joefairburn/wrightful/tree/main/packages/dashboard)
 
-One click provisions a D1 database, an R2 bucket, and the Worker bindings from `packages/dashboard/wrangler.jsonc`, then runs `deploy` — which applies D1 migrations before publishing the worker, so the schema is ready on first load. Three manual steps remain:
+One click provisions a D1 database, an R2 bucket, and the Worker bindings from `packages/dashboard/wrangler.jsonc`, then runs `deploy` — which applies D1 migrations before publishing the worker, so the schema is ready on first load. Artifact uploads and downloads use the native R2 binding, so no S3 credentials are needed. One manual step remains:
 
-1. **Create R2 S3-compatible credentials.** R2 presigning needs an access key pair — Cloudflare cannot auto-create these.
-   Cloudflare dashboard → R2 → Manage API Tokens → Create API Token (scoped to the provisioned bucket, Object Read & Write). Then:
-
-   ```bash
-   cd packages/dashboard
-   wrangler secret put R2_ACCESS_KEY_ID
-   wrangler secret put R2_SECRET_ACCESS_KEY
-   ```
-
-2. **Set `R2_ACCOUNT_ID`.** Either edit `wrangler.jsonc` (`vars.R2_ACCOUNT_ID`) and redeploy, or set it in the Cloudflare dashboard under Worker → Settings → Variables.
-
-3. **Seed an initial API key for the CLI.**
+1. **Seed an initial API key for the CLI.**
 
    ```bash
    pnpm --filter @wrightful/dashboard db:seed-api-key "my-laptop"

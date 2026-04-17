@@ -39,7 +39,7 @@ async function fetchWithRetry(
   throw new Error("Retry exhausted");
 }
 
-export interface PresignArtifactRequest {
+export interface RegisterArtifactRequest {
   testResultId: string;
   type: "trace" | "screenshot" | "video" | "other";
   name: string;
@@ -47,11 +47,10 @@ export interface PresignArtifactRequest {
   sizeBytes: number;
 }
 
-export interface PresignUpload {
+export interface RegisterArtifactUpload {
   artifactId: string;
-  url: string;
+  uploadUrl: string;
   r2Key: string;
-  expiresAt: string;
 }
 
 export class ApiClient {
@@ -113,11 +112,11 @@ export class ApiClient {
     return result;
   }
 
-  async presign(
+  async register(
     runId: string,
-    artifacts: PresignArtifactRequest[],
-  ): Promise<PresignUpload[]> {
-    const url = `${this.baseUrl}/api/artifacts/presign`;
+    artifacts: RegisterArtifactRequest[],
+  ): Promise<RegisterArtifactUpload[]> {
+    const url = `${this.baseUrl}/api/artifacts/register`;
     const response = await fetchWithRetry(url, {
       method: "POST",
       headers: this.headers,
@@ -129,28 +128,29 @@ export class ApiClient {
       body = await response.json();
     } catch {
       throw new Error(
-        `Presign failed (${response.status}): server returned non-JSON response`,
+        `Register failed (${response.status}): server returned non-JSON response`,
       );
     }
 
     if (!response.ok) {
       throw new Error(
-        `Presign failed (${response.status}): ${String(body.error) || response.statusText}`,
+        `Register failed (${response.status}): ${String(body.error) || response.statusText}`,
       );
     }
 
     if (!Array.isArray(body.uploads)) {
-      throw new Error("Presign response missing `uploads` array");
+      throw new Error("Register response missing `uploads` array");
     }
-    return body.uploads as PresignUpload[];
+    return body.uploads as RegisterArtifactUpload[];
   }
 
   /**
-   * Stream `localPath` to the presigned R2 URL via PUT. Does not use retry —
-   * callers treat artifact upload as best-effort (test data is already persisted).
+   * Stream `localPath` to the dashboard upload endpoint via PUT. The endpoint
+   * forwards the body into R2 via the native binding. Does not retry — callers
+   * treat artifact upload as best-effort (test data is already persisted).
    */
   async uploadArtifact(
-    presignedUrl: string,
+    uploadUrl: string,
     localPath: string,
     contentType: string,
     sizeBytes: number,
@@ -158,9 +158,14 @@ export class ApiClient {
     const stream = createReadStream(localPath);
     const body = Readable.toWeb(stream) as unknown as BodyInit;
 
-    const response = await fetch(presignedUrl, {
+    // uploadUrl may be an absolute URL or a path relative to baseUrl.
+    const resolved = new URL(uploadUrl, this.baseUrl).toString();
+
+    const response = await fetch(resolved, {
       method: "PUT",
       headers: {
+        Authorization: `Bearer ${this.token}`,
+        "X-Wrightful-Version": String(PROTOCOL_VERSION),
         "Content-Type": contentType,
         "Content-Length": String(sizeBytes),
       },

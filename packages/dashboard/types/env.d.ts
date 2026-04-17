@@ -15,16 +15,10 @@
 declare namespace Cloudflare {
   interface Env {
     // Widen vars (wrangler emits literal types from wrangler.jsonc values)
-    R2_ACCOUNT_ID: string;
-    R2_BUCKET_NAME: string;
     WRIGHTFUL_MAX_ARTIFACT_BYTES: string;
-    WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS: string;
-    WRIGHTFUL_PRESIGN_GET_TTL_SECONDS: string;
     WRIGHTFUL_PUBLIC_URL: string;
 
     // Secrets — set via `wrangler secret put` (or .dev.vars locally).
-    R2_ACCESS_KEY_ID: string;
-    R2_SECRET_ACCESS_KEY: string;
 
     // Required: signing secret for Better Auth sessions.
     BETTER_AUTH_SECRET: string;

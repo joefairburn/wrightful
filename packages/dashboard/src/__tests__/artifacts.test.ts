@@ -4,12 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // itself hoisted to the top of the module) can safely read it.
 const { mockEnv } = vi.hoisted(() => ({
   mockEnv: {
-    R2_ACCOUNT_ID: "account-123",
-    R2_BUCKET_NAME: "wrightful-artifacts",
-    R2_ACCESS_KEY_ID: "AKIAEXAMPLE",
-    R2_SECRET_ACCESS_KEY: "secret-example",
     WRIGHTFUL_MAX_ARTIFACT_BYTES: "52428800",
-    WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS: "900",
   } as Record<string, string>,
 }));
 
@@ -17,29 +12,13 @@ vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
 
 vi.mock("@/db", () => ({ getDb: vi.fn() }));
 
-vi.mock("@/lib/r2-presign", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/lib/r2-presign")>(
-      "@/lib/r2-presign",
-    );
-  return {
-    ...actual,
-    presignPut: vi.fn(
-      async (_cfg: unknown, key: string, expiresSeconds: number) =>
-        `https://account-123.r2.cloudflarestorage.com/wrightful-artifacts/${encodeURIComponent(key)}?X-Amz-Expires=${expiresSeconds}&X-Amz-Signature=fake`,
-    ),
-  };
-});
-
-import { presignHandler } from "../routes/api/artifacts";
+import { registerHandler } from "../routes/api/artifacts";
 import { getDb } from "@/db";
-import { presignPut } from "@/lib/r2-presign";
 
 const mockedGetDb = vi.mocked(getDb);
-const mockedPresignPut = vi.mocked(presignPut);
 
 function makeRequest(body: unknown): Request {
-  return new Request("https://example.com/api/artifacts/presign", {
+  return new Request("https://example.com/api/artifacts/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -56,7 +35,7 @@ interface DbMock {
   inserted: unknown[] | null;
 }
 
-// Presign handler runs two selects: (1) run ownership by (runId, projectId),
+// Register handler runs two selects: (1) run ownership by (runId, projectId),
 // (2) testResultId membership in that run. The mock returns those in order.
 function makeDbMock(opts: {
   runOwned?: boolean;
@@ -91,23 +70,17 @@ function makeDbMock(opts: {
   return state;
 }
 
-describe("presignHandler", () => {
+describe("registerHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // reset env mutations
     Object.assign(mockEnv, {
-      R2_ACCOUNT_ID: "account-123",
-      R2_BUCKET_NAME: "wrightful-artifacts",
-      R2_ACCESS_KEY_ID: "AKIAEXAMPLE",
-      R2_SECRET_ACCESS_KEY: "secret-example",
       WRIGHTFUL_MAX_ARTIFACT_BYTES: "52428800",
-      WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS: "900",
     });
   });
 
   it("401s when no API key is on the context", async () => {
     mockedGetDb.mockReturnValue({} as never);
-    const res = await presignHandler({
+    const res = await registerHandler({
       request: makeRequest({ runId: "run-1", artifacts: [] }),
       ctx: {},
     });
@@ -116,7 +89,7 @@ describe("presignHandler", () => {
 
   it("400s on invalid payload", async () => {
     mockedGetDb.mockReturnValue({} as never);
-    const res = await presignHandler({
+    const res = await registerHandler({
       request: makeRequest({ runId: "", artifacts: [] }),
       ctx: AUTH_CTX,
     });
@@ -128,7 +101,7 @@ describe("presignHandler", () => {
     const db = makeDbMock({});
     mockedGetDb.mockReturnValue(db as never);
 
-    const res = await presignHandler({
+    const res = await registerHandler({
       request: makeRequest({
         runId: "run-1",
         artifacts: [
@@ -148,36 +121,11 @@ describe("presignHandler", () => {
     expect(body.maxBytes).toBe(1024);
   });
 
-  it("500s with clear error when R2 creds are missing", async () => {
-    mockEnv.R2_ACCESS_KEY_ID = "";
-    const db = makeDbMock({ validTestResultIds: ["tr-1"] });
-    mockedGetDb.mockReturnValue(db as never);
-
-    const res = await presignHandler({
-      request: makeRequest({
-        runId: "run-1",
-        artifacts: [
-          {
-            testResultId: "tr-1",
-            type: "trace",
-            name: "trace.zip",
-            contentType: "application/zip",
-            sizeBytes: 1024,
-          },
-        ],
-      }),
-      ctx: AUTH_CTX,
-    });
-    expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("R2_ACCESS_KEY_ID");
-  });
-
   it("404s when the run doesn't belong to the caller's project", async () => {
     const db = makeDbMock({ runOwned: false });
     mockedGetDb.mockReturnValue(db as never);
 
-    const res = await presignHandler({
+    const res = await registerHandler({
       request: makeRequest({
         runId: "run-1",
         artifacts: [
@@ -200,7 +148,7 @@ describe("presignHandler", () => {
     const db = makeDbMock({ validTestResultIds: ["tr-ok"] });
     mockedGetDb.mockReturnValue(db as never);
 
-    const res = await presignHandler({
+    const res = await registerHandler({
       request: makeRequest({
         runId: "run-1",
         artifacts: [
@@ -227,11 +175,11 @@ describe("presignHandler", () => {
     expect(body.unknownTestResultIds).toEqual(["tr-bad"]);
   });
 
-  it("returns 201 with signed URLs and eagerly inserts artifact rows", async () => {
+  it("returns 201 with upload URLs and eagerly inserts artifact rows", async () => {
     const db = makeDbMock({ validTestResultIds: ["tr-1"] });
     mockedGetDb.mockReturnValue(db as never);
 
-    const res = await presignHandler({
+    const res = await registerHandler({
       request: makeRequest({
         runId: "run-1",
         artifacts: [
@@ -249,19 +197,14 @@ describe("presignHandler", () => {
 
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
-      uploads: Array<{ artifactId: string; url: string; r2Key: string }>;
+      uploads: Array<{ artifactId: string; uploadUrl: string; r2Key: string }>;
     };
     expect(body.uploads).toHaveLength(1);
     expect(body.uploads[0].r2Key).toMatch(
       /^runs\/run-1\/tr-1\/[0-9A-Z]+\/trace\.zip$/,
     );
-    expect(body.uploads[0].url).toContain("X-Amz-Signature=fake");
-
-    expect(mockedPresignPut).toHaveBeenCalledTimes(1);
-    expect(mockedPresignPut).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: "account-123" }),
-      expect.stringMatching(/^runs\/run-1\/tr-1\//),
-      900,
+    expect(body.uploads[0].uploadUrl).toBe(
+      `/api/artifacts/${body.uploads[0].artifactId}/upload`,
     );
 
     expect(db.inserted).toBeTruthy();

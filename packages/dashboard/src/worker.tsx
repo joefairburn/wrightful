@@ -5,7 +5,8 @@ import { Document } from "@/app/document";
 import { setCommonHeaders } from "@/app/headers";
 import { requireAuth, negotiateVersion } from "@/routes/api/middleware";
 import { ingestHandler } from "@/routes/api/ingest";
-import { presignHandler } from "@/routes/api/artifacts";
+import { registerHandler } from "@/routes/api/artifacts";
+import { artifactUploadHandler } from "@/routes/api/artifact-upload";
 import { artifactDownloadHandler } from "@/routes/api/artifact-download";
 import { authHandler } from "@/routes/auth";
 import { loadSession, requireUser } from "@/routes/middleware";
@@ -52,7 +53,10 @@ export default defineApp([
   setCommonHeaders(),
 
   // Unauthenticated artifact download — unguessable ulid gates access.
-  route("/api/artifacts/:id/download", artifactDownloadHandler),
+  route("/api/artifacts/:id/download", {
+    get: artifactDownloadHandler,
+    head: artifactDownloadHandler,
+  }),
 
   // Better Auth catch-all — must be declared before the bearer-token /api
   // prefix so the API-key middleware doesn't intercept sign-in requests.
@@ -65,8 +69,11 @@ export default defineApp([
     route("/ingest", {
       post: ingestHandler,
     }),
-    route("/artifacts/presign", {
-      post: presignHandler,
+    route("/artifacts/register", {
+      post: registerHandler,
+    }),
+    route("/artifacts/:id/upload", {
+      put: artifactUploadHandler,
     }),
   ]),
 

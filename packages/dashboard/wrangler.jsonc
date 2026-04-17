@@ -30,24 +30,22 @@
     },
   ],
   "vars": {
-    // Cloudflare account id that owns the R2 bucket (used to build the
-    // S3-compatible endpoint for presigning).
-    "R2_ACCOUNT_ID": "",
-    // R2 bucket name — must match the `bucket_name` in r2_buckets above.
-    "R2_BUCKET_NAME": "wrightful-artifacts",
-    // Per-artifact upload size cap, enforced in /api/artifacts/presign.
-    // Default 50 MiB (52428800 bytes). Override in production via wrangler vars.
+    // Per-artifact upload size cap, enforced in /api/artifacts/register and
+    // again (as Content-Length) in /api/artifacts/:id/upload. Default 50 MiB
+    // (52428800 bytes). Override in production via wrangler vars.
     "WRIGHTFUL_MAX_ARTIFACT_BYTES": "52428800",
-    // Presigned URL TTL (seconds). Defaults to 900 (15 min) for PUT, 600 for GET.
-    "WRIGHTFUL_PRESIGN_PUT_TTL_SECONDS": "900",
-    "WRIGHTFUL_PRESIGN_GET_TTL_SECONDS": "600",
     // Public origin of the dashboard, used by Better Auth for sign-in
     // callbacks. Required. Locally this is "http://localhost:5173".
     "WRIGHTFUL_PUBLIC_URL": "http://localhost:5173",
   },
+  // Give large artifact uploads room to stream through the Worker — CPU time
+  // is only charged for active compute (streaming body → R2.put is I/O-bound)
+  // but the default 30 s cap can trip on slow clients. Paid plan only; Free
+  // plans ignore this setting.
+  "limits": {
+    "cpu_ms": 300000,
+  },
   // Secrets (set via `wrangler secret put`, or placed in `.dev.vars` locally):
-  //   R2_ACCESS_KEY_ID       — R2 access key ID (Account → R2 → Manage API Tokens)
-  //   R2_SECRET_ACCESS_KEY   — R2 secret access key
   //   BETTER_AUTH_SECRET     — Required. ≥32-char signing secret. Generate with
   //                            `openssl rand -base64 32`.
   //   GITHUB_CLIENT_ID       — Optional. GitHub OAuth app client id. Set both
