@@ -12,12 +12,12 @@ import { Field, FieldLabel } from "@/app/components/ui/field";
 import { Input } from "@/app/components/ui/input";
 import { Separator } from "@/app/components/ui/separator";
 import { hasGithubOAuthConfigured } from "@/lib/better-auth";
+import { LoginGithubButton } from "./login-github-button";
 
 export function LoginPage() {
   const url = new URL(requestInfo.request.url);
   const next = url.searchParams.get("next") ?? "/";
   const callbackURL = encodeURIComponent(next);
-  const githubHref = `/api/auth/sign-in/social?provider=github&callbackURL=${callbackURL}`;
   const mode = url.searchParams.get("mode") === "signup" ? "signup" : "signin";
   const error = url.searchParams.get("error");
   const showGithub = hasGithubOAuthConfigured();
@@ -107,16 +107,7 @@ export function LoginPage() {
                 or
                 <Separator className="flex-1" />
               </div>
-              <Button
-                variant="outline"
-                size="lg"
-                className="w-full"
-                render={
-                  <a href={githubHref} rel="nofollow">
-                    Continue with GitHub
-                  </a>
-                }
-              />
+              <LoginGithubButton callbackURL={next} />
             </>
           )}
         </CardPanel>
