@@ -1,10 +1,10 @@
 import { eq } from "drizzle-orm";
 import { requestInfo } from "rwsdk/worker";
+import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
 import { resolveTeamBySlug } from "@/lib/authz";
 import { param } from "@/lib/route-params";
-import { NotFoundPage } from "@/app/pages/not-found";
 import type { AppContext } from "@/worker";
 
 export async function ProjectPickerPage() {
@@ -22,52 +22,47 @@ export async function ProjectPickerPage() {
     .where(eq(projects.teamId, team.id));
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <div style={{ marginBottom: "1rem" }}>
-        <a href="/" style={{ color: "#6b7280", textDecoration: "none" }}>
+    <div className="mx-auto max-w-2xl p-6 sm:p-8">
+      <div className="mb-2">
+        <a href="/" className="text-muted-foreground text-sm hover:underline">
           &larr; Teams
         </a>
       </div>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "0.25rem" }}>
-        {team.name}
-      </h1>
-      <p style={{ color: "#6b7280", marginBottom: "1.5rem" }}>
+      <h1 className="mb-1 font-semibold text-2xl">{team.name}</h1>
+      <p className="mb-6 text-muted-foreground">
         Pick a project to view its test runs.
       </p>
       {rows.length === 0 ? (
-        <div style={{ color: "#6b7280" }}>
-          <p>No projects yet.</p>
+        <div className="text-muted-foreground">
+          <p className="mb-2">No projects yet.</p>
           {team.role === "owner" && (
             <a
               href={`/admin/t/${team.slug}/projects/new`}
-              style={{ color: "#2563eb" }}
+              className="text-foreground underline-offset-4 hover:underline"
             >
               Create the first project &rarr;
             </a>
           )}
         </div>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul className="divide-y border-y">
           {rows.map((p) => (
-            <li
-              key={p.id}
-              style={{
-                padding: "0.75rem 0",
-                borderBottom: "1px solid #f3f4f6",
-              }}
-            >
+            <li key={p.id}>
               <a
                 href={`/t/${team.slug}/p/${p.slug}`}
-                style={{ color: "#111827", textDecoration: "none" }}
+                className="block py-3 font-semibold hover:bg-accent/32"
               >
-                <strong>{p.name}</strong>
+                {p.name}
               </a>
             </li>
           ))}
         </ul>
       )}
-      <div style={{ marginTop: "2rem" }}>
-        <a href={`/admin/t/${team.slug}`} style={{ color: "#2563eb" }}>
+      <div className="mt-8">
+        <a
+          href={`/admin/t/${team.slug}`}
+          className="text-muted-foreground text-sm underline-offset-4 hover:text-foreground hover:underline"
+        >
           Manage team &rarr;
         </a>
       </div>

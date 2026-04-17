@@ -1,13 +1,24 @@
 import { and, desc, eq } from "drizzle-orm";
+import { DurationChart } from "@/app/components/duration-chart";
+import { Sparkline } from "@/app/components/sparkline";
+import { StatusBadge } from "@/app/components/status-badge";
+import { Card, CardPanel } from "@/app/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/app/components/ui/table";
+import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { runs, testResults } from "@/db/schema";
-import { Sparkline } from "@/app/components/sparkline";
-import { DurationChart } from "@/app/components/duration-chart";
-import { formatDuration, formatRelativeTime } from "@/lib/time-format";
-import { param } from "@/lib/route-params";
-import { statusColor, type Status } from "@/lib/status";
 import { getActiveProject } from "@/lib/active-project";
-import { NotFoundPage } from "@/app/pages/not-found";
+import { cn } from "@/lib/cn";
+import { param } from "@/lib/route-params";
+import type { Status } from "@/lib/status";
+import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 const HISTORY_LIMIT = 50;
 
@@ -24,6 +35,12 @@ function flakinessPercent(rows: Array<{ status: string }>): {
   const flaky = rows.filter((r) => r.status === "flaky").length;
   const pct = ran === 0 ? 0 : Math.round(((failed + flaky) / ran) * 100);
   return { ran, failed, flaky, pct };
+}
+
+function pctColorClass(pct: number): string {
+  if (pct >= 20) return "text-destructive-foreground";
+  if (pct > 0) return "text-warning-foreground";
+  return "text-success-foreground";
 }
 
 export async function TestHistoryPage() {
@@ -58,13 +75,20 @@ export async function TestHistoryPage() {
 
   if (history.length === 0) {
     return (
-      <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-        <h1>No history for this test</h1>
-        <p style={{ color: "#6b7280" }}>
+      <div className="mx-auto max-w-6xl p-6 sm:p-8">
+        <h1 className="mb-2 font-semibold text-2xl">
+          No history for this test
+        </h1>
+        <p className="mb-4 text-muted-foreground">
           This test identifier has no recorded runs. If you recently renamed the
           test, file, or project, it will appear as a new test id.
         </p>
-        <a href={base}>Back to runs</a>
+        <a
+          href={base}
+          className="text-foreground underline-offset-4 hover:underline"
+        >
+          Back to runs
+        </a>
       </div>
     );
   }
@@ -73,83 +97,50 @@ export async function TestHistoryPage() {
   const { ran, failed, flaky, pct } = flakinessPercent(history);
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <div style={{ marginBottom: "1rem" }}>
+    <div className="mx-auto max-w-6xl p-6 sm:p-8">
+      <div className="mb-2">
         <a
           href={`${base}/runs/${mostRecent.runId}/tests/${mostRecent.testResultId}`}
-          style={{ color: "#6b7280", textDecoration: "none" }}
+          className="text-muted-foreground text-sm hover:underline"
         >
           &larr; Back to latest run
         </a>
       </div>
 
-      <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.25rem" }}>
-        {mostRecent.title}
-      </h1>
-      <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: "0.85rem",
-          color: "#6b7280",
-          marginBottom: "1.5rem",
-        }}
-      >
+      <h1 className="mb-1 font-semibold text-xl">{mostRecent.title}</h1>
+      <div className="mb-6 font-mono text-muted-foreground text-sm">
         {mostRecent.file}
         {mostRecent.projectName && ` · ${mostRecent.projectName}`}
       </div>
 
-      {/* Summary */}
-      <div
-        style={{
-          display: "flex",
-          gap: "2rem",
-          padding: "1rem",
-          background: "#f9fafb",
-          borderRadius: "8px",
-          marginBottom: "1.5rem",
-          alignItems: "center",
-        }}
-      >
-        <div>
-          <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>
-            Last {ran} runs
+      <Card className="mb-6">
+        <CardPanel className="flex flex-wrap items-center gap-x-8 gap-y-4">
+          <div>
+            <div className="text-muted-foreground text-xs">Last {ran} runs</div>
+            <div className={cn("font-semibold text-2xl", pctColorClass(pct))}>
+              {pct}%
+            </div>
+            <div className="text-muted-foreground text-xs">
+              {failed} failed · {flaky} flaky
+            </div>
           </div>
-          <div
-            style={{
-              fontSize: "1.5rem",
-              fontWeight: 600,
-              color: pct >= 20 ? "#dc2626" : pct > 0 ? "#ea580c" : "#16a34a",
-            }}
-          >
-            {pct}%
+          <div>
+            <div className="mb-1 text-muted-foreground text-xs">
+              Status timeline (oldest → newest)
+            </div>
+            <Sparkline
+              points={[...history].reverse().map((h) => ({
+                status: h.status as Status,
+                label: `${h.status} — ${formatDuration(h.durationMs)} — ${formatRelativeTime(h.createdAt)}`,
+              }))}
+              width={300}
+              height={28}
+            />
           </div>
-          <div style={{ color: "#6b7280", fontSize: "0.7rem" }}>
-            {failed} failed · {flaky} flaky
-          </div>
-        </div>
-        <div>
-          <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>
-            Status timeline (oldest → newest)
-          </div>
-          <Sparkline
-            points={[...history].reverse().map((h) => ({
-              status: h.status as Status,
-              label: `${h.status} — ${formatDuration(h.durationMs)} — ${formatRelativeTime(h.createdAt)}`,
-            }))}
-            width={300}
-            height={28}
-          />
-        </div>
-      </div>
+        </CardPanel>
+      </Card>
 
-      {/* Duration trend */}
-      <h2
-        style={{
-          fontSize: "1rem",
-          marginBottom: "0.5rem",
-          color: "#374151",
-        }}
-      >
+      <h2 className="mb-2 font-semibold text-sm text-muted-foreground">
         Duration (oldest → newest)
       </h2>
       <DurationChart
@@ -161,69 +152,37 @@ export async function TestHistoryPage() {
         height={120}
       />
 
-      {/* Run list */}
-      <h2
-        style={{
-          fontSize: "1.1rem",
-          marginBottom: "0.5rem",
-          marginTop: "1.5rem",
-        }}
-      >
-        Recent results
-      </h2>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: "0.875rem",
-        }}
-      >
-        <thead>
-          <tr style={{ borderBottom: "2px solid #e5e7eb", textAlign: "left" }}>
-            <th style={{ padding: "0.5rem" }}>Status</th>
-            <th style={{ padding: "0.5rem" }}>When</th>
-            <th style={{ padding: "0.5rem" }}>Branch</th>
-            <th style={{ padding: "0.5rem" }}>Commit</th>
-            <th style={{ padding: "0.5rem" }}>Duration</th>
-          </tr>
-        </thead>
-        <tbody>
+      <h2 className="mt-8 mb-3 font-semibold text-lg">Recent results</h2>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Status</TableHead>
+            <TableHead>When</TableHead>
+            <TableHead>Branch</TableHead>
+            <TableHead>Commit</TableHead>
+            <TableHead>Duration</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {history.map((h) => (
-            <tr
-              key={h.testResultId}
-              style={{ borderBottom: "1px solid #f3f4f6" }}
-            >
-              <td style={{ padding: "0.5rem" }}>
-                <a
-                  href={`${base}/runs/${h.runId}/tests/${h.testResultId}`}
-                  style={{
-                    color: statusColor(h.status),
-                    textDecoration: "none",
-                  }}
-                >
-                  {h.status.toUpperCase()}
+            <TableRow key={h.testResultId}>
+              <TableCell>
+                <a href={`${base}/runs/${h.runId}/tests/${h.testResultId}`}>
+                  <StatusBadge status={h.status} />
                 </a>
-              </td>
-              <td style={{ padding: "0.5rem", color: "#6b7280" }}>
+              </TableCell>
+              <TableCell className="text-muted-foreground">
                 {formatRelativeTime(h.createdAt)}
-              </td>
-              <td style={{ padding: "0.5rem" }}>{h.branch ?? "-"}</td>
-              <td
-                style={{
-                  padding: "0.5rem",
-                  fontFamily: "monospace",
-                  fontSize: "0.8rem",
-                }}
-              >
+              </TableCell>
+              <TableCell>{h.branch ?? "-"}</TableCell>
+              <TableCell className="font-mono text-xs">
                 {h.commitSha?.slice(0, 7) ?? "-"}
-              </td>
-              <td style={{ padding: "0.5rem" }}>
-                {formatDuration(h.durationMs)}
-              </td>
-            </tr>
+              </TableCell>
+              <TableCell>{formatDuration(h.durationMs)}</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

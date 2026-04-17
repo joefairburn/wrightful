@@ -1,8 +1,16 @@
 import { eq } from "drizzle-orm";
 import { requestInfo } from "rwsdk/worker";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/app/components/ui/empty";
+import { Button } from "@/app/components/ui/button";
+import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { memberships, teams } from "@/db/schema";
-import { NotFoundPage } from "@/app/pages/not-found";
 import type { AppContext } from "@/worker";
 
 export async function TeamPickerPage() {
@@ -29,60 +37,41 @@ export async function TeamPickerPage() {
   }
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "1rem" }}>Your teams</h1>
+    <div className="mx-auto max-w-2xl p-6 sm:p-8">
+      <h1 className="mb-6 font-semibold text-2xl">Your teams</h1>
       {rows.length === 0 ? (
-        <div style={{ color: "#6b7280" }}>
-          <p>
-            You&apos;re not a member of any team yet. Create one to start
-            collecting Playwright runs.
-          </p>
-          <a
-            href="/admin/teams/new"
-            style={{
-              display: "inline-block",
-              marginTop: "0.75rem",
-              padding: "0.5rem 1rem",
-              background: "#111827",
-              color: "#fff",
-              textDecoration: "none",
-              borderRadius: "6px",
-            }}
-          >
-            Create a team
-          </a>
-        </div>
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>No teams yet</EmptyTitle>
+            <EmptyDescription>
+              You&apos;re not a member of any team yet. Create one to start
+              collecting Playwright runs.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button render={<a href="/admin/teams/new">Create a team</a>} />
+          </EmptyContent>
+        </Empty>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul className="divide-y border-y">
           {rows.map((t) => (
-            <li
-              key={t.id}
-              style={{
-                padding: "0.75rem 0",
-                borderBottom: "1px solid #f3f4f6",
-              }}
-            >
+            <li key={t.id}>
               <a
                 href={`/t/${t.slug}`}
-                style={{ color: "#111827", textDecoration: "none" }}
+                className="flex items-baseline gap-2 py-3 hover:bg-accent/32"
               >
-                <strong>{t.name}</strong>
-                <span
-                  style={{
-                    marginLeft: "0.5rem",
-                    color: "#6b7280",
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  {t.role}
-                </span>
+                <strong className="font-semibold">{t.name}</strong>
+                <span className="text-muted-foreground text-sm">{t.role}</span>
               </a>
             </li>
           ))}
         </ul>
       )}
-      <div style={{ marginTop: "2rem" }}>
-        <a href="/admin/teams" style={{ color: "#2563eb" }}>
+      <div className="mt-8">
+        <a
+          href="/admin/teams"
+          className="text-muted-foreground text-sm underline-offset-4 hover:text-foreground hover:underline"
+        >
           Manage teams &rarr;
         </a>
       </div>

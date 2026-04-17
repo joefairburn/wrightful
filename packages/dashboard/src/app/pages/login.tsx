@@ -1,4 +1,16 @@
 import { requestInfo } from "rwsdk/worker";
+import { Alert, AlertDescription } from "@/app/components/ui/alert";
+import { Button } from "@/app/components/ui/button";
+import {
+  Card,
+  CardDescription,
+  CardHeader,
+  CardPanel,
+  CardTitle,
+} from "@/app/components/ui/card";
+import { Field, FieldLabel } from "@/app/components/ui/field";
+import { Input } from "@/app/components/ui/input";
+import { Separator } from "@/app/components/ui/separator";
 import { hasGithubOAuthConfigured } from "@/lib/better-auth";
 
 export function LoginPage() {
@@ -14,155 +26,101 @@ export function LoginPage() {
     mode === "signup" ? "/api/auth/sign-up/email" : "/api/auth/sign-in/email";
 
   return (
-    <div
-      style={{
-        fontFamily: "system-ui, sans-serif",
-        padding: "4rem 1.5rem",
-        maxWidth: 420,
-        margin: "0 auto",
-      }}
-    >
-      <h1
-        style={{
-          fontSize: "1.5rem",
-          marginBottom: "0.25rem",
-          textAlign: "center",
-        }}
-      >
-        {mode === "signup" ? "Create an account" : "Sign in to Wrightful"}
-      </h1>
-      <p
-        style={{
-          color: "#6b7280",
-          textAlign: "center",
-          marginBottom: "1.5rem",
-        }}
-      >
-        {mode === "signup"
-          ? "Set up a password to get started."
-          : "Welcome back."}
-      </p>
+    <div className="mx-auto max-w-sm px-6 py-16">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-center">
+            {mode === "signup" ? "Create an account" : "Sign in to Wrightful"}
+          </CardTitle>
+          <CardDescription className="text-center">
+            {mode === "signup"
+              ? "Set up a password to get started."
+              : "Welcome back."}
+          </CardDescription>
+        </CardHeader>
+        <CardPanel className="flex flex-col gap-4">
+          {error && (
+            <Alert variant="error">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-      {error && (
-        <p
-          style={{
-            color: "#991b1b",
-            background: "#fef2f2",
-            padding: "0.5rem 0.75rem",
-            borderRadius: "4px",
-            marginBottom: "1rem",
-            fontSize: "0.875rem",
-          }}
-        >
-          {error}
-        </p>
-      )}
-
-      <form
-        method="post"
-        action={formAction}
-        style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }}
-      >
-        <input type="hidden" name="callbackURL" value={next} />
-        {mode === "signup" && (
-          <label>
-            <span style={{ display: "block", fontSize: "0.85rem" }}>Name</span>
-            <input
-              name="name"
-              required
-              maxLength={80}
-              style={{ padding: "0.5rem", width: "100%" }}
-            />
-          </label>
-        )}
-        <label>
-          <span style={{ display: "block", fontSize: "0.85rem" }}>Email</span>
-          <input
-            name="email"
-            type="email"
-            required
-            style={{ padding: "0.5rem", width: "100%" }}
-          />
-        </label>
-        <label>
-          <span style={{ display: "block", fontSize: "0.85rem" }}>
-            Password
-          </span>
-          <input
-            name="password"
-            type="password"
-            required
-            minLength={8}
-            style={{ padding: "0.5rem", width: "100%" }}
-          />
-        </label>
-        <button
-          type="submit"
-          style={{
-            padding: "0.6rem 1rem",
-            background: "#111827",
-            color: "#fff",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-            fontSize: "0.95rem",
-          }}
-        >
-          {mode === "signup" ? "Create account" : "Sign in"}
-        </button>
-      </form>
-
-      <p style={{ textAlign: "center", fontSize: "0.875rem" }}>
-        {mode === "signup" ? (
-          <>
-            Have an account?{" "}
-            <a href={`/login?next=${callbackURL}`} style={{ color: "#2563eb" }}>
-              Sign in
-            </a>
-          </>
-        ) : (
-          <>
-            New to Wrightful?{" "}
-            <a
-              href={`/login?mode=signup&next=${callbackURL}`}
-              style={{ color: "#2563eb" }}
-            >
-              Create an account
-            </a>
-          </>
-        )}
-      </p>
-
-      {showGithub && (
-        <>
-          <div
-            style={{
-              textAlign: "center",
-              margin: "1.5rem 0 1rem",
-              color: "#9ca3af",
-              fontSize: "0.8rem",
-            }}
+          <form
+            method="post"
+            action={formAction}
+            className="flex flex-col gap-3"
           >
-            — or —
-          </div>
-          <a
-            href={githubHref}
-            style={{
-              display: "block",
-              padding: "0.6rem 1rem",
-              background: "#fff",
-              color: "#111827",
-              border: "1px solid #d1d5db",
-              textDecoration: "none",
-              borderRadius: "6px",
-              textAlign: "center",
-              fontSize: "0.95rem",
-            }}
-          >
-            Continue with GitHub
-          </a>
-        </>
-      )}
+            <input type="hidden" name="callbackURL" value={next} />
+            {mode === "signup" && (
+              <Field>
+                <FieldLabel>Name</FieldLabel>
+                <Input nativeInput name="name" required maxLength={80} />
+              </Field>
+            )}
+            <Field>
+              <FieldLabel>Email</FieldLabel>
+              <Input nativeInput name="email" type="email" required />
+            </Field>
+            <Field>
+              <FieldLabel>Password</FieldLabel>
+              <Input
+                nativeInput
+                name="password"
+                type="password"
+                required
+                minLength={8}
+              />
+            </Field>
+            <Button type="submit" size="lg" className="mt-2 w-full">
+              {mode === "signup" ? "Create account" : "Sign in"}
+            </Button>
+          </form>
+
+          <p className="text-center text-muted-foreground text-sm">
+            {mode === "signup" ? (
+              <>
+                Have an account?{" "}
+                <a
+                  href={`/login?next=${callbackURL}`}
+                  className="text-foreground underline-offset-4 hover:underline"
+                >
+                  Sign in
+                </a>
+              </>
+            ) : (
+              <>
+                New to Wrightful?{" "}
+                <a
+                  href={`/login?mode=signup&next=${callbackURL}`}
+                  className="text-foreground underline-offset-4 hover:underline"
+                >
+                  Create an account
+                </a>
+              </>
+            )}
+          </p>
+
+          {showGithub && (
+            <>
+              <div className="flex items-center gap-3 text-muted-foreground text-xs">
+                <Separator className="flex-1" />
+                or
+                <Separator className="flex-1" />
+              </div>
+              <Button
+                variant="outline"
+                size="lg"
+                className="w-full"
+                render={
+                  <a href={githubHref} rel="nofollow">
+                    Continue with GitHub
+                  </a>
+                }
+              />
+            </>
+          )}
+        </CardPanel>
+      </Card>
     </div>
   );
 }

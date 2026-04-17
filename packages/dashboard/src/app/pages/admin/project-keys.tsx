@@ -1,12 +1,25 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { ulid } from "ulid";
 import { requestInfo } from "rwsdk/worker";
+import { ulid } from "ulid";
+import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
+import { Badge } from "@/app/components/ui/badge";
+import { Button } from "@/app/components/ui/button";
+import { Field, FieldLabel } from "@/app/components/ui/field";
+import { Input } from "@/app/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/app/components/ui/table";
+import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { apiKeys } from "@/db/schema";
 import { resolveProjectBySlugs } from "@/lib/authz";
-import { param } from "@/lib/route-params";
 import { readField } from "@/lib/form";
-import { NotFoundPage } from "@/app/pages/not-found";
+import { param } from "@/lib/route-params";
 import type { AppContext } from "@/worker";
 
 async function sha256Hex(input: string): Promise<string> {
@@ -77,149 +90,105 @@ export async function AdminProjectKeysPage() {
     .orderBy(desc(apiKeys.createdAt));
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <div style={{ marginBottom: "1rem" }}>
+    <div className="mx-auto max-w-5xl p-6 sm:p-8">
+      <div className="mb-2">
         <a
           href={`/admin/t/${project.teamSlug}`}
-          style={{ color: "#6b7280", textDecoration: "none" }}
+          className="text-muted-foreground text-sm hover:underline"
         >
           &larr; {project.teamSlug}
         </a>
       </div>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>
-        API keys — {project.name}
-      </h1>
-      <p style={{ color: "#6b7280", marginBottom: "1.5rem" }}>
+      <h1 className="mb-1 font-semibold text-2xl">API keys — {project.name}</h1>
+      <p className="mb-6 text-muted-foreground">
         Keys authorise the CLI to upload Playwright reports into this project.
       </p>
 
       {revealedKey && (
-        <div
-          style={{
-            padding: "1rem",
-            background: "#ecfdf5",
-            borderRadius: "6px",
-            marginBottom: "1.5rem",
-          }}
-        >
-          <p style={{ fontWeight: 600, margin: 0, color: "#065f46" }}>
+        <Alert variant="success" className="mb-6">
+          <AlertTitle>
             Copy your new key now — it won&apos;t be shown again.
-          </p>
-          <pre
-            style={{
-              marginTop: "0.5rem",
-              padding: "0.5rem",
-              background: "#fff",
-              borderRadius: "4px",
-              fontFamily: "monospace",
-              overflowX: "auto",
-            }}
-          >
-            {revealedKey}
-          </pre>
-        </div>
+          </AlertTitle>
+          <AlertDescription>
+            <pre className="overflow-x-auto rounded-md bg-background p-2 font-mono text-xs">
+              {revealedKey}
+            </pre>
+          </AlertDescription>
+        </Alert>
       )}
 
-      <form
-        method="post"
-        style={{
-          display: "flex",
-          gap: "0.5rem",
-          alignItems: "end",
-          marginBottom: "1.5rem",
-        }}
-      >
+      <form method="post" className="mb-8 flex items-end gap-3">
         <input type="hidden" name="action" value="create" />
-        <label style={{ flex: 1 }}>
-          <span style={{ display: "block", fontSize: "0.85rem" }}>Label</span>
-          <input
+        <Field className="flex-1">
+          <FieldLabel>Label</FieldLabel>
+          <Input
+            nativeInput
             name="label"
             required
             maxLength={60}
             placeholder="e.g. CI main"
-            style={{ padding: "0.5rem", width: "100%" }}
           />
-        </label>
-        <button
-          type="submit"
-          style={{
-            padding: "0.5rem 1rem",
-            background: "#111827",
-            color: "#fff",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-          }}
-        >
-          Mint key
-        </button>
+        </Field>
+        <Button type="submit">Mint key</Button>
       </form>
 
       {rows.length === 0 ? (
-        <p style={{ color: "#6b7280" }}>No keys yet.</p>
+        <p className="text-muted-foreground">No keys yet.</p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr
-              style={{ borderBottom: "2px solid #e5e7eb", textAlign: "left" }}
-            >
-              <th style={{ padding: "0.5rem" }}>Label</th>
-              <th style={{ padding: "0.5rem" }}>Prefix</th>
-              <th style={{ padding: "0.5rem" }}>Created</th>
-              <th style={{ padding: "0.5rem" }}>Last used</th>
-              <th style={{ padding: "0.5rem" }}>Status</th>
-              <th style={{ padding: "0.5rem" }}></th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Label</TableHead>
+              <TableHead>Prefix</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Last used</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((k) => (
-              <tr key={k.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                <td style={{ padding: "0.5rem" }}>{k.label}</td>
-                <td
-                  style={{
-                    padding: "0.5rem",
-                    fontFamily: "monospace",
-                    fontSize: "0.85rem",
-                  }}
-                >
+              <TableRow key={k.id}>
+                <TableCell>{k.label}</TableCell>
+                <TableCell className="font-mono text-xs">
                   {k.keyPrefix}…
-                </td>
-                <td style={{ padding: "0.5rem", color: "#6b7280" }}>
+                </TableCell>
+                <TableCell className="text-muted-foreground">
                   {k.createdAt.toISOString().slice(0, 10)}
-                </td>
-                <td style={{ padding: "0.5rem", color: "#6b7280" }}>
+                </TableCell>
+                <TableCell className="text-muted-foreground">
                   {k.lastUsedAt?.toISOString().slice(0, 10) ?? "—"}
-                </td>
-                <td style={{ padding: "0.5rem" }}>
+                </TableCell>
+                <TableCell>
                   {k.revokedAt ? (
-                    <span style={{ color: "#dc2626" }}>revoked</span>
+                    <Badge variant="error" size="sm">
+                      revoked
+                    </Badge>
                   ) : (
-                    <span style={{ color: "#16a34a" }}>active</span>
+                    <Badge variant="success" size="sm">
+                      active
+                    </Badge>
                   )}
-                </td>
-                <td style={{ padding: "0.5rem" }}>
+                </TableCell>
+                <TableCell>
                   {!k.revokedAt && (
-                    <form method="post" style={{ margin: 0 }}>
+                    <form method="post" className="m-0">
                       <input type="hidden" name="action" value="revoke" />
                       <input type="hidden" name="keyId" value={k.id} />
-                      <button
+                      <Button
                         type="submit"
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#dc2626",
-                          cursor: "pointer",
-                        }}
+                        variant="destructive-outline"
+                        size="sm"
                       >
                         Revoke
-                      </button>
+                      </Button>
                     </form>
                   )}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
     </div>
   );
