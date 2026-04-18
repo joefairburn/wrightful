@@ -17,7 +17,6 @@ import { runs, testResults } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { param } from "@/lib/route-params";
-import type { Status } from "@/lib/status";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 const HISTORY_LIMIT = 50;
@@ -130,7 +129,7 @@ export async function TestHistoryPage() {
             </div>
             <Sparkline
               points={[...history].reverse().map((h) => ({
-                status: h.status as Status,
+                status: h.status,
                 label: `${h.status} — ${formatDuration(h.durationMs)} — ${formatRelativeTime(h.createdAt)}`,
               }))}
               width={300}

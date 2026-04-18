@@ -29,6 +29,10 @@ export const uploadCommand = new Command("upload")
     "Artifact upload mode: all, failed, none",
     "failed",
   )
+  .option(
+    "--environment <name>",
+    "Environment name to tag this run (e.g. staging, production)",
+  )
   .option("--dry-run", "Parse and validate without uploading", false)
   .action(async (reportFile: string, options) => {
     logger.printHeader();
@@ -72,6 +76,7 @@ export const uploadCommand = new Command("upload")
         ciProvider: ci?.ciProvider ?? null,
         ciBuildId: ci?.ciBuildId ?? null,
         branch: ci?.branch ?? null,
+        environment: options.environment ?? null,
         commitSha: ci?.commitSha ?? null,
         commitMessage: ci?.commitMessage ?? null,
         prNumber: ci?.prNumber ?? null,

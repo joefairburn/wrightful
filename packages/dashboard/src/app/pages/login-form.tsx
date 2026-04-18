@@ -1,13 +1,17 @@
 "use client";
 
+import { Info } from "lucide-react";
 import { useState } from "react";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { Button } from "@/app/components/ui/button";
-import { Field, FieldLabel } from "@/app/components/ui/field";
 import { Input } from "@/app/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 
 type Mode = "signin" | "signup";
+
+const PASSWORD_MIN = 12;
+
+const labelClass = "font-label text-sm text-foreground";
 
 export function LoginForm({
   mode,
@@ -19,22 +23,34 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  const isSignup = mode === "signup";
+
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+
+    const formData = new FormData(event.currentTarget);
+    const getField = (key: string): string => {
+      const v = formData.get(key);
+      return typeof v === "string" ? v : "";
+    };
+    const email = getField("email");
+    const password = getField("password");
+    const name = getField("name");
+
+    if (isSignup) {
+      if (password.length < PASSWORD_MIN || !/\d/.test(password)) {
+        setError(
+          `Password must be at least ${PASSWORD_MIN} characters and include a number.`,
+        );
+        return;
+      }
+    }
+
     setPending(true);
-
-    const form = event.currentTarget;
-    const email = (form.elements.namedItem("email") as HTMLInputElement).value;
-    const password = (form.elements.namedItem("password") as HTMLInputElement)
-      .value;
-    const nameEl = form.elements.namedItem("name") as HTMLInputElement | null;
-    const name = nameEl?.value ?? "";
-
-    const promise =
-      mode === "signup"
-        ? authClient.signUp.email({ email, password, name, callbackURL })
-        : authClient.signIn.email({ email, password, callbackURL });
+    const promise = isSignup
+      ? authClient.signUp.email({ email, password, name, callbackURL })
+      : authClient.signIn.email({ email, password, callbackURL });
 
     promise
       .then((result) => {
@@ -52,39 +68,68 @@ export function LoginForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-3">
+    <form onSubmit={onSubmit} className="flex flex-col gap-5" noValidate>
+      {isSignup && (
+        <div className="flex flex-col gap-2">
+          <label htmlFor="name" className={labelClass}>
+            Name
+          </label>
+          <Input nativeInput id="name" name="name" required maxLength={80} />
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        <label htmlFor="email" className={labelClass}>
+          Email address
+        </label>
+        <Input
+          nativeInput
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          required
+          autoFocus
+          placeholder="you@example.com"
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label htmlFor="password" className={labelClass}>
+          Password
+        </label>
+        <Input
+          nativeInput
+          id="password"
+          name="password"
+          type="password"
+          autoComplete={isSignup ? "new-password" : "current-password"}
+          required
+          minLength={isSignup ? PASSWORD_MIN : undefined}
+        />
+        {isSignup && (
+          <div className="flex items-start gap-2 mt-1">
+            <Info
+              size={14}
+              className="text-muted-foreground shrink-0 mt-0.5"
+              aria-hidden
+            />
+            <p className="font-label text-xs text-muted-foreground leading-tight">
+              Must be at least {PASSWORD_MIN} characters long and contain at
+              least one number.
+            </p>
+          </div>
+        )}
+      </div>
+
       {error && (
-        <Alert variant="error">
+        <Alert variant="error" role="alert" aria-live="polite">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {mode === "signup" && (
-        <Field>
-          <FieldLabel>Name</FieldLabel>
-          <Input nativeInput name="name" required maxLength={80} />
-        </Field>
-      )}
-      <Field>
-        <FieldLabel>Email</FieldLabel>
-        <Input nativeInput name="email" type="email" required />
-      </Field>
-      <Field>
-        <FieldLabel>Password</FieldLabel>
-        <Input
-          nativeInput
-          name="password"
-          type="password"
-          required
-          minLength={8}
-        />
-      </Field>
-      <Button
-        type="submit"
-        size="lg"
-        className="mt-2 w-full"
-        disabled={pending}
-      >
-        {mode === "signup"
+
+      <Button type="submit" disabled={pending} className="mt-2 w-full">
+        {isSignup
           ? pending
             ? "Creating account…"
             : "Create account"

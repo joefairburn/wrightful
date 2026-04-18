@@ -107,6 +107,7 @@ export interface ParsedReport {
     | "ciProvider"
     | "ciBuildId"
     | "branch"
+    | "environment"
     | "commitSha"
     | "commitMessage"
     | "prNumber"

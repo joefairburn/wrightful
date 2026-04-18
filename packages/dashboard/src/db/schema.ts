@@ -176,6 +176,7 @@ export const runs = sqliteTable(
     ciProvider: text("ci_provider"),
     ciBuildId: text("ci_build_id"),
     branch: text("branch"),
+    environment: text("environment"),
     commitSha: text("commit_sha"),
     commitMessage: text("commit_message"),
     prNumber: integer("pr_number"),
@@ -198,6 +199,10 @@ export const runs = sqliteTable(
     ),
     index("runs_ci_build_id_idx").on(table.ciBuildId),
     index("runs_branch_created_at_idx").on(table.branch, table.createdAt),
+    index("runs_environment_created_at_idx").on(
+      table.environment,
+      table.createdAt,
+    ),
     index("runs_project_created_at_idx").on(table.projectId, table.createdAt),
   ],
 );

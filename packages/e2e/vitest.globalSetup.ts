@@ -107,7 +107,19 @@ async function signUpTestUser(): Promise<SignUpResult> {
     const body = await res.text();
     throw new Error(`Sign-up failed (${res.status}): ${body}`);
   }
-  const body = (await res.json()) as { user: { id: string } };
+  const body: unknown = await res.json();
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("user" in body) ||
+    typeof body.user !== "object" ||
+    body.user === null ||
+    !("id" in body.user) ||
+    typeof body.user.id !== "string"
+  ) {
+    throw new Error("Sign-up response missing user.id");
+  }
+  const userId = body.user.id;
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) {
     throw new Error("Sign-up did not return a session cookie");
@@ -115,7 +127,7 @@ async function signUpTestUser(): Promise<SignUpResult> {
   // The Set-Cookie header may contain multiple attributes separated by `;`.
   // Just take the name=value pair for reuse in a `Cookie:` request header.
   const sessionCookie = setCookie.split(";")[0];
-  return { userId: body.user.id, sessionCookie };
+  return { userId, sessionCookie };
 }
 
 export async function setup(project: TestProject): Promise<void> {

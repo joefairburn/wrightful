@@ -24,7 +24,11 @@ export const STATUS_COLORS: Record<Status, string> = {
 
 const FALLBACK_COLOR = "#6b7280";
 
+function isStatus(s: string): s is Status {
+  return s in STATUS_COLORS;
+}
+
 /** Returns the colour for a known status, falling back to a muted grey. */
 export function statusColor(status: string): string {
-  return STATUS_COLORS[status as Status] ?? FALLBACK_COLOR;
+  return isStatus(status) ? STATUS_COLORS[status] : FALLBACK_COLOR;
 }

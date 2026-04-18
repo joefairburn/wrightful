@@ -69,9 +69,12 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
-      '@fontsource/geist-mono':
-        specifier: ^5.2.7
-        version: 5.2.7
+      '@fontsource-variable/jetbrains-mono':
+        specifier: ^5.2.8
+        version: 5.2.8
+      '@fontsource-variable/space-grotesk':
+        specifier: ^5.2.10
+        version: 5.2.10
       '@tailwindcss/vite':
         specifier: ^4.2.2
         version: 4.2.2(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -91,8 +94,8 @@ importers:
         specifier: ^1.7.0
         version: 1.7.0(next@16.2.4(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))
       lucide-react:
-        specifier: ^1.8.0
-        version: 1.8.0(react@19.2.5)
+        specifier: ^0.469.0
+        version: 0.469.0(react@19.2.5)
       nuqs:
         specifier: ^2.8.9
         version: 2.8.9(next@16.2.4(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5)
@@ -1223,8 +1226,11 @@ packages:
   '@fontsource-variable/inter@5.2.8':
     resolution: {integrity: sha512-kOfP2D+ykbcX/P3IFnokOhVRNoTozo5/JxhAIVYLpea/UBmCQ/YWPBfWIDuBImXX/15KH+eKh4xpEUyS2sQQGQ==}
 
-  '@fontsource/geist-mono@5.2.7':
-    resolution: {integrity: sha512-xVPVFISJg/K0VVd+aQN0Y7X/sw9hUcJPyDWFJ5GpyU3bHELhoRsJkPSRSHXW32mOi0xZCUQDOaPj1sqIFJ1FGg==}
+  '@fontsource-variable/jetbrains-mono@5.2.8':
+    resolution: {integrity: sha512-WBA9elru6Jdp5df2mES55wuOO0WIrn3kpXnI4+W2ek5u3ZgLS9XS4gmIlcQhiZOWEKl95meYdvK7xI+ETLCq/Q==}
+
+  '@fontsource-variable/space-grotesk@5.2.10':
+    resolution: {integrity: sha512-yJQO/o35/hAP3CFnpdFTwQku2yzJOae2HIpBmqkOVoxhhXJaQP3g+b6Jrz7u+eI7A5ZdCIf88uMWpBJdFiGr5w==}
 
   '@grpc/grpc-js@1.14.3':
     resolution: {integrity: sha512-Iq8QQQ/7X3Sac15oB6p0FmUg/klxQvXLeileoqrTRGJYLV+/9tubbr9ipz0GKHjmXVsgFPo/+W+2cA8eNcR+XA==}
@@ -3814,8 +3820,8 @@ packages:
     resolution: {integrity: sha512-jumlc0BIUrS3qJGgIkWZsyfAM7NCWiBcCDhnd+3NNM5KbBmLTgHVfWBcg6W+rLUsIpzpERPsvwUP7CckAQSOoA==}
     engines: {node: '>=12'}
 
-  lucide-react@1.8.0:
-    resolution: {integrity: sha512-WuvlsjngSk7TnTBJ1hsCy3ql9V9VOdcPkd3PKcSmM34vJD8KG6molxz7m7zbYFgICwsanQWmJ13JlYs4Zp7Arw==}
+  lucide-react@0.469.0:
+    resolution: {integrity: sha512-28vvUnnKQ/dBwiCQtwJw7QauYnE7yd2Cyp4tTTJpvglX4EMpbflcdBgrgToX2j71B3YvugK/NH3BGUk+E/p/Fw==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -5882,7 +5888,9 @@ snapshots:
 
   '@fontsource-variable/inter@5.2.8': {}
 
-  '@fontsource/geist-mono@5.2.7': {}
+  '@fontsource-variable/jetbrains-mono@5.2.8': {}
+
+  '@fontsource-variable/space-grotesk@5.2.10': {}
 
   '@grpc/grpc-js@1.14.3':
     dependencies:
@@ -8094,7 +8102,7 @@ snapshots:
 
   lru-cache@7.18.3: {}
 
-  lucide-react@1.8.0(react@19.2.5):
+  lucide-react@0.469.0(react@19.2.5):
     dependencies:
       react: 19.2.5
 
