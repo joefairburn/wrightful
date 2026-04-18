@@ -1,9 +1,10 @@
 "use client";
 
-import { Boxes } from "lucide-react";
+import { Boxes, Plus } from "lucide-react";
 import {
   NavCombobox,
   NavComboboxEmpty,
+  NavComboboxFooter,
   NavComboboxItem,
   NavComboboxList,
   NavComboboxPopup,
@@ -61,6 +62,12 @@ export function ProjectSwitcher({
           )}
         </NavComboboxList>
         <NavComboboxEmpty icon={<Boxes />} title="No projects found" />
+        <NavComboboxFooter>
+          <a href={`/admin/t/${teamSlug}/projects/new`}>
+            <Plus size={14} />
+            Create project
+          </a>
+        </NavComboboxFooter>
       </NavComboboxPopup>
     </NavCombobox>
   );

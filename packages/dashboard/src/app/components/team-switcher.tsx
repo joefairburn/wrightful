@@ -1,9 +1,10 @@
 "use client";
 
-import { Users } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import {
   NavCombobox,
   NavComboboxEmpty,
+  NavComboboxFooter,
   NavComboboxItem,
   NavComboboxList,
   NavComboboxPopup,
@@ -59,6 +60,12 @@ export function TeamSwitcher({
           )}
         </NavComboboxList>
         <NavComboboxEmpty icon={<Users />} title="No teams found" />
+        <NavComboboxFooter>
+          <a href="/admin/teams/new">
+            <Plus size={14} />
+            Create team
+          </a>
+        </NavComboboxFooter>
       </NavComboboxPopup>
     </NavCombobox>
   );
