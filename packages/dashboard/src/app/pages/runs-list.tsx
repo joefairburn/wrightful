@@ -25,6 +25,7 @@ import { getTeamProjects, getUserTeams } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 import { prUrl } from "@/lib/pr-url";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
+import type { AppContext } from "@/worker";
 
 const STATUS_DOT: Record<string, string> = {
   passed: "bg-success shadow-[0_0_6px_var(--color-success)]",
@@ -39,7 +40,7 @@ export async function RunsListPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
-  const ctx = requestInfo.ctx as { user?: { id: string } };
+  const ctx = requestInfo.ctx as AppContext;
   const [teams, projects] = await Promise.all([
     ctx.user ? getUserTeams(ctx.user.id) : Promise.resolve([]),
     getTeamProjects(project.teamId),
