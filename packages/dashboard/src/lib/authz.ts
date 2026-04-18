@@ -46,6 +46,27 @@ export async function resolveTeamBySlug(
   return { ...row, role: row.role as TeamRole };
 }
 
+export async function getTeamProjects(
+  teamId: string,
+): Promise<{ slug: string; name: string }[]> {
+  const db = getDb();
+  return db
+    .select({ slug: projects.slug, name: projects.name })
+    .from(projects)
+    .where(eq(projects.teamId, teamId));
+}
+
+export async function getUserTeams(
+  userId: string,
+): Promise<{ slug: string; name: string }[]> {
+  const db = getDb();
+  return db
+    .select({ slug: teams.slug, name: teams.name })
+    .from(teams)
+    .innerJoin(memberships, eq(memberships.teamId, teams.id))
+    .where(eq(memberships.userId, userId));
+}
+
 export async function resolveProjectBySlugs(
   userId: string,
   teamSlug: string,

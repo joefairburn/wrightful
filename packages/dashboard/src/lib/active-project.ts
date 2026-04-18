@@ -9,6 +9,7 @@ export type ActiveProject = {
   slug: string;
   name: string;
   teamSlug: string;
+  teamName: string;
 };
 
 /**
@@ -39,6 +40,7 @@ export async function getActiveProject(): Promise<ActiveProject | null> {
       slug: projects.slug,
       name: projects.name,
       teamSlug: teams.slug,
+      teamName: teams.name,
     })
     .from(projects)
     .innerJoin(teams, eq(teams.id, projects.teamId))

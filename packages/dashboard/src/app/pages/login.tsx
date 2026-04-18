@@ -32,9 +32,6 @@ export function LoginPage() {
     <main className="min-h-screen flex items-center justify-center p-6 bg-background">
       <div className="w-full max-w-[400px] bg-card rounded-xl flex flex-col p-8">
         <div className="mb-10 text-center">
-          <span className="font-bold text-xl tracking-tighter text-foreground mb-6 block">
-            Wrightful
-          </span>
           <h1 className="font-medium text-2xl tracking-tighter text-foreground mb-2">
             {copy.title}
           </h1>

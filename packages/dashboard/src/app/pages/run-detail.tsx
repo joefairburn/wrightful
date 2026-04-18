@@ -9,11 +9,13 @@ import {
   X,
 } from "lucide-react";
 import type React from "react";
+import { requestInfo } from "rwsdk/worker";
 import { ProjectShell } from "@/app/components/project-shell";
 import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { runs, testResults } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
+import { getTeamProjects, getUserTeams } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 import { param } from "@/lib/route-params";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
@@ -129,6 +131,12 @@ export async function RunDetailPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
+  const ctx = requestInfo.ctx as { user?: { id: string } };
+  const [teams, projects] = await Promise.all([
+    ctx.user ? getUserTeams(ctx.user.id) : Promise.resolve([]),
+    getTeamProjects(project.teamId),
+  ]);
+
   const db = getDb();
 
   const [run] = await db
@@ -160,8 +168,11 @@ export async function RunDetailPage() {
   return (
     <ProjectShell
       teamSlug={project.teamSlug}
+      teamName={project.teamName}
+      teams={teams}
       projectSlug={project.slug}
       projectName={project.name}
+      projects={projects}
       activeNav="runs"
     >
       {/* Page header */}

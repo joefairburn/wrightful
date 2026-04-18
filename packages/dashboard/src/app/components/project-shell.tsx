@@ -4,25 +4,42 @@ import {
   CheckSquare,
   CircleHelp,
   FlaskConical,
-  GitFork,
   Settings,
   TriangleAlert,
   User,
 } from "lucide-react";
+import { ProjectSwitcher } from "@/app/components/project-switcher";
+import { TeamSwitcher } from "@/app/components/team-switcher";
 import { cn } from "@/lib/cn";
+
+interface Team {
+  slug: string;
+  name: string;
+}
+
+interface Project {
+  slug: string;
+  name: string;
+}
 
 interface ProjectShellProps {
   teamSlug: string;
+  teamName: string;
+  teams: Team[];
   projectSlug: string;
   projectName: string;
+  projects: Project[];
   activeNav?: "runs" | "flaky" | "insights" | "tests";
   children: React.ReactNode;
 }
 
 export function ProjectShell({
   teamSlug,
+  teamName,
+  teams,
   projectSlug,
   projectName,
+  projects,
   activeNav = "runs",
   children,
 }: ProjectShellProps) {
@@ -57,18 +74,12 @@ export function ProjectShell({
     <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans">
       {/* Sidebar */}
       <nav className="fixed left-0 top-0 h-full w-64 flex flex-col border-r border-sidebar-border bg-sidebar z-50">
-        <div className="px-5 py-5 flex items-center gap-3 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-card border border-border flex items-center justify-center">
-            <GitFork size={16} className="text-sidebar-foreground" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-sm font-bold tracking-tight text-sidebar-foreground leading-tight truncate">
-              {projectName}
-            </h1>
-            <p className="text-xs text-sidebar-foreground/50 truncate">
-              {teamSlug}
-            </p>
-          </div>
+        <div className="px-2 py-3 shrink-0">
+          <TeamSwitcher
+            currentTeamSlug={teamSlug}
+            currentTeamName={teamName}
+            teams={teams}
+          />
         </div>
 
         <div className="flex-1 flex flex-col gap-0.5 px-2 overflow-y-auto">
@@ -108,9 +119,12 @@ export function ProjectShell({
       {/* Main */}
       <main className="flex-1 ml-64 flex flex-col min-w-0 overflow-hidden">
         <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-border bg-background sticky top-0 z-40">
-          <span className="text-sm font-semibold text-foreground">
-            {projectName}
-          </span>
+          <ProjectSwitcher
+            teamSlug={teamSlug}
+            currentProjectSlug={projectSlug}
+            currentProjectName={projectName}
+            projects={projects}
+          />
           <div className="flex items-center gap-3">
             <button
               type="button"

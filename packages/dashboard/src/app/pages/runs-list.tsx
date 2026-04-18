@@ -1,5 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { Check, Minus, TriangleAlert, X } from "lucide-react";
+import { requestInfo } from "rwsdk/worker";
 import { ProjectShell } from "@/app/components/project-shell";
 import {
   Empty,
@@ -20,6 +21,7 @@ import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { runs } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
+import { getTeamProjects, getUserTeams } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
@@ -36,6 +38,12 @@ export async function RunsListPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
+  const ctx = requestInfo.ctx as { user?: { id: string } };
+  const [teams, projects] = await Promise.all([
+    ctx.user ? getUserTeams(ctx.user.id) : Promise.resolve([]),
+    getTeamProjects(project.teamId),
+  ]);
+
   const db = getDb();
   const allRuns = await db
     .select()
@@ -49,8 +57,11 @@ export async function RunsListPage() {
   return (
     <ProjectShell
       teamSlug={project.teamSlug}
+      teamName={project.teamName}
+      teams={teams}
       projectSlug={project.slug}
       projectName={project.name}
+      projects={projects}
       activeNav="runs"
     >
       {/* Page header */}
