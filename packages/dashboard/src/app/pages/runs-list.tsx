@@ -31,7 +31,7 @@ import { runs } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { getTeamProjects, getUserTeams } from "@/lib/authz";
 import { cn } from "@/lib/cn";
-import { prUrl } from "@/lib/pr-url";
+import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 const STATUS_DOT: Record<string, string> = {
@@ -127,6 +127,16 @@ export async function RunsListPage() {
               {allRuns.map((run) => {
                 const href = `${base}/runs/${run.id}`;
                 const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
+                const commitHref = commitUrl(
+                  run.ciProvider,
+                  run.repo,
+                  run.commitSha,
+                );
+                const branchHref = branchUrl(
+                  run.ciProvider,
+                  run.repo,
+                  run.branch,
+                );
                 return (
                   <TableRow
                     key={run.id}
@@ -160,11 +170,22 @@ export async function RunsListPage() {
                             strokeWidth={2}
                             className="shrink-0 text-muted-foreground"
                           />
-                          <span className="truncate">
-                            {run.branch ?? (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </span>
+                          {run.branch ? (
+                            branchHref ? (
+                              <a
+                                href={branchHref}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="relative z-10 truncate hover:underline"
+                              >
+                                {run.branch}
+                              </a>
+                            ) : (
+                              <span className="truncate">{run.branch}</span>
+                            )
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                           {run.prNumber != null && prHref ? (
                             <a
                               href={prHref}
@@ -190,18 +211,43 @@ export async function RunsListPage() {
                             strokeWidth={2}
                             className="shrink-0"
                           />
-                          {run.commitSha ? (
-                            <span className="shrink-0">
-                              {run.commitSha.slice(0, 7)}
-                            </span>
-                          ) : null}
-                          <span className="truncate">
-                            {run.actor && `@${run.actor} · `}
-                            {run.commitMessage ??
-                              (!run.actor && (
-                                <span className="italic">No message</span>
-                              ))}
-                          </span>
+                          {commitHref ? (
+                            <a
+                              href={commitHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="relative z-10 flex items-center gap-2 min-w-0 hover:underline"
+                              title="View commit on GitHub"
+                            >
+                              {run.commitSha ? (
+                                <span className="shrink-0">
+                                  {run.commitSha.slice(0, 7)}
+                                </span>
+                              ) : null}
+                              <span className="truncate">
+                                {run.actor && `@${run.actor} · `}
+                                {run.commitMessage ??
+                                  (!run.actor && (
+                                    <span className="italic">No message</span>
+                                  ))}
+                              </span>
+                            </a>
+                          ) : (
+                            <>
+                              {run.commitSha ? (
+                                <span className="shrink-0">
+                                  {run.commitSha.slice(0, 7)}
+                                </span>
+                              ) : null}
+                              <span className="truncate">
+                                {run.actor && `@${run.actor} · `}
+                                {run.commitMessage ??
+                                  (!run.actor && (
+                                    <span className="italic">No message</span>
+                                  ))}
+                              </span>
+                            </>
+                          )}
                         </span>
                       </div>
                     </TableCell>
