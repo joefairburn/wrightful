@@ -29,12 +29,14 @@ export function LoginForm({
     event.preventDefault();
     setError(null);
 
-    const form = event.currentTarget;
-    const email = (form.elements.namedItem("email") as HTMLInputElement).value;
-    const password = (form.elements.namedItem("password") as HTMLInputElement)
-      .value;
-    const nameEl = form.elements.namedItem("name") as HTMLInputElement | null;
-    const name = nameEl?.value ?? "";
+    const formData = new FormData(event.currentTarget);
+    const getField = (key: string): string => {
+      const v = formData.get(key);
+      return typeof v === "string" ? v : "";
+    };
+    const email = getField("email");
+    const password = getField("password");
+    const name = getField("name");
 
     if (isSignup) {
       if (password.length < PASSWORD_MIN || !/\d/.test(password)) {

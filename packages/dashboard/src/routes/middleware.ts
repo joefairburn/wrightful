@@ -25,9 +25,10 @@ export const loadSession: RouteMiddleware = async ({ request, ctx }) => {
 };
 
 /** Redirect to /login if no user is on the context. */
-export const requireUser: RouteMiddleware = async ({ request, ctx }) => {
+export const requireUser: RouteMiddleware = async (args) => {
+  const { request, ctx } = args;
   if (!ctx.user) {
-    await loadSession({ request, ctx } as Parameters<RouteMiddleware>[0]);
+    await loadSession(args);
   }
   if (!ctx.user) {
     const url = new URL(request.url);

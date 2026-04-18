@@ -1,5 +1,5 @@
-import { createReadStream } from "node:fs";
-import { Readable } from "node:stream";
+import { openAsBlob } from "node:fs";
+import { z } from "zod";
 import type { IngestPayload, IngestResponse } from "../types.js";
 
 const PROTOCOL_VERSION = 2;
@@ -47,11 +47,19 @@ export interface RegisterArtifactRequest {
   sizeBytes: number;
 }
 
-export interface RegisterArtifactUpload {
-  artifactId: string;
-  uploadUrl: string;
-  r2Key: string;
-}
+const RegisterArtifactUploadSchema = z.object({
+  artifactId: z.string().min(1),
+  uploadUrl: z.string().min(1),
+  r2Key: z.string().min(1),
+});
+
+const RegisterResponseSchema = z.object({
+  uploads: z.array(RegisterArtifactUploadSchema),
+});
+
+export type RegisterArtifactUpload = z.infer<
+  typeof RegisterArtifactUploadSchema
+>;
 
 export class ApiClient {
   constructor(
@@ -138,10 +146,13 @@ export class ApiClient {
       );
     }
 
-    if (!Array.isArray(body.uploads)) {
-      throw new Error("Register response missing `uploads` array");
+    const parsed = RegisterResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new Error(
+        `Register response did not match expected shape: ${parsed.error.message}`,
+      );
     }
-    return body.uploads as RegisterArtifactUpload[];
+    return parsed.data.uploads;
   }
 
   /**
@@ -155,8 +166,7 @@ export class ApiClient {
     contentType: string,
     sizeBytes: number,
   ): Promise<void> {
-    const stream = createReadStream(localPath);
-    const body = Readable.toWeb(stream) as unknown as BodyInit;
+    const body = await openAsBlob(localPath, { type: contentType });
 
     // uploadUrl may be an absolute URL or a path relative to baseUrl.
     const resolved = new URL(uploadUrl, this.baseUrl).toString();
@@ -166,13 +176,9 @@ export class ApiClient {
       headers: {
         Authorization: `Bearer ${this.token}`,
         "X-Wrightful-Version": String(PROTOCOL_VERSION),
-        "Content-Type": contentType,
         "Content-Length": String(sizeBytes),
       },
       body,
-      // `duplex: 'half'` required by undici when streaming a Request body.
-      // Not in the standard RequestInit type — cast through unknown.
-      ...({ duplex: "half" } as unknown as RequestInit),
     });
 
     if (!response.ok) {
