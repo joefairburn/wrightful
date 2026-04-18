@@ -1,13 +1,16 @@
 "use client";
 
+import { Boxes } from "lucide-react";
 import {
-  Combobox,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxPopup,
-} from "@/app/components/ui/combobox";
+  NavCombobox,
+  NavComboboxEmpty,
+  NavComboboxItem,
+  NavComboboxList,
+  NavComboboxPopup,
+  NavComboboxSearchInput,
+  NavComboboxTrigger,
+  NavComboboxValue,
+} from "@/app/components/ui/nav-combobox";
 
 interface Project {
   slug: string;
@@ -33,7 +36,7 @@ export function ProjectSwitcher({
   };
 
   return (
-    <Combobox<Project>
+    <NavCombobox<Project>
       items={projects}
       defaultValue={current}
       itemToStringLabel={(p) => p.name}
@@ -43,22 +46,22 @@ export function ProjectSwitcher({
         }
       }}
     >
-      <ComboboxInput
-        aria-label="Select project"
-        placeholder="Select project…"
-        size="sm"
-        className="w-48"
-      />
-      <ComboboxPopup>
-        <ComboboxEmpty>No projects found.</ComboboxEmpty>
-        <ComboboxList>
+      <NavComboboxTrigger aria-label="Select project">
+        <NavComboboxValue>
+          {(value: Project | null) => value?.name ?? currentProjectName}
+        </NavComboboxValue>
+      </NavComboboxTrigger>
+      <NavComboboxPopup>
+        <NavComboboxSearchInput placeholder="Find project…" />
+        <NavComboboxList>
           {(project: Project) => (
-            <ComboboxItem key={project.slug} value={project}>
+            <NavComboboxItem key={project.slug} value={project}>
               {project.name}
-            </ComboboxItem>
+            </NavComboboxItem>
           )}
-        </ComboboxList>
-      </ComboboxPopup>
-    </Combobox>
+        </NavComboboxList>
+        <NavComboboxEmpty icon={<Boxes />} title="No projects found" />
+      </NavComboboxPopup>
+    </NavCombobox>
   );
 }

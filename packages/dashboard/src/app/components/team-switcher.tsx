@@ -1,13 +1,16 @@
 "use client";
 
+import { Users } from "lucide-react";
 import {
-  Combobox,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxPopup,
-} from "@/app/components/ui/combobox";
+  NavCombobox,
+  NavComboboxEmpty,
+  NavComboboxItem,
+  NavComboboxList,
+  NavComboboxPopup,
+  NavComboboxSearchInput,
+  NavComboboxTrigger,
+  NavComboboxValue,
+} from "@/app/components/ui/nav-combobox";
 
 interface Team {
   slug: string;
@@ -31,7 +34,7 @@ export function TeamSwitcher({
   };
 
   return (
-    <Combobox<Team>
+    <NavCombobox<Team>
       items={teams}
       defaultValue={current}
       itemToStringLabel={(t) => t.name}
@@ -41,22 +44,22 @@ export function TeamSwitcher({
         }
       }}
     >
-      <ComboboxInput
-        aria-label="Select team"
-        placeholder="Select team…"
-        size="sm"
-        className="w-full"
-      />
-      <ComboboxPopup>
-        <ComboboxEmpty>No teams found.</ComboboxEmpty>
-        <ComboboxList>
+      <NavComboboxTrigger aria-label="Select team">
+        <NavComboboxValue>
+          {(value: Team | null) => value?.name ?? currentTeamName}
+        </NavComboboxValue>
+      </NavComboboxTrigger>
+      <NavComboboxPopup>
+        <NavComboboxSearchInput placeholder="Find team…" />
+        <NavComboboxList>
           {(team: Team) => (
-            <ComboboxItem key={team.slug} value={team}>
+            <NavComboboxItem key={team.slug} value={team}>
               {team.name}
-            </ComboboxItem>
+            </NavComboboxItem>
           )}
-        </ComboboxList>
-      </ComboboxPopup>
-    </Combobox>
+        </NavComboboxList>
+        <NavComboboxEmpty icon={<Users />} title="No teams found" />
+      </NavComboboxPopup>
+    </NavCombobox>
   );
 }
