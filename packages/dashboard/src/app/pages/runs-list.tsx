@@ -130,15 +130,17 @@ export async function RunsListPage() {
                 return (
                   <TableRow
                     key={run.id}
-                    className="border-b border-border/50 group"
+                    className="relative border-b border-border/50"
                   >
-                    {/* Status dot */}
+                    {/* Status dot + stretched row link */}
                     <TableCell className="px-4 py-3 text-center">
                       <a
                         href={href}
-                        tabIndex={-1}
-                        className="flex items-center justify-center"
+                        className="flex items-center justify-center rounded-sm after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-offset-0"
                       >
+                        <span className="sr-only">
+                          View run {run.commitMessage ?? run.id.slice(0, 8)}
+                        </span>
                         <span
                           className={cn(
                             "inline-block w-2.5 h-2.5 rounded-full",
@@ -150,10 +152,7 @@ export async function RunsListPage() {
 
                     {/* Branch (top) + Commit SHA + message (bottom) */}
                     <TableCell className="px-4 py-3 max-w-md">
-                      <a
-                        href={href}
-                        className="flex flex-col gap-1 min-w-0 font-mono text-xs"
-                      >
+                      <div className="flex flex-col gap-1 min-w-0 font-mono text-xs">
                         {/* Branch row */}
                         <span className="flex items-center gap-2 min-w-0 text-foreground">
                           <GitBranch
@@ -171,7 +170,7 @@ export async function RunsListPage() {
                               href={prHref}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+                              className="relative z-10 inline-flex items-center gap-0.5 shrink-0 text-muted-foreground hover:text-foreground"
                               title={`Open PR #${run.prNumber}`}
                             >
                               <GitPullRequest size={10} strokeWidth={2.5} />#
@@ -185,7 +184,7 @@ export async function RunsListPage() {
                           ) : null}
                         </span>
                         {/* Commit row */}
-                        <span className="flex items-center gap-2 min-w-0 text-muted-foreground group-hover:text-foreground transition-colors">
+                        <span className="flex items-center gap-2 min-w-0 text-muted-foreground">
                           <GitCommit
                             size={12}
                             strokeWidth={2}
@@ -204,22 +203,18 @@ export async function RunsListPage() {
                               ))}
                           </span>
                         </span>
-                      </a>
+                      </div>
                     </TableCell>
 
                     {/* Environment */}
                     <TableCell className="px-4 py-3">
-                      <a href={href} className="block">
-                        {run.environment ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-foreground max-w-[110px] truncate">
-                            {run.environment}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">
-                            —
-                          </span>
-                        )}
-                      </a>
+                      {run.environment ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-foreground max-w-[110px] truncate">
+                          {run.environment}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
                     </TableCell>
 
                     {/* Test counts */}
