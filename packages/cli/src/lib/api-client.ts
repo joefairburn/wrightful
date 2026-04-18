@@ -1,5 +1,5 @@
-import { createReadStream } from "node:fs";
-import { Readable } from "node:stream";
+import { openAsBlob } from "node:fs";
+import { z } from "zod";
 import type { IngestPayload, IngestResponse } from "../types.js";
 
 const PROTOCOL_VERSION = 2;
@@ -47,11 +47,19 @@ export interface RegisterArtifactRequest {
   sizeBytes: number;
 }
 
-export interface RegisterArtifactUpload {
-  artifactId: string;
-  uploadUrl: string;
-  r2Key: string;
-}
+const RegisterArtifactUploadSchema = z.object({
+  artifactId: z.string().min(1),
+  uploadUrl: z.string().min(1),
+  r2Key: z.string().min(1),
+});
+
+const RegisterResponseSchema = z.object({
+  uploads: z.array(RegisterArtifactUploadSchema),
+});
+
+export type RegisterArtifactUpload = z.infer<
+  typeof RegisterArtifactUploadSchema
+>;
 
 export class ApiClient {
   constructor(
@@ -138,14 +146,13 @@ export class ApiClient {
       );
     }
 
-    if (!Array.isArray(body.uploads)) {
-      throw new Error("Register response missing `uploads` array");
+    const parsed = RegisterResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new Error(
+        `Register response did not match expected shape: ${parsed.error.message}`,
+      );
     }
-    // Trust the server's response shape per the protocol contract. Casting
-    // via `unknown` to document that the runtime check above is limited to
-    // Array.isArray — per-element shape is not validated here.
-    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- protocol-level contract with dashboard
-    return body.uploads as unknown as RegisterArtifactUpload[];
+    return parsed.data.uploads;
   }
 
   /**
@@ -159,10 +166,7 @@ export class ApiClient {
     contentType: string,
     sizeBytes: number,
   ): Promise<void> {
-    const stream = createReadStream(localPath);
-    // Node's web stream satisfies BodyInit at runtime but types disagree.
-    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- Node Readable.toWeb result is a valid BodyInit at runtime
-    const body = Readable.toWeb(stream) as unknown as BodyInit;
+    const body = await openAsBlob(localPath, { type: contentType });
 
     // uploadUrl may be an absolute URL or a path relative to baseUrl.
     const resolved = new URL(uploadUrl, this.baseUrl).toString();
@@ -172,14 +176,9 @@ export class ApiClient {
       headers: {
         Authorization: `Bearer ${this.token}`,
         "X-Wrightful-Version": String(PROTOCOL_VERSION),
-        "Content-Type": contentType,
         "Content-Length": String(sizeBytes),
       },
       body,
-      // `duplex: 'half'` required by undici when streaming a Request body.
-      // Not in the standard RequestInit type — cast through unknown.
-      // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- duplex is an undici-specific extension not in the DOM RequestInit type
-      ...({ duplex: "half" } as unknown as RequestInit),
     });
 
     if (!response.ok) {
