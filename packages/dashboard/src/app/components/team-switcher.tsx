@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronsUpDown } from "lucide-react";
+import * as React from "react";
 import {
   Combobox,
   ComboboxEmpty,
@@ -33,6 +34,7 @@ export function TeamSwitcher({
     slug: currentTeamSlug,
     name: currentTeamName,
   };
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   return (
     <Combobox<Team>
@@ -46,6 +48,7 @@ export function TeamSwitcher({
       }}
     >
       <ComboboxTrigger
+        ref={triggerRef}
         className={cn(
           "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2",
           "text-sm font-semibold text-sidebar-foreground",
@@ -59,7 +62,12 @@ export function TeamSwitcher({
         </ComboboxValue>
         <ChevronsUpDown size={14} className="shrink-0 opacity-50" />
       </ComboboxTrigger>
-      <ComboboxPopup align="start" side="bottom" className="w-56">
+      <ComboboxPopup
+        anchor={triggerRef}
+        align="start"
+        side="bottom"
+        className="w-56"
+      >
         <div className="p-1 border-b">
           <ComboboxInput placeholder="Search teams…" size="sm" />
         </div>
