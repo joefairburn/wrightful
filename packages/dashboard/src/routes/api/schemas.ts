@@ -30,6 +30,7 @@ const RunMetadataSchema = z.object({
   ciProvider: z.string().nullable().optional(),
   ciBuildId: z.string().nullable().optional(),
   branch: z.string().nullable().optional(),
+  environment: z.string().nullable().optional(),
   commitSha: z.string().nullable().optional(),
   commitMessage: z.string().nullable().optional(),
   prNumber: z.number().int().nullable().optional(),

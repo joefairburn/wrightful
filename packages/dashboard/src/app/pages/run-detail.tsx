@@ -4,6 +4,7 @@ import {
   Check,
   CircleSlash,
   GitCommit,
+  GitPullRequest,
   Minus,
   TriangleAlert,
   X,
@@ -17,6 +18,7 @@ import { runs, testResults } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { getTeamProjects, getUserTeams } from "@/lib/authz";
 import { cn } from "@/lib/cn";
+import { prUrl } from "@/lib/pr-url";
 import { param } from "@/lib/route-params";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
@@ -164,6 +166,7 @@ export async function RunDetailPage() {
 
   const shortId = run.id.slice(-7);
   const statusLabel = STATUS_LABEL[run.status] ?? run.status;
+  const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
 
   return (
     <ProjectShell
@@ -220,6 +223,28 @@ export async function RunDetailPage() {
                     {run.branch}
                   </span>
                 ) : null}
+                {run.environment ? (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-foreground max-w-[200px] truncate">
+                    {run.environment}
+                  </span>
+                ) : null}
+                {run.prNumber != null ? (
+                  prHref ? (
+                    <a
+                      href={prHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-sm border border-border bg-background font-mono text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                      title={`Open PR #${run.prNumber}`}
+                    >
+                      <GitPullRequest size={12} />#{run.prNumber}
+                    </a>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-sm border border-border bg-background font-mono text-[11px] text-muted-foreground">
+                      <GitPullRequest size={12} />#{run.prNumber}
+                    </span>
+                  )
+                ) : null}
                 {run.commitSha ? (
                   <span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-sm border border-border bg-background font-mono text-[11px] text-muted-foreground">
                     <GitCommit size={12} />
@@ -257,12 +282,15 @@ export async function RunDetailPage() {
             </div>
           </div>
 
-          {/* Environment card */}
+          {/* Build card */}
           <div className="rounded-lg bg-card border border-border p-5">
             <h3 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-4">
-              Environment
+              Build
             </h3>
             <div className="space-y-2.5">
+              {run.environment && (
+                <EnvRow label="Environment" value={run.environment} />
+              )}
               {run.playwrightVersion && (
                 <EnvRow label="Playwright" value={run.playwrightVersion} />
               )}
@@ -272,15 +300,32 @@ export async function RunDetailPage() {
               {run.ciProvider && <EnvRow label="CI" value={run.ciProvider} />}
               {run.ciBuildId && <EnvRow label="Build" value={run.ciBuildId} />}
               {run.prNumber != null && (
-                <EnvRow label="PR" value={`#${run.prNumber}`} />
+                <EnvRow
+                  label="PR"
+                  value={
+                    prHref ? (
+                      <a
+                        href={prHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="hover:text-foreground underline-offset-2 hover:underline"
+                      >
+                        #{run.prNumber}
+                      </a>
+                    ) : (
+                      `#${run.prNumber}`
+                    )
+                  }
+                />
               )}
-              {!run.playwrightVersion &&
+              {!run.environment &&
+                !run.playwrightVersion &&
                 !run.reporterVersion &&
                 !run.ciProvider &&
                 !run.ciBuildId &&
                 run.prNumber == null && (
                   <div className="text-xs text-muted-foreground italic">
-                    No environment data
+                    No build data
                   </div>
                 )}
             </div>

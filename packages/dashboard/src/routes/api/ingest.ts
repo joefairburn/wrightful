@@ -118,6 +118,7 @@ export async function ingestHandler({
     ciProvider: payload.run.ciProvider ?? null,
     ciBuildId: payload.run.ciBuildId ?? null,
     branch: payload.run.branch ?? null,
+    environment: payload.run.environment ?? null,
     commitSha: payload.run.commitSha ?? null,
     commitMessage: payload.run.commitMessage ?? null,
     prNumber: payload.run.prNumber ?? null,
