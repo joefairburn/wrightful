@@ -1,6 +1,9 @@
 "use client";
 
 import { Plus, Users } from "lucide-react";
+import { navigate } from "rwsdk/client";
+import { Button } from "@/app/components/ui/button";
+import { link } from "@/app/links";
 import {
   NavCombobox,
   NavComboboxEmpty,
@@ -41,7 +44,7 @@ export function TeamSwitcher({
       itemToStringLabel={(t) => t.name}
       onValueChange={(next) => {
         if (next && next.slug !== currentTeamSlug) {
-          window.location.href = `/t/${next.slug}`;
+          void navigate(link("/t/:teamSlug", { teamSlug: next.slug }));
         }
       }}
     >
@@ -61,10 +64,14 @@ export function TeamSwitcher({
         </NavComboboxList>
         <NavComboboxEmpty icon={<Users />} title="No teams found" />
         <NavComboboxFooter>
-          <a href="/admin/teams/new">
+          <Button
+            className="w-full justify-start"
+            render={<a href={link("/admin/teams/new")} />}
+            variant="ghost"
+          >
             <Plus size={14} />
             Create team
-          </a>
+          </Button>
         </NavComboboxFooter>
       </NavComboboxPopup>
     </NavCombobox>

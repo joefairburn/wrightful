@@ -1,6 +1,9 @@
 "use client";
 
 import { Boxes, Plus } from "lucide-react";
+import { navigate } from "rwsdk/client";
+import { Button } from "@/app/components/ui/button";
+import { link } from "@/app/links";
 import {
   NavCombobox,
   NavComboboxEmpty,
@@ -43,7 +46,12 @@ export function ProjectSwitcher({
       itemToStringLabel={(p) => p.name}
       onValueChange={(next) => {
         if (next && next.slug !== currentProjectSlug) {
-          window.location.href = `/t/${teamSlug}/p/${next.slug}`;
+          void navigate(
+            link("/t/:teamSlug/p/:projectSlug", {
+              teamSlug,
+              projectSlug: next.slug,
+            }),
+          );
         }
       }}
     >
@@ -63,10 +71,16 @@ export function ProjectSwitcher({
         </NavComboboxList>
         <NavComboboxEmpty icon={<Boxes />} title="No projects found" />
         <NavComboboxFooter>
-          <a href={`/admin/t/${teamSlug}/projects/new`}>
+          <Button
+            className="w-full justify-start"
+            render={
+              <a href={link("/admin/t/:teamSlug/projects/new", { teamSlug })} />
+            }
+            variant="ghost"
+          >
             <Plus size={14} />
             Create project
-          </a>
+          </Button>
         </NavComboboxFooter>
       </NavComboboxPopup>
     </NavCombobox>

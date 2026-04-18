@@ -214,12 +214,7 @@ export function NavComboboxFooter({
 }: React.ComponentProps<"div">): React.ReactElement {
   return (
     <div
-      className={cn(
-        "flex items-center gap-2 border-t border-border px-3 py-2.5 text-sm text-foreground",
-        "[&_a]:flex [&_a]:w-full [&_a]:items-center [&_a]:gap-2 [&_a]:rounded-md [&_a]:px-1 [&_a]:py-1 [&_a]:outline-none",
-        "[&_a:hover]:bg-accent [&_a:hover]:text-accent-foreground",
-        className,
-      )}
+      className={cn("border-t border-border p-1", className)}
       data-slot="nav-combobox-footer"
       {...props}
     />
