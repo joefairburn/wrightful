@@ -40,7 +40,7 @@ After `setup:local`:
 | 02 feature-flaky   | `feat/discount-codes` | fail + flaky + skip |
 | 03 main-historical | `main` (3 days ago)   | all green           |
 
-The flaky/failing cases are gated behind `WRIGHTFUL_FIXTURE_CHAOS=1` so the
+The flaky/failing cases are gated behind `WRIGHTFUL_FIXTURE_FAILURES=1` so the
 suite stays silent unless the generator opts in.
 
 ## Why Playwright-in-dashboard, not Playwright-in-e2e

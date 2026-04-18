@@ -20,6 +20,10 @@ const DASHBOARD_URL = "http://localhost:5173";
 
 const dashboardDir = new URL("..", import.meta.url);
 const seedOutputPath = new URL(".dev.vars.seed.json", dashboardDir).pathname;
+const QUIET = process.env.WRIGHTFUL_QUIET === "1";
+const log = (...args) => {
+  if (!QUIET) console.log(...args);
+};
 
 function d1(sql, { json = false } = {}) {
   const res = spawnSync(
@@ -57,16 +61,14 @@ const existing = queryFirst(
 );
 
 if (existing) {
-  console.log(`demo user already exists (id=${existing.id}) — skipping seed`);
+  log(`demo user already exists (id=${existing.id}) — skipping seed`);
 
   // Still (re)write .dev.vars.seed.json if an API key row exists so the
   // fixture uploader keeps working after repo checkouts. We can only recover
   // the API key value when it was written to disk before; if the seed file
   // is gone the user must rotate the key via the UI.
   if (!existsSync(seedOutputPath)) {
-    console.log(
-      `note: .dev.vars.seed.json missing. To re-seed: wipe D1 + re-run.`,
-    );
+    log(`note: .dev.vars.seed.json missing. To re-seed: wipe D1 + re-run.`);
   }
   process.exit(0);
 }
@@ -138,11 +140,11 @@ writeFileSync(
   ) + "\n",
 );
 
-console.log("");
-console.log("seeded demo account:");
-console.log(`  email:    ${DEMO_EMAIL}`);
-console.log(`  password: ${DEMO_PASSWORD}`);
-console.log(`  team:     ${TEAM_SLUG}`);
-console.log(`  project:  ${PROJECT_SLUG}`);
-console.log(`  api key:  ${apiKey}`);
-console.log(`  (also written to packages/dashboard/.dev.vars.seed.json)`);
+log("");
+log("seeded demo account:");
+log(`  email:    ${DEMO_EMAIL}`);
+log(`  password: ${DEMO_PASSWORD}`);
+log(`  team:     ${TEAM_SLUG}`);
+log(`  project:  ${PROJECT_SLUG}`);
+log(`  api key:  ${apiKey}`);
+log(`  (also written to packages/dashboard/.dev.vars.seed.json)`);

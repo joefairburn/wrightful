@@ -77,7 +77,14 @@ function parseSuites(
           retryCount: test.results.length - 1,
           errorMessage: errorSource?.errors?.[0]?.message ?? null,
           errorStack: errorSource?.errors?.[0]?.stack ?? null,
-          workerIndex: lastResult?.workerIndex ?? 0,
+          // Playwright sets workerIndex to -1 for results that never got
+          // dispatched to a worker (e.g. tests skipped before run). The
+          // ingest schema requires >=0, so drop negatives rather than
+          // forwarding them.
+          workerIndex:
+            lastResult && lastResult.workerIndex >= 0
+              ? lastResult.workerIndex
+              : 0,
           tags: spec.tags || [],
           annotations: test.annotations || [],
         });

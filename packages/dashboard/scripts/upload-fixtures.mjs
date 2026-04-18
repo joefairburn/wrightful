@@ -7,9 +7,11 @@
 // as part of `pnpm setup:local`). If the dashboard dev server isn't already
 // running on :5173, this script spawns one temporarily and kills it on exit.
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import pc from "picocolors";
+import { startSpinner } from "./lib/spinner.mjs";
 
 const dashboardDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -19,12 +21,18 @@ const playwrightDir = new URL("../fixtures/playwright/", import.meta.url)
 
 if (!existsSync(seedPath)) {
   console.error(
-    "missing .dev.vars.seed.json — run `pnpm setup:local` first (it seeds the demo user).",
+    pc.red(
+      "missing .dev.vars.seed.json — run `pnpm setup:local` first (it seeds the demo user).",
+    ),
   );
   process.exit(1);
 }
 
 const seed = JSON.parse(readFileSync(seedPath, "utf8"));
+const QUIET = process.env.WRIGHTFUL_QUIET === "1";
+const log = (...args) => {
+  if (!QUIET) console.log(...args);
+};
 
 async function probe() {
   try {
@@ -57,7 +65,7 @@ async function ensureDashboardRunning() {
     process.exit(1);
   }
 
-  console.log(`dashboard not reachable at ${seed.url} — starting dev server…`);
+  log(`dashboard not reachable at ${seed.url} — starting dev server…`);
   devServer = spawn("pnpm", ["--filter", "@wrightful/dashboard", "dev"], {
     cwd: repoRoot,
     stdio: "ignore",
@@ -83,7 +91,7 @@ async function ensureDashboardRunning() {
     await new Promise((r) => setTimeout(r, 1000));
     const status = await probe();
     if (status === 400) {
-      console.log("dashboard is up");
+      log("dashboard is up");
       return;
     }
     if (status === 401) {
@@ -101,12 +109,30 @@ await ensureDashboardRunning();
 
 // ---------- Ensure CLI is built ----------
 
-console.log("building @wrightful/cli…");
-const build = spawnSync("pnpm", ["--filter", "@wrightful/cli", "build"], {
-  cwd: repoRoot,
-  stdio: "inherit",
+const stopBuildSpinner = QUIET
+  ? () => {}
+  : startSpinner(`  ${pc.dim("›")} ${"building CLI…".padEnd(30)} `);
+const build = await new Promise((resolve) => {
+  const child = spawn("pnpm", ["--filter", "@wrightful/cli", "build"], {
+    cwd: repoRoot,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (d) => (stdout += d.toString()));
+  child.stderr?.on("data", (d) => (stderr += d.toString()));
+  child.on("exit", (code) => resolve({ status: code ?? 1, stdout, stderr }));
 });
-if (build.status !== 0) process.exit(build.status ?? 1);
+stopBuildSpinner();
+if (build.status !== 0) {
+  if (QUIET)
+    process.stdout.write(`  ${pc.dim("›")} ${"building CLI…".padEnd(30)} `);
+  console.log(pc.red("failed"));
+  process.stderr.write(build.stdout);
+  process.stderr.write(build.stderr);
+  process.exit(build.status);
+}
+log(pc.green("done"));
 
 const cliBin = new URL("../../cli/dist/index.js", import.meta.url).pathname;
 
@@ -118,39 +144,56 @@ const SCENARIOS = [
     branch: "main",
     sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
     buildId: "fixture-build-01",
-    chaos: false,
+    includeFailures: false,
   },
   {
     label: "02-feature-flaky",
     branch: "feat/discount-codes",
     sha: "b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0",
     buildId: "fixture-build-02",
-    chaos: true,
+    includeFailures: true,
   },
   {
     label: "03-main-historical",
     branch: "main",
     sha: "c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9",
     buildId: "fixture-build-03",
-    chaos: false,
+    includeFailures: false,
   },
 ];
 
 /**
- * @returns {Promise<number>}
+ * Run a subprocess with stdout/stderr captured. Returns exit code + merged
+ * output so the caller decides whether to surface the noise (on failure) or
+ * swallow it (on success).
+ *
+ * @returns {Promise<{ code: number, output: string }>}
  */
-function runSubprocess(cmd, args, opts) {
+function runCaptured(cmd, args, opts) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { stdio: "inherit", ...opts });
-    child.on("exit", (code) => resolve(code ?? 1));
+    const child = spawn(cmd, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      ...opts,
+    });
+    let output = "";
+    child.stdout?.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    child.on("exit", (code) => resolve({ code: code ?? 1, output }));
   });
 }
 
-async function runScenario(scenario) {
-  console.log(`\n━━━ scenario: ${scenario.label} ━━━`);
+async function runScenario(scenario, index, total) {
+  const counter = pc.dim(`[${index + 1}/${total}]`);
+  const label = `  ${counter} ${scenario.label}…`;
+  // padEnd can't measure ANSI-coloured width, so pad the plain version.
+  const plainLen = `  [${index + 1}/${total}] ${scenario.label}…`.length;
+  const prefix = label + " ".repeat(Math.max(1, 34 - plainLen));
+  const stopSpinner = startSpinner(prefix);
 
-  // Fresh results dir per scenario so Playwright output doesn't bleed between
-  // runs.
   const resultsDir = `${playwrightDir}test-results/${scenario.label}`;
   const reportPath = `${resultsDir}/report.json`;
   rmSync(resultsDir, { recursive: true, force: true });
@@ -158,11 +201,11 @@ async function runScenario(scenario) {
   const pwEnv = {
     ...process.env,
     WRIGHTFUL_FIXTURE_REPORT: reportPath,
-    WRIGHTFUL_FIXTURE_CHAOS: scenario.chaos ? "1" : "0",
+    WRIGHTFUL_FIXTURE_FAILURES: scenario.includeFailures ? "1" : "0",
     PLAYWRIGHT_OUTPUT_DIR: resultsDir,
   };
 
-  const pwCode = await runSubprocess(
+  const pw = await runCaptured(
     "npx",
     [
       "playwright",
@@ -175,18 +218,24 @@ async function runScenario(scenario) {
     { cwd: dashboardDir, env: pwEnv },
   );
 
-  // Playwright exits non-zero on any test failure. The chaos scenario is
-  // *supposed* to have failures — so we tolerate exit 1 there and only bail
-  // on harder errors.
-  if (pwCode !== 0 && !scenario.chaos) {
+  // Playwright exits non-zero on any test failure. Scenarios that
+  // *intentionally* include failures tolerate exit 1 — everything else should
+  // stay green, and we bail on unexpected failures or a missing report.
+  if (pw.code !== 0 && !scenario.includeFailures) {
+    stopSpinner();
+    console.log(pc.red("failed"));
     console.error(
-      `playwright exited ${pwCode} on non-chaos scenario — aborting`,
+      `\nplaywright exited ${pw.code} on an all-green scenario — output:\n`,
     );
-    process.exit(pwCode);
+    process.stderr.write(pw.output);
+    process.exit(pw.code);
   }
 
   if (!existsSync(reportPath)) {
-    console.error(`no report at ${reportPath} — playwright run failed hard`);
+    stopSpinner();
+    console.log(pc.red("failed"));
+    console.error(`\nno report at ${reportPath} — playwright output:\n`);
+    process.stderr.write(pw.output);
     process.exit(1);
   }
 
@@ -203,21 +252,30 @@ async function runScenario(scenario) {
     GITHUB_REPOSITORY: "wrightful/example-shop",
   };
 
-  const uploadCode = await runSubprocess(
+  const upload = await runCaptured(
     "node",
     [cliBin, "upload", "--artifacts", "all", reportPath],
     { cwd: dashboardDir, env: uploadEnv },
   );
 
-  if (uploadCode !== 0) {
-    console.error(`upload failed for ${scenario.label} (exit ${uploadCode})`);
-    process.exit(uploadCode);
+  if (upload.code !== 0) {
+    stopSpinner();
+    console.log(pc.red("failed"));
+    console.error(
+      `\nupload failed for ${scenario.label} (exit ${upload.code}) — output:\n`,
+    );
+    process.stderr.write(upload.output);
+    process.exit(upload.code);
   }
+
+  stopSpinner();
+  console.log(pc.green("done"));
 }
 
-for (const scenario of SCENARIOS) {
-  await runScenario(scenario);
+for (let i = 0; i < SCENARIOS.length; i++) {
+  await runScenario(SCENARIOS[i], i, SCENARIOS.length);
 }
 
-console.log("\n✓ all fixtures uploaded");
-console.log(`  sign in at ${seed.url} as ${seed.email}`);
+if (!QUIET) {
+  console.log(pc.green(`\n✓ sign in at ${seed.url} as ${seed.email}`));
+}
