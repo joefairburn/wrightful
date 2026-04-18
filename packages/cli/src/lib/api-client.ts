@@ -141,7 +141,11 @@ export class ApiClient {
     if (!Array.isArray(body.uploads)) {
       throw new Error("Register response missing `uploads` array");
     }
-    return body.uploads as RegisterArtifactUpload[];
+    // Trust the server's response shape per the protocol contract. Casting
+    // via `unknown` to document that the runtime check above is limited to
+    // Array.isArray — per-element shape is not validated here.
+    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- protocol-level contract with dashboard
+    return body.uploads as unknown as RegisterArtifactUpload[];
   }
 
   /**
@@ -156,6 +160,8 @@ export class ApiClient {
     sizeBytes: number,
   ): Promise<void> {
     const stream = createReadStream(localPath);
+    // Node's web stream satisfies BodyInit at runtime but types disagree.
+    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- Node Readable.toWeb result is a valid BodyInit at runtime
     const body = Readable.toWeb(stream) as unknown as BodyInit;
 
     // uploadUrl may be an absolute URL or a path relative to baseUrl.
@@ -172,6 +178,7 @@ export class ApiClient {
       body,
       // `duplex: 'half'` required by undici when streaming a Request body.
       // Not in the standard RequestInit type — cast through unknown.
+      // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- duplex is an undici-specific extension not in the DOM RequestInit type
       ...({ duplex: "half" } as unknown as RequestInit),
     });
 

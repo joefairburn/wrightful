@@ -21,10 +21,10 @@ export function Checkbox({
         className="absolute -inset-px flex items-center justify-center rounded-[.25rem] text-primary-foreground data-unchecked:hidden data-checked:bg-primary data-indeterminate:text-foreground"
         data-slot="checkbox-indicator"
         render={(
-          props: React.ComponentProps<"span">,
+          indicatorProps: React.ComponentProps<"span">,
           state: CheckboxPrimitive.Indicator.State,
         ) => (
-          <span {...props}>
+          <span {...indicatorProps}>
             {state.indeterminate ? (
               <svg
                 aria-hidden="true"

@@ -1,7 +1,8 @@
-import { statusColor, type Status } from "@/lib/status";
+import { statusColor } from "@/lib/status";
 
 export interface SparklinePoint {
-  status: Status;
+  /** Any status string — unknown values render with the fallback colour. */
+  status: string;
   /** Optional label shown via the native `<title>` tooltip on hover. */
   label?: string;
 }

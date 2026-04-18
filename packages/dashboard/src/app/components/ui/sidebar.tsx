@@ -118,7 +118,7 @@ export function SidebarProvider({
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
+    return isMobile ? setOpenMobile((prev) => !prev) : setOpen((prev) => !prev);
   }, [isMobile, setOpen]);
 
   // Adds a keyboard shortcut to toggle the sidebar.
@@ -216,6 +216,7 @@ export function Sidebar({
           data-slot="sidebar"
           side={side}
           style={
+            // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- CSSProperties doesn't model custom CSS variables
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
             } as React.CSSProperties
@@ -574,6 +575,7 @@ export function SidebarMenuButton({
   return (
     <Tooltip>
       <TooltipTrigger
+        // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- useRender's element prop type is looser than TooltipTrigger expects
         render={buttonElement as React.ReactElement<Record<string, unknown>>}
       />
       <TooltipPopup
@@ -669,6 +671,7 @@ export function SidebarMenuSkeleton({
         className="h-4 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
         style={
+          // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- CSSProperties doesn't model custom CSS variables
           {
             "--skeleton-width": width,
           } as React.CSSProperties

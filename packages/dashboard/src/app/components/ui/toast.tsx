@@ -20,6 +20,18 @@ const TOAST_ICONS = {
   warning: TriangleAlertIcon,
 } as const;
 
+function isToastIconKey(
+  type: string | undefined,
+): type is keyof typeof TOAST_ICONS {
+  return type !== undefined && type in TOAST_ICONS;
+}
+
+function getTooltipStyle(data: unknown): boolean {
+  if (data == null || typeof data !== "object") return false;
+  if (!("tooltipStyle" in data)) return false;
+  return data.tooltipStyle === true;
+}
+
 type SwipeDirection = "up" | "down" | "left" | "right";
 
 function getSwipeDirection(position: ToastPosition): SwipeDirection[] {
@@ -72,8 +84,8 @@ function Toasts({ position }: { position: ToastPosition }): React.ReactElement {
         data-slot="toast-viewport"
       >
         {toasts.map((toast) => {
-          const Icon = toast.type
-            ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS]
+          const Icon = isToastIconKey(toast.type)
+            ? TOAST_ICONS[toast.type]
             : null;
 
           return (
@@ -174,11 +186,10 @@ function AnchoredToasts(): React.ReactElement {
         data-slot="toast-viewport-anchored"
       >
         {toasts.map((toast) => {
-          const Icon = toast.type
-            ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS]
+          const Icon = isToastIconKey(toast.type)
+            ? TOAST_ICONS[toast.type]
             : null;
-          const tooltipStyle =
-            (toast.data as { tooltipStyle?: boolean })?.tooltipStyle ?? false;
+          const tooltipStyle = getTooltipStyle(toast.data);
           const positionerProps = toast.positionerProps;
 
           if (!positionerProps?.anchor) {
