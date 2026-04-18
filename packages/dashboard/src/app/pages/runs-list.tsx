@@ -128,15 +128,17 @@ export async function RunsListPage() {
                 return (
                   <TableRow
                     key={run.id}
-                    className="border-b border-border/50 group"
+                    className="relative border-b border-border/50"
                   >
-                    {/* Status dot */}
+                    {/* Status dot + stretched row link */}
                     <TableCell className="px-4 py-3 text-center">
                       <a
                         href={href}
-                        tabIndex={-1}
-                        className="flex items-center justify-center"
+                        className="flex items-center justify-center rounded-sm after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-offset-0"
                       >
+                        <span className="sr-only">
+                          View run {run.commitMessage ?? run.id.slice(0, 8)}
+                        </span>
                         <span
                           className={cn(
                             "inline-block w-2.5 h-2.5 rounded-full",
@@ -150,17 +152,13 @@ export async function RunsListPage() {
                     <TableCell className="px-4 py-3">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {run.branch ? (
-                          <a href={href}>
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-card font-mono text-[11px] text-foreground max-w-[140px] truncate">
-                              {run.branch}
-                            </span>
-                          </a>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-card font-mono text-[11px] text-foreground max-w-[140px] truncate">
+                            {run.branch}
+                          </span>
                         ) : (
-                          <a href={href}>
-                            <span className="text-muted-foreground text-xs">
-                              —
-                            </span>
-                          </a>
+                          <span className="text-muted-foreground text-xs">
+                            —
+                          </span>
                         )}
                         {run.prNumber != null &&
                           (prHref ? (
@@ -168,7 +166,7 @@ export async function RunsListPage() {
                               href={prHref}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                              className="relative z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/30"
                               title={`Open PR #${run.prNumber}`}
                             >
                               <GitPullRequest size={10} strokeWidth={2.5} />#
@@ -185,40 +183,31 @@ export async function RunsListPage() {
 
                     {/* Environment */}
                     <TableCell className="px-4 py-3">
-                      <a href={href} className="block">
-                        {run.environment ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-foreground max-w-[110px] truncate">
-                            {run.environment}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">
-                            —
-                          </span>
-                        )}
-                      </a>
+                      {run.environment ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-foreground max-w-[110px] truncate">
+                          {run.environment}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
                     </TableCell>
 
                     {/* Commit SHA */}
                     <TableCell className="px-4 py-3">
-                      <a href={href} className="block">
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {run.commitSha?.slice(0, 7) ?? "—"}
-                        </span>
-                      </a>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {run.commitSha?.slice(0, 7) ?? "—"}
+                      </span>
                     </TableCell>
 
                     {/* Commit message */}
                     <TableCell className="px-4 py-3 max-w-xs">
-                      <a
-                        href={href}
-                        className="block truncate text-sm group-hover:text-foreground transition-colors"
-                      >
+                      <div className="truncate text-sm">
                         {run.commitMessage ?? (
                           <span className="text-muted-foreground italic">
                             No message
                           </span>
                         )}
-                      </a>
+                      </div>
                     </TableCell>
 
                     {/* Test counts */}
