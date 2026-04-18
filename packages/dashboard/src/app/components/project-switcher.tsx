@@ -1,7 +1,5 @@
 "use client";
 
-import { ChevronsUpDown } from "lucide-react";
-import * as React from "react";
 import {
   Combobox,
   ComboboxEmpty,
@@ -9,10 +7,7 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxPopup,
-  ComboboxTrigger,
-  ComboboxValue,
 } from "@/app/components/ui/combobox";
-import { cn } from "@/lib/cn";
 
 interface Project {
   slug: string;
@@ -36,7 +31,6 @@ export function ProjectSwitcher({
     slug: currentProjectSlug,
     name: currentProjectName,
   };
-  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   return (
     <Combobox<Project>
@@ -49,32 +43,14 @@ export function ProjectSwitcher({
         }
       }}
     >
-      <ComboboxTrigger
-        ref={triggerRef}
-        className={cn(
-          "flex items-center gap-1.5 rounded-md px-2 py-1.5",
-          "text-sm font-semibold text-foreground",
-          "hover:bg-accent transition-colors",
-        )}
-      >
-        <ComboboxValue>
-          {(value: Project | null) => (
-            <span className="truncate">
-              {value?.name ?? currentProjectName}
-            </span>
-          )}
-        </ComboboxValue>
-        <ChevronsUpDown size={14} className="shrink-0 opacity-50" />
-      </ComboboxTrigger>
-      <ComboboxPopup
-        anchor={triggerRef}
-        align="start"
-        side="bottom"
-        className="w-56"
-      >
-        <div className="p-1 border-b">
-          <ComboboxInput placeholder="Search projects…" size="sm" />
-        </div>
+      <ComboboxInput
+        aria-label="Select project"
+        placeholder="Select project…"
+        size="sm"
+        className="w-48"
+      />
+      <ComboboxPopup>
+        <ComboboxEmpty>No projects found.</ComboboxEmpty>
         <ComboboxList>
           {(project: Project) => (
             <ComboboxItem key={project.slug} value={project}>
@@ -82,7 +58,6 @@ export function ProjectSwitcher({
             </ComboboxItem>
           )}
         </ComboboxList>
-        <ComboboxEmpty>No projects found.</ComboboxEmpty>
       </ComboboxPopup>
     </Combobox>
   );
