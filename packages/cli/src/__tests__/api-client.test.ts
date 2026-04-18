@@ -21,6 +21,7 @@ describe("ApiClient", () => {
       ciProvider: null,
       ciBuildId: null,
       branch: "main",
+      environment: null,
       commitSha: "abc123",
       commitMessage: null,
       prNumber: null,

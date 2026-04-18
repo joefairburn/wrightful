@@ -11,6 +11,7 @@ describe("IngestPayloadSchema", () => {
       ciProvider: "github-actions",
       ciBuildId: "12345",
       branch: "main",
+      environment: "staging",
       commitSha: "abc123",
       commitMessage: "fix things",
       prNumber: 42,
@@ -161,6 +162,23 @@ describe("IngestPayloadSchema", () => {
     if (result.success) {
       expect(result.data.results[0].clientKey).toBe("ck-abc-0");
     }
+  });
+
+  it("allows omitting environment (back-compat with older CLIs)", () => {
+    const { environment: _env, ...runWithoutEnv } = validPayload.run;
+    const result = IngestPayloadSchema.safeParse({
+      ...validPayload,
+      run: runWithoutEnv,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts null environment", () => {
+    const result = IngestPayloadSchema.safeParse({
+      ...validPayload,
+      run: { ...validPayload.run, environment: null },
+    });
+    expect(result.success).toBe(true);
   });
 
   it("rejects empty clientKey", () => {

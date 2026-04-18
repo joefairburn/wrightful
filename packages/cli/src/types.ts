@@ -108,6 +108,7 @@ export interface RunPayload {
   ciProvider: string | null;
   ciBuildId: string | null;
   branch: string | null;
+  environment: string | null;
   commitSha: string | null;
   commitMessage: string | null;
   prNumber: number | null;

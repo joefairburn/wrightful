@@ -1,5 +1,5 @@
 import { desc, eq } from "drizzle-orm";
-import { Check, Minus, TriangleAlert, X } from "lucide-react";
+import { Check, GitPullRequest, Minus, TriangleAlert, X } from "lucide-react";
 import { ProjectShell } from "@/app/components/project-shell";
 import {
   Empty,
@@ -21,6 +21,7 @@ import { getDb } from "@/db";
 import { runs } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
+import { prUrl } from "@/lib/pr-url";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 const STATUS_DOT: Record<string, string> = {
@@ -89,6 +90,9 @@ export async function RunsListPage() {
                 <TableHead className="px-4 font-mono text-[11px] uppercase tracking-wider">
                   Branch
                 </TableHead>
+                <TableHead className="w-28 px-4 font-mono text-[11px] uppercase tracking-wider">
+                  Env
+                </TableHead>
                 <TableHead className="w-24 px-4 font-mono text-[11px] uppercase tracking-wider">
                   Commit
                 </TableHead>
@@ -109,6 +113,7 @@ export async function RunsListPage() {
             <TableBody>
               {allRuns.map((run) => {
                 const href = `${base}/runs/${run.id}`;
+                const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
                 return (
                   <TableRow
                     key={run.id}
@@ -130,12 +135,49 @@ export async function RunsListPage() {
                       </a>
                     </TableCell>
 
-                    {/* Branch */}
+                    {/* Branch + PR */}
+                    <TableCell className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {run.branch ? (
+                          <a href={href}>
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-card font-mono text-[11px] text-foreground max-w-[140px] truncate">
+                              {run.branch}
+                            </span>
+                          </a>
+                        ) : (
+                          <a href={href}>
+                            <span className="text-muted-foreground text-xs">
+                              —
+                            </span>
+                          </a>
+                        )}
+                        {run.prNumber != null &&
+                          (prHref ? (
+                            <a
+                              href={prHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                              title={`Open PR #${run.prNumber}`}
+                            >
+                              <GitPullRequest size={10} strokeWidth={2.5} />#
+                              {run.prNumber}
+                            </a>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-muted-foreground">
+                              <GitPullRequest size={10} strokeWidth={2.5} />#
+                              {run.prNumber}
+                            </span>
+                          ))}
+                      </div>
+                    </TableCell>
+
+                    {/* Environment */}
                     <TableCell className="px-4 py-3">
                       <a href={href} className="block">
-                        {run.branch ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-card font-mono text-[11px] text-foreground max-w-[140px] truncate">
-                            {run.branch}
+                        {run.environment ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-foreground max-w-[110px] truncate">
+                            {run.environment}
                           </span>
                         ) : (
                           <span className="text-muted-foreground text-xs">
