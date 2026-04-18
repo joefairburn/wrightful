@@ -32,7 +32,7 @@ import {
   projectKeysHandler,
 } from "@/app/pages/admin/project-keys";
 
-export type AppContext = {
+export interface AppContext {
   apiKey?: {
     id: string;
     label: string;
@@ -47,7 +47,11 @@ export type AppContext = {
     id: string;
     expiresAt: Date;
   };
-};
+}
+
+declare module "rwsdk/worker" {
+  interface DefaultAppContext extends AppContext {}
+}
 
 export default defineApp([
   setCommonHeaders(),
