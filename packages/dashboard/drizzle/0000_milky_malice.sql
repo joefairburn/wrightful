@@ -71,6 +71,7 @@ CREATE TABLE `runs` (
 	`ci_provider` text,
 	`ci_build_id` text,
 	`branch` text,
+	`environment` text,
 	`commit_sha` text,
 	`commit_message` text,
 	`pr_number` integer,
@@ -91,6 +92,7 @@ CREATE TABLE `runs` (
 CREATE UNIQUE INDEX `runs_project_idempotency_key_idx` ON `runs` (`project_id`,`idempotency_key`);--> statement-breakpoint
 CREATE INDEX `runs_ci_build_id_idx` ON `runs` (`ci_build_id`);--> statement-breakpoint
 CREATE INDEX `runs_branch_created_at_idx` ON `runs` (`branch`,`created_at`);--> statement-breakpoint
+CREATE INDEX `runs_environment_created_at_idx` ON `runs` (`environment`,`created_at`);--> statement-breakpoint
 CREATE INDEX `runs_project_created_at_idx` ON `runs` (`project_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `session` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -163,6 +165,16 @@ CREATE TABLE `user` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `user_email_unique` ON `user` (`email`);--> statement-breakpoint
+CREATE TABLE `user_state` (
+	`user_id` text PRIMARY KEY NOT NULL,
+	`last_team_id` text,
+	`last_project_id` text,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`last_team_id`) REFERENCES `teams`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`last_project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
 CREATE TABLE `verification` (
 	`id` text PRIMARY KEY NOT NULL,
 	`identifier` text NOT NULL,

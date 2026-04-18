@@ -56,12 +56,12 @@ function revealCookie(
   projectSlug: string,
   value: string | null,
 ): string {
-  const path = `/admin/t/${teamSlug}/p/${projectSlug}/keys`;
+  const path = `/settings/teams/${teamSlug}/p/${projectSlug}/keys`;
   const base = `${REVEAL_COOKIE}=${value ? encodeURIComponent(value) : ""}; Path=${path}; HttpOnly; Secure; SameSite=Lax`;
   return value ? `${base}; Max-Age=60` : `${base}; Max-Age=0`;
 }
 
-export async function AdminProjectKeysPage() {
+export async function SettingsProjectKeysPage() {
   const ctx = requestInfo.ctx as AppContext;
   if (!ctx.user) return <NotFoundPage />;
 
@@ -90,13 +90,13 @@ export async function AdminProjectKeysPage() {
     .orderBy(desc(apiKeys.createdAt));
 
   return (
-    <div className="mx-auto max-w-5xl p-6 sm:p-8">
+    <div className="mx-auto w-full max-w-5xl p-6 sm:p-8">
       <div className="mb-2">
         <a
-          href={`/admin/t/${project.teamSlug}`}
+          href={`/settings/teams/${project.teamSlug}/projects`}
           className="text-muted-foreground text-sm hover:underline"
         >
-          &larr; {project.teamSlug}
+          &larr; Projects
         </a>
       </div>
       <h1 className="mb-1 font-semibold text-2xl">API keys — {project.name}</h1>
@@ -217,7 +217,7 @@ export async function projectKeysHandler({
   const form = await request.formData();
   const action = readField(form, "action");
   const origin = new URL(request.url).origin;
-  const back = `${origin}/admin/t/${project.teamSlug}/p/${project.slug}/keys`;
+  const back = `${origin}/settings/teams/${project.teamSlug}/p/${project.slug}/keys`;
 
   const db = getDb();
 

@@ -10,13 +10,10 @@ import {
   X,
 } from "lucide-react";
 import type React from "react";
-import { requestInfo } from "rwsdk/worker";
-import { ProjectShell } from "@/app/components/project-shell";
 import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { runs, testResults } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
-import { getTeamProjects, getUserTeams } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 import { prUrl } from "@/lib/pr-url";
 import { param } from "@/lib/route-params";
@@ -133,12 +130,6 @@ export async function RunDetailPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
-  const { ctx } = requestInfo;
-  const [teams, projects] = await Promise.all([
-    ctx.user ? getUserTeams(ctx.user.id) : Promise.resolve([]),
-    getTeamProjects(project.teamId),
-  ]);
-
   const db = getDb();
 
   const [run] = await db
@@ -169,15 +160,7 @@ export async function RunDetailPage() {
   const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
 
   return (
-    <ProjectShell
-      teamSlug={project.teamSlug}
-      teamName={project.teamName}
-      teams={teams}
-      projectSlug={project.slug}
-      projectName={project.name}
-      projects={projects}
-      activeNav="runs"
-    >
+    <>
       {/* Page header */}
       <div className="px-6 py-4 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-4 min-w-0">
@@ -419,6 +402,6 @@ export async function RunDetailPage() {
           </div>
         </div>
       </div>
-    </ProjectShell>
+    </>
   );
 }

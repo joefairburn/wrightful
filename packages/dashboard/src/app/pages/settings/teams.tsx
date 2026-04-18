@@ -14,7 +14,7 @@ import { getDb } from "@/db";
 import { memberships, teams } from "@/db/schema";
 import type { AppContext } from "@/worker";
 
-export async function AdminTeamsPage() {
+export async function SettingsTeamsPage() {
   const ctx = requestInfo.ctx as AppContext;
   if (!ctx.user) return <NotFoundPage />;
 
@@ -31,10 +31,17 @@ export async function AdminTeamsPage() {
     .where(eq(memberships.userId, ctx.user.id));
 
   return (
-    <div className="mx-auto max-w-4xl p-6 sm:p-8">
-      <h1 className="mb-6 font-semibold text-2xl">Teams</h1>
+    <div className="mx-auto w-full max-w-4xl p-6 sm:p-8">
+      <header className="mb-6 flex items-center justify-between gap-4">
+        <div>
+          <h1 className="font-semibold text-2xl">Teams</h1>
+          <p className="text-muted-foreground text-sm">Teams you belong to.</p>
+        </div>
+        <Button render={<a href="/settings/teams/new">Create team</a>} />
+      </header>
+
       {rows.length === 0 ? (
-        <p className="mb-6 text-muted-foreground">
+        <p className="text-muted-foreground">
           You&apos;re not on any team yet.
         </p>
       ) : (
@@ -57,7 +64,7 @@ export async function AdminTeamsPage() {
                 </TableCell>
                 <TableCell>
                   <a
-                    href={`/admin/t/${t.slug}`}
+                    href={`/settings/teams/${t.slug}`}
                     className="text-foreground underline-offset-4 hover:underline"
                   >
                     Manage &rarr;
@@ -68,9 +75,6 @@ export async function AdminTeamsPage() {
           </TableBody>
         </Table>
       )}
-      <div className="mt-6">
-        <Button render={<a href="/admin/teams/new">Create team</a>} />
-      </div>
     </div>
   );
 }

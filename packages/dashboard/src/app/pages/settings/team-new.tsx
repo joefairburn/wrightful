@@ -12,14 +12,14 @@ import type { AppContext } from "@/worker";
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
-export function AdminTeamNewPage() {
+export function SettingsTeamNewPage() {
   const url = new URL(requestInfo.request.url);
   const error = url.searchParams.get("error");
   return (
-    <div className="mx-auto max-w-md p-6 sm:p-8">
+    <div className="mx-auto w-full max-w-md p-6 sm:p-8">
       <div className="mb-2">
         <a
-          href="/admin/teams"
+          href="/settings/teams"
           className="text-muted-foreground text-sm hover:underline"
         >
           &larr; Teams
@@ -73,10 +73,11 @@ export async function createTeamHandler({
   const form = await request.formData();
   const name = readField(form, "name").trim();
   const slug = readField(form, "slug").trim().toLowerCase();
+  const origin = new URL(request.url).origin;
 
   if (!name || !SLUG_RE.test(slug)) {
     return Response.redirect(
-      `${new URL(request.url).origin}/admin/teams/new?error=${encodeURIComponent(
+      `${origin}/settings/teams/new?error=${encodeURIComponent(
         "Name is required and slug must be lowercase alphanumerics with hyphens.",
       )}`,
       302,
@@ -107,13 +108,10 @@ export async function createTeamHandler({
       ? "That slug is already taken."
       : "Could not create team.";
     return Response.redirect(
-      `${new URL(request.url).origin}/admin/teams/new?error=${encodeURIComponent(friendly)}`,
+      `${origin}/settings/teams/new?error=${encodeURIComponent(friendly)}`,
       302,
     );
   }
 
-  return Response.redirect(
-    `${new URL(request.url).origin}/admin/t/${slug}`,
-    302,
-  );
+  return Response.redirect(`${origin}/settings/teams/${slug}`, 302);
 }

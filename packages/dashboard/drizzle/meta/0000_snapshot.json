@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a42c62ab-d94d-471b-a336-0603422d14c0",
-  "prevId": "239da29c-9533-432d-a23a-35acdf581dc3",
+  "id": "e4065c22-a75b-42bc-804d-09bce2bf72ba",
+  "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
       "name": "account",
@@ -467,6 +467,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "environment": {
+          "name": "environment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "commit_sha": {
           "name": "commit_sha",
           "type": "text",
@@ -580,6 +587,11 @@
         "runs_branch_created_at_idx": {
           "name": "runs_branch_created_at_idx",
           "columns": ["branch", "created_at"],
+          "isUnique": false
+        },
+        "runs_environment_created_at_idx": {
+          "name": "runs_environment_created_at_idx",
+          "columns": ["environment", "created_at"],
           "isUnique": false
         },
         "runs_project_created_at_idx": {
@@ -1033,6 +1045,72 @@
         }
       },
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "user_state": {
+      "name": "user_state",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_team_id": {
+          "name": "last_team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_project_id": {
+          "name": "last_project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_state_user_id_user_id_fk": {
+          "name": "user_state_user_id_user_id_fk",
+          "tableFrom": "user_state",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "user_state_last_team_id_teams_id_fk": {
+          "name": "user_state_last_team_id_teams_id_fk",
+          "tableFrom": "user_state",
+          "tableTo": "teams",
+          "columnsFrom": ["last_team_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "user_state_last_project_id_projects_id_fk": {
+          "name": "user_state_last_project_id_projects_id_fk",
+          "tableFrom": "user_state",
+          "tableTo": "projects",
+          "columnsFrom": ["last_project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

@@ -44,6 +44,12 @@ export function TeamSwitcher({
       itemToStringLabel={(t) => t.name}
       onValueChange={(next) => {
         if (next && next.slug !== currentTeamSlug) {
+          void fetch("/api/user/last-team", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ teamSlug: next.slug }),
+            keepalive: true,
+          });
           void navigate(link("/t/:teamSlug", { teamSlug: next.slug }));
         }
       }}
@@ -66,7 +72,7 @@ export function TeamSwitcher({
         <NavComboboxFooter>
           <Button
             className="w-full justify-start"
-            render={<a href={link("/admin/teams/new")} />}
+            render={<a href={link("/settings/teams/new")} />}
             variant="ghost"
           >
             <Plus size={14} />

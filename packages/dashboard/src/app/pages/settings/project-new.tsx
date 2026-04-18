@@ -15,7 +15,7 @@ import type { AppContext } from "@/worker";
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
-export async function AdminProjectNewPage() {
+export async function SettingsProjectNewPage() {
   const ctx = requestInfo.ctx as AppContext;
   if (!ctx.user) return <NotFoundPage />;
 
@@ -26,10 +26,10 @@ export async function AdminProjectNewPage() {
   const error = new URL(requestInfo.request.url).searchParams.get("error");
 
   return (
-    <div className="mx-auto max-w-md p-6 sm:p-8">
+    <div className="mx-auto w-full max-w-md p-6 sm:p-8">
       <div className="mb-2">
         <a
-          href={`/admin/t/${team.slug}`}
+          href={`/settings/teams/${team.slug}/projects`}
           className="text-muted-foreground text-sm hover:underline"
         >
           &larr; {team.name}
@@ -91,9 +91,11 @@ export async function createProjectHandler({
   const form = await request.formData();
   const name = readField(form, "name").trim();
   const slug = readField(form, "slug").trim().toLowerCase();
+  const origin = new URL(request.url).origin;
+
   if (!name || !SLUG_RE.test(slug)) {
     return Response.redirect(
-      `${new URL(request.url).origin}/admin/t/${team.slug}/projects/new?error=${encodeURIComponent(
+      `${origin}/settings/teams/${team.slug}/projects/new?error=${encodeURIComponent(
         "Name is required and slug must be lowercase alphanumerics.",
       )}`,
       302,
@@ -115,13 +117,13 @@ export async function createProjectHandler({
       ? "That slug is already used in this team."
       : "Could not create project.";
     return Response.redirect(
-      `${new URL(request.url).origin}/admin/t/${team.slug}/projects/new?error=${encodeURIComponent(friendly)}`,
+      `${origin}/settings/teams/${team.slug}/projects/new?error=${encodeURIComponent(friendly)}`,
       302,
     );
   }
 
   return Response.redirect(
-    `${new URL(request.url).origin}/admin/t/${team.slug}`,
+    `${origin}/settings/teams/${team.slug}/projects`,
     302,
   );
 }

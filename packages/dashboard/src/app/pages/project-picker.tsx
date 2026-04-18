@@ -37,7 +37,7 @@ export async function ProjectPickerPage() {
           <p className="mb-2">No projects yet.</p>
           {team.role === "owner" && (
             <a
-              href={`/admin/t/${team.slug}/projects/new`}
+              href={`/settings/teams/${team.slug}/projects/new`}
               className="text-foreground underline-offset-4 hover:underline"
             >
               Create the first project &rarr;
@@ -60,7 +60,7 @@ export async function ProjectPickerPage() {
       )}
       <div className="mt-8">
         <a
-          href={`/admin/t/${team.slug}`}
+          href={`/settings/teams/${team.slug}`}
           className="text-muted-foreground text-sm underline-offset-4 hover:text-foreground hover:underline"
         >
           Manage team &rarr;

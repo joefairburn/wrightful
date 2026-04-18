@@ -46,6 +46,12 @@ export function ProjectSwitcher({
       itemToStringLabel={(p) => p.name}
       onValueChange={(next) => {
         if (next && next.slug !== currentProjectSlug) {
+          void fetch("/api/user/last-project", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ teamSlug, projectSlug: next.slug }),
+            keepalive: true,
+          });
           void navigate(
             link("/t/:teamSlug/p/:projectSlug", {
               teamSlug,
@@ -74,7 +80,11 @@ export function ProjectSwitcher({
           <Button
             className="w-full justify-start"
             render={
-              <a href={link("/admin/t/:teamSlug/projects/new", { teamSlug })} />
+              <a
+                href={link("/settings/teams/:teamSlug/projects/new", {
+                  teamSlug,
+                })}
+              />
             }
             variant="ghost"
           >

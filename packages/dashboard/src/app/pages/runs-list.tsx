@@ -1,7 +1,5 @@
 import { desc, eq } from "drizzle-orm";
 import { Check, GitPullRequest, Minus, TriangleAlert, X } from "lucide-react";
-import { requestInfo } from "rwsdk/worker";
-import { ProjectShell } from "@/app/components/project-shell";
 import {
   Empty,
   EmptyContent,
@@ -21,7 +19,6 @@ import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import { runs } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
-import { getTeamProjects, getUserTeams } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 import { prUrl } from "@/lib/pr-url";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
@@ -39,12 +36,6 @@ export async function RunsListPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
-  const { ctx } = requestInfo;
-  const [teams, projects] = await Promise.all([
-    ctx.user ? getUserTeams(ctx.user.id) : Promise.resolve([]),
-    getTeamProjects(project.teamId),
-  ]);
-
   const db = getDb();
   const allRuns = await db
     .select()
@@ -56,15 +47,7 @@ export async function RunsListPage() {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
   return (
-    <ProjectShell
-      teamSlug={project.teamSlug}
-      teamName={project.teamName}
-      teams={teams}
-      projectSlug={project.slug}
-      projectName={project.name}
-      projects={projects}
-      activeNav="runs"
-    >
+    <>
       {/* Page header */}
       <div className="px-6 py-4 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-3">
@@ -278,6 +261,6 @@ export async function RunsListPage() {
           Showing {allRuns.length} of {allRuns.length} runs
         </span>
       </div>
-    </ProjectShell>
+    </>
   );
 }
