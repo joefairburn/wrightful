@@ -14,6 +14,10 @@ const BREAKPOINTS = {
 
 type Breakpoint = keyof typeof BREAKPOINTS;
 
+function isBreakpoint(s: string): s is Breakpoint {
+  return s in BREAKPOINTS;
+}
+
 type BreakpointQuery =
   | Breakpoint
   | `max-${Breakpoint}`
@@ -48,9 +52,9 @@ function parseQuery(
   for (const segment of query.split(":")) {
     if (segment.startsWith("max-")) {
       const bp = segment.slice(4);
-      if (bp in BREAKPOINTS) parts.push(resolveMax(bp as Breakpoint));
-    } else if (segment in BREAKPOINTS) {
-      parts.push(resolveMin(segment as Breakpoint));
+      if (isBreakpoint(bp)) parts.push(resolveMax(bp));
+    } else if (isBreakpoint(segment)) {
+      parts.push(resolveMin(segment));
     }
   }
 

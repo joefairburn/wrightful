@@ -9,6 +9,15 @@ export function hasGithubOAuthConfigured(): boolean {
   return Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
 }
 
+function getGithubOAuthCreds():
+  | { clientId: string; clientSecret: string }
+  | undefined {
+  const clientId = env.GITHUB_CLIENT_ID;
+  const clientSecret = env.GITHUB_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return undefined;
+  return { clientId, clientSecret };
+}
+
 function buildAuth() {
   const publicUrl = env.WRIGHTFUL_PUBLIC_URL;
   const secret = env.BETTER_AUTH_SECRET;
@@ -21,14 +30,8 @@ function buildAuth() {
 
   // GitHub OAuth is optional. Self-hosters who just want email/password can
   // skip registering a GitHub OAuth app entirely.
-  const socialProviders = hasGithubOAuthConfigured()
-    ? {
-        github: {
-          clientId: env.GITHUB_CLIENT_ID as string,
-          clientSecret: env.GITHUB_CLIENT_SECRET as string,
-        },
-      }
-    : undefined;
+  const githubCreds = getGithubOAuthCreds();
+  const socialProviders = githubCreds ? { github: githubCreds } : undefined;
 
   return betterAuth({
     baseURL: publicUrl,

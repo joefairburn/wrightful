@@ -53,28 +53,21 @@ export function Calendar({
     weekday:
       "size-(--cell-size) p-0 text-xs font-medium text-muted-foreground/72",
   };
-  const mergedClassNames: typeof defaultClassNames = Object.keys(
-    defaultClassNames,
-  ).reduce(
-    (acc, key) => {
-      const userClass = classNames?.[key as keyof typeof classNames];
-      const baseClass =
-        defaultClassNames[key as keyof typeof defaultClassNames];
-
-      acc[key as keyof typeof defaultClassNames] = userClass
-        ? cn(baseClass, userClass)
-        : baseClass;
-
-      return acc;
-    },
-    { ...defaultClassNames } as typeof defaultClassNames,
-  );
+  type ClassNameKey = keyof typeof defaultClassNames;
+  const keys = Object.keys(defaultClassNames) as ClassNameKey[]; // oxlint-disable-line typescript-eslint/no-unsafe-type-assertion -- Object.keys erases literal key types
+  const mergedClassNames: typeof defaultClassNames = { ...defaultClassNames };
+  for (const key of keys) {
+    const userClass = classNames?.[key];
+    if (userClass) {
+      mergedClassNames[key] = cn(defaultClassNames[key], userClass);
+    }
+  }
 
   const defaultComponents = {
     Chevron: ({
-      className,
+      className: chevronClassName,
       orientation,
-      ...props
+      ...chevronProps
     }: {
       className?: string;
       orientation?: "left" | "right" | "up" | "down";
@@ -82,8 +75,8 @@ export function Calendar({
       if (orientation === "left") {
         return (
           <ChevronLeftIcon
-            className={cn(className, "rtl:rotate-180")}
-            {...props}
+            className={cn(chevronClassName, "rtl:rotate-180")}
+            {...chevronProps}
             aria-hidden="true"
           />
         );
@@ -92,8 +85,8 @@ export function Calendar({
       if (orientation === "right") {
         return (
           <ChevronRightIcon
-            className={cn(className, "rtl:rotate-180")}
-            {...props}
+            className={cn(chevronClassName, "rtl:rotate-180")}
+            {...chevronProps}
             aria-hidden="true"
           />
         );
@@ -101,8 +94,8 @@ export function Calendar({
 
       return (
         <ChevronsUpDownIcon
-          className={className}
-          {...props}
+          className={chevronClassName}
+          {...chevronProps}
           aria-hidden="true"
         />
       );
@@ -125,15 +118,14 @@ export function Calendar({
     formatters: {
       formatMonthDropdown: (date: Date) =>
         date.toLocaleString("default", { month: "short" }),
-    } as React.ComponentProps<typeof DayPicker>["formatters"],
+    },
     mode,
     showOutsideDays,
     ...props,
   };
 
-  return (
-    <DayPicker
-      {...(dayPickerProps as React.ComponentProps<typeof DayPicker>)}
-    />
-  );
+  // DayPicker's props are a discriminated union on `mode`; we build the object generically.
+  const typedProps: React.ComponentProps<typeof DayPicker> =
+    dayPickerProps as React.ComponentProps<typeof DayPicker>; // oxlint-disable-line typescript-eslint/no-unsafe-type-assertion
+  return <DayPicker {...typedProps} />;
 }
