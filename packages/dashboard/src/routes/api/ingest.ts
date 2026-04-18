@@ -123,6 +123,7 @@ export async function ingestHandler({
     commitMessage: payload.run.commitMessage ?? null,
     prNumber: payload.run.prNumber ?? null,
     repo: payload.run.repo ?? null,
+    actor: payload.run.actor ?? null,
     totalTests,
     passed,
     failed,

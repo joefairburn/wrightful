@@ -26,6 +26,7 @@ describe("ApiClient", () => {
       commitMessage: null,
       prNumber: null,
       repo: null,
+      actor: null,
       status: "passed" as const,
       durationMs: 1000,
       reporterVersion: "0.1.0",

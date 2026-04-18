@@ -71,10 +71,12 @@ CREATE TABLE `runs` (
 	`ci_provider` text,
 	`ci_build_id` text,
 	`branch` text,
+	`environment` text,
 	`commit_sha` text,
 	`commit_message` text,
 	`pr_number` integer,
 	`repo` text,
+	`actor` text,
 	`total_tests` integer NOT NULL,
 	`passed` integer NOT NULL,
 	`failed` integer NOT NULL,
@@ -91,6 +93,7 @@ CREATE TABLE `runs` (
 CREATE UNIQUE INDEX `runs_project_idempotency_key_idx` ON `runs` (`project_id`,`idempotency_key`);--> statement-breakpoint
 CREATE INDEX `runs_ci_build_id_idx` ON `runs` (`ci_build_id`);--> statement-breakpoint
 CREATE INDEX `runs_branch_created_at_idx` ON `runs` (`branch`,`created_at`);--> statement-breakpoint
+CREATE INDEX `runs_environment_created_at_idx` ON `runs` (`environment`,`created_at`);--> statement-breakpoint
 CREATE INDEX `runs_project_created_at_idx` ON `runs` (`project_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `session` (
 	`id` text PRIMARY KEY NOT NULL,

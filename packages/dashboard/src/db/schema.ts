@@ -181,6 +181,7 @@ export const runs = sqliteTable(
     commitMessage: text("commit_message"),
     prNumber: integer("pr_number"),
     repo: text("repo"),
+    actor: text("actor"),
     totalTests: integer("total_tests").notNull(),
     passed: integer("passed").notNull(),
     failed: integer("failed").notNull(),

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a42c62ab-d94d-471b-a336-0603422d14c0",
-  "prevId": "239da29c-9533-432d-a23a-35acdf581dc3",
+  "id": "e3f1207a-c1c0-43ad-9539-2561fe55682f",
+  "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
       "name": "account",
@@ -467,6 +467,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "environment": {
+          "name": "environment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "commit_sha": {
           "name": "commit_sha",
           "type": "text",
@@ -490,6 +497,13 @@
         },
         "repo": {
           "name": "repo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actor": {
+          "name": "actor",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -580,6 +594,11 @@
         "runs_branch_created_at_idx": {
           "name": "runs_branch_created_at_idx",
           "columns": ["branch", "created_at"],
+          "isUnique": false
+        },
+        "runs_environment_created_at_idx": {
+          "name": "runs_environment_created_at_idx",
+          "columns": ["environment", "created_at"],
           "isUnique": false
         },
         "runs_project_created_at_idx": {

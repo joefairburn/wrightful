@@ -251,6 +251,11 @@ export async function RunDetailPage() {
                     {run.commitSha.slice(0, 7)}
                   </span>
                 ) : null}
+                {run.actor ? (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-background font-mono text-[11px] text-muted-foreground">
+                    @{run.actor}
+                  </span>
+                ) : null}
                 {run.commitMessage ? (
                   <span className="text-sm text-foreground truncate max-w-[520px]">
                     {run.commitMessage}
@@ -299,6 +304,9 @@ export async function RunDetailPage() {
               )}
               {run.ciProvider && <EnvRow label="CI" value={run.ciProvider} />}
               {run.ciBuildId && <EnvRow label="Build" value={run.ciBuildId} />}
+              {run.actor && (
+                <EnvRow label="Triggered by" value={`@${run.actor}`} />
+              )}
               {run.prNumber != null && (
                 <EnvRow
                   label="PR"
@@ -323,6 +331,7 @@ export async function RunDetailPage() {
                 !run.reporterVersion &&
                 !run.ciProvider &&
                 !run.ciBuildId &&
+                !run.actor &&
                 run.prNumber == null && (
                   <div className="text-xs text-muted-foreground italic">
                     No build data

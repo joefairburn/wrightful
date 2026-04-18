@@ -81,6 +81,7 @@ export const uploadCommand = new Command("upload")
         commitMessage: ci?.commitMessage ?? null,
         prNumber: ci?.prNumber ?? null,
         repo: ci?.repo ?? null,
+        actor: ci?.actor ?? null,
         status: parsed.run.status,
         durationMs: parsed.run.durationMs,
         reporterVersion: "0.1.0",
