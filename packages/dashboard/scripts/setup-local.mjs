@@ -1,9 +1,57 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { webcrypto } from "node:crypto";
+import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
 import { startSpinner } from "./lib/spinner.mjs";
+
+/**
+ * Try to bind `port` on `host`. Resolves with the actual port (OS-assigned
+ * when port=0), rejects on any listen error.
+ *
+ * @param {number} port
+ * @param {string} [host]
+ * @returns {Promise<number>}
+ */
+function tryBind(port, host) {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.unref();
+    srv.once("error", reject);
+    const cb = () => {
+      const addr = srv.address();
+      const actual = typeof addr === "object" && addr !== null ? addr.port : 0;
+      srv.close(() => resolve(actual));
+    };
+    if (host) srv.listen(port, host, cb);
+    else srv.listen(port, cb);
+  });
+}
+
+/**
+ * Try to bind `preferred` on both IPv4 and IPv6 loopback (because vite
+ * resolves `localhost` differently per OS — macOS tends to prefer `::1`).
+ * If either family is already taken, fall back to an OS-assigned free port.
+ *
+ * @param {number} preferred
+ * @returns {Promise<number>}
+ */
+async function pickPort(preferred) {
+  for (const host of ["127.0.0.1", "::1"]) {
+    try {
+      await tryBind(preferred, host);
+    } catch (err) {
+      if (err.code === "EADDRINUSE") {
+        return tryBind(0);
+      }
+      // IPv6 may be unavailable on some systems (EADDRNOTAVAIL) — not fatal,
+      // keep going with the preferred port.
+      if (err.code !== "EADDRNOTAVAIL") throw err;
+    }
+  }
+  return preferred;
+}
 
 const dashboardDir = new URL("..", import.meta.url);
 const envUrl = new URL(".dev.vars", dashboardDir);
@@ -111,9 +159,11 @@ if (!skipFixtures) {
     readFileSync(fileURLToPath(seedConfigUrl), "utf8"),
   );
 
-  async function probe() {
+  let baseUrl = seedConfig.url;
+
+  async function probe(url) {
     try {
-      const res = await fetch(`${seedConfig.url}/api/ingest`, {
+      const res = await fetch(`${url}/api/ingest`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -127,30 +177,44 @@ if (!skipFixtures) {
     }
   }
 
-  const initialProbe = await probe();
-  if (initialProbe === 401) {
-    console.error(
-      pc.red(
-        `\nsomething is already listening on ${seedConfig.url} but does not recognise our demo API key.`,
-      ),
-    );
-    console.error(
-      pc.dim(
-        "Likely a dev server from another workspace. Stop it (or free port 5173) and retry.",
-      ),
-    );
-    process.exit(1);
-  }
+  const initialProbe = await probe(baseUrl);
   const alreadyUp = initialProbe === 400;
 
   let devServer = null;
   let devServerExited = false;
   if (!alreadyUp) {
+    // If 5173 is held by anything else (sibling workspace's dev server, a
+    // stray process, etc.), fall back to a free port. Fixture upload hits
+    // /api/ingest with a Bearer key, so the URL mismatch vs Better Auth's
+    // pinned WRIGHTFUL_PUBLIC_URL doesn't matter for this window.
+    const port = await pickPort(5173);
+    if (port !== 5173) {
+      baseUrl = `http://localhost:${port}`;
+      console.log(
+        `${pc.dim("›")} ${"port 5173 busy…".padEnd(LABEL_WIDTH)} ${pc.dim(`using ${port} for fixture upload`)}`,
+      );
+    }
+
     const stopDevSpinner = startSpinner(stageLabel("starting dev server…"));
-    devServer = spawn("pnpm", ["--filter", "@wrightful/dashboard", "dev"], {
-      cwd: repoRoot,
-      stdio: "ignore",
-    });
+    // `pnpm exec` resolves `vite` from the dashboard package's bin directory
+    // reliably across pnpm workspace setups. Raw `npx vite` can misfire when
+    // the shim isn't on the caller's PATH.
+    devServer = spawn(
+      "pnpm",
+      [
+        "--filter",
+        "@wrightful/dashboard",
+        "exec",
+        "vite",
+        "dev",
+        "--port",
+        String(port),
+      ],
+      { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let devOutput = "";
+    devServer.stdout?.on("data", (d) => (devOutput += d.toString()));
+    devServer.stderr?.on("data", (d) => (devOutput += d.toString()));
     devServer.on("exit", () => {
       devServerExited = true;
     });
@@ -174,14 +238,11 @@ if (!skipFixtures) {
       if (devServerExited) {
         stopDevSpinner();
         console.log(pc.red("failed"));
-        console.error(
-          pc.red(
-            "\ndev server exited during startup. Most likely port 5173 is taken (see `lsof -iTCP:5173 -sTCP:LISTEN`) — strictPort is on.",
-          ),
-        );
+        console.error(pc.red("\ndev server exited during startup — aborting"));
+        if (devOutput) process.stderr.write(`${devOutput}\n`);
         process.exit(1);
       }
-      if ((await probe()) === 400) {
+      if ((await probe(baseUrl)) === 400) {
         ready = true;
         break;
       }
@@ -205,7 +266,11 @@ if (!skipFixtures) {
   const fixtures = spawnSync("node", ["scripts/upload-fixtures.mjs"], {
     stdio: "inherit",
     cwd: dashboardDir,
-    env: { ...process.env, WRIGHTFUL_QUIET: "1" },
+    env: {
+      ...process.env,
+      WRIGHTFUL_QUIET: "1",
+      WRIGHTFUL_URL: baseUrl,
+    },
   });
 
   if (devServer && !devServer.killed) devServer.kill("SIGTERM");
