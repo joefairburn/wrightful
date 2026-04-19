@@ -29,6 +29,9 @@ if (!existsSync(seedPath)) {
 }
 
 const seed = JSON.parse(readFileSync(seedPath, "utf8"));
+// WRIGHTFUL_URL lets `setup:local` point us at a fallback port when 5173
+// is busy. Falls back to the seeded URL when invoked standalone.
+const baseUrl = process.env.WRIGHTFUL_URL || seed.url;
 const QUIET = process.env.WRIGHTFUL_QUIET === "1";
 const log = (...args) => {
   if (!QUIET) console.log(...args);
@@ -36,7 +39,7 @@ const log = (...args) => {
 
 async function probe() {
   try {
-    const res = await fetch(`${seed.url}/api/ingest`, {
+    const res = await fetch(`${baseUrl}/api/ingest`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -65,7 +68,7 @@ async function ensureDashboardRunning() {
     process.exit(1);
   }
 
-  log(`dashboard not reachable at ${seed.url} — starting dev server…`);
+  log(`dashboard not reachable at ${baseUrl} — starting dev server…`);
   devServer = spawn("pnpm", ["--filter", "@wrightful/dashboard", "dev"], {
     cwd: repoRoot,
     stdio: "ignore",
@@ -241,7 +244,7 @@ async function runScenario(scenario, index, total) {
 
   const uploadEnv = {
     ...process.env,
-    WRIGHTFUL_URL: seed.url,
+    WRIGHTFUL_URL: baseUrl,
     WRIGHTFUL_API_KEY: seed.apiKey,
     // Spoof GitHub Actions CI detection so the run gets stamped with branch/
     // commit/build id without modifying the CLI.
@@ -278,4 +281,11 @@ for (let i = 0; i < SCENARIOS.length; i++) {
 
 if (!QUIET) {
   console.log(pc.green(`\n✓ sign in at ${seed.url} as ${seed.email}`));
+  if (baseUrl !== seed.url) {
+    console.log(
+      pc.dim(
+        `  (fixtures were uploaded against ${baseUrl}; ${seed.url} is where \`pnpm dev\` binds)`,
+      ),
+    );
+  }
 }
