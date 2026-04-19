@@ -193,7 +193,7 @@ function AppSidebarContents({
   return (
     <>
       {activeTeam ? (
-        <div className="px-2 py-3 shrink-0">
+        <div className="h-14 px-2 shrink-0 flex items-center border-b border-sidebar-border">
           <TeamSwitcher
             currentTeamSlug={activeTeam.slug}
             currentTeamName={activeTeam.name}
@@ -201,7 +201,7 @@ function AppSidebarContents({
           />
         </div>
       ) : (
-        <div className="px-4 py-4 shrink-0 text-sm font-semibold tracking-tight">
+        <div className="h-14 px-4 shrink-0 flex items-center text-sm font-semibold tracking-tight border-b border-sidebar-border">
           Wrightful
         </div>
       )}
@@ -287,7 +287,7 @@ function SettingsSidebarContents({ pathname }: SettingsSidebarContentsProps) {
 
   return (
     <>
-      <div className="px-2 py-3 shrink-0">
+      <div className="h-14 px-2 shrink-0 flex items-center border-b border-sidebar-border">
         <a
           href="/"
           className="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
