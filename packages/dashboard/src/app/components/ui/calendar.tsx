@@ -1,5 +1,6 @@
 "use client";
 
+import { format } from "date-fns";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -116,8 +117,7 @@ export function Calendar({
     components: mergedComponents,
     "data-slot": "calendar",
     formatters: {
-      formatMonthDropdown: (date: Date) =>
-        date.toLocaleString("default", { month: "short" }),
+      formatMonthDropdown: (date: Date) => format(date, "MMM"),
     },
     mode,
     showOutsideDays,
