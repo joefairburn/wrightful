@@ -7,7 +7,7 @@ import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
 import {
   artifacts,
-  runs,
+  committedRuns,
   testAnnotations,
   testResults,
   testTags,
@@ -58,26 +58,38 @@ export async function TestDetailPage() {
 
   const db = getDb();
 
-  // Single-join verifies ownership AND fetches both rows, scoped to project.
-  const rows = await db
-    .select({
-      run: runs,
-      result: testResults,
-    })
-    .from(testResults)
-    .innerJoin(runs, eq(runs.id, testResults.runId))
-    .where(
-      and(
-        eq(testResults.id, testResultId),
-        eq(testResults.runId, runId),
-        eq(runs.projectId, project.id),
-      ),
-    )
-    .limit(1);
+  // Two queries keeps drizzle's inference clean when joining a view (runs)
+  // with a table (testResults). The `innerJoin` gates visibility — if the
+  // run isn't committed the testResult lookup returns zero rows.
+  const [[result], [run]] = await Promise.all([
+    db
+      .select()
+      .from(testResults)
+      .innerJoin(committedRuns, eq(committedRuns.id, testResults.runId))
+      .where(
+        and(
+          eq(testResults.id, testResultId),
+          eq(testResults.runId, runId),
+          eq(committedRuns.projectId, project.id),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows.map((r) => r.test_results)),
+    db
+      .select()
+      .from(committedRuns)
+      .where(
+        and(
+          eq(committedRuns.id, runId),
+          eq(committedRuns.projectId, project.id),
+        ),
+      )
+      .limit(1),
+  ]);
 
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
-  if (rows.length === 0) {
+  if (!result || !run) {
     return (
       <div className="mx-auto max-w-6xl p-6 sm:p-8">
         <h1 className="mb-2 font-semibold text-2xl">Test not found</h1>
@@ -90,8 +102,6 @@ export async function TestDetailPage() {
       </div>
     );
   }
-
-  const { run, result } = rows[0];
 
   const [tagRows, annotationRows, artifactRows] = await Promise.all([
     db

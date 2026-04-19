@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
-import { artifacts, runs, testResults } from "@/db/schema";
+import { artifacts, committedRuns, testResults } from "@/db/schema";
 import {
   RegisterArtifactsPayloadSchema,
   type RegisterArtifactsPayload,
@@ -62,9 +62,14 @@ export async function registerHandler({
   // testResultId. Without this check a caller could register uploads against
   // another tenant's run by guessing its ULID.
   const [ownerRun] = await db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(and(eq(runs.id, payload.runId), eq(runs.projectId, projectId)))
+    .select({ id: committedRuns.id })
+    .from(committedRuns)
+    .where(
+      and(
+        eq(committedRuns.id, payload.runId),
+        eq(committedRuns.projectId, projectId),
+      ),
+    )
     .limit(1);
   if (!ownerRun) {
     return jsonResponse({ error: "Run not found" }, 404);

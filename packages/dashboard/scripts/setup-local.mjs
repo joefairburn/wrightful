@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { webcrypto } from "node:crypto";
 import { createServer } from "node:net";
@@ -114,6 +114,50 @@ if (existsSync(envUrl)) {
 }
 
 // ---------- D1 migrations ----------
+
+// Pre-launch, we squash the initial migration rather than stacking new ones.
+// That means a dev's existing local D1 may have an older schema with no way
+// to catch up via `wrangler d1 migrations apply` (which treats 0000 as
+// already-applied). Detect that case by probing for a canary column and wipe
+// the local D1 state so the fresh migration runs cleanly. `.wrangler` also
+// holds KV/R2 emulator state — wiping is fine for local dev.
+const d1StateDir = new URL("../.wrangler/state/v3/d1", import.meta.url);
+if (existsSync(d1StateDir)) {
+  const probe = spawnSync(
+    "npx",
+    [
+      "wrangler",
+      "d1",
+      "execute",
+      "DB",
+      "--local",
+      "--json",
+      "--command",
+      "SELECT json_group_array(name) AS cols FROM pragma_table_info('runs');",
+    ],
+    {
+      cwd: fileURLToPath(dashboardDir),
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf8",
+    },
+  );
+  if (probe.status === 0) {
+    // wrangler --json emits `"cols": "[\"id\",\"project_id\",...]"` — a
+    // JSON-in-JSON string. Simple substring checks on the escaped form are
+    // enough: `\"id\"` appears only when the runs table exists at all,
+    // `\"committed\"` only when the column is present.
+    const runsExists = probe.stdout.includes('\\"id\\"');
+    const hasCommitted = probe.stdout.includes('\\"committed\\"');
+    if (runsExists && !hasCommitted) {
+      console.log(
+        `${pc.dim("›")} ${"schema out of date…".padEnd(LABEL_WIDTH)} ${pc.yellow("wiping local D1")}`,
+      );
+      rmSync(d1StateDir, { recursive: true, force: true });
+      const seedPath = fileURLToPath(seedConfigUrl);
+      if (existsSync(seedPath)) rmSync(seedPath);
+    }
+  }
+}
 
 await stage("applying D1 migrations…", "npx", [
   "wrangler",

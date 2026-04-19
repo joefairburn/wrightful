@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { ulid } from "ulid";
 import { getDb } from "@/db";
 import {
@@ -12,7 +13,35 @@ import {
 import { IngestPayloadSchema, type IngestPayload } from "./schemas";
 import type { AppContext } from "@/worker";
 
-const MAX_STATEMENTS_PER_BATCH = 900;
+// D1 caps: 100 bound parameters per query, 1000 queries per batch. We chunk
+// each child table's rows so no multi-row insert exceeds the param cap. We
+// then split those statements across however many 1000-statement batches the
+// payload requires.
+//
+// Atomicity across batches is provided by the `runs.committed` flag rather
+// than D1: the runs row is inserted with committed=false in the first batch,
+// every child batch commits independently, and a final batch flips committed
+// to true. All reads filter `committed = 1`, so a mid-ingest failure leaves
+// the partial run invisible. A retry hits the idempotency guard, which
+// detects the uncommitted row and deletes it (FK cascade cleans children)
+// before restarting.
+const MAX_PARAMS_PER_STATEMENT = 99;
+const MAX_STATEMENTS_PER_BATCH = 1000;
+const TEST_RESULTS_COLUMNS = 13;
+const TEST_TAGS_COLUMNS = 3;
+const TEST_ANNOTATIONS_COLUMNS = 4;
+
+function chunkByParams<T>(rows: T[], columnsPerRow: number): T[][] {
+  const rowsPerStatement = Math.max(
+    1,
+    Math.floor(MAX_PARAMS_PER_STATEMENT / columnsPerRow),
+  );
+  const chunks: T[][] = [];
+  for (let i = 0; i < rows.length; i += rowsPerStatement) {
+    chunks.push(rows.slice(i, i + rowsPerStatement));
+  }
+  return chunks;
+}
 
 function jsonResponse(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
@@ -58,10 +87,10 @@ export async function ingestHandler({
   const runUrl = (id: string) =>
     `/t/${scope.teamSlug}/p/${scope.projectSlug}/runs/${id}`;
 
-  // Idempotency is scoped to a project — two tenants using the same
-  // idempotencyKey must not collide or see each other's run.
+  // Idempotency is scoped to a project. A committed row wins; an uncommitted
+  // one is a prior failed ingest and gets torn down so this call can retry.
   const existing = await db
-    .select({ id: runs.id })
+    .select({ id: runs.id, committed: runs.committed })
     .from(runs)
     .where(
       and(
@@ -71,7 +100,7 @@ export async function ingestHandler({
     )
     .limit(1);
 
-  if (existing.length > 0) {
+  if (existing.length > 0 && existing[0].committed) {
     return jsonResponse(
       {
         runId: existing[0].id,
@@ -80,6 +109,11 @@ export async function ingestHandler({
       },
       200,
     );
+  }
+  if (existing.length > 0) {
+    // Stale uncommitted row — cascade-deletes test_results / tags /
+    // annotations / artifacts so we can re-insert cleanly.
+    await db.delete(runs).where(eq(runs.id, existing[0].id));
   }
 
   const runId = ulid();
@@ -109,32 +143,6 @@ export async function ingestHandler({
         break;
     }
   }
-
-  // Insert run
-  await db.insert(runs).values({
-    id: runId,
-    projectId,
-    idempotencyKey: payload.idempotencyKey,
-    ciProvider: payload.run.ciProvider ?? null,
-    ciBuildId: payload.run.ciBuildId ?? null,
-    branch: payload.run.branch ?? null,
-    environment: payload.run.environment ?? null,
-    commitSha: payload.run.commitSha ?? null,
-    commitMessage: payload.run.commitMessage ?? null,
-    prNumber: payload.run.prNumber ?? null,
-    repo: payload.run.repo ?? null,
-    actor: payload.run.actor ?? null,
-    totalTests,
-    passed,
-    failed,
-    flaky,
-    skipped,
-    durationMs: payload.run.durationMs,
-    status: payload.run.status,
-    reporterVersion: payload.run.reporterVersion ?? null,
-    playwrightVersion: payload.run.playwrightVersion ?? null,
-    createdAt: now,
-  });
 
   // Prepare test results, tags, and annotations with generated IDs.
   // We also build a clientKey -> testResultId mapping so the CLI can later
@@ -185,27 +193,54 @@ export async function ingestHandler({
     }
   }
 
-  // Batch insert test results in chunks
-  // D1 has a 1000 statement limit per batch
-  for (let i = 0; i < resultRows.length; i += MAX_STATEMENTS_PER_BATCH) {
-    const chunk = resultRows.slice(i, i + MAX_STATEMENTS_PER_BATCH);
-    await db.insert(testResults).values(chunk);
+  const statements: BatchItem<"sqlite">[] = [
+    db.insert(runs).values({
+      id: runId,
+      projectId,
+      idempotencyKey: payload.idempotencyKey,
+      ciProvider: payload.run.ciProvider ?? null,
+      ciBuildId: payload.run.ciBuildId ?? null,
+      branch: payload.run.branch ?? null,
+      environment: payload.run.environment ?? null,
+      commitSha: payload.run.commitSha ?? null,
+      commitMessage: payload.run.commitMessage ?? null,
+      prNumber: payload.run.prNumber ?? null,
+      repo: payload.run.repo ?? null,
+      actor: payload.run.actor ?? null,
+      totalTests,
+      passed,
+      failed,
+      flaky,
+      skipped,
+      durationMs: payload.run.durationMs,
+      status: payload.run.status,
+      reporterVersion: payload.run.reporterVersion ?? null,
+      playwrightVersion: payload.run.playwrightVersion ?? null,
+      createdAt: now,
+      committed: false,
+    }),
+  ];
+  for (const chunk of chunkByParams(resultRows, TEST_RESULTS_COLUMNS)) {
+    statements.push(db.insert(testResults).values(chunk));
   }
-
-  // Batch insert tags
-  if (tagRows.length > 0) {
-    for (let i = 0; i < tagRows.length; i += MAX_STATEMENTS_PER_BATCH) {
-      const chunk = tagRows.slice(i, i + MAX_STATEMENTS_PER_BATCH);
-      await db.insert(testTags).values(chunk);
-    }
+  for (const chunk of chunkByParams(tagRows, TEST_TAGS_COLUMNS)) {
+    statements.push(db.insert(testTags).values(chunk));
   }
+  for (const chunk of chunkByParams(annotationRows, TEST_ANNOTATIONS_COLUMNS)) {
+    statements.push(db.insert(testAnnotations).values(chunk));
+  }
+  // The commit flip is the last statement of the last batch: any failure
+  // before this point leaves committed=false and the row stays invisible.
+  statements.push(
+    db.update(runs).set({ committed: true }).where(eq(runs.id, runId)),
+  );
 
-  // Batch insert annotations
-  if (annotationRows.length > 0) {
-    for (let i = 0; i < annotationRows.length; i += MAX_STATEMENTS_PER_BATCH) {
-      const chunk = annotationRows.slice(i, i + MAX_STATEMENTS_PER_BATCH);
-      await db.insert(testAnnotations).values(chunk);
-    }
+  for (let i = 0; i < statements.length; i += MAX_STATEMENTS_PER_BATCH) {
+    const chunk = statements.slice(i, i + MAX_STATEMENTS_PER_BATCH) as [
+      BatchItem<"sqlite">,
+      ...BatchItem<"sqlite">[],
+    ];
+    await db.batch(chunk);
   }
 
   return jsonResponse(

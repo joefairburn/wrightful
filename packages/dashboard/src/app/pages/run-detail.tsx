@@ -12,7 +12,7 @@ import {
 import type React from "react";
 import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
-import { runs, testResults } from "@/db/schema";
+import { committedRuns, testResults } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { prUrl } from "@/lib/pr-url";
@@ -134,8 +134,10 @@ export async function RunDetailPage() {
 
   const [run] = await db
     .select()
-    .from(runs)
-    .where(and(eq(runs.id, runId), eq(runs.projectId, project.id)))
+    .from(committedRuns)
+    .where(
+      and(eq(committedRuns.id, runId), eq(committedRuns.projectId, project.id)),
+    )
     .limit(1);
 
   const base = `/t/${project.teamSlug}/p/${project.slug}`;

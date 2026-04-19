@@ -13,7 +13,7 @@ import {
 } from "@/app/components/ui/table";
 import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
-import { runs, testResults } from "@/db/schema";
+import { committedRuns, testResults } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { param } from "@/lib/route-params";
@@ -61,12 +61,17 @@ export async function TestHistoryPage() {
       projectName: testResults.projectName,
       durationMs: testResults.durationMs,
       createdAt: testResults.createdAt,
-      branch: runs.branch,
-      commitSha: runs.commitSha,
+      branch: committedRuns.branch,
+      commitSha: committedRuns.commitSha,
     })
     .from(testResults)
-    .innerJoin(runs, eq(runs.id, testResults.runId))
-    .where(and(eq(testResults.testId, testId), eq(runs.projectId, project.id)))
+    .innerJoin(committedRuns, eq(committedRuns.id, testResults.runId))
+    .where(
+      and(
+        eq(testResults.testId, testId),
+        eq(committedRuns.projectId, project.id),
+      ),
+    )
     .orderBy(desc(testResults.createdAt))
     .limit(HISTORY_LIMIT);
 

@@ -87,6 +87,7 @@ CREATE TABLE `runs` (
 	`reporter_version` text,
 	`playwright_version` text,
 	`created_at` integer NOT NULL,
+	`committed` integer DEFAULT false NOT NULL,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -185,4 +186,5 @@ CREATE TABLE `verification` (
 	`updated_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
+CREATE VIEW `committed_runs` AS select "id", "project_id", "idempotency_key", "ci_provider", "ci_build_id", "branch", "environment", "commit_sha", "commit_message", "pr_number", "repo", "actor", "total_tests", "passed", "failed", "flaky", "skipped", "duration_ms", "status", "reporter_version", "playwright_version", "created_at", "committed" from "runs" where "runs"."committed" = true;

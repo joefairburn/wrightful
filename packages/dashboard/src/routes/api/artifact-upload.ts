@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
-import { artifacts, runs, testResults } from "@/db/schema";
+import { artifacts, committedRuns, testResults } from "@/db/schema";
 import type { AppContext } from "@/worker";
 
 function jsonResponse(body: unknown, status: number) {
@@ -47,8 +47,10 @@ export async function artifactUploadHandler({
     })
     .from(artifacts)
     .innerJoin(testResults, eq(testResults.id, artifacts.testResultId))
-    .innerJoin(runs, eq(runs.id, testResults.runId))
-    .where(and(eq(artifacts.id, artifactId), eq(runs.projectId, projectId)))
+    .innerJoin(committedRuns, eq(committedRuns.id, testResults.runId))
+    .where(
+      and(eq(artifacts.id, artifactId), eq(committedRuns.projectId, projectId)),
+    )
     .limit(1);
 
   if (!row) {

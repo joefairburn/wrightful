@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
-import { runs, testResults } from "@/db/schema";
+import { committedRuns, testResults } from "@/db/schema";
 import { resolveProjectBySlugs } from "@/lib/authz";
 import type { AppContext } from "@/worker";
 
@@ -84,11 +84,11 @@ export async function runTestPreviewHandler({
           errorMessage: testResults.errorMessage,
         })
         .from(testResults)
-        .innerJoin(runs, eq(runs.id, testResults.runId))
+        .innerJoin(committedRuns, eq(committedRuns.id, testResults.runId))
         .where(
           and(
-            eq(runs.id, runId),
-            eq(runs.projectId, project.id),
+            eq(committedRuns.id, runId),
+            eq(committedRuns.projectId, project.id),
             inArray(testResults.status, bucket.statuses),
           ),
         )

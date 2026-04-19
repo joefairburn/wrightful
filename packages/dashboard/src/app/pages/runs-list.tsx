@@ -18,7 +18,7 @@ import {
 } from "@/app/components/ui/table";
 import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
-import { runs } from "@/db/schema";
+import { committedRuns } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
@@ -40,9 +40,9 @@ export async function RunsListPage() {
   const db = getDb();
   const allRuns = await db
     .select()
-    .from(runs)
-    .where(eq(runs.projectId, project.id))
-    .orderBy(desc(runs.createdAt))
+    .from(committedRuns)
+    .where(eq(committedRuns.projectId, project.id))
+    .orderBy(desc(committedRuns.createdAt))
     .limit(50);
 
   const base = `/t/${project.teamSlug}/p/${project.slug}`;

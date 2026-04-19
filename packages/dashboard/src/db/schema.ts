@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   sqliteTable,
+  sqliteView,
   text,
   integer,
   index,
@@ -205,6 +206,12 @@ export const runs = sqliteTable(
     reporterVersion: text("reporter_version"),
     playwrightVersion: text("playwright_version"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    // false while ingest is still streaming children across multiple batches.
+    // Flipped true in the final batch. All reads MUST filter `committed = 1`
+    // so uncommitted or failed ingests stay invisible to users.
+    committed: integer("committed", { mode: "boolean" })
+      .notNull()
+      .default(false),
   },
   (table) => [
     uniqueIndex("runs_project_idempotency_key_idx").on(
@@ -220,6 +227,39 @@ export const runs = sqliteTable(
     index("runs_project_created_at_idx").on(table.projectId, table.createdAt),
   ],
 );
+
+// Every read path for runs (and derived tables, via join) should go through
+// this view rather than the `runs` table directly — it makes it impossible
+// to accidentally surface an in-flight or failed ingest. Writes + idempotency
+// checks still use `runs` directly so they can see uncommitted rows.
+//
+// The view itself is defined in the SQL migration; `.existing()` tells
+// drizzle to trust that and generate the correct column types.
+export const committedRuns = sqliteView("committed_runs", {
+  id: text("id").notNull(),
+  projectId: text("project_id").notNull(),
+  idempotencyKey: text("idempotency_key"),
+  ciProvider: text("ci_provider"),
+  ciBuildId: text("ci_build_id"),
+  branch: text("branch"),
+  environment: text("environment"),
+  commitSha: text("commit_sha"),
+  commitMessage: text("commit_message"),
+  prNumber: integer("pr_number"),
+  repo: text("repo"),
+  actor: text("actor"),
+  totalTests: integer("total_tests").notNull(),
+  passed: integer("passed").notNull(),
+  failed: integer("failed").notNull(),
+  flaky: integer("flaky").notNull(),
+  skipped: integer("skipped").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  status: text("status").notNull(),
+  reporterVersion: text("reporter_version"),
+  playwrightVersion: text("playwright_version"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  committed: integer("committed", { mode: "boolean" }).notNull(),
+}).existing();
 
 export const testResults = sqliteTable(
   "test_results",
