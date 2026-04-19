@@ -14,6 +14,7 @@ import {
 import type { LayoutProps } from "rwsdk/router";
 import { requestInfo } from "rwsdk/worker";
 import { ProjectSwitcher } from "@/app/components/project-switcher";
+import { QueryProvider } from "@/app/components/query-provider";
 import { TeamSwitcher } from "@/app/components/team-switcher";
 import {
   getTeamProjects,
@@ -77,59 +78,61 @@ export async function AppLayout({ children }: LayoutProps) {
       : null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans">
-      <nav className="fixed left-0 top-0 h-full w-64 flex flex-col border-r border-sidebar-border bg-sidebar z-50">
-        {mode === "settings" ? (
-          <SettingsSidebarContents pathname={pathname} />
-        ) : (
-          <AppSidebarContents
-            pathname={pathname}
-            teams={app?.teams ?? []}
-            activeTeam={app?.activeTeam ?? null}
-            activeProject={app?.activeProject ?? null}
-            signedIn={!!userId}
-          />
-        )}
-      </nav>
-
-      <main className="flex-1 ml-64 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-border bg-background sticky top-0 z-40">
-          {mode === "app" && app?.activeTeam && app.activeProject ? (
-            <ProjectSwitcher
-              teamSlug={app.activeTeam.slug}
-              currentProjectSlug={app.activeProject.slug}
-              currentProjectName={app.activeProject.name}
-              projects={app.projects}
-            />
+    <QueryProvider>
+      <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans">
+        <nav className="fixed left-0 top-0 h-full w-64 flex flex-col border-r border-sidebar-border bg-sidebar z-50">
+          {mode === "settings" ? (
+            <SettingsSidebarContents pathname={pathname} />
           ) : (
-            <span />
+            <AppSidebarContents
+              pathname={pathname}
+              teams={app?.teams ?? []}
+              activeTeam={app?.activeTeam ?? null}
+              activeProject={app?.activeProject ?? null}
+              signedIn={!!userId}
+            />
           )}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Notifications"
-            >
-              <Bell size={18} />
-            </button>
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Help"
-            >
-              <CircleHelp size={18} />
-            </button>
-            <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center ml-1">
-              <User size={14} className="text-muted-foreground" />
-            </div>
-          </div>
-        </header>
+        </nav>
 
-        <div className="flex-1 overflow-hidden flex flex-col min-h-0 overflow-y-auto">
-          {children}
-        </div>
-      </main>
-    </div>
+        <main className="flex-1 ml-64 flex flex-col min-w-0 overflow-hidden">
+          <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-border bg-background sticky top-0 z-40">
+            {mode === "app" && app?.activeTeam && app.activeProject ? (
+              <ProjectSwitcher
+                teamSlug={app.activeTeam.slug}
+                currentProjectSlug={app.activeProject.slug}
+                currentProjectName={app.activeProject.name}
+                projects={app.projects}
+              />
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Notifications"
+              >
+                <Bell size={18} />
+              </button>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Help"
+              >
+                <CircleHelp size={18} />
+              </button>
+              <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center ml-1">
+                <User size={14} className="text-muted-foreground" />
+              </div>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-hidden flex flex-col min-h-0 overflow-y-auto">
+            {children}
+          </div>
+        </main>
+      </div>
+    </QueryProvider>
   );
 }
 

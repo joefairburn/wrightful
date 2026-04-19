@@ -9,6 +9,7 @@ import { ingestHandler } from "@/routes/api/ingest";
 import { registerHandler } from "@/routes/api/artifacts";
 import { artifactUploadHandler } from "@/routes/api/artifact-upload";
 import { artifactDownloadHandler } from "@/routes/api/artifact-download";
+import { runTestPreviewHandler } from "@/routes/api/run-test-preview";
 import {
   setLastProjectHandler,
   setLastTeamHandler,
@@ -87,6 +88,9 @@ export default defineApp([
   }),
   route("/api/user/last-project", {
     post: [loadSession, requireUser, setLastProjectHandler],
+  }),
+  route("/api/t/:teamSlug/p/:projectSlug/runs/:runId/test-preview", {
+    get: [loadSession, requireUser, runTestPreviewHandler],
   }),
 
   // Bearer-token API routes (used by the CLI)

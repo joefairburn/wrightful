@@ -1,13 +1,6 @@
 import { desc, eq } from "drizzle-orm";
-import {
-  Check,
-  GitBranch,
-  GitCommit,
-  GitPullRequest,
-  Minus,
-  TriangleAlert,
-  X,
-} from "lucide-react";
+import { GitBranch, GitCommit, GitPullRequest } from "lucide-react";
+import { RunTestsPopover } from "@/app/components/run-tests-popover";
 import {
   Empty,
   EmptyContent,
@@ -249,30 +242,38 @@ export async function RunsListPage() {
                     {/* Test counts */}
                     <TableCell className="px-4 py-3">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {run.passed > 0 && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-success/8 text-success-foreground font-mono text-[11px] dark:bg-success/16">
-                            <Check size={10} strokeWidth={3} />
-                            {run.passed}
-                          </span>
-                        )}
-                        {run.failed > 0 && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-destructive/8 text-destructive-foreground font-mono text-[11px] font-semibold border border-destructive/20 dark:bg-destructive/16">
-                            <X size={10} strokeWidth={3} />
-                            {run.failed}
-                          </span>
-                        )}
-                        {run.flaky > 0 && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-warning/8 text-warning-foreground font-mono text-[11px] border border-warning/20 dark:bg-warning/16">
-                            <TriangleAlert size={10} strokeWidth={2.5} />
-                            {run.flaky}
-                          </span>
-                        )}
-                        {run.skipped > 0 && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-[11px]">
-                            <Minus size={10} strokeWidth={2.5} />
-                            {run.skipped}
-                          </span>
-                        )}
+                        <RunTestsPopover
+                          variant="passed"
+                          count={run.passed}
+                          teamSlug={project.teamSlug}
+                          projectSlug={project.slug}
+                          runId={run.id}
+                          runHref={href}
+                        />
+                        <RunTestsPopover
+                          variant="failed"
+                          count={run.failed}
+                          teamSlug={project.teamSlug}
+                          projectSlug={project.slug}
+                          runId={run.id}
+                          runHref={href}
+                        />
+                        <RunTestsPopover
+                          variant="flaky"
+                          count={run.flaky}
+                          teamSlug={project.teamSlug}
+                          projectSlug={project.slug}
+                          runId={run.id}
+                          runHref={href}
+                        />
+                        <RunTestsPopover
+                          variant="skipped"
+                          count={run.skipped}
+                          teamSlug={project.teamSlug}
+                          projectSlug={project.slug}
+                          runId={run.id}
+                          runHref={href}
+                        />
                       </div>
                     </TableCell>
 
