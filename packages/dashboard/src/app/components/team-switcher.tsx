@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Users } from "lucide-react";
+import { Plus, Settings, Users } from "lucide-react";
 import { navigate } from "rwsdk/client";
 import { Button } from "@/app/components/ui/button";
 import { link } from "@/app/links";
@@ -63,7 +63,24 @@ export function TeamSwitcher({
         <NavComboboxSearchInput placeholder="Find team…" />
         <NavComboboxList>
           {(team: Team) => (
-            <NavComboboxItem key={team.slug} value={team}>
+            <NavComboboxItem
+              key={team.slug}
+              value={team}
+              action={
+                <a
+                  aria-label={`Team settings for ${team.name}`}
+                  className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                  href={link("/settings/teams/:teamSlug", {
+                    teamSlug: team.slug,
+                  })}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  tabIndex={-1}
+                >
+                  <Settings size={14} />
+                </a>
+              }
+            >
               {team.name}
             </NavComboboxItem>
           )}

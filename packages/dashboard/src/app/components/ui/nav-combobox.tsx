@@ -163,19 +163,28 @@ export function NavComboboxList({
 export function NavComboboxItem({
   className,
   children,
+  action,
   ...props
-}: ComboboxPrimitive.Item.Props): React.ReactElement {
+}: ComboboxPrimitive.Item.Props & {
+  action?: React.ReactNode;
+}): React.ReactElement {
   return (
     <ComboboxPrimitive.Item
       className={cn(
-        "flex min-h-9 cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground outline-none",
+        "group flex min-h-9 cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground outline-none",
         "data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
+        action && "pr-1",
         className,
       )}
       data-slot="nav-combobox-item"
       {...props}
     >
       <span className="flex-1 truncate">{children}</span>
+      {action && (
+        <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-data-[highlighted]:opacity-100 focus-within:opacity-100">
+          {action}
+        </span>
+      )}
     </ComboboxPrimitive.Item>
   );
 }

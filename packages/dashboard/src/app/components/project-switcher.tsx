@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, Plus } from "lucide-react";
+import { Boxes, Plus, Settings } from "lucide-react";
 import { navigate } from "rwsdk/client";
 import { Button } from "@/app/components/ui/button";
 import { link } from "@/app/links";
@@ -70,7 +70,25 @@ export function ProjectSwitcher({
         <NavComboboxSearchInput placeholder="Find project…" />
         <NavComboboxList>
           {(project: Project) => (
-            <NavComboboxItem key={project.slug} value={project}>
+            <NavComboboxItem
+              key={project.slug}
+              value={project}
+              action={
+                <a
+                  aria-label={`Project settings for ${project.name}`}
+                  className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                  href={link("/settings/teams/:teamSlug/p/:projectSlug/keys", {
+                    teamSlug,
+                    projectSlug: project.slug,
+                  })}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  tabIndex={-1}
+                >
+                  <Settings size={14} />
+                </a>
+              }
+            >
               {project.name}
             </NavComboboxItem>
           )}
