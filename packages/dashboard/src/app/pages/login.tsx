@@ -1,11 +1,12 @@
 import { requestInfo } from "rwsdk/worker";
 import { hasGithubOAuthConfigured } from "@/lib/better-auth";
+import { safeNextPath } from "@/lib/safe-next-path";
 import { LoginForm } from "./login-form";
 import { LoginGithubButton } from "./login-github-button";
 
 export function LoginPage() {
   const url = new URL(requestInfo.request.url);
-  const next = url.searchParams.get("next") ?? "/";
+  const next = safeNextPath(url.searchParams.get("next"));
   const callbackURL = encodeURIComponent(next);
   const mode =
     url.pathname === "/signup" || url.searchParams.get("mode") === "signup"

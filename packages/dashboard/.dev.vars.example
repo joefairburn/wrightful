@@ -9,3 +9,9 @@ BETTER_AUTH_SECRET=replace-me-with-32-plus-char-random-secret
 # http://localhost:5173/api/auth/callback/github).
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=
+
+# Optional — set to `1` to permit email/password account creation. Signup is
+# blocked by default because email verification is not yet wired up (enabling
+# it on a public instance lets anyone squat on an account). Local dev /
+# single-user self-hosters typically want this on.
+# ALLOW_OPEN_SIGNUP=1

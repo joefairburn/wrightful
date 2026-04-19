@@ -9,7 +9,13 @@ const { mockEnv, mockR2 } = vi.hoisted(() => {
   const r2: R2Mock = { get: vi.fn(), head: vi.fn() };
   return {
     mockR2: r2,
-    mockEnv: { R2: r2 } as { R2: R2Mock },
+    mockEnv: {
+      R2: r2,
+      BETTER_AUTH_SECRET: "test-secret-for-artifact-tokens",
+    } as {
+      R2: R2Mock;
+      BETTER_AUTH_SECRET: string;
+    },
   };
 });
 
@@ -17,6 +23,7 @@ vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
 vi.mock("@/db", () => ({ getDb: vi.fn() }));
 
 import { artifactDownloadHandler } from "../routes/api/artifact-download";
+import { signArtifactToken } from "../lib/artifact-tokens";
 import { getDb } from "@/db";
 
 const mockedGetDb = vi.mocked(getDb);
@@ -51,10 +58,21 @@ function makeR2Body(
   };
 }
 
-function makeRequest(method = "GET", headers: Record<string, string> = {}) {
-  return new Request("https://example.com/api/artifacts/a-1/download", {
+async function makeRequest(
+  method = "GET",
+  headers: Record<string, string> = {},
+  id = "a-1",
+) {
+  const token = await signArtifactToken(id);
+  return new Request(
+    `https://example.com/api/artifacts/${id}/download?t=${encodeURIComponent(token)}`,
+    { method, headers },
+  );
+}
+
+function makeRequestWithoutToken(method = "GET", id = "a-1") {
+  return new Request(`https://example.com/api/artifacts/${id}/download`, {
     method,
-    headers,
   });
 }
 
@@ -63,10 +81,32 @@ describe("artifactDownloadHandler", () => {
     vi.clearAllMocks();
   });
 
+  it("401s when the signed token is missing", async () => {
+    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
+    const res = await artifactDownloadHandler({
+      request: makeRequestWithoutToken(),
+      params: { id: "a-1" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("401s when the token is valid for a different artifact", async () => {
+    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
+    const token = await signArtifactToken("other-artifact");
+    const req = new Request(
+      `https://example.com/api/artifacts/a-1/download?t=${encodeURIComponent(token)}`,
+    );
+    const res = await artifactDownloadHandler({
+      request: req,
+      params: { id: "a-1" },
+    });
+    expect(res.status).toBe(401);
+  });
+
   it("404s when the artifact row does not exist", async () => {
     mockDb(null);
     const res = await artifactDownloadHandler({
-      request: makeRequest(),
+      request: await makeRequest("GET", {}, "missing"),
       params: { id: "missing" },
     });
     expect(res.status).toBe(404);
@@ -76,25 +116,28 @@ describe("artifactDownloadHandler", () => {
     mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     mockR2.get.mockResolvedValue(null);
     const res = await artifactDownloadHandler({
-      request: makeRequest(),
+      request: await makeRequest(),
       params: { id: "a-1" },
     });
     expect(res.status).toBe(404);
   });
 
-  it("200s with body, Content-Type, and CORS headers", async () => {
+  it("200s with body, Content-Type, and dashboard-origin CORS headers", async () => {
     mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     const bytes = new Uint8Array([1, 2, 3, 4]);
     mockR2.get.mockResolvedValue(makeR2Body(bytes));
 
     const res = await artifactDownloadHandler({
-      request: makeRequest(),
+      request: await makeRequest(),
       params: { id: "a-1" },
     });
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/zip");
-    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://example.com",
+    );
+    expect(res.headers.get("vary")).toBe("Origin");
     expect(res.headers.get("cache-control")).toContain("immutable");
     expect(res.headers.get("etag")).toBe('"abc123"');
 
@@ -118,7 +161,7 @@ describe("artifactDownloadHandler", () => {
     );
 
     const res = await artifactDownloadHandler({
-      request: makeRequest("GET", { Range: "bytes=0-3" }),
+      request: await makeRequest("GET", { Range: "bytes=0-3" }),
       params: { id: "a-1" },
     });
 
@@ -132,7 +175,7 @@ describe("artifactDownloadHandler", () => {
     mockR2.get.mockResolvedValue(makeR2Body(bytes, { range: undefined }));
 
     const res = await artifactDownloadHandler({
-      request: makeRequest("GET", { Range: "bytes=abc-def" }),
+      request: await makeRequest("GET", { Range: "bytes=abc-def" }),
       params: { id: "a-1" },
     });
 
@@ -151,14 +194,48 @@ describe("artifactDownloadHandler", () => {
     });
 
     const res = await artifactDownloadHandler({
-      request: makeRequest("HEAD"),
+      request: await makeRequest("HEAD"),
       params: { id: "a-1" },
     });
 
     expect(res.status).toBe(200);
     expect(res.body).toBeNull();
     expect(res.headers.get("content-length")).toBe("1234");
-    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://example.com",
+    );
     expect(mockR2.head).toHaveBeenCalledWith("runs/r1/tr-1/a-1/trace.zip");
+  });
+
+  it("echoes the Playwright trace viewer origin when set", async () => {
+    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    mockR2.get.mockResolvedValue(makeR2Body(bytes));
+
+    const res = await artifactDownloadHandler({
+      request: await makeRequest("GET", {
+        Origin: "https://trace.playwright.dev",
+      }),
+      params: { id: "a-1" },
+    });
+
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://trace.playwright.dev",
+    );
+  });
+
+  it("falls back to dashboard origin for unknown cross-origin callers", async () => {
+    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    mockR2.get.mockResolvedValue(makeR2Body(bytes));
+
+    const res = await artifactDownloadHandler({
+      request: await makeRequest("GET", { Origin: "https://evil.example.com" }),
+      params: { id: "a-1" },
+    });
+
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://example.com",
+    );
   });
 });

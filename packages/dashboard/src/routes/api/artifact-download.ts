@@ -2,17 +2,22 @@ import { eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
 import { artifacts } from "@/db/schema";
+import { verifyArtifactToken } from "@/lib/artifact-tokens";
+
+const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
 
 /**
- * GET /api/artifacts/:id/download
+ * GET /api/artifacts/:id/download?t=<token>
  *
- * Authentication: the artifact id is an unguessable ulid that's only surfaced
- * on authenticated dashboard pages. v1 posture — revisit for a signed-token
- * challenge in Phase 5. Keeping this endpoint unauthenticated lets external
- * viewers (in particular trace.playwright.dev) follow the link without any
- * Authorization header.
+ * Authentication: a short-lived HMAC token signed by BETTER_AUTH_SECRET.
+ * Tokens are minted server-side on authenticated dashboard pages and embedded
+ * in the download href. This replaces the earlier "ULID-in-URL is enough"
+ * posture so a leaked ULID (referrer, browser history, share link) doesn't
+ * grant permanent global read.
  *
- * TODO(phase5): replace ulid-in-URL with signed-token challenge.
+ * CORS: narrowed from `*` to the dashboard origin + the Playwright trace
+ * viewer (`https://trace.playwright.dev`), since the viewer fetches the .zip
+ * cross-origin.
  */
 export async function artifactDownloadHandler({
   request,
@@ -25,6 +30,14 @@ export async function artifactDownloadHandler({
   if (!artifactId) {
     return new Response("Not found", { status: 404 });
   }
+
+  const url = new URL(request.url);
+  const token = url.searchParams.get("t");
+  if (!token || !(await verifyArtifactToken(artifactId, token))) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  const corsOrigin = resolveAllowedOrigin(request, url.origin);
 
   const db = getDb();
   const rows = await db
@@ -43,7 +56,10 @@ export async function artifactDownloadHandler({
     if (!head) {
       return new Response("Not found", { status: 404 });
     }
-    return new Response(null, { status: 200, headers: buildHeaders(head) });
+    return new Response(null, {
+      status: 200,
+      headers: buildHeaders(head, corsOrigin),
+    });
   }
 
   const object = await env.R2.get(key, {
@@ -54,7 +70,7 @@ export async function artifactDownloadHandler({
     return new Response("Not found", { status: 404 });
   }
 
-  const headers = buildHeaders(object);
+  const headers = buildHeaders(object, corsOrigin);
   const hasBody = "body" in object && object.body !== null;
   // 206 per RFC 7233 requires BOTH a client Range request AND the server
   // serving that partial response. Miniflare populates object.range even
@@ -89,7 +105,18 @@ export async function artifactDownloadHandler({
   });
 }
 
-function buildHeaders(object: R2Object): Headers {
+function resolveAllowedOrigin(
+  request: Request,
+  dashboardOrigin: string,
+): string {
+  const origin = request.headers.get("origin");
+  if (!origin) return dashboardOrigin;
+  if (origin === dashboardOrigin) return origin;
+  if (ALLOWED_CROSS_ORIGINS.has(origin)) return origin;
+  return dashboardOrigin;
+}
+
+function buildHeaders(object: R2Object, allowedOrigin: string): Headers {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set("etag", object.httpEtag);
@@ -98,9 +125,11 @@ function buildHeaders(object: R2Object): Headers {
   // absorb repeat reads — the trace viewer reloads chunks of the zip on
   // every navigation.
   headers.set("cache-control", "public, max-age=31536000, immutable");
-  // trace.playwright.dev fetches cross-origin; the previous presigned-URL
-  // flow worked because R2's S3 endpoint sets ACAO:* by default.
-  headers.set("access-control-allow-origin", "*");
+  // CORS is now restricted to the dashboard origin + known cross-origin
+  // consumers (currently just the Playwright trace viewer). `Vary: Origin`
+  // keeps the CF edge cache from mixing headers across callers.
+  headers.set("access-control-allow-origin", allowedOrigin);
+  headers.set("vary", "Origin");
   headers.set("access-control-allow-methods", "GET, HEAD, OPTIONS");
   headers.set("access-control-allow-headers", "Range, If-Match, If-None-Match");
   headers.set(

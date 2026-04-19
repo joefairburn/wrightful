@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, symlink, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -131,7 +131,9 @@ describe("collectArtifacts", () => {
         { name: "trace.zip", contentType: "application/zip", path: tracePath },
       ],
     });
-    const manifest = await collectArtifacts(report, "none");
+    const manifest = await collectArtifacts(report, "none", {
+      allowedRoot: tmpDir,
+    });
     expect(manifest.artifacts).toEqual([]);
   });
 
@@ -142,7 +144,9 @@ describe("collectArtifacts", () => {
         { name: "trace.zip", contentType: "application/zip", path: tracePath },
       ],
     });
-    const manifest = await collectArtifacts(report, "failed");
+    const manifest = await collectArtifacts(report, "failed", {
+      allowedRoot: tmpDir,
+    });
     expect(manifest.artifacts).toEqual([]);
   });
 
@@ -154,7 +158,9 @@ describe("collectArtifacts", () => {
         { name: "shot.png", contentType: "image/png", path: screenshotPath },
       ],
     });
-    const manifest = await collectArtifacts(report, "failed");
+    const manifest = await collectArtifacts(report, "failed", {
+      allowedRoot: tmpDir,
+    });
     expect(manifest.artifacts).toHaveLength(2);
     const trace = manifest.artifacts.find((a) => a.name === "trace.zip");
     expect(trace?.type).toBe("trace");
@@ -171,7 +177,9 @@ describe("collectArtifacts", () => {
         { name: "trace.zip", contentType: "application/zip", path: tracePath },
       ],
     });
-    const manifest = await collectArtifacts(report, "failed");
+    const manifest = await collectArtifacts(report, "failed", {
+      allowedRoot: tmpDir,
+    });
     // Matches parser.ts: titlePath is built by walking every non-empty suite title,
     // including the file-level suite, before appending the spec title.
     const expected = computeTestId(
@@ -189,7 +197,9 @@ describe("collectArtifacts", () => {
         { name: "shot.png", contentType: "image/png", path: screenshotPath },
       ],
     });
-    const manifest = await collectArtifacts(report, "all");
+    const manifest = await collectArtifacts(report, "all", {
+      allowedRoot: tmpDir,
+    });
     expect(manifest.artifacts).toHaveLength(1);
   });
 
@@ -198,8 +208,37 @@ describe("collectArtifacts", () => {
       status: "unexpected",
       attachments: [{ name: "inline", contentType: "text/plain" }],
     });
-    const manifest = await collectArtifacts(report, "all");
+    const manifest = await collectArtifacts(report, "all", {
+      allowedRoot: tmpDir,
+    });
     expect(manifest.artifacts).toEqual([]);
+  });
+
+  it("skips attachments whose realpath escapes the allowed root", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "wrightful-outside-"));
+    try {
+      const secretPath = join(outsideDir, "secret.txt");
+      await writeFile(secretPath, "secret");
+      const linkPath = join(tmpDir, "exfil.zip");
+      await symlink(secretPath, linkPath);
+
+      const report = makeReport({
+        status: "unexpected",
+        attachments: [
+          {
+            name: "exfil.zip",
+            contentType: "application/zip",
+            path: linkPath,
+          },
+        ],
+      });
+      const manifest = await collectArtifacts(report, "all", {
+        allowedRoot: tmpDir,
+      });
+      expect(manifest.artifacts).toEqual([]);
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
   });
 
   it("skips attachments whose file is missing on disk", async () => {
@@ -214,7 +253,9 @@ describe("collectArtifacts", () => {
         },
       ],
     });
-    const manifest = await collectArtifacts(report, "all");
+    const manifest = await collectArtifacts(report, "all", {
+      allowedRoot: tmpDir,
+    });
     expect(manifest.artifacts).toEqual([]);
   });
 });

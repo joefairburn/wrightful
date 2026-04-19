@@ -10,6 +10,15 @@ async function hashKey(key: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 export async function validateApiKey(
   authHeader: string | null,
 ): Promise<typeof apiKeys.$inferSelect | null> {
@@ -28,7 +37,7 @@ export async function validateApiKey(
     .from(apiKeys)
     .where(eq(apiKeys.keyPrefix, prefix));
 
-  const key = candidates.find((k) => k.keyHash === hash);
+  const key = candidates.find((k) => timingSafeEqualHex(k.keyHash, hash));
   if (!key) return null;
   if (key.revokedAt) return null;
 

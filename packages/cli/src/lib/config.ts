@@ -3,7 +3,23 @@ import { z } from "zod";
 import type { WrightfulConfig } from "../types.js";
 
 const ConfigSchema = z.object({
-  url: z.string().url(),
+  url: z
+    .string()
+    .url()
+    .refine(
+      (value) => {
+        const parsed = new URL(value);
+        if (parsed.protocol === "https:") return true;
+        if (parsed.protocol !== "http:") return false;
+        return (
+          parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"
+        );
+      },
+      {
+        message:
+          "Dashboard URL must use https:// (http:// is only allowed for localhost)",
+      },
+    ),
   token: z.string().min(1),
   artifacts: z.enum(["all", "failed", "none"]).default("failed"),
 });

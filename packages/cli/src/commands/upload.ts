@@ -133,12 +133,18 @@ export const uploadCommand = new Command("upload")
 
     // Artifact upload (non-fatal on failure)
     if (!response.duplicate) {
+      // Attachments can live anywhere under the project root (Playwright's
+      // default `test-results/` is typically sibling to the JSON report),
+      // so cwd is the right containment boundary — tight enough to refuse
+      // `/etc/passwd`-style symlink escapes, loose enough to cover realistic
+      // `outputDir` layouts.
       await uploadArtifactsBestEffort(
         client,
         response.runId,
         response.results ?? [],
         parsed.report,
         config.artifacts,
+        process.cwd(),
       );
     }
   });
@@ -226,6 +232,7 @@ async function uploadArtifactsBestEffort(
   mapping: Array<{ clientKey: string; testResultId: string }>,
   report: Parameters<typeof collectArtifacts>[0],
   mode: ArtifactMode,
+  reportDir: string,
 ): Promise<void> {
   if (mode === "none") return;
 
@@ -237,7 +244,9 @@ async function uploadArtifactsBestEffort(
     return;
   }
 
-  const manifest = await collectArtifacts(report, mode);
+  const manifest = await collectArtifacts(report, mode, {
+    allowedRoot: reportDir,
+  });
   if (manifest.artifacts.length === 0) return;
 
   const { requests, skipped } = resolveArtifacts(manifest, mapping);

@@ -17,8 +17,13 @@ export const setCommonHeaders =
       "geolocation=(), microphone=(), camera=()",
     );
 
+    // Vite's dev runtime needs 'unsafe-eval' for HMR; production builds don't.
+    const scriptSrc = import.meta.env.VITE_IS_DEV_SERVER
+      ? `'self' 'unsafe-eval' 'nonce-${nonce}'`
+      : `'self' 'nonce-${nonce}'`;
+
     response.headers.set(
       "Content-Security-Policy",
-      `default-src 'self'; script-src 'self' 'unsafe-eval' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'self'; object-src 'none';`,
+      `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'self'; object-src 'none';`,
     );
   };

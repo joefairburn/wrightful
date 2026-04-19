@@ -37,6 +37,8 @@ const DASHBOARD_URL = `http://localhost:${PORT}`;
 const API_KEY = "wrf_e2e_test_key_00000000";
 const API_KEY_PREFIX = API_KEY.slice(0, 8);
 const API_KEY_HASH = createHash("sha256").update(API_KEY).digest("hex");
+const BETTER_AUTH_SECRET =
+  "e2e-local-only-not-a-secret-openssl-rand-base64-32ch";
 
 const TEAM_ID = "01E2ETEAM0000000000000000T";
 const PROJECT_ID = "01E2EPROJ0000000000000000P";
@@ -56,8 +58,12 @@ const TEST_NAME = "E2E Tester";
 // r2_buckets block, so no S3 creds are needed.
 const DEV_VARS =
   [
-    `BETTER_AUTH_SECRET=e2e-local-only-not-a-secret-openssl-rand-base64-32ch`,
+    `BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}`,
     `WRIGHTFUL_PUBLIC_URL=${DASHBOARD_URL}`,
+    // Email/password signup is gated behind this flag in production; the e2e
+    // suite provisions its test user via /api/auth/sign-up/email so we
+    // explicitly opt in here.
+    `ALLOW_OPEN_SIGNUP=1`,
   ].join("\n") + "\n";
 
 // Module-level state so teardown() can always clean up, even if setup() throws
@@ -207,6 +213,7 @@ export async function setup(project: TestProject): Promise<void> {
   project.provide("sessionCookie", sessionCookie);
   project.provide("teamSlug", TEAM_SLUG);
   project.provide("projectSlug", PROJECT_SLUG);
+  project.provide("betterAuthSecret", BETTER_AUTH_SECRET);
 }
 
 export function teardown(): void {
@@ -239,5 +246,6 @@ declare module "vitest" {
     sessionCookie: string;
     teamSlug: string;
     projectSlug: string;
+    betterAuthSecret: string;
   }
 }

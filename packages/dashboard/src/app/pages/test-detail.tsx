@@ -13,6 +13,7 @@ import {
   testTags,
 } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
+import { signArtifactToken } from "@/lib/artifact-tokens";
 import { param } from "@/lib/route-params";
 import { formatDuration } from "@/lib/time-format";
 
@@ -38,8 +39,12 @@ interface Artifact {
  * NOTE: this is a link-out for now. A self-hosted trace-viewer component is
  * tracked for Phase 5 so teams running Wrightful behind a corporate firewall
  * (where trace.playwright.dev may not be reachable) aren't blocked. */
-function traceViewerUrl(origin: string, artifactId: string): string {
-  const downloadUrl = `${origin}/api/artifacts/${artifactId}/download`;
+function traceViewerUrl(
+  origin: string,
+  artifactId: string,
+  token: string,
+): string {
+  const downloadUrl = `${origin}/api/artifacts/${artifactId}/download?t=${encodeURIComponent(token)}`;
   return `https://trace.playwright.dev/?trace=${encodeURIComponent(downloadUrl)}`;
 }
 
@@ -111,6 +116,15 @@ export async function TestDetailPage() {
       .from(artifacts)
       .where(eq(artifacts.testResultId, testResultId)),
   ]);
+
+  const artifactTokens = new Map<string, string>();
+  await Promise.all(
+    artifactRows.map(async (a) => {
+      artifactTokens.set(a.id, await signArtifactToken(a.id));
+    }),
+  );
+  const downloadHref = (artifactId: string): string =>
+    `/api/artifacts/${artifactId}/download?t=${encodeURIComponent(artifactTokens.get(artifactId) ?? "")}`;
 
   return (
     <div className="mx-auto max-w-6xl p-6 sm:p-8">
@@ -199,7 +213,7 @@ export async function TestDetailPage() {
                 {a.type.toUpperCase()}
               </Badge>
               <a
-                href={`/api/artifacts/${a.id}/download`}
+                href={downloadHref(a.id)}
                 className="text-foreground underline-offset-4 hover:underline"
               >
                 {a.name}
@@ -209,7 +223,11 @@ export async function TestDetailPage() {
               </span>
               {a.type === "trace" && (
                 <a
-                  href={traceViewerUrl(origin, a.id)}
+                  href={traceViewerUrl(
+                    origin,
+                    a.id,
+                    artifactTokens.get(a.id) ?? "",
+                  )}
                   target="_blank"
                   rel="noreferrer"
                   className="ml-auto text-foreground text-xs underline-offset-4 hover:underline"

@@ -72,4 +72,26 @@ describe("resolveConfig", () => {
       resolveConfig({ url: "not-a-url", token: "wrf_key" }),
     ).rejects.toThrow();
   });
+
+  it("rejects non-HTTPS dashboard URLs", async () => {
+    await expect(
+      resolveConfig({ url: "http://evil.example.com", token: "wrf_key" }),
+    ).rejects.toThrow(/https/);
+  });
+
+  it("accepts http:// for localhost", async () => {
+    const config = await resolveConfig({
+      url: "http://localhost:5173",
+      token: "wrf_key",
+    });
+    expect(config.url).toBe("http://localhost:5173");
+  });
+
+  it("accepts http:// for 127.0.0.1", async () => {
+    const config = await resolveConfig({
+      url: "http://127.0.0.1:5173",
+      token: "wrf_key",
+    });
+    expect(config.url).toBe("http://127.0.0.1:5173");
+  });
 });

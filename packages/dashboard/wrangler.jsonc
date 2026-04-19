@@ -38,6 +38,33 @@
     // callbacks. Required. Locally this is "http://localhost:5173".
     "WRIGHTFUL_PUBLIC_URL": "http://localhost:5173",
   },
+  // Cloudflare-native rate limiters. `period` must be 10 or 60 seconds.
+  // Namespace ids are per-account; keep them unique across our Workers.
+  "ratelimits": [
+    {
+      // Unauthenticated /api/auth/* (Better Auth). Keyed by IP + pathname
+      // as a coarse fallback — we have no stable identity pre-auth.
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 20, "period": 60 },
+    },
+    {
+      // Authenticated CLI API (/api/ingest, /api/artifacts/register,
+      // /api/artifacts/:id/upload). Keyed by apiKey.id — tenant-scoped, not
+      // IP, so CI workers sharing an egress IP don't trip each other.
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 120, "period": 60 },
+    },
+    {
+      // Token-authenticated artifact download. Keyed by artifactId — per-file
+      // rather than per-caller, since trace.playwright.dev fetches many ranged
+      // chunks of the same trace.
+      "name": "ARTIFACT_RATE_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 300, "period": 60 },
+    },
+  ],
   // Give large artifact uploads room to stream through the Worker — CPU time
   // is only charged for active compute (streaming body → R2.put is I/O-bound)
   // but the default 30 s cap can trip on slow clients. Paid plan only; Free
@@ -47,7 +74,11 @@
   },
   // Secrets (set via `wrangler secret put`, or placed in `.dev.vars` locally):
   //   BETTER_AUTH_SECRET     — Required. ≥32-char signing secret. Generate with
-  //                            `openssl rand -base64 32`.
+  //                            `openssl rand -base64 32`. Also used to sign
+  //                            short-lived artifact download tokens.
   //   GITHUB_CLIENT_ID       — Optional. GitHub OAuth app client id. Set both
   //   GITHUB_CLIENT_SECRET     GitHub secrets to enable "Continue with GitHub".
+  //   ALLOW_OPEN_SIGNUP      — Optional. `1`/`true`/`yes`/`on` enables open
+  //                            email/password signup. Defaults to disabled
+  //                            because email verification isn't wired yet.
 }

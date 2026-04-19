@@ -1,5 +1,5 @@
-import { stat } from "node:fs/promises";
-import { extname } from "node:path";
+import { realpath, stat } from "node:fs/promises";
+import { extname, resolve, sep } from "node:path";
 import { computeTestId } from "./test-id.js";
 import type {
   PlaywrightReport,
@@ -61,6 +61,30 @@ function shouldIncludeTest(
   return testStatus === "unexpected" || testStatus === "flaky";
 }
 
+/**
+ * Resolve `attachmentPath` via realpath and require the result to live under
+ * `allowedRoot`. This defends against a hostile `playwright.config.ts` (or
+ * compromised test run) pointing an attachment at `/etc/passwd` or a CI
+ * secret file via a symlink and exfiltrating it through the artifact upload.
+ */
+async function safeResolvedPath(
+  attachmentPath: string,
+  allowedRoot: string,
+): Promise<string | null> {
+  try {
+    const resolved = await realpath(attachmentPath);
+    const rootWithSep = allowedRoot.endsWith(sep)
+      ? allowedRoot
+      : allowedRoot + sep;
+    if (resolved !== allowedRoot && !resolved.startsWith(rootWithSep)) {
+      return null;
+    }
+    return resolved;
+  } catch {
+    return null;
+  }
+}
+
 async function safeSize(path: string): Promise<number | null> {
   try {
     const s = await stat(path);
@@ -74,6 +98,7 @@ async function walkSuites(
   suites: PlaywrightSuite[],
   parentTitlePath: string[],
   mode: ArtifactMode,
+  allowedRoot: string,
   out: ArtifactManifestEntry[],
 ): Promise<void> {
   for (const suite of suites) {
@@ -91,13 +116,13 @@ async function walkSuites(
         const clientKey = computeTestId(spec.file, specTitlePath, projectName);
 
         for (const result of test.results) {
-          await collectResult(result, clientKey, out);
+          await collectResult(result, clientKey, allowedRoot, out);
         }
       }
     }
 
     if (suite.suites) {
-      await walkSuites(suite.suites, titlePath, mode, out);
+      await walkSuites(suite.suites, titlePath, mode, allowedRoot, out);
     }
   }
 }
@@ -105,6 +130,7 @@ async function walkSuites(
 async function collectResult(
   result: PlaywrightTestResult,
   clientKey: string,
+  allowedRoot: string,
   out: ArtifactManifestEntry[],
 ): Promise<void> {
   for (const attachment of result.attachments ?? []) {
@@ -112,7 +138,11 @@ async function collectResult(
     // attachments are ignored — they're rare and typically diagnostic text
     // Playwright embeds directly in the report.
     if (!attachment.path) continue;
-    const size = await safeSize(attachment.path);
+
+    const resolved = await safeResolvedPath(attachment.path, allowedRoot);
+    if (resolved === null) continue;
+
+    const size = await safeSize(resolved);
     if (size === null) continue;
 
     out.push({
@@ -120,7 +150,7 @@ async function collectResult(
       type: classifyAttachment(attachment.name, attachment.contentType),
       name: attachment.name,
       contentType: attachment.contentType,
-      localPath: attachment.path,
+      localPath: resolved,
       sizeBytes: size,
     });
   }
@@ -129,9 +159,13 @@ async function collectResult(
 export async function collectArtifacts(
   report: PlaywrightReport,
   mode: ArtifactMode,
+  options: { allowedRoot?: string } = {},
 ): Promise<ArtifactManifest> {
   if (mode === "none") return { artifacts: [] };
+  const allowedRoot = await realpath(
+    resolve(options.allowedRoot ?? process.cwd()),
+  );
   const out: ArtifactManifestEntry[] = [];
-  await walkSuites(report.suites, [], mode, out);
+  await walkSuites(report.suites, [], mode, allowedRoot, out);
   return { artifacts: out };
 }

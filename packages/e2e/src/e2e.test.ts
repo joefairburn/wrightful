@@ -6,6 +6,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { existsSync } from "node:fs";
 
 import { beforeAll, describe, expect, inject, it } from "vitest";
@@ -18,6 +19,22 @@ const DASHBOARD_DIR = inject("dashboardDir");
 const SESSION_COOKIE = inject("sessionCookie");
 const TEAM_SLUG = inject("teamSlug");
 const PROJECT_SLUG = inject("projectSlug");
+const BETTER_AUTH_SECRET = inject("betterAuthSecret");
+
+// Mirrors packages/dashboard/src/lib/artifact-tokens.ts#signArtifactToken.
+// Artifact downloads are gated by a short-lived HMAC token the dashboard mints
+// server-side on authenticated pages; the e2e suite holds the same secret, so
+// we can forge a valid token rather than scrape one out of the rendered HTML.
+function signArtifactToken(artifactId: string, ttlSeconds = 60): string {
+  const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const sig = createHmac("sha256", BETTER_AUTH_SECRET)
+    .update(`${artifactId}.${expiresAt}`)
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `${expiresAt}.${sig}`;
+}
 
 const PROJECT_URL = `${DASHBOARD_URL}/t/${TEAM_SLUG}/p/${PROJECT_SLUG}`;
 
@@ -233,11 +250,20 @@ describe("Wrightful E2E", () => {
       });
       expect(putRes.status).toBe(204);
 
+      const artifactId = upload.artifactId;
+      if (!artifactId) throw new Error("register response missing artifactId");
+      const token = signArtifactToken(artifactId);
       const downloadRes = await fetch(
-        `${DASHBOARD_URL}/api/artifacts/${upload.artifactId}/download`,
+        `${DASHBOARD_URL}/api/artifacts/${artifactId}/download?t=${token}`,
       );
       expect(downloadRes.status).toBe(200);
-      expect(downloadRes.headers.get("access-control-allow-origin")).toBe("*");
+      // CORS was narrowed from `*` to the dashboard origin (plus the
+      // Playwright trace viewer); with no Origin header the response should
+      // echo the dashboard origin.
+      expect(downloadRes.headers.get("access-control-allow-origin")).toBe(
+        DASHBOARD_URL,
+      );
+      expect(downloadRes.headers.get("vary")).toBe("Origin");
       const downloadedBytes = new Uint8Array(await downloadRes.arrayBuffer());
       expect(new TextDecoder().decode(downloadedBytes)).toBe(
         "hello-artifact-bytes",

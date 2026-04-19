@@ -2,10 +2,12 @@
 
 import { Info } from "lucide-react";
 import { useState } from "react";
+import { navigate } from "rwsdk/client";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { safeNextPath } from "@/lib/safe-next-path";
 
 type Mode = "signin" | "signup";
 
@@ -59,7 +61,7 @@ export function LoginForm({
           setPending(false);
           return;
         }
-        window.location.href = callbackURL;
+        void navigate(safeNextPath(callbackURL));
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "Something went wrong.");

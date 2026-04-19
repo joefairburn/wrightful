@@ -95,7 +95,7 @@ Scenarios:
       uploaded; failures scenario produced 5 passed / 1 failed / 1 flaky / 1
       skipped with traces, videos, screenshots captured. Re-runs hit the
       idempotency dedup path (`Upload skipped (duplicate — already
-    uploaded)`) and return the existing run URL, as designed.
+uploaded)`) and return the existing run URL, as designed.
 
 ## Known caveats
 

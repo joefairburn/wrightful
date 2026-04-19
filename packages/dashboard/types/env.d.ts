@@ -25,5 +25,13 @@ declare namespace Cloudflare {
     // Optional: enable GitHub OAuth by setting both.
     GITHUB_CLIENT_ID?: string;
     GITHUB_CLIENT_SECRET?: string;
+    // Optional: set to "1"/"true"/"yes"/"on" to permit email/password signup.
+    // Defaults to disabled because email verification isn't wired up yet.
+    ALLOW_OPEN_SIGNUP?: string;
+
+    // Native rate-limit bindings (configured in wrangler.jsonc#ratelimits).
+    AUTH_RATE_LIMITER: RateLimit;
+    API_RATE_LIMITER: RateLimit;
+    ARTIFACT_RATE_LIMITER: RateLimit;
   }
 }
