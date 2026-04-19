@@ -149,6 +149,7 @@ CREATE TABLE `test_results` (
 CREATE INDEX `test_results_test_id_created_at_idx` ON `test_results` (`test_id`,`created_at`);--> statement-breakpoint
 CREATE INDEX `test_results_run_id_idx` ON `test_results` (`run_id`);--> statement-breakpoint
 CREATE INDEX `test_results_status_created_at_idx` ON `test_results` (`status`,`created_at`);--> statement-breakpoint
+CREATE UNIQUE INDEX `test_results_run_id_test_id_idx` ON `test_results` (`run_id`,`test_id`);--> statement-breakpoint
 CREATE TABLE `test_tags` (
 	`id` text PRIMARY KEY NOT NULL,
 	`test_result_id` text NOT NULL,
@@ -188,5 +189,5 @@ CREATE TABLE `verification` (
 	`updated_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
 CREATE VIEW `committed_runs` AS select "id", "project_id", "idempotency_key", "ci_provider", "ci_build_id", "branch", "environment", "commit_sha", "commit_message", "pr_number", "repo", "actor", "total_tests", "expected_total_tests", "passed", "failed", "flaky", "skipped", "duration_ms", "status", "reporter_version", "playwright_version", "created_at", "completed_at", "committed" from "runs" where "runs"."committed" = true;
-CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);

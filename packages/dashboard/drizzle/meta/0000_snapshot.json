@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3a4a0f54-9a4a-4e61-b61d-003618847170",
+  "id": "5c8d2f6c-6120-44dc-ae43-3e75d524c425",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -941,6 +941,11 @@
           "name": "test_results_status_created_at_idx",
           "columns": ["status", "created_at"],
           "isUnique": false
+        },
+        "test_results_run_id_test_id_idx": {
+          "name": "test_results_run_id_test_id_idx",
+          "columns": ["run_id", "test_id"],
+          "isUnique": true
         }
       },
       "foreignKeys": {

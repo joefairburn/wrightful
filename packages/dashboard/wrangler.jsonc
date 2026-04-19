@@ -35,6 +35,27 @@
       "bucket_name": "wrightful-artifacts",
     },
   ],
+  // Realtime fan-out for in-flight runs. `SyncedStateServer` is rwsdk's
+  // stock DO class (`rwsdk/use-synced-state/worker`) — we re-export it from
+  // src/worker.tsx so Cloudflare can find it. Ingest handlers call
+  // `stub.setState(progress, "progress")` after each D1 write; the run
+  // detail + list islands subscribe via `useSyncedState`. D1 stays the
+  // source of truth; the DO only holds the latest progress snapshot while
+  // a run is streaming.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SYNCED_STATE_SERVER",
+        "class_name": "SyncedStateServer",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SyncedStateServer"],
+    },
+  ],
   "vars": {
     // Per-artifact upload size cap, enforced in /api/artifacts/register and
     // again (as Content-Length) in /api/artifacts/:id/upload. Default 50 MiB

@@ -1,6 +1,10 @@
 import { env } from "cloudflare:workers";
 import { render, route, prefix, layout } from "rwsdk/router";
 import { defineApp } from "rwsdk/worker";
+import {
+  SyncedStateServer,
+  syncedStateRoutes,
+} from "rwsdk/use-synced-state/worker";
 
 import { AppLayout } from "@/app/components/app-layout";
 import { Document } from "@/app/document";
@@ -11,6 +15,39 @@ import {
   appendResultsHandler,
   completeRunHandler,
 } from "@/routes/api/runs";
+import { getAuth } from "@/lib/better-auth";
+import { resolveProjectBySlugs } from "@/lib/authz";
+
+// Realtime fan-out: re-export the rwsdk DO class so Cloudflare can find it
+// via the binding declared in wrangler.jsonc.
+export { SyncedStateServer };
+
+// Register the namespace so the DO can build self-stubs when firing the
+// setState persistence handler from inside its own instance.
+SyncedStateServer.registerNamespace(env.SYNCED_STATE_SERVER);
+
+// Gate every realtime WS connection on team membership. Room IDs are shaped
+// `run:<teamSlug>:<projectSlug>:<runId>`; anyone not a member of the team
+// gets a thrown error and the WS fails to open. Defense in depth: ingest
+// writes use API-key auth (separate surface); realtime reads use the Better
+// Auth session.
+SyncedStateServer.registerRoomHandler(async (roomId, reqInfo) => {
+  if (!roomId) throw new Error("forbidden");
+  const match = roomId.match(/^run:([^:]+):([^:]+):([^:]+)$/);
+  if (!match) throw new Error("forbidden");
+  const [, teamSlug, projectSlug] = match;
+  const request = reqInfo?.request;
+  if (!request) throw new Error("forbidden");
+  const session = await getAuth().api.getSession({ headers: request.headers });
+  if (!session?.user?.id) throw new Error("forbidden");
+  const scope = await resolveProjectBySlugs(
+    session.user.id,
+    teamSlug,
+    projectSlug,
+  );
+  if (!scope) throw new Error("forbidden");
+  return roomId;
+});
 import { registerHandler } from "@/routes/api/artifacts";
 import { artifactUploadHandler } from "@/routes/api/artifact-upload";
 import { artifactDownloadHandler } from "@/routes/api/artifact-download";
@@ -106,6 +143,11 @@ function settingsRootRedirect({ request }: { request: Request }) {
 
 const app = defineApp([
   setCommonHeaders(),
+
+  // Realtime WebSocket route for useSyncedState clients. Auth is enforced
+  // inside the static `registerRoomHandler` above (throws on missing
+  // session or non-member).
+  ...syncedStateRoutes(() => env.SYNCED_STATE_SERVER),
 
   // Signed-token artifact download (see lib/artifact-tokens.ts).
   route("/api/artifacts/:id/download", {

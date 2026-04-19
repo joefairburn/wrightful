@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { TestCase, TestResult } from "@playwright/test/reporter";
-import { isTestDone, buildPayload } from "../index.js";
+import { isTestDone, buildPayload, buildTestDescriptor } from "../index.js";
 
 // Minimal shims. The reporter functions only read a handful of fields, so
 // we construct just those rather than importing Playwright's full runtime.
@@ -235,5 +235,31 @@ describe("buildPayload", () => {
       results: [makeResult({ status: "passed", duration: 1, retry: 0 })],
     });
     expect(payload.file).toBe("/abs/path/tests/demo.spec.ts");
+  });
+});
+
+describe("buildTestDescriptor", () => {
+  it("produces the same testId / file / title as buildPayload for the same test", () => {
+    // Ensures the queue prefill at onBegin lands on exactly the row that
+    // /results later UPSERTs — the server keys both by (runId, testId).
+    const test = makeTest({
+      outcome: "expected",
+      title: "my test",
+      file: "/repo/packages/e2e/tests/demo.spec.ts",
+      projectName: "chromium",
+    });
+    const rootDir = "/repo/packages/e2e";
+    const descriptor = buildTestDescriptor(test, rootDir);
+    const payload = buildPayload(
+      {
+        test,
+        results: [makeResult({ status: "passed", duration: 1, retry: 0 })],
+      },
+      rootDir,
+    );
+    expect(descriptor.testId).toBe(payload.testId);
+    expect(descriptor.file).toBe(payload.file);
+    expect(descriptor.title).toBe(payload.title);
+    expect(descriptor.projectName).toBe(payload.projectName);
   });
 });

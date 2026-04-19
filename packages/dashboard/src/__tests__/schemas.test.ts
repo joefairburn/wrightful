@@ -72,6 +72,41 @@ describe("OpenRunPayloadSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("accepts plannedTests descriptors and defaults to empty array", () => {
+    const withPlan = OpenRunPayloadSchema.safeParse({
+      idempotencyKey: "k",
+      run: {
+        plannedTests: [
+          {
+            testId: "abc123",
+            title: "suite > test",
+            file: "tests/x.spec.ts",
+            projectName: "chromium",
+          },
+        ],
+      },
+    });
+    expect(withPlan.success).toBe(true);
+    const withoutPlan = OpenRunPayloadSchema.safeParse({
+      idempotencyKey: "k",
+      run: {},
+    });
+    expect(withoutPlan.success).toBe(true);
+    if (withoutPlan.success) {
+      expect(withoutPlan.data.run.plannedTests).toEqual([]);
+    }
+  });
+
+  it("rejects plannedTests entries missing required fields", () => {
+    const result = OpenRunPayloadSchema.safeParse({
+      idempotencyKey: "k",
+      run: {
+        plannedTests: [{ testId: "", title: "t", file: "f" }],
+      },
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("AppendResultsPayloadSchema", () => {

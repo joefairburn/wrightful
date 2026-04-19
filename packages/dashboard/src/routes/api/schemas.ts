@@ -28,6 +28,15 @@ const TestResultSchema = z.object({
 
 export type TestResultInput = z.infer<typeof TestResultSchema>;
 
+const PlannedTestSchema = z.object({
+  testId: z.string().min(1),
+  title: z.string().min(1),
+  file: z.string().min(1),
+  projectName: z.string().nullable().optional(),
+});
+
+export type PlannedTestInput = z.infer<typeof PlannedTestSchema>;
+
 const RunMetaCommon = {
   ciProvider: z.string().nullable().optional(),
   ciBuildId: z.string().nullable().optional(),
@@ -41,6 +50,7 @@ const RunMetaCommon = {
   reporterVersion: z.string().nullable().optional(),
   playwrightVersion: z.string().nullable().optional(),
   expectedTotalTests: z.number().int().min(0).nullable().optional(),
+  plannedTests: z.array(PlannedTestSchema).default([]),
 };
 
 // ---------- v3 streaming endpoints ----------
