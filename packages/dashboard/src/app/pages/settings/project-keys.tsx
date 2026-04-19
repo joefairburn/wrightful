@@ -1,3 +1,4 @@
+import { format } from "date-fns";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { requestInfo } from "rwsdk/worker";
 import { ulid } from "ulid";
@@ -154,10 +155,10 @@ export async function SettingsProjectKeysPage() {
                   {k.keyPrefix}…
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {k.createdAt.toISOString().slice(0, 10)}
+                  {format(k.createdAt, "yyyy-MM-dd")}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {k.lastUsedAt?.toISOString().slice(0, 10) ?? "—"}
+                  {k.lastUsedAt ? format(k.lastUsedAt, "yyyy-MM-dd") : "—"}
                 </TableCell>
                 <TableCell>
                   {k.revokedAt ? (

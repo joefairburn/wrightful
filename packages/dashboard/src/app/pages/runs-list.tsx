@@ -1,5 +1,10 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { GitBranch, GitCommit, GitPullRequest } from "lucide-react";
+import { requestInfo } from "rwsdk/worker";
+import {
+  RunsFilterBar,
+  RunsSearchInput,
+} from "@/app/components/runs-filter-bar";
 import { RunTestsPopover } from "@/app/components/run-tests-popover";
 import {
   Empty,
@@ -22,6 +27,11 @@ import { committedRuns } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
+import {
+  buildRunsWhere,
+  hasAnyFilter,
+  parseRunsFilters,
+} from "@/lib/runs-filters";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 const STATUS_DOT: Record<string, string> = {
@@ -37,26 +47,83 @@ export async function RunsListPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
+  const url = new URL(requestInfo.request.url);
+  const filters = parseRunsFilters(url.searchParams);
+  const filtersActive = hasAnyFilter(filters);
+
   const db = getDb();
+  const whereClause = buildRunsWhere(project.id, filters);
   const allRuns = await db
     .select()
     .from(committedRuns)
-    .where(eq(committedRuns.projectId, project.id))
+    .where(whereClause)
     .orderBy(desc(committedRuns.createdAt))
     .limit(50);
+
+  const [branchRows, actorRows, envRows] = await Promise.all([
+    db
+      .selectDistinct({ value: committedRuns.branch })
+      .from(committedRuns)
+      .where(
+        and(
+          eq(committedRuns.projectId, project.id),
+          isNotNull(committedRuns.branch),
+        ),
+      ),
+    db
+      .selectDistinct({ value: committedRuns.actor })
+      .from(committedRuns)
+      .where(
+        and(
+          eq(committedRuns.projectId, project.id),
+          isNotNull(committedRuns.actor),
+        ),
+      ),
+    db
+      .selectDistinct({ value: committedRuns.environment })
+      .from(committedRuns)
+      .where(
+        and(
+          eq(committedRuns.projectId, project.id),
+          isNotNull(committedRuns.environment),
+        ),
+      ),
+  ]);
+
+  const options = {
+    branches: branchRows
+      .map((r) => r.value)
+      .filter((v): v is string => !!v)
+      .sort(),
+    actors: actorRows
+      .map((r) => r.value)
+      .filter((v): v is string => !!v)
+      .sort(),
+    environments: envRows
+      .map((r) => r.value)
+      .filter((v): v is string => !!v)
+      .sort(),
+  };
 
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
   return (
     <>
       {/* Page header */}
-      <div className="px-6 py-4 flex items-center justify-between border-b border-border shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="px-6 py-4 flex items-center justify-between border-b border-border shrink-0 gap-4">
+        <div className="flex items-center gap-3 shrink-0">
           <h2 className="text-base font-semibold tracking-tight">All Runs</h2>
           <span className="px-2 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-xs border border-border/50">
-            {allRuns.length} total
+            {allRuns.length}
+            {filtersActive ? " match" : " total"}
           </span>
         </div>
+        <RunsSearchInput filters={filters} pathname={base} />
+      </div>
+
+      {/* Filter bar */}
+      <div className="px-6 py-3 border-b border-border shrink-0">
+        <RunsFilterBar filters={filters} options={options} pathname={base} />
       </div>
 
       {/* Table area */}
