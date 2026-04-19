@@ -201,6 +201,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   /* Material-ish dark surface scale */
   --background: #0e0e0e;
   --foreground: #e7e5e4;
