@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ulid } from "ulid";
 import { getDb, type Db } from "@/db";
@@ -19,6 +19,7 @@ import {
   type OpenRunPayload,
   type TestResultInput,
 } from "./schemas";
+import { broadcastRunProgress } from "./progress";
 import type { AppContext } from "@/worker";
 
 function jsonResponse(body: unknown, status: number) {
@@ -55,41 +56,119 @@ interface ResultMapping {
 }
 
 /**
- * Build batch statements that insert test_results + tags + annotations for a
- * run, chunked to respect D1's per-statement parameter cap. Returns the
- * clientKey → testResultId mapping so the caller can return it to the client.
+ * Resolve the `(runId, testId)` pair to the test_result row's `id`, preferring
+ * a prefilled queued row if one exists. The caller gets a map from the input
+ * `testId` to the id to use (existing or fresh). Existing-row ids let us
+ * UPDATE in place; fresh ids are for the safety net where a reporter skipped
+ * the queue prefill.
+ */
+async function resolveTestResultIds(
+  db: Db,
+  runId: string,
+  testIds: string[],
+): Promise<{
+  existingIds: Map<string, string>;
+  assignedIds: Map<string, string>;
+}> {
+  const existingIds = new Map<string, string>();
+  if (testIds.length > 0) {
+    const rows = await db
+      .select({ id: testResults.id, testId: testResults.testId })
+      .from(testResults)
+      .where(
+        and(eq(testResults.runId, runId), inArray(testResults.testId, testIds)),
+      );
+    for (const row of rows) {
+      existingIds.set(row.testId, row.id);
+    }
+  }
+  const assignedIds = new Map<string, string>();
+  for (const testId of testIds) {
+    assignedIds.set(testId, existingIds.get(testId) ?? ulid());
+  }
+  return { existingIds, assignedIds };
+}
+
+/**
+ * Build batch statements that upsert test_results + replace their tags and
+ * annotations, chunked to respect D1's per-statement parameter cap.
+ *
+ * - If a row already exists for `(run_id, test_id)` (typical case: the run
+ *   was opened with a queue prefill), we UPDATE it in place. Tags and
+ *   annotations belonging to that existing id are DELETEd first so the new
+ *   set replaces them cleanly.
+ * - If no row exists (a reporter that skipped the prefill, or a test added
+ *   dynamically), we INSERT a fresh row.
  */
 function buildResultInsertStatements(
   db: Db,
   runId: string,
   results: TestResultInput[],
   now: Date,
+  existingIds: Map<string, string>,
+  assignedIds: Map<string, string>,
 ): { statements: BatchItem<"sqlite">[]; mapping: ResultMapping[] } {
-  const resultRows: (typeof testResults.$inferInsert)[] = [];
+  const insertRows: (typeof testResults.$inferInsert)[] = [];
   const tagRows: (typeof testTags.$inferInsert)[] = [];
   const annotationRows: (typeof testAnnotations.$inferInsert)[] = [];
   const mapping: ResultMapping[] = [];
+  const statements: BatchItem<"sqlite">[] = [];
 
   for (const result of results) {
-    const testResultId = ulid();
+    const testResultId = assignedIds.get(result.testId);
+    if (!testResultId) continue;
     if (result.clientKey) {
       mapping.push({ clientKey: result.clientKey, testResultId });
     }
-    resultRows.push({
-      id: testResultId,
-      runId,
-      testId: result.testId,
-      title: result.title,
-      file: result.file,
-      projectName: result.projectName ?? null,
-      status: result.status,
-      durationMs: result.durationMs,
-      retryCount: result.retryCount,
-      errorMessage: result.errorMessage ?? null,
-      errorStack: result.errorStack ?? null,
-      workerIndex: result.workerIndex ?? null,
-      createdAt: now,
-    });
+
+    if (existingIds.has(result.testId)) {
+      // UPDATE in place — preserves the row id so artifacts referencing it
+      // stay valid.
+      statements.push(
+        db
+          .update(testResults)
+          .set({
+            title: result.title,
+            file: result.file,
+            projectName: result.projectName ?? null,
+            status: result.status,
+            durationMs: result.durationMs,
+            retryCount: result.retryCount,
+            errorMessage: result.errorMessage ?? null,
+            errorStack: result.errorStack ?? null,
+            workerIndex: result.workerIndex ?? null,
+            createdAt: now,
+          })
+          .where(eq(testResults.id, testResultId)),
+      );
+      // Replace tags / annotations for this row. Tag lists are short (a few
+      // per test at most), so DELETE-then-INSERT is cheaper than diffing.
+      statements.push(
+        db.delete(testTags).where(eq(testTags.testResultId, testResultId)),
+      );
+      statements.push(
+        db
+          .delete(testAnnotations)
+          .where(eq(testAnnotations.testResultId, testResultId)),
+      );
+    } else {
+      insertRows.push({
+        id: testResultId,
+        runId,
+        testId: result.testId,
+        title: result.title,
+        file: result.file,
+        projectName: result.projectName ?? null,
+        status: result.status,
+        durationMs: result.durationMs,
+        retryCount: result.retryCount,
+        errorMessage: result.errorMessage ?? null,
+        errorStack: result.errorStack ?? null,
+        workerIndex: result.workerIndex ?? null,
+        createdAt: now,
+      });
+    }
+
     for (const tag of result.tags) {
       tagRows.push({ id: ulid(), testResultId, tag });
     }
@@ -103,8 +182,7 @@ function buildResultInsertStatements(
     }
   }
 
-  const statements: BatchItem<"sqlite">[] = [];
-  for (const chunk of chunkByParams(resultRows, TEST_RESULTS_COLUMNS)) {
+  for (const chunk of chunkByParams(insertRows, TEST_RESULTS_COLUMNS)) {
     statements.push(db.insert(testResults).values(chunk));
   }
   for (const chunk of chunkByParams(tagRows, TEST_TAGS_COLUMNS)) {
@@ -114,6 +192,46 @@ function buildResultInsertStatements(
     statements.push(db.insert(testAnnotations).values(chunk));
   }
   return { statements, mapping };
+}
+
+/**
+ * Build the batch statements that prefill one queued test_results row per
+ * planned test at openRun. Status = "queued", duration = 0, no errors. The
+ * unique `(run_id, test_id)` index is what lets /results later upsert these
+ * in place.
+ */
+function buildQueuePrefillStatements(
+  db: Db,
+  runId: string,
+  plannedTests: ReadonlyArray<{
+    testId: string;
+    title: string;
+    file: string;
+    projectName?: string | null | undefined;
+  }>,
+  now: Date,
+): BatchItem<"sqlite">[] {
+  if (plannedTests.length === 0) return [];
+  const rows: (typeof testResults.$inferInsert)[] = plannedTests.map((p) => ({
+    id: ulid(),
+    runId,
+    testId: p.testId,
+    title: p.title,
+    file: p.file,
+    projectName: p.projectName ?? null,
+    status: "queued",
+    durationMs: 0,
+    retryCount: 0,
+    errorMessage: null,
+    errorStack: null,
+    workerIndex: null,
+    createdAt: now,
+  }));
+  const statements: BatchItem<"sqlite">[] = [];
+  for (const chunk of chunkByParams(rows, TEST_RESULTS_COLUMNS)) {
+    statements.push(db.insert(testResults).values(chunk));
+  }
+  return statements;
 }
 
 async function runBatches(statements: BatchItem<"sqlite">[]): Promise<void> {
@@ -200,33 +318,44 @@ export async function openRunHandler({
 
   const runId = ulid();
   const now = new Date();
-  await db.insert(runs).values({
-    id: runId,
-    projectId,
-    idempotencyKey: payload.idempotencyKey,
-    ciProvider: payload.run.ciProvider ?? null,
-    ciBuildId: payload.run.ciBuildId ?? null,
-    branch: payload.run.branch ?? null,
-    environment: payload.run.environment ?? null,
-    commitSha: payload.run.commitSha ?? null,
-    commitMessage: payload.run.commitMessage ?? null,
-    prNumber: payload.run.prNumber ?? null,
-    repo: payload.run.repo ?? null,
-    actor: payload.run.actor ?? null,
-    totalTests: 0,
-    expectedTotalTests: payload.run.expectedTotalTests ?? null,
-    passed: 0,
-    failed: 0,
-    flaky: 0,
-    skipped: 0,
-    durationMs: 0,
-    status: "running",
-    reporterVersion: payload.run.reporterVersion ?? null,
-    playwrightVersion: payload.run.playwrightVersion ?? null,
-    createdAt: now,
-    completedAt: null,
-    committed: true,
-  });
+  const plannedTests = payload.run.plannedTests ?? [];
+
+  const openStatements: BatchItem<"sqlite">[] = [
+    db.insert(runs).values({
+      id: runId,
+      projectId,
+      idempotencyKey: payload.idempotencyKey,
+      ciProvider: payload.run.ciProvider ?? null,
+      ciBuildId: payload.run.ciBuildId ?? null,
+      branch: payload.run.branch ?? null,
+      environment: payload.run.environment ?? null,
+      commitSha: payload.run.commitSha ?? null,
+      commitMessage: payload.run.commitMessage ?? null,
+      prNumber: payload.run.prNumber ?? null,
+      repo: payload.run.repo ?? null,
+      actor: payload.run.actor ?? null,
+      // `totalTests` is the number of rows currently in `test_results`
+      // for this run. With queue prefill it starts at plannedTests.length
+      // and stays there as results upsert in place; `expectedTotalTests`
+      // mirrors the same value for UI consistency.
+      totalTests: plannedTests.length,
+      expectedTotalTests: payload.run.expectedTotalTests ?? plannedTests.length,
+      passed: 0,
+      failed: 0,
+      flaky: 0,
+      skipped: 0,
+      durationMs: 0,
+      status: "running",
+      reporterVersion: payload.run.reporterVersion ?? null,
+      playwrightVersion: payload.run.playwrightVersion ?? null,
+      createdAt: now,
+      completedAt: null,
+      committed: true,
+    }),
+    ...buildQueuePrefillStatements(db, runId, plannedTests, now),
+  ];
+  await runBatches(openStatements);
+  await broadcastRunProgress(runId, scope);
 
   return jsonResponse({ runId, runUrl: runUrl(scope, runId) }, 201);
 }
@@ -290,14 +419,25 @@ export async function appendResultsHandler({
   if (!owner) return jsonResponse({ error: "Run not found" }, 404);
 
   const now = new Date();
+  const testIds = payload.results.map((r) => r.testId);
+  const { existingIds, assignedIds } = await resolveTestResultIds(
+    db,
+    runId,
+    testIds,
+  );
   const { statements, mapping } = buildResultInsertStatements(
     db,
     runId,
     payload.results,
     now,
+    existingIds,
+    assignedIds,
   );
   statements.push(aggregateRecomputeStatement(db, runId));
   await runBatches(statements);
+
+  const scope = await resolveProjectScope(projectId);
+  if (scope) await broadcastRunProgress(runId, scope);
 
   return jsonResponse({ results: mapping }, 200);
 }
@@ -352,6 +492,9 @@ export async function completeRunHandler({
       .where(eq(runs.id, runId)),
     aggregateRecomputeStatement(db, runId),
   ]);
+
+  const scope = await resolveProjectScope(projectId);
+  if (scope) await broadcastRunProgress(runId, scope);
 
   return jsonResponse({ runId, status: payload.status }, 200);
 }

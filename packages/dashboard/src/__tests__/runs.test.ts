@@ -54,12 +54,17 @@ function makeDb(selectResults: unknown[][]): DbStub {
   }));
   state.select.mockImplementation(() => {
     const result = selectResults.shift() ?? [];
+    // `.where(...)` in production can either be awaited directly (returns all
+    // rows) or chained with `.limit(1)`. Make the stub thenable AND
+    // .limit()-able so both call sites work.
+    const whereReturn = {
+      limit: vi.fn().mockResolvedValue(result),
+      then: (resolve: (v: unknown) => unknown) => resolve(result),
+    };
     return {
       from: vi.fn().mockReturnThis(),
       innerJoin: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(result),
-      }),
+      where: vi.fn().mockReturnValue(whereReturn),
     };
   });
   state.insert.mockImplementation(() => ({
@@ -168,7 +173,13 @@ describe("appendResultsHandler", () => {
   });
 
   it("batches inserts + aggregate recompute and returns mapping", async () => {
-    const db = makeDb([[{ id: "run-1" }]]);
+    // select order:
+    //   1) owner lookup
+    //   2) resolveTestResultIds existing-id query (empty → all fresh inserts)
+    //   3) resolveProjectScope for broadcast
+    //   4) composeRunProgress run row read (inside broadcast)
+    //   5) composeRunProgress test_results read (inside broadcast)
+    const db = makeDb([[{ id: "run-1" }], [], scope(), [], []]);
     mockedGetDb.mockReturnValue(db as never);
     const res = await appendResultsHandler({
       request: makeRequest("/api/runs/run-1/results", {

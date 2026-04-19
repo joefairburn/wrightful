@@ -123,6 +123,11 @@ export default class WrightfulReporter implements Reporter {
 
     this.client = new StreamClient(baseUrl, token);
 
+    const allTests = suite.allTests();
+    const plannedTests = allTests.map((t) =>
+      buildTestDescriptor(t, this.rootDir),
+    );
+
     const ci = detectCI();
     const payload = {
       idempotencyKey: generateIdempotencyKey(ci?.ciBuildId),
@@ -138,7 +143,8 @@ export default class WrightfulReporter implements Reporter {
         actor: ci?.actor ?? null,
         reporterVersion: REPORTER_VERSION,
         playwrightVersion: this.playwrightVersion,
-        expectedTotalTests: suite.allTests().length,
+        expectedTotalTests: plannedTests.length,
+        plannedTests,
       },
     };
 
@@ -448,20 +454,41 @@ export function isTestDone(test: TestCase, result: TestResult): boolean {
   return result.retry >= test.retries;
 }
 
+/**
+ * Extract the identifying fields for a test case (file, title, project,
+ * derived testId). Used by both the open-run prefill (to send the full
+ * planned list at onBegin) and `buildPayload` (when a test actually emits
+ * a result) — so the same test lands with the same testId, enabling the
+ * server to upsert /results rows onto the prefilled queued row.
+ */
+export function buildTestDescriptor(
+  test: TestCase,
+  rootDir: string | null,
+): {
+  testId: string;
+  title: string;
+  file: string;
+  projectName: string | null;
+} {
+  const projectName = test.parent.project()?.name ?? "";
+  const titlePath = test.titlePath().filter(Boolean);
+  const absoluteFile = test.location.file;
+  const file = rootDir ? relativePath(rootDir, absoluteFile) : absoluteFile;
+  const testId = computeTestId(file, titlePath, projectName);
+  return {
+    testId,
+    title: titlePath.join(" > "),
+    file,
+    projectName: projectName || null,
+  };
+}
+
 export function buildPayload(
   entry: PendingTest,
   rootDir: string | null = null,
 ): TestResultPayload {
   const { test, results } = entry;
-  const projectName = test.parent.project()?.name ?? "";
-  const titlePath = test.titlePath().filter(Boolean);
-  const absoluteFile = test.location.file;
-  // Strip the Playwright rootDir so the dashboard shows "tests/foo.spec.ts"
-  // rather than a machine-specific absolute path. `computeTestId` still gets
-  // the relative path because rootDir is stable across CI runs of the same
-  // repo, so existing test IDs stay consistent.
-  const file = rootDir ? relativePath(rootDir, absoluteFile) : absoluteFile;
-  const testId = computeTestId(file, titlePath, projectName);
+  const descriptor = buildTestDescriptor(test, rootDir);
 
   const totalDuration = results.reduce((s, r) => s + r.duration, 0);
   const lastResult = results[results.length - 1];
@@ -473,11 +500,11 @@ export function buildPayload(
   const errorSource = status === "flaky" ? failing : lastResult;
 
   return {
-    clientKey: testId,
-    testId,
-    title: titlePath.join(" > "),
-    file,
-    projectName: projectName || null,
+    clientKey: descriptor.testId,
+    testId: descriptor.testId,
+    title: descriptor.title,
+    file: descriptor.file,
+    projectName: descriptor.projectName,
     status,
     durationMs: Math.round(totalDuration),
     retryCount: Math.max(0, results.length - 1),

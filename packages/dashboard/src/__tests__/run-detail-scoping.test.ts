@@ -22,6 +22,7 @@ const { mockGetActiveProject, mockParam, chain } = vi.hoisted(() => {
   };
 });
 
+vi.mock("cloudflare:workers", () => ({ env: {} }));
 vi.mock("rwsdk/worker", () => ({
   requestInfo: { request: new Request("http://localhost") },
 }));

@@ -20,6 +20,13 @@ export interface TestResultPayload {
   annotations: Array<{ type: string; description?: string }>;
 }
 
+export interface PlannedTestDescriptor {
+  testId: string;
+  title: string;
+  file: string;
+  projectName: string | null;
+}
+
 export interface OpenRunPayload {
   idempotencyKey: string;
   run: {
@@ -35,6 +42,7 @@ export interface OpenRunPayload {
     reporterVersion: string;
     playwrightVersion: string;
     expectedTotalTests: number;
+    plannedTests: PlannedTestDescriptor[];
   };
 }
 

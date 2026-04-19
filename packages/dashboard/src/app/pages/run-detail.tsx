@@ -1,22 +1,20 @@
 import { and, eq } from "drizzle-orm";
-import {
-  ArrowLeft,
-  Check,
-  CircleSlash,
-  GitCommit,
-  GitPullRequest,
-  Minus,
-  TriangleAlert,
-  X,
-} from "lucide-react";
+import { ArrowLeft, GitCommit, GitPullRequest } from "lucide-react";
 import type React from "react";
+import {
+  RunProgressSummary,
+  RunProgressTests,
+  RunSummaryIsland,
+  RunTestsIsland,
+} from "@/app/components/run-progress";
 import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
-import { committedRuns, testResults } from "@/db/schema";
+import { committedRuns } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { prUrl } from "@/lib/pr-url";
 import { param } from "@/lib/route-params";
+import { composeRunProgress, runRoomId } from "@/routes/api/progress";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 const STATUS_DOT: Record<string, string> = {
@@ -38,84 +36,6 @@ const STATUS_LABEL: Record<string, string> = {
   skipped: "Skipped",
   running: "Running",
 };
-
-const RESULT_STATUS_ORDER: Record<string, number> = {
-  failed: 0,
-  timedout: 1,
-  flaky: 2,
-  passed: 3,
-  skipped: 4,
-};
-
-function StatusIcon({ status }: { status: string }) {
-  const size = 14;
-  const stroke = 3;
-  if (status === "passed") {
-    return <Check size={size} strokeWidth={stroke} className="text-success" />;
-  }
-  if (status === "failed" || status === "timedout") {
-    return <X size={size} strokeWidth={stroke} className="text-destructive" />;
-  }
-  if (status === "flaky" || status === "interrupted") {
-    return (
-      <TriangleAlert size={size} strokeWidth={2.5} className="text-warning" />
-    );
-  }
-  if (status === "skipped") {
-    return (
-      <Minus size={size} strokeWidth={2.5} className="text-muted-foreground" />
-    );
-  }
-  return (
-    <CircleSlash
-      size={size}
-      strokeWidth={2}
-      className="text-muted-foreground"
-    />
-  );
-}
-
-function SummaryTile({
-  label,
-  value,
-  accent,
-  tone,
-}: {
-  label: string;
-  value: React.ReactNode;
-  accent?: boolean;
-  tone?: "success" | "destructive" | "warning";
-}) {
-  const border =
-    tone === "success"
-      ? "border-t-success"
-      : tone === "destructive"
-        ? "border-t-destructive"
-        : tone === "warning"
-          ? "border-t-warning"
-          : "border-t-border";
-  const text =
-    tone === "success"
-      ? "text-success"
-      : tone === "destructive"
-        ? "text-destructive"
-        : tone === "warning"
-          ? "text-warning"
-          : "text-foreground";
-  return (
-    <div
-      className={cn(
-        "rounded-md bg-background px-3 py-2.5 border border-border/60",
-        accent && `border-t-2 ${border}`,
-      )}
-    >
-      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">
-        {label}
-      </div>
-      <div className={cn("font-mono text-xl tabular-nums", text)}>{value}</div>
-    </div>
-  );
-}
 
 function EnvRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -148,20 +68,18 @@ export async function RunDetailPage() {
     return <NotFoundPage />;
   }
 
-  const results = await db
-    .select()
-    .from(testResults)
-    .where(eq(testResults.runId, runId));
-
-  results.sort(
-    (a, b) =>
-      (RESULT_STATUS_ORDER[a.status] ?? 5) -
-      (RESULT_STATUS_ORDER[b.status] ?? 5),
-  );
+  const progress = await composeRunProgress(runId);
+  if (!progress) return <NotFoundPage />;
 
   const shortId = run.id.slice(-7);
   const statusLabel = STATUS_LABEL[run.status] ?? run.status;
   const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
+  const roomId = runRoomId({
+    teamSlug: project.teamSlug,
+    projectSlug: project.slug,
+    runId,
+  });
+  const isRunning = run.status === "running";
 
   return (
     <>
@@ -251,42 +169,11 @@ export async function RunDetailPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-3">
-              <SummaryTile
-                label="Total"
-                value={
-                  run.status === "running" && run.expectedTotalTests != null ? (
-                    <span>
-                      {run.totalTests}
-                      <span className="text-muted-foreground">
-                        {" / "}
-                        {run.expectedTotalTests}
-                      </span>
-                    </span>
-                  ) : (
-                    run.totalTests
-                  )
-                }
-              />
-              <SummaryTile
-                label="Passed"
-                value={run.passed}
-                accent
-                tone="success"
-              />
-              <SummaryTile
-                label="Failed"
-                value={run.failed}
-                accent
-                tone="destructive"
-              />
-              <SummaryTile
-                label="Flaky"
-                value={run.flaky}
-                accent
-                tone="warning"
-              />
-            </div>
+            {isRunning ? (
+              <RunSummaryIsland initial={progress} roomId={roomId} />
+            ) : (
+              <RunProgressSummary progress={progress} />
+            )}
           </div>
 
           {/* Build card */}
@@ -345,89 +232,18 @@ export async function RunDetailPage() {
 
         {/* Test results */}
         <div className="px-6 pb-6">
-          <div className="rounded-lg bg-card border border-border overflow-hidden">
-            <div className="px-5 py-3 border-b border-border flex items-center justify-between bg-muted/30">
-              <h3 className="text-sm font-semibold tracking-tight">
-                Test Results
-              </h3>
-              <span className="font-mono text-[11px] text-muted-foreground">
-                {results.length} {results.length === 1 ? "test" : "tests"}
-              </span>
-            </div>
-
-            {results.length === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-muted-foreground">
-                No test results recorded for this run.
-              </div>
-            ) : (
-              <ul>
-                {results.map((result) => {
-                  const detailHref = `${base}/runs/${runId}/tests/${result.id}`;
-                  const isFailure =
-                    result.status === "failed" || result.status === "timedout";
-                  const showError = isFailure && result.errorMessage;
-                  return (
-                    <li
-                      key={result.id}
-                      className="border-b border-border/60 last:border-b-0"
-                    >
-                      <a
-                        href={detailHref}
-                        className="flex items-center gap-4 px-5 py-3 hover:bg-muted/30 transition-colors group"
-                      >
-                        <StatusIcon status={result.status} />
-                        <div className="flex-1 min-w-0 flex items-center gap-2">
-                          <span className="font-mono text-xs text-muted-foreground truncate">
-                            {result.file}
-                          </span>
-                          <span className="text-muted-foreground/50 shrink-0">
-                            ›
-                          </span>
-                          <span className="text-sm text-foreground truncate group-hover:text-foreground">
-                            {result.title}
-                          </span>
-                          {result.retryCount > 0 && (
-                            <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-sm border border-warning/30 bg-warning/10 text-warning font-mono text-[10px]">
-                              Retry {result.retryCount}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-4 shrink-0">
-                          {result.projectName && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-background font-mono text-[10px] text-muted-foreground">
-                              {result.projectName}
-                            </span>
-                          )}
-                          <span className="font-mono text-xs tabular-nums text-muted-foreground w-14 text-right">
-                            {formatDuration(result.durationMs)}
-                          </span>
-                        </div>
-                      </a>
-                      {showError && (
-                        <div className="px-5 pb-4 pl-[52px]">
-                          <div className="rounded-md border border-destructive/20 bg-background overflow-hidden">
-                            <div className="px-3 py-2 border-b border-border/50 flex items-center justify-between">
-                              <span className="font-mono text-[10px] uppercase tracking-wider text-destructive">
-                                Error
-                              </span>
-                              <span className="font-mono text-[10px] text-muted-foreground">
-                                {result.status === "timedout"
-                                  ? "Timed out"
-                                  : "Failed"}
-                              </span>
-                            </div>
-                            <pre className="px-3 py-2.5 font-mono text-[11px] leading-relaxed text-destructive-foreground whitespace-pre-wrap max-h-64 overflow-auto">
-                              {result.errorMessage}
-                            </pre>
-                          </div>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
+          {isRunning ? (
+            <RunTestsIsland
+              initial={progress}
+              roomId={roomId}
+              runBase={`${base}/runs/${run.id}`}
+            />
+          ) : (
+            <RunProgressTests
+              progress={progress}
+              runBase={`${base}/runs/${run.id}`}
+            />
+          )}
         </div>
       </div>
     </>

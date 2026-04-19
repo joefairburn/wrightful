@@ -304,6 +304,13 @@ export const testResults = sqliteTable(
       table.status,
       table.createdAt,
     ),
+    // Queue prefill (openRun inserts one queued row per planned test) and
+    // /results batches upsert on this pair, so the prefilled row is
+    // updated in place rather than producing a duplicate.
+    uniqueIndex("test_results_run_id_test_id_idx").on(
+      table.runId,
+      table.testId,
+    ),
   ],
 );
 

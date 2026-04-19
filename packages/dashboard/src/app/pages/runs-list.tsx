@@ -5,7 +5,13 @@ import {
   RunsFilterBar,
   RunsSearchInput,
 } from "@/app/components/runs-filter-bar";
+import { RunRowProgressIsland } from "@/app/components/run-progress";
 import { RunTestsPopover } from "@/app/components/run-tests-popover";
+import {
+  composeRunProgress,
+  runRoomId,
+  type RunProgress,
+} from "@/routes/api/progress";
 import {
   Empty,
   EmptyContent,
@@ -105,6 +111,18 @@ export async function RunsListPage() {
       .filter((v): v is string => !!v)
       .sort(),
   };
+
+  // Seed RunProgress for each running row so the island has accurate SSR
+  // state before its WS connects. Historical runs skip this compose.
+  const runningProgress = new Map<string, RunProgress>();
+  await Promise.all(
+    allRuns
+      .filter((r) => r.status === "running")
+      .map(async (r) => {
+        const p = await composeRunProgress(r.id);
+        if (p) runningProgress.set(r.id, p);
+      }),
+  );
 
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
@@ -310,46 +328,56 @@ export async function RunsListPage() {
 
                     {/* Test counts */}
                     <TableCell className="px-4 py-3">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {run.status === "running" &&
-                        run.expectedTotalTests != null ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-primary/40 bg-primary/10 font-mono text-[11px] tabular-nums text-primary">
-                            {run.totalTests}/{run.expectedTotalTests}
-                          </span>
-                        ) : null}
-                        <RunTestsPopover
-                          variant="passed"
-                          count={run.passed}
+                      {run.status === "running" &&
+                      runningProgress.has(run.id) ? (
+                        <RunRowProgressIsland
+                          initial={runningProgress.get(run.id)!}
+                          roomId={runRoomId({
+                            teamSlug: project.teamSlug,
+                            projectSlug: project.slug,
+                            runId: run.id,
+                          })}
                           teamSlug={project.teamSlug}
                           projectSlug={project.slug}
                           runId={run.id}
                           runHref={href}
                         />
-                        <RunTestsPopover
-                          variant="failed"
-                          count={run.failed}
-                          teamSlug={project.teamSlug}
-                          projectSlug={project.slug}
-                          runId={run.id}
-                          runHref={href}
-                        />
-                        <RunTestsPopover
-                          variant="flaky"
-                          count={run.flaky}
-                          teamSlug={project.teamSlug}
-                          projectSlug={project.slug}
-                          runId={run.id}
-                          runHref={href}
-                        />
-                        <RunTestsPopover
-                          variant="skipped"
-                          count={run.skipped}
-                          teamSlug={project.teamSlug}
-                          projectSlug={project.slug}
-                          runId={run.id}
-                          runHref={href}
-                        />
-                      </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <RunTestsPopover
+                            variant="passed"
+                            count={run.passed}
+                            teamSlug={project.teamSlug}
+                            projectSlug={project.slug}
+                            runId={run.id}
+                            runHref={href}
+                          />
+                          <RunTestsPopover
+                            variant="failed"
+                            count={run.failed}
+                            teamSlug={project.teamSlug}
+                            projectSlug={project.slug}
+                            runId={run.id}
+                            runHref={href}
+                          />
+                          <RunTestsPopover
+                            variant="flaky"
+                            count={run.flaky}
+                            teamSlug={project.teamSlug}
+                            projectSlug={project.slug}
+                            runId={run.id}
+                            runHref={href}
+                          />
+                          <RunTestsPopover
+                            variant="skipped"
+                            count={run.skipped}
+                            teamSlug={project.teamSlug}
+                            projectSlug={project.slug}
+                            runId={run.id}
+                            runHref={href}
+                          />
+                        </div>
+                      )}
                     </TableCell>
 
                     {/* Duration */}
