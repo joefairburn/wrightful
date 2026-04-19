@@ -14,7 +14,6 @@ import { beforeAll, describe, expect, inject, it } from "vitest";
 const DASHBOARD_URL = inject("dashboardUrl");
 const API_KEY = inject("apiKey");
 const REPORT_PATH = inject("reportPath");
-const CLI_PATH = inject("cliPath");
 const DASHBOARD_DIR = inject("dashboardDir");
 const SESSION_COOKIE = inject("sessionCookie");
 const TEAM_SLUG = inject("teamSlug");
@@ -72,35 +71,35 @@ describe("Wrightful E2E", () => {
     });
   });
 
-  describe("Ingest auth + validation", () => {
+  describe("Streaming API auth + validation", () => {
     it("rejects requests without an auth token (401)", async () => {
-      const res = await fetch(`${DASHBOARD_URL}/api/ingest`, {
+      const res = await fetch(`${DASHBOARD_URL}/api/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ test: true }),
+        body: JSON.stringify({ idempotencyKey: "k", run: {} }),
       });
       expect(res.status).toBe(401);
     });
 
     it("rejects requests with a bad API key (401)", async () => {
-      const res = await fetch(`${DASHBOARD_URL}/api/ingest`, {
+      const res = await fetch(`${DASHBOARD_URL}/api/runs`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer wrf_bad_key_99999999",
         },
-        body: JSON.stringify({ test: true }),
+        body: JSON.stringify({ idempotencyKey: "k", run: {} }),
       });
       expect(res.status).toBe(401);
     });
 
     it("rejects invalid payloads (400) with a validation message", async () => {
-      const res = await fetch(`${DASHBOARD_URL}/api/ingest`, {
+      const res = await fetch(`${DASHBOARD_URL}/api/runs`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
-          "X-Wrightful-Version": "1",
+          "X-Wrightful-Version": "3",
         },
         body: JSON.stringify({ bad: "payload" }),
       });
@@ -109,8 +108,21 @@ describe("Wrightful E2E", () => {
       expect(body.error).toBe("Validation failed");
     });
 
-    it("rejects unknown protocol versions (409)", async () => {
-      const res = await fetch(`${DASHBOARD_URL}/api/ingest`, {
+    it("rejects superseded protocol versions (409)", async () => {
+      const res = await fetch(`${DASHBOARD_URL}/api/runs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${API_KEY}`,
+          "X-Wrightful-Version": "2",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(409);
+    });
+
+    it("rejects unknown (too new) protocol versions (409)", async () => {
+      const res = await fetch(`${DASHBOARD_URL}/api/runs`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -123,17 +135,8 @@ describe("Wrightful E2E", () => {
     });
   });
 
-  describe("CLI upload → dashboard render", () => {
-    it("uploads a real Playwright report via the CLI", () => {
-      const output = sh(
-        `node ${CLI_PATH} upload ${REPORT_PATH} --url ${DASHBOARD_URL} --token ${API_KEY}`,
-      );
-      expect(output).toContain("Upload complete");
-      // CLI prints the scoped runUrl the server returned.
-      expect(output).toContain(`/t/${TEAM_SLUG}/p/${PROJECT_SLUG}/runs/`);
-    });
-
-    it("renders the run on the scoped project runs page", async () => {
+  describe("Reporter stream → dashboard render", () => {
+    it("renders the streamed run on the scoped project runs page", async () => {
       const res = await fetchAuthed(PROJECT_URL);
       const html = await res.text();
       expect(res.status).toBe(200);
@@ -169,6 +172,9 @@ describe("Wrightful E2E", () => {
     let runId: string;
     let testResultId: string;
     beforeAll(() => {
+      // The reporter-driven playwright run in globalSetup streams real test
+      // results into the dashboard; grab one so the artifact register+upload
+      // tests below have a valid (runId, testResultId) pair to point at.
       const seeded = readSeededTestResult();
       runId = seeded.runId;
       testResultId = seeded.testResultId;
@@ -180,7 +186,7 @@ describe("Wrightful E2E", () => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
-          "X-Wrightful-Version": "1",
+          "X-Wrightful-Version": "3",
         },
         body: JSON.stringify({}),
       });
@@ -197,7 +203,7 @@ describe("Wrightful E2E", () => {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${API_KEY}`,
-            "X-Wrightful-Version": "1",
+            "X-Wrightful-Version": "3",
           },
           body: JSON.stringify({
             runId,
@@ -242,7 +248,7 @@ describe("Wrightful E2E", () => {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${API_KEY}`,
-          "X-Wrightful-Version": "1",
+          "X-Wrightful-Version": "3",
           "Content-Type": "application/zip",
           "Content-Length": String(payloadBytes.length),
         },
@@ -276,7 +282,7 @@ describe("Wrightful E2E", () => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
-          "X-Wrightful-Version": "1",
+          "X-Wrightful-Version": "3",
         },
         body: JSON.stringify({
           runId: "nonexistent-run",
@@ -304,7 +310,7 @@ function readSeededTestResult(): { runId: string; testResultId: string } {
   const rows = JSON.parse(rowJson)[0]?.results ?? [];
   if (rows.length !== 1) {
     throw new Error(
-      "Expected exactly one seeded test_result in D1 — did the CLI upload test run first?",
+      "Expected exactly one seeded test_result in D1 — did the reporter-driven playwright run seed data in globalSetup?",
     );
   }
   return {

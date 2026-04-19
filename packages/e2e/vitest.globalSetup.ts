@@ -25,9 +25,8 @@ import type { TestProject } from "vitest/node";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
 const DASHBOARD_DIR = resolve(ROOT, "packages/dashboard");
-const CLI_DIR = resolve(ROOT, "packages/cli");
+const REPORTER_DIR = resolve(ROOT, "packages/reporter");
 const E2E_DIR = resolve(ROOT, "packages/e2e");
-const CLI_PATH = resolve(CLI_DIR, "dist/index.js");
 const REPORT_PATH = resolve(E2E_DIR, "playwright-report.json");
 const DEV_VARS_PATH = resolve(DASHBOARD_DIR, ".dev.vars");
 const DEV_VARS_BACKUP_PATH = resolve(DASHBOARD_DIR, ".dev.vars.e2e-backup");
@@ -137,8 +136,8 @@ async function signUpTestUser(): Promise<SignUpResult> {
 }
 
 export async function setup(project: TestProject): Promise<void> {
-  log("Step 1: Build CLI");
-  run("pnpm build", { cwd: CLI_DIR });
+  log("Step 1: Build reporter");
+  run("pnpm build", { cwd: REPORTER_DIR });
 
   log("Step 2: Apply D1 migrations");
   run("pnpm db:migrate:local", { cwd: DASHBOARD_DIR });
@@ -194,12 +193,23 @@ export async function setup(project: TestProject): Promise<void> {
     cwd: DASHBOARD_DIR,
   });
 
-  log("Step 7: Run Playwright tests to generate a real JSON report");
+  log(
+    "Step 7: Run Playwright with the reporter — streams a real run into the dashboard",
+  );
   if (existsSync(REPORT_PATH)) unlinkSync(REPORT_PATH);
   try {
-    run("npx playwright test", { cwd: E2E_DIR });
+    // WRIGHTFUL_URL / WRIGHTFUL_TOKEN pick up in the reporter's onBegin;
+    // playwright.config.ts is already wired to load @wrightful/reporter.
+    run("npx playwright test", {
+      cwd: E2E_DIR,
+      env: {
+        ...process.env,
+        WRIGHTFUL_URL: DASHBOARD_URL,
+        WRIGHTFUL_TOKEN: API_KEY,
+      },
+    });
   } catch {
-    // Some demo tests may fail — that's fine, we only need the JSON report.
+    // Some demo tests may fail — that's fine, we only need the streamed data.
   }
   if (!existsSync(REPORT_PATH)) {
     throw new Error("Playwright did not generate a JSON report");
@@ -208,7 +218,6 @@ export async function setup(project: TestProject): Promise<void> {
   project.provide("dashboardUrl", DASHBOARD_URL);
   project.provide("apiKey", API_KEY);
   project.provide("reportPath", REPORT_PATH);
-  project.provide("cliPath", CLI_PATH);
   project.provide("dashboardDir", DASHBOARD_DIR);
   project.provide("sessionCookie", sessionCookie);
   project.provide("teamSlug", TEAM_SLUG);
@@ -241,7 +250,6 @@ declare module "vitest" {
     dashboardUrl: string;
     apiKey: string;
     reportPath: string;
-    cliPath: string;
     dashboardDir: string;
     sessionCookie: string;
     teamSlug: string;

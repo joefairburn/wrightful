@@ -1,0 +1,34 @@
+{
+  "name": "@wrightful/reporter",
+  "version": "0.1.0",
+  "description": "Playwright reporter that streams test results to your Wrightful dashboard as each test completes.",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsgo --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^25.6.0",
+    "@typescript/native-preview": "7.0.0-dev.20260416.2",
+    "tsdown": "^0.21.9",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.4"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.40"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

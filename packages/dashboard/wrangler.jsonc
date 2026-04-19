@@ -10,6 +10,12 @@
   "observability": {
     "enabled": true,
   },
+  // Cron Triggers. The watchdog sweeps runs stuck at status='running' (e.g.
+  // CI killed mid-suite, reporter's completeRun failed) and marks them
+  // 'interrupted' once they're older than WRIGHTFUL_RUN_STALE_MINUTES.
+  "triggers": {
+    "crons": ["*/5 * * * *"],
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -37,6 +43,10 @@
     // Public origin of the dashboard, used by Better Auth for sign-in
     // callbacks. Required. Locally this is "http://localhost:5173".
     "WRIGHTFUL_PUBLIC_URL": "http://localhost:5173",
+    // Minutes a run can sit at status='running' before the watchdog marks
+    // it 'interrupted'. Default 30 — longer than any realistic single test
+    // run, shorter than someone-checks-the-dashboard-the-next-morning.
+    "WRIGHTFUL_RUN_STALE_MINUTES": "30",
   },
   // Cloudflare-native rate limiters. `period` must be 10 or 60 seconds.
   // Namespace ids are per-account; keep them unique across our Workers.
@@ -49,9 +59,9 @@
       "simple": { "limit": 20, "period": 60 },
     },
     {
-      // Authenticated CLI API (/api/ingest, /api/artifacts/register,
-      // /api/artifacts/:id/upload). Keyed by apiKey.id — tenant-scoped, not
-      // IP, so CI workers sharing an egress IP don't trip each other.
+      // Authenticated streaming ingest API (/api/runs/*, /api/artifacts/*).
+      // Keyed by apiKey.id — tenant-scoped, not IP, so CI workers sharing an
+      // egress IP don't trip each other.
       "name": "API_RATE_LIMITER",
       "namespace_id": "1002",
       "simple": { "limit": 120, "period": 60 },

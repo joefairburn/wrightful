@@ -29,14 +29,14 @@ jobs:
       - name: Format check (oxfmt)
         run: pnpm format
 
-      - name: Typecheck CLI
-        run: pnpm --filter @wrightful/cli typecheck
-
       - name: Typecheck Dashboard
         run: pnpm --filter @wrightful/dashboard typecheck
 
-  test-cli:
-    name: CLI Tests
+      - name: Typecheck Reporter
+        run: pnpm --filter @wrightful/reporter typecheck
+
+  test-reporter:
+    name: Reporter Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,11 +51,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run CLI tests
-        run: pnpm --filter @wrightful/cli test
+      - name: Run reporter tests
+        run: pnpm --filter @wrightful/reporter test
 
-      - name: Build CLI
-        run: pnpm --filter @wrightful/cli build
+      - name: Build reporter
+        run: pnpm --filter @wrightful/reporter build
 
   test-dashboard:
     name: Dashboard Tests
@@ -81,15 +81,13 @@ jobs:
         env:
           CI: true
 
-  # Playwright version canary: This job generates a real Playwright JSON report
-  # and feeds it through the CLI parser → dashboard ingest pipeline. When Renovate
-  # bumps @playwright/test and opens a PR, this full flow runs automatically.
-  # If Playwright changes the JSON report format, this job will fail — making it
-  # the early warning system for format incompatibilities.
+  # Playwright version canary: exercises the reporter against a live dashboard
+  # shape (via the dogfood e2e suite). When Renovate bumps @playwright/test,
+  # this job surfaces any format / reporter-API incompatibilities early.
   test-e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: [test-cli, test-dashboard]
+    needs: [test-reporter, test-dashboard]
     steps:
       - uses: actions/checkout@v4
 
@@ -102,6 +100,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+
+      - name: Build reporter
+        run: pnpm --filter @wrightful/reporter build
 
       - name: Install Playwright browsers
         run: pnpm --filter @wrightful/e2e exec playwright install --with-deps chromium

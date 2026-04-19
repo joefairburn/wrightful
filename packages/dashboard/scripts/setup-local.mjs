@@ -118,12 +118,13 @@ if (existsSync(envUrl)) {
 // Pre-launch, we squash the initial migration rather than stacking new ones.
 // That means a dev's existing local D1 may have an older schema with no way
 // to catch up via `wrangler d1 migrations apply` (which treats 0000 as
-// already-applied). Detect that case by probing for a canary column and wipe
+// already-applied). Detect that case by probing for canary objects and wipe
 // the local D1 state so the fresh migration runs cleanly. `.wrangler` also
 // holds KV/R2 emulator state — wiping is fine for local dev.
 const d1StateDir = new URL("../.wrangler/state/v3/d1", import.meta.url);
-if (existsSync(d1StateDir)) {
-  const probe = spawnSync(
+
+function runProbe(command) {
+  return spawnSync(
     "npx",
     [
       "wrangler",
@@ -133,7 +134,7 @@ if (existsSync(d1StateDir)) {
       "--local",
       "--json",
       "--command",
-      "SELECT json_group_array(name) AS cols FROM pragma_table_info('runs');",
+      command,
     ],
     {
       cwd: fileURLToPath(dashboardDir),
@@ -141,20 +142,43 @@ if (existsSync(d1StateDir)) {
       encoding: "utf8",
     },
   );
-  if (probe.status === 0) {
+}
+
+function wipeLocalD1() {
+  console.log(
+    `${pc.dim("›")} ${"schema out of date…".padEnd(LABEL_WIDTH)} ${pc.yellow("wiping local D1")}`,
+  );
+  rmSync(d1StateDir, { recursive: true, force: true });
+  const seedPath = fileURLToPath(seedConfigUrl);
+  if (existsSync(seedPath)) rmSync(seedPath);
+}
+
+if (existsSync(d1StateDir)) {
+  const colsProbe = runProbe(
+    "SELECT json_group_array(name) AS cols FROM pragma_table_info('runs');",
+  );
+  if (colsProbe.status === 0) {
     // wrangler --json emits `"cols": "[\"id\",\"project_id\",...]"` — a
     // JSON-in-JSON string. Simple substring checks on the escaped form are
     // enough: `\"id\"` appears only when the runs table exists at all,
     // `\"committed\"` only when the column is present.
-    const runsExists = probe.stdout.includes('\\"id\\"');
-    const hasCommitted = probe.stdout.includes('\\"committed\\"');
+    const runsExists = colsProbe.stdout.includes('\\"id\\"');
+    const hasCommitted = colsProbe.stdout.includes('\\"committed\\"');
     if (runsExists && !hasCommitted) {
-      console.log(
-        `${pc.dim("›")} ${"schema out of date…".padEnd(LABEL_WIDTH)} ${pc.yellow("wiping local D1")}`,
+      wipeLocalD1();
+    } else if (runsExists) {
+      // runs is initialized — also check the committed_runs view exists.
+      // Older squashed 0000s created runs.committed but not the view; wrangler
+      // won't re-run 0000, so we'd end up with queries against a missing view.
+      const viewProbe = runProbe(
+        "SELECT name FROM sqlite_master WHERE type = 'view' AND name = 'committed_runs';",
       );
-      rmSync(d1StateDir, { recursive: true, force: true });
-      const seedPath = fileURLToPath(seedConfigUrl);
-      if (existsSync(seedPath)) rmSync(seedPath);
+      if (
+        viewProbe.status === 0 &&
+        !viewProbe.stdout.includes("committed_runs")
+      ) {
+        wipeLocalD1();
+      }
     }
   }
 }
@@ -207,11 +231,15 @@ if (!skipFixtures) {
 
   async function probe(url) {
     try {
-      const res = await fetch(`${url}/api/ingest`, {
+      // Hit the streaming ingest endpoint with an auth header + empty body.
+      // 400 = server up, auth accepted, body invalid (expected).
+      // 401 = auth rejected (bad API key).
+      const res = await fetch(`${url}/api/runs`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${seedConfig.apiKey}`,
+          "X-Wrightful-Version": "3",
         },
         body: "{}",
       });
@@ -229,7 +257,7 @@ if (!skipFixtures) {
   if (!alreadyUp) {
     // If 5173 is held by anything else (sibling workspace's dev server, a
     // stray process, etc.), fall back to a free port. Fixture upload hits
-    // /api/ingest with a Bearer key, so the URL mismatch vs Better Auth's
+    // /api/runs with a Bearer key, so the URL mismatch vs Better Auth's
     // pinned WRIGHTFUL_PUBLIC_URL doesn't matter for this window.
     const port = await pickPort(5173);
     if (port !== 5173) {

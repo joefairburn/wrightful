@@ -5,3 +5,5 @@ import * as schema from "./schema";
 export function getDb() {
   return drizzle(env.DB, { schema });
 }
+
+export type Db = ReturnType<typeof getDb>;

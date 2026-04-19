@@ -4,16 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Wrightful
 
-Wrightful is a Playwright test reporting dashboard. A CLI parses Playwright JSON report files and uploads results to a Cloudflare Workers-based dashboard that stores data in D1 (SQLite) and artifacts in R2. It also ships a GitHub Action for CI integration.
+Wrightful is a Playwright test reporting dashboard. A custom Playwright reporter streams test results live to a Cloudflare Workers-based dashboard that stores data in D1 (SQLite) and artifacts in R2.
 
 ## Monorepo Structure
 
-pnpm workspace with four packages:
+pnpm workspace with three packages:
 
-- **`packages/cli`** — Node CLI (`wrightful upload <report>`). Built with Commander, tsdown (rolldown). Parses Playwright JSON reports, detects CI env, uploads to dashboard API.
-- **`packages/dashboard`** — Cloudflare Worker app using [RedwoodSDK (rwsdk)](https://docs.rwsdk.com). Vite + React 19 RSC. Drizzle ORM on D1, R2 for artifacts. Styled with Tailwind v4 + Base UI primitives wrapped as a local component library in `src/app/components/ui/`; nuqs for URL state. Dashboard auth is Better Auth (sessions, email + password, optional GitHub OAuth); API auth remains Bearer API keys. The dashboard serves the ingest/artifact API (`/api/ingest`, `/api/artifacts/presign`) and the tenant-scoped UI (`/t/:teamSlug/p/:projectSlug/…`).
-- **`packages/e2e`** — Playwright E2E tests that run against the Playwright docs site (demo suite used to generate test reports for dogfooding).
-- **`packages/github-action`** — GitHub Action scaffold wrapping the CLI.
+- **`packages/reporter`** — Playwright reporter (`@wrightful/reporter`). Streams results + artifacts to the dashboard as each test completes. Built with tsdown (rolldown). Per-test emission: one row per test at its final outcome, with retries aggregated into `flaky`.
+- **`packages/dashboard`** — Cloudflare Worker app using [RedwoodSDK (rwsdk)](https://docs.rwsdk.com). Vite + React 19 RSC. Drizzle ORM on D1, R2 for artifacts. Styled with Tailwind v4 + Base UI primitives wrapped as a local component library in `src/app/components/ui/`; nuqs for URL state. Dashboard auth is Better Auth (sessions, email + password, optional GitHub OAuth); API auth is Bearer API keys. Dashboard serves the streaming ingest + artifact API (`/api/runs/*`, `/api/artifacts/*`) and the tenant-scoped UI (`/t/:teamSlug/p/:projectSlug/…`).
+- **`packages/e2e`** — Playwright E2E tests that run against the Playwright docs site (demo suite used to generate test reports for dogfooding). Uses the reporter when `WRIGHTFUL_URL` / `WRIGHTFUL_TOKEN` env is set.
 
 ## Commands
 
@@ -25,18 +24,18 @@ pnpm install
 pnpm dev
 
 # Build
-pnpm build                              # dashboard (vite build)
-pnpm --filter @wrightful/cli build      # cli (tsdown)
+pnpm build                                   # dashboard (vite build) + reporter (tsdown)
+pnpm --filter @wrightful/reporter build      # reporter only
 
 # Tests
-pnpm test                               # cli + dashboard unit tests (vitest)
-pnpm --filter @wrightful/cli test       # cli tests only
-pnpm --filter @wrightful/dashboard test # dashboard tests only
-pnpm test:e2e                           # e2e (playwright)
+pnpm test                                    # dashboard + reporter unit tests (vitest)
+pnpm --filter @wrightful/dashboard test      # dashboard tests only
+pnpm --filter @wrightful/reporter test       # reporter tests only
+pnpm test:e2e                                # e2e (playwright)
 
 # Single test file
-pnpm --filter @wrightful/cli exec vitest run src/__tests__/parser.test.ts
 pnpm --filter @wrightful/dashboard exec vitest run src/__tests__/schemas.test.ts
+pnpm --filter @wrightful/reporter exec vitest run src/__tests__/aggregation.test.ts
 
 # Lint & format (oxc toolchain — not eslint/prettier)
 pnpm lint                               # oxlint (check)
@@ -45,7 +44,7 @@ pnpm format                             # oxfmt --check
 pnpm format:fix                         # oxfmt --write
 
 # Typecheck (uses tsgo — native TypeScript compiler preview)
-pnpm typecheck                          # both cli + dashboard
+pnpm typecheck                          # dashboard + reporter
 
 # Database migrations (dashboard)
 pnpm --filter @wrightful/dashboard db:generate       # generate migration from schema
@@ -57,13 +56,13 @@ pnpm --filter @wrightful/dashboard db:migrate:remote # apply to remote D1
 
 **Dashboard routing** (`packages/dashboard/src/worker.tsx`): rwsdk's `defineApp` composes middleware chains. API routes are under `prefix("/api", [...])` with `requireAuth` + `negotiateVersion` middleware, while dashboard pages use `render(Document, [...])` for RSC rendering.
 
-**Ingest flow**: CLI parses Playwright JSON report → builds `IngestPayload` (Zod-validated on both sides) → POST to `/api/ingest` → dashboard inserts run + test results + tags + annotations in batched D1 writes (900-statement chunks due to D1's 1000-statement limit).
+**Streaming ingest flow**: `@wrightful/reporter` loads in the user's `playwright.config.ts`. At `onBegin` it opens a run via `POST /api/runs`; per-test `onTestEnd` events buffer until the test is done (all retries finished) and then flush in batches via `POST /api/runs/:id/results`. Each response returns `clientKey → testResultId`, which the reporter uses to register + PUT artifacts via `POST /api/artifacts/register` + presigned R2 URLs. `onEnd` calls `POST /api/runs/:id/complete` to set the terminal status.
 
-**Shared schema contract**: The `IngestPayload` type is defined independently in both packages — `packages/cli/src/types.ts` (TypeScript interfaces) and `packages/dashboard/src/routes/api/schemas.ts` (Zod schemas). Keep them in sync when changing the API contract.
+**Shared schema contract**: Wire types live in both `packages/reporter/src/types.ts` (TypeScript interfaces) and `packages/dashboard/src/routes/api/schemas.ts` (Zod). Keep them in sync when changing the API contract.
 
 **Auth**: API key auth via `Authorization: Bearer <key>`. Keys are SHA-256 hashed, looked up by 8-char prefix, then hash-compared. Defined in `packages/dashboard/src/lib/auth.ts`.
 
-**Protocol versioning**: `X-Wrightful-Version` header for forward/backward compatibility between CLI and dashboard versions. Currently version 1.
+**Protocol versioning**: `X-Wrightful-Version` header. Currently only version 3 is supported — older reporters/CLIs get a 409.
 
 ## Frontend Stack & UI Conventions
 

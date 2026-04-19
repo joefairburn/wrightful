@@ -31,6 +31,7 @@ const STATUS_DOT: Record<string, string> = {
   flaky: "bg-warning",
   interrupted: "bg-warning",
   skipped: "bg-muted-foreground/30",
+  running: "bg-primary animate-pulse shadow-[0_0_6px_var(--color-primary)]",
 };
 
 export async function RunsListPage() {
@@ -67,12 +68,13 @@ export async function RunsListPage() {
               <EmptyHeader>
                 <EmptyTitle>No test runs yet</EmptyTitle>
                 <EmptyDescription>
-                  Upload your first Playwright report using the CLI.
+                  Wire the reporter into your playwright.config.ts and set
+                  WRIGHTFUL_URL + WRIGHTFUL_TOKEN in CI.
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
                 <code className="rounded-md bg-muted px-3 py-1.5 font-mono text-xs">
-                  npx @wrightful/cli upload ./playwright-report.json
+                  reporter: [[&apos;@wrightful/reporter&apos;]]
                 </code>
               </EmptyContent>
             </Empty>
@@ -242,6 +244,12 @@ export async function RunsListPage() {
                     {/* Test counts */}
                     <TableCell className="px-4 py-3">
                       <div className="flex items-center gap-1.5 flex-wrap">
+                        {run.status === "running" &&
+                        run.expectedTotalTests != null ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-primary/40 bg-primary/10 font-mono text-[11px] tabular-nums text-primary">
+                            {run.totalTests}/{run.expectedTotalTests}
+                          </span>
+                        ) : null}
                         <RunTestsPopover
                           variant="passed"
                           count={run.passed}

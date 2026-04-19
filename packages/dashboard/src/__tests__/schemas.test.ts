@@ -1,10 +1,28 @@
 import { describe, it, expect } from "vitest";
 import {
-  IngestPayloadSchema,
+  OpenRunPayloadSchema,
+  AppendResultsPayloadSchema,
+  CompleteRunPayloadSchema,
   RegisterArtifactsPayloadSchema,
 } from "../routes/api/schemas";
 
-describe("IngestPayloadSchema", () => {
+const validTestResult = {
+  clientKey: "ck-abc-0",
+  testId: "a1b2c3d4e5f67890",
+  title: "Payment flow > checkout",
+  file: "tests/payment.spec.ts",
+  projectName: "chromium",
+  status: "passed",
+  durationMs: 1234,
+  retryCount: 0,
+  errorMessage: null,
+  errorStack: null,
+  workerIndex: 0,
+  tags: ["@smoke"],
+  annotations: [{ type: "issue", description: "GH-123" }],
+};
+
+describe("OpenRunPayloadSchema", () => {
   const validPayload = {
     idempotencyKey: "test-key-1",
     run: {
@@ -17,73 +35,77 @@ describe("IngestPayloadSchema", () => {
       prNumber: 42,
       repo: "org/repo",
       actor: "octocat",
-      status: "passed",
-      durationMs: 10000,
       reporterVersion: "0.1.0",
       playwrightVersion: "1.50.0",
     },
-    results: [
-      {
-        testId: "a1b2c3d4e5f67890",
-        title: "Payment flow > checkout",
-        file: "tests/payment.spec.ts",
-        projectName: "chromium",
-        status: "passed",
-        durationMs: 1234,
-        retryCount: 0,
-        errorMessage: null,
-        errorStack: null,
-        workerIndex: 0,
-        tags: ["@smoke"],
-        annotations: [{ type: "issue", description: "GH-123" }],
-      },
-    ],
   };
 
   it("accepts a valid payload", () => {
-    const result = IngestPayloadSchema.safeParse(validPayload);
-    expect(result.success).toBe(true);
+    expect(OpenRunPayloadSchema.safeParse(validPayload).success).toBe(true);
   });
 
   it("rejects empty idempotencyKey", () => {
-    const result = IngestPayloadSchema.safeParse({
+    const result = OpenRunPayloadSchema.safeParse({
       ...validPayload,
       idempotencyKey: "",
     });
     expect(result.success).toBe(false);
   });
 
-  it("rejects invalid run status", () => {
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
-      run: { ...validPayload.run, status: "invalid" },
+  it("allows omitting every optional run field", () => {
+    const result = OpenRunPayloadSchema.safeParse({
+      idempotencyKey: "key",
+      run: {},
     });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts null-valued metadata fields", () => {
+    const result = OpenRunPayloadSchema.safeParse({
+      idempotencyKey: "key",
+      run: {
+        ciProvider: null,
+        branch: null,
+        environment: null,
+        commitSha: null,
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("AppendResultsPayloadSchema", () => {
+  it("accepts a single valid result", () => {
+    const result = AppendResultsPayloadSchema.safeParse({
+      results: [validTestResult],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty results array (must be min 1)", () => {
+    const result = AppendResultsPayloadSchema.safeParse({ results: [] });
     expect(result.success).toBe(false);
   });
 
   it("accepts all valid test result statuses", () => {
     for (const status of ["passed", "failed", "flaky", "skipped", "timedout"]) {
-      const result = IngestPayloadSchema.safeParse({
-        ...validPayload,
-        results: [{ ...validPayload.results[0], status }],
+      const result = AppendResultsPayloadSchema.safeParse({
+        results: [{ ...validTestResult, status }],
       });
       expect(result.success).toBe(true);
     }
   });
 
   it("rejects negative durationMs", () => {
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
-      run: { ...validPayload.run, durationMs: -1 },
+    const result = AppendResultsPayloadSchema.safeParse({
+      results: [{ ...validTestResult, durationMs: -1 }],
     });
     expect(result.success).toBe(false);
   });
 
   it("defaults retryCount to 0", () => {
-    const { retryCount: _retryCount, ...withoutRetry } =
-      validPayload.results[0];
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
+    const { retryCount: _retryCount, ...withoutRetry } = validTestResult;
+    const result = AppendResultsPayloadSchema.safeParse({
       results: [withoutRetry],
     });
     expect(result.success).toBe(true);
@@ -93,9 +115,8 @@ describe("IngestPayloadSchema", () => {
   });
 
   it("defaults tags to empty array", () => {
-    const { tags: _tags, ...withoutTags } = validPayload.results[0];
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
+    const { tags: _tags, ...withoutTags } = validTestResult;
+    const result = AppendResultsPayloadSchema.safeParse({
       results: [withoutTags],
     });
     expect(result.success).toBe(true);
@@ -106,9 +127,8 @@ describe("IngestPayloadSchema", () => {
 
   it("defaults annotations to empty array", () => {
     const { annotations: _annotations, ...withoutAnnotations } =
-      validPayload.results[0];
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
+      validTestResult;
+    const result = AppendResultsPayloadSchema.safeParse({
       results: [withoutAnnotations],
     });
     expect(result.success).toBe(true);
@@ -117,75 +137,52 @@ describe("IngestPayloadSchema", () => {
     }
   });
 
-  it("accepts empty results array", () => {
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
-      results: [],
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("allows nullable optional fields", () => {
-    const result = IngestPayloadSchema.safeParse({
-      idempotencyKey: "key",
-      run: {
-        status: "passed",
-        durationMs: 100,
-      },
-      results: [],
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects missing run.status", () => {
-    const result = IngestPayloadSchema.safeParse({
-      idempotencyKey: "key",
-      run: { durationMs: 100 },
-      results: [],
+  it("rejects empty title", () => {
+    const result = AppendResultsPayloadSchema.safeParse({
+      results: [{ ...validTestResult, title: "" }],
     });
     expect(result.success).toBe(false);
   });
 
-  it("rejects missing test result title", () => {
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
-      results: [{ ...validPayload.results[0], title: "" }],
+  it("accepts optional clientKey", () => {
+    const { clientKey: _c, ...withoutKey } = validTestResult;
+    const result = AppendResultsPayloadSchema.safeParse({
+      results: [withoutKey],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty clientKey when provided", () => {
+    const result = AppendResultsPayloadSchema.safeParse({
+      results: [{ ...validTestResult, clientKey: "" }],
     });
     expect(result.success).toBe(false);
   });
+});
 
-  it("accepts optional clientKey on results (v2)", () => {
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
-      results: [{ ...validPayload.results[0], clientKey: "ck-abc-0" }],
-    });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.results[0].clientKey).toBe("ck-abc-0");
+describe("CompleteRunPayloadSchema", () => {
+  it("accepts terminal statuses", () => {
+    for (const status of ["passed", "failed", "timedout", "interrupted"]) {
+      const result = CompleteRunPayloadSchema.safeParse({
+        status,
+        durationMs: 1000,
+      });
+      expect(result.success).toBe(true);
     }
   });
 
-  it("allows omitting environment (back-compat with older CLIs)", () => {
-    const { environment: _env, ...runWithoutEnv } = validPayload.run;
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
-      run: runWithoutEnv,
+  it("rejects 'running' (non-terminal)", () => {
+    const result = CompleteRunPayloadSchema.safeParse({
+      status: "running",
+      durationMs: 1000,
     });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
-  it("accepts null environment", () => {
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
-      run: { ...validPayload.run, environment: null },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects empty clientKey", () => {
-    const result = IngestPayloadSchema.safeParse({
-      ...validPayload,
-      results: [{ ...validPayload.results[0], clientKey: "" }],
+  it("rejects negative durationMs", () => {
+    const result = CompleteRunPayloadSchema.safeParse({
+      status: "passed",
+      durationMs: -1,
     });
     expect(result.success).toBe(false);
   });

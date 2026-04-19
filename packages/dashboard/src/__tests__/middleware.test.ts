@@ -11,7 +11,7 @@ import { validateApiKey } from "@/lib/auth";
 const mockedValidateApiKey = vi.mocked(validateApiKey);
 
 function makeRequest(headers: Record<string, string> = {}): Request {
-  return new Request("https://example.com/api/ingest", {
+  return new Request("https://example.com/api/runs", {
     method: "POST",
     headers,
   });
@@ -86,20 +86,9 @@ describe("negotiateVersion", () => {
     expect(result).toBeUndefined();
   });
 
-  it("passes through for valid version 1", () => {
+  it("passes through for valid version 3", () => {
     const result = (negotiateVersion as any)({
-      request: makeRequest({ "X-Wrightful-Version": "1" }),
-      ctx: {},
-      rw: { nonce: "" },
-      response: { headers: new Headers() },
-    });
-
-    expect(result).toBeUndefined();
-  });
-
-  it("passes through for valid version 2", () => {
-    const result = (negotiateVersion as any)({
-      request: makeRequest({ "X-Wrightful-Version": "2" }),
+      request: makeRequest({ "X-Wrightful-Version": "3" }),
       ctx: {},
       rw: { nonce: "" },
       response: { headers: new Headers() },
@@ -120,9 +109,9 @@ describe("negotiateVersion", () => {
     expect(result.status).toBe(400);
   });
 
-  it("returns 409 for version too old", async () => {
+  it("returns 409 for v2 (now unsupported — CLI retired)", async () => {
     const result = (negotiateVersion as any)({
-      request: makeRequest({ "X-Wrightful-Version": "0" }),
+      request: makeRequest({ "X-Wrightful-Version": "2" }),
       ctx: {},
       rw: { nonce: "" },
       response: { headers: new Headers() },
@@ -131,9 +120,9 @@ describe("negotiateVersion", () => {
     expect(result).toBeInstanceOf(Response);
     expect(result.status).toBe(409);
     const body = await result.json();
-    expect(body.minimumVersion).toBe(1);
-    expect(body.maximumVersion).toBe(2);
-    expect(body.error).toContain("CLI version too old");
+    expect(body.minimumVersion).toBe(3);
+    expect(body.maximumVersion).toBe(3);
+    expect(body.error).toContain("Client version too old");
   });
 
   it("returns 409 for version too new", async () => {

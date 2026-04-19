@@ -1,7 +1,7 @@
-// Runs the fixture Playwright suite in multiple scenarios, then invokes the
-// real `wrightful upload` CLI against a locally running dashboard. Seeds
-// genuine ingest + artifact rows end-to-end — includes traces, videos, and
-// screenshots in R2.
+// Runs the fixture Playwright suite in multiple scenarios against a locally
+// running dashboard, using @wrightful/reporter so ingest + artifact rows
+// land via the streaming path (same flow real CI uses). Seeds traces,
+// videos, and screenshots in R2.
 //
 // Requires `.dev.vars.seed.json` from `pnpm db:seed-demo` (run automatically
 // as part of `pnpm setup:local`). If the dashboard dev server isn't already
@@ -39,11 +39,12 @@ const log = (...args) => {
 
 async function probe() {
   try {
-    const res = await fetch(`${baseUrl}/api/ingest`, {
+    const res = await fetch(`${baseUrl}/api/runs`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${seed.apiKey}`,
+        "X-Wrightful-Version": "3",
       },
       body: "{}",
     });
@@ -110,13 +111,17 @@ async function ensureDashboardRunning() {
 
 await ensureDashboardRunning();
 
-// ---------- Ensure CLI is built ----------
+// ---------- Ensure reporter is built ----------
 
+// Playwright loads reporters via Node's resolver, which expects the built
+// entry at packages/reporter/dist/index.js. If it's missing we build it
+// first rather than letting Playwright fail mid-scenario with an opaque
+// module-not-found.
 const stopBuildSpinner = QUIET
   ? () => {}
-  : startSpinner(`  ${pc.dim("›")} ${"building CLI…".padEnd(30)} `);
+  : startSpinner(`  ${pc.dim("›")} ${"building reporter…".padEnd(30)} `);
 const build = await new Promise((resolve) => {
-  const child = spawn("pnpm", ["--filter", "@wrightful/cli", "build"], {
+  const child = spawn("pnpm", ["--filter", "@wrightful/reporter", "build"], {
     cwd: repoRoot,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -129,15 +134,15 @@ const build = await new Promise((resolve) => {
 stopBuildSpinner();
 if (build.status !== 0) {
   if (QUIET)
-    process.stdout.write(`  ${pc.dim("›")} ${"building CLI…".padEnd(30)} `);
+    process.stdout.write(
+      `  ${pc.dim("›")} ${"building reporter…".padEnd(30)} `,
+    );
   console.log(pc.red("failed"));
   process.stderr.write(build.stdout);
   process.stderr.write(build.stderr);
   process.exit(build.status);
 }
 log(pc.green("done"));
-
-const cliBin = new URL("../../cli/dist/index.js", import.meta.url).pathname;
 
 // ---------- Scenarios ----------
 
@@ -198,14 +203,22 @@ async function runScenario(scenario, index, total) {
   const stopSpinner = startSpinner(prefix);
 
   const resultsDir = `${playwrightDir}test-results/${scenario.label}`;
-  const reportPath = `${resultsDir}/report.json`;
   rmSync(resultsDir, { recursive: true, force: true });
 
+  // Spoof GitHub Actions CI detection so the run gets stamped with branch /
+  // commit / build id. The reporter reads these at onBegin, before opening
+  // the run, via packages/reporter/src/ci.ts.
   const pwEnv = {
     ...process.env,
-    WRIGHTFUL_FIXTURE_REPORT: reportPath,
     WRIGHTFUL_FIXTURE_FAILURES: scenario.includeFailures ? "1" : "0",
     PLAYWRIGHT_OUTPUT_DIR: resultsDir,
+    WRIGHTFUL_URL: baseUrl,
+    WRIGHTFUL_TOKEN: seed.apiKey,
+    GITHUB_ACTIONS: "true",
+    GITHUB_RUN_ID: scenario.buildId,
+    GITHUB_REF_NAME: scenario.branch,
+    GITHUB_SHA: scenario.sha,
+    GITHUB_REPOSITORY: "wrightful/example-shop",
   };
 
   const pw = await runCaptured(
@@ -223,7 +236,7 @@ async function runScenario(scenario, index, total) {
 
   // Playwright exits non-zero on any test failure. Scenarios that
   // *intentionally* include failures tolerate exit 1 — everything else should
-  // stay green, and we bail on unexpected failures or a missing report.
+  // stay green, and we bail on unexpected failures.
   if (pw.code !== 0 && !scenario.includeFailures) {
     stopSpinner();
     console.log(pc.red("failed"));
@@ -232,43 +245,6 @@ async function runScenario(scenario, index, total) {
     );
     process.stderr.write(pw.output);
     process.exit(pw.code);
-  }
-
-  if (!existsSync(reportPath)) {
-    stopSpinner();
-    console.log(pc.red("failed"));
-    console.error(`\nno report at ${reportPath} — playwright output:\n`);
-    process.stderr.write(pw.output);
-    process.exit(1);
-  }
-
-  const uploadEnv = {
-    ...process.env,
-    WRIGHTFUL_URL: baseUrl,
-    WRIGHTFUL_API_KEY: seed.apiKey,
-    // Spoof GitHub Actions CI detection so the run gets stamped with branch/
-    // commit/build id without modifying the CLI.
-    GITHUB_ACTIONS: "true",
-    GITHUB_RUN_ID: scenario.buildId,
-    GITHUB_REF_NAME: scenario.branch,
-    GITHUB_SHA: scenario.sha,
-    GITHUB_REPOSITORY: "wrightful/example-shop",
-  };
-
-  const upload = await runCaptured(
-    "node",
-    [cliBin, "upload", "--artifacts", "all", reportPath],
-    { cwd: dashboardDir, env: uploadEnv },
-  );
-
-  if (upload.code !== 0) {
-    stopSpinner();
-    console.log(pc.red("failed"));
-    console.error(
-      `\nupload failed for ${scenario.label} (exit ${upload.code}) — output:\n`,
-    );
-    process.stderr.write(upload.output);
-    process.exit(upload.code);
   }
 
   stopSpinner();

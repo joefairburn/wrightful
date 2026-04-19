@@ -6,7 +6,11 @@ import { AppLayout } from "@/app/components/app-layout";
 import { Document } from "@/app/document";
 import { setCommonHeaders } from "@/app/headers";
 import { requireAuth, negotiateVersion } from "@/routes/api/middleware";
-import { ingestHandler } from "@/routes/api/ingest";
+import {
+  openRunHandler,
+  appendResultsHandler,
+  completeRunHandler,
+} from "@/routes/api/runs";
 import { registerHandler } from "@/routes/api/artifacts";
 import { artifactUploadHandler } from "@/routes/api/artifact-upload";
 import { artifactDownloadHandler } from "@/routes/api/artifact-download";
@@ -18,6 +22,7 @@ import {
 import { authHandler } from "@/routes/auth";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { loadSession, requireUser } from "@/routes/middleware";
+import { scheduledHandler } from "@/scheduled";
 
 // Native Cloudflare rate limiters — configured in wrangler.jsonc#ratelimits.
 const authRateLimit = rateLimit(env.AUTH_RATE_LIMITER, (request) => {
@@ -99,7 +104,7 @@ function settingsRootRedirect({ request }: { request: Request }) {
   );
 }
 
-export default defineApp([
+const app = defineApp([
   setCommonHeaders(),
 
   // Signed-token artifact download (see lib/artifact-tokens.ts).
@@ -131,8 +136,14 @@ export default defineApp([
     requireAuth,
     apiRateLimit,
     negotiateVersion,
-    route("/ingest", {
-      post: ingestHandler,
+    route("/runs", {
+      post: openRunHandler,
+    }),
+    route("/runs/:id/results", {
+      post: appendResultsHandler,
+    }),
+    route("/runs/:id/complete", {
+      post: completeRunHandler,
     }),
     route("/artifacts/register", {
       post: registerHandler,
@@ -190,3 +201,11 @@ export default defineApp([
     ]),
   ]),
 ]);
+
+// Cloudflare Workers module format: `fetch` handles HTTP, `scheduled`
+// handles Cron Triggers. Object.assign preserves rwsdk's AppDefinition
+// shape (including `__rwRoutes`) so `linkFor<App>()` in app/links.ts can
+// still infer route paths from the default export.
+export default Object.assign(app, {
+  scheduled: scheduledHandler,
+});

@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 const TestResultSchema = z.object({
-  // v2 addition: opaque client-generated key used to correlate each test
-  // result in the request with the server-assigned testResultId returned in
-  // the ingest response. Optional for v1 compatibility.
+  // Opaque client-generated key used to correlate each test result in the
+  // request with the server-assigned testResultId returned in the response.
+  // The reporter uses it to fire per-test artifact uploads.
   clientKey: z.string().min(1).optional(),
   testId: z.string().min(1),
   title: z.string().min(1),
@@ -26,7 +26,9 @@ const TestResultSchema = z.object({
     .default([]),
 });
 
-const RunMetadataSchema = z.object({
+export type TestResultInput = z.infer<typeof TestResultSchema>;
+
+const RunMetaCommon = {
   ciProvider: z.string().nullable().optional(),
   ciBuildId: z.string().nullable().optional(),
   branch: z.string().nullable().optional(),
@@ -36,19 +38,29 @@ const RunMetadataSchema = z.object({
   prNumber: z.number().int().nullable().optional(),
   repo: z.string().nullable().optional(),
   actor: z.string().nullable().optional(),
-  status: z.enum(["passed", "failed", "timedout", "interrupted"]),
-  durationMs: z.number().int().min(0),
   reporterVersion: z.string().nullable().optional(),
   playwrightVersion: z.string().nullable().optional(),
-});
+  expectedTotalTests: z.number().int().min(0).nullable().optional(),
+};
 
-export const IngestPayloadSchema = z.object({
+// ---------- v3 streaming endpoints ----------
+
+export const OpenRunPayloadSchema = z.object({
   idempotencyKey: z.string().min(1),
-  run: RunMetadataSchema,
-  results: z.array(TestResultSchema).min(0),
+  run: z.object(RunMetaCommon),
 });
+export type OpenRunPayload = z.infer<typeof OpenRunPayloadSchema>;
 
-export type IngestPayload = z.infer<typeof IngestPayloadSchema>;
+export const AppendResultsPayloadSchema = z.object({
+  results: z.array(TestResultSchema).min(1),
+});
+export type AppendResultsPayload = z.infer<typeof AppendResultsPayloadSchema>;
+
+export const CompleteRunPayloadSchema = z.object({
+  status: z.enum(["passed", "failed", "timedout", "interrupted"]),
+  durationMs: z.number().int().min(0),
+});
+export type CompleteRunPayload = z.infer<typeof CompleteRunPayloadSchema>;
 
 const ArtifactRequestSchema = z.object({
   testResultId: z.string().min(1),

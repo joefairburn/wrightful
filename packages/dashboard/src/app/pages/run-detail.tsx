@@ -26,6 +26,7 @@ const STATUS_DOT: Record<string, string> = {
   flaky: "bg-warning",
   interrupted: "bg-warning",
   skipped: "bg-muted-foreground/30",
+  running: "bg-primary animate-pulse shadow-[0_0_6px_var(--color-primary)]",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -35,6 +36,7 @@ const STATUS_LABEL: Record<string, string> = {
   flaky: "Flaky",
   interrupted: "Interrupted",
   skipped: "Skipped",
+  running: "Running",
 };
 
 const RESULT_STATUS_ORDER: Record<string, number> = {
@@ -80,7 +82,7 @@ function SummaryTile({
   tone,
 }: {
   label: string;
-  value: number;
+  value: React.ReactNode;
   accent?: boolean;
   tone?: "success" | "destructive" | "warning";
 }) {
@@ -250,7 +252,22 @@ export async function RunDetailPage() {
             </div>
 
             <div className="grid grid-cols-4 gap-3">
-              <SummaryTile label="Total" value={run.totalTests} />
+              <SummaryTile
+                label="Total"
+                value={
+                  run.status === "running" && run.expectedTotalTests != null ? (
+                    <span>
+                      {run.totalTests}
+                      <span className="text-muted-foreground">
+                        {" / "}
+                        {run.expectedTotalTests}
+                      </span>
+                    </span>
+                  ) : (
+                    run.totalTests
+                  )
+                }
+              />
               <SummaryTile
                 label="Passed"
                 value={run.passed}

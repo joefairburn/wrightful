@@ -1,5 +1,15 @@
 name: Playwright Tests
 
+# Configure @wrightful/reporter in playwright.config.ts so results stream
+# into the dashboard live as tests complete:
+#
+#   // playwright.config.ts
+#   reporter: [['list'], ['@wrightful/reporter']],
+#
+# The WRIGHTFUL_URL / WRIGHTFUL_TOKEN env vars below are read by the
+# reporter at onBegin. Shards converge on a single run via a deterministic
+# idempotency key derived from GITHUB_RUN_ID.
+
 on:
   push:
     branches: [main]
@@ -28,10 +38,6 @@ jobs:
 
       - name: Run Playwright tests
         run: npx playwright test --shard=${{ matrix.shard }}
-
-      - name: Upload to Wrightful
-        if: always()
-        run: npx @wrightful/cli upload ./playwright-report.json
         env:
           WRIGHTFUL_URL: ${{ secrets.WRIGHTFUL_URL }}
-          WRIGHTFUL_API_KEY: ${{ secrets.WRIGHTFUL_API_KEY }}
+          WRIGHTFUL_TOKEN: ${{ secrets.WRIGHTFUL_TOKEN }}

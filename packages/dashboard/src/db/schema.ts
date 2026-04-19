@@ -197,6 +197,11 @@ export const runs = sqliteTable(
     repo: text("repo"),
     actor: text("actor"),
     totalTests: integer("total_tests").notNull(),
+    // Count of tests Playwright scheduled for this run, captured at onBegin
+    // before any have executed. Stays stable while `totalTests` climbs toward
+    // it as results stream in. Nullable because older reporters / bulk ingest
+    // don't send it.
+    expectedTotalTests: integer("expected_total_tests"),
     passed: integer("passed").notNull(),
     failed: integer("failed").notNull(),
     flaky: integer("flaky").notNull(),
@@ -206,9 +211,16 @@ export const runs = sqliteTable(
     reporterVersion: text("reporter_version"),
     playwrightVersion: text("playwright_version"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-    // false while ingest is still streaming children across multiple batches.
-    // Flipped true in the final batch. All reads MUST filter `committed = 1`
-    // so uncommitted or failed ingests stay invisible to users.
+    // Set when the run reaches a terminal state (legacy bulk ingest: on insert;
+    // streaming: on /complete). Null while a streaming run is in progress.
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    // Controls visibility via the `committed_runs` view. Legacy bulk ingest
+    // inserts `false` and flips to `true` once the final batch is written, so
+    // half-written runs stay invisible. Streaming ingest inserts `true` at
+    // open time (the run is meant to be visible as it progresses) and only
+    // the terminal `status` / `completedAt` change on `/complete`. Reads that
+    // should surface only finished legacy runs or any streaming run must go
+    // through `committed_runs`; writes + idempotency checks use `runs`.
     committed: integer("committed", { mode: "boolean" })
       .notNull()
       .default(false),
@@ -249,6 +261,7 @@ export const committedRuns = sqliteView("committed_runs", {
   repo: text("repo"),
   actor: text("actor"),
   totalTests: integer("total_tests").notNull(),
+  expectedTotalTests: integer("expected_total_tests"),
   passed: integer("passed").notNull(),
   failed: integer("failed").notNull(),
   flaky: integer("flaky").notNull(),
@@ -258,6 +271,7 @@ export const committedRuns = sqliteView("committed_runs", {
   reporterVersion: text("reporter_version"),
   playwrightVersion: text("playwright_version"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
   committed: integer("committed", { mode: "boolean" }).notNull(),
 }).existing();
 
