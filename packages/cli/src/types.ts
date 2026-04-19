@@ -94,6 +94,7 @@ export interface CIInfo {
   commitMessage: string | null;
   prNumber: number | null;
   repo: string | null;
+  actor: string | null;
 }
 
 // --- Ingest payload types (output) ---
@@ -113,6 +114,7 @@ export interface RunPayload {
   commitMessage: string | null;
   prNumber: number | null;
   repo: string | null;
+  actor: string | null;
   status: "passed" | "failed" | "timedout" | "interrupted";
   durationMs: number;
   reporterVersion: string;

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e4065c22-a75b-42bc-804d-09bce2bf72ba",
+  "id": "d61b1fe9-9d3d-45b0-9cb4-253a54ed59c0",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -497,6 +497,13 @@
         },
         "repo": {
           "name": "repo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actor": {
+          "name": "actor",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

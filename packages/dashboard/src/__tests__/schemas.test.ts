@@ -16,6 +16,7 @@ describe("IngestPayloadSchema", () => {
       commitMessage: "fix things",
       prNumber: 42,
       repo: "org/repo",
+      actor: "octocat",
       status: "passed",
       durationMs: 10000,
       reporterVersion: "0.1.0",

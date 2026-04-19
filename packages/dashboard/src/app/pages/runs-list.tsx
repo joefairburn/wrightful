@@ -1,5 +1,13 @@
 import { desc, eq } from "drizzle-orm";
-import { Check, GitPullRequest, Minus, TriangleAlert, X } from "lucide-react";
+import {
+  Check,
+  GitBranch,
+  GitCommit,
+  GitPullRequest,
+  Minus,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import {
   Empty,
   EmptyContent,
@@ -20,7 +28,7 @@ import { getDb } from "@/db";
 import { runs } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
-import { prUrl } from "@/lib/pr-url";
+import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 const STATUS_DOT: Record<string, string> = {
@@ -82,16 +90,10 @@ export async function RunsListPage() {
               <TableRow className="border-b border-border hover:bg-transparent dark:hover:bg-transparent">
                 <TableHead className="w-8 px-4" />
                 <TableHead className="px-4 font-mono text-[11px] uppercase tracking-wider">
-                  Branch
+                  Commit
                 </TableHead>
                 <TableHead className="w-28 px-4 font-mono text-[11px] uppercase tracking-wider">
                   Env
-                </TableHead>
-                <TableHead className="w-24 px-4 font-mono text-[11px] uppercase tracking-wider">
-                  Commit
-                </TableHead>
-                <TableHead className="px-4 font-mono text-[11px] uppercase tracking-wider">
-                  Message
                 </TableHead>
                 <TableHead className="w-52 px-4 font-mono text-[11px] uppercase tracking-wider">
                   Tests
@@ -108,6 +110,16 @@ export async function RunsListPage() {
               {allRuns.map((run) => {
                 const href = `${base}/runs/${run.id}`;
                 const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
+                const commitHref = commitUrl(
+                  run.ciProvider,
+                  run.repo,
+                  run.commitSha,
+                );
+                const branchHref = branchUrl(
+                  run.ciProvider,
+                  run.repo,
+                  run.branch,
+                );
                 return (
                   <TableRow
                     key={run.id}
@@ -131,36 +143,95 @@ export async function RunsListPage() {
                       </a>
                     </TableCell>
 
-                    {/* Branch + PR */}
-                    <TableCell className="px-4 py-3">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {run.branch ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-card font-mono text-[11px] text-foreground max-w-[140px] truncate">
-                            {run.branch}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">
-                            —
-                          </span>
-                        )}
-                        {run.prNumber != null &&
-                          (prHref ? (
+                    {/* Branch (top) + Commit SHA + message (bottom) */}
+                    <TableCell className="px-4 py-3 max-w-md">
+                      <div className="flex flex-col gap-1 min-w-0 font-mono text-xs">
+                        {/* Branch row */}
+                        <span className="flex items-center gap-2 min-w-0 text-foreground">
+                          <GitBranch
+                            size={12}
+                            strokeWidth={2}
+                            className="shrink-0 text-muted-foreground"
+                          />
+                          {run.branch ? (
+                            branchHref ? (
+                              <a
+                                href={branchHref}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="relative z-10 truncate hover:underline"
+                              >
+                                {run.branch}
+                              </a>
+                            ) : (
+                              <span className="truncate">{run.branch}</span>
+                            )
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                          {run.prNumber != null && prHref ? (
                             <a
                               href={prHref}
                               target="_blank"
                               rel="noreferrer"
-                              className="relative z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                              className="relative z-10 inline-flex items-center gap-0.5 shrink-0 text-muted-foreground hover:text-foreground"
                               title={`Open PR #${run.prNumber}`}
                             >
                               <GitPullRequest size={10} strokeWidth={2.5} />#
                               {run.prNumber}
                             </a>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-muted-foreground">
+                          ) : run.prNumber != null ? (
+                            <span className="inline-flex items-center gap-0.5 shrink-0 text-muted-foreground">
                               <GitPullRequest size={10} strokeWidth={2.5} />#
                               {run.prNumber}
                             </span>
-                          ))}
+                          ) : null}
+                        </span>
+                        {/* Commit row */}
+                        <span className="flex items-center gap-2 min-w-0 text-muted-foreground">
+                          <GitCommit
+                            size={12}
+                            strokeWidth={2}
+                            className="shrink-0"
+                          />
+                          {commitHref ? (
+                            <a
+                              href={commitHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="relative z-10 flex items-center gap-2 min-w-0 hover:underline"
+                              title="View commit on GitHub"
+                            >
+                              {run.commitSha ? (
+                                <span className="shrink-0">
+                                  {run.commitSha.slice(0, 7)}
+                                </span>
+                              ) : null}
+                              <span className="truncate">
+                                {run.actor && `@${run.actor} · `}
+                                {run.commitMessage ??
+                                  (!run.actor && (
+                                    <span className="italic">No message</span>
+                                  ))}
+                              </span>
+                            </a>
+                          ) : (
+                            <>
+                              {run.commitSha ? (
+                                <span className="shrink-0">
+                                  {run.commitSha.slice(0, 7)}
+                                </span>
+                              ) : null}
+                              <span className="truncate">
+                                {run.actor && `@${run.actor} · `}
+                                {run.commitMessage ??
+                                  (!run.actor && (
+                                    <span className="italic">No message</span>
+                                  ))}
+                              </span>
+                            </>
+                          )}
+                        </span>
                       </div>
                     </TableCell>
 
@@ -173,24 +244,6 @@ export async function RunsListPage() {
                       ) : (
                         <span className="text-muted-foreground text-xs">—</span>
                       )}
-                    </TableCell>
-
-                    {/* Commit SHA */}
-                    <TableCell className="px-4 py-3">
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {run.commitSha?.slice(0, 7) ?? "—"}
-                      </span>
-                    </TableCell>
-
-                    {/* Commit message */}
-                    <TableCell className="px-4 py-3 max-w-xs">
-                      <div className="truncate text-sm">
-                        {run.commitMessage ?? (
-                          <span className="text-muted-foreground italic">
-                            No message
-                          </span>
-                        )}
-                      </div>
                     </TableCell>
 
                     {/* Test counts */}

@@ -112,6 +112,7 @@ export interface ParsedReport {
     | "commitMessage"
     | "prNumber"
     | "repo"
+    | "actor"
     | "reporterVersion"
   >;
   playwrightVersion: string;

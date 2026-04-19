@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import type { CIInfo } from "../types.js";
 
 function extractGitHubPrNumber(): number | null {
@@ -17,6 +18,18 @@ function extractCirclePrNumber(): number | null {
   return match ? parseInt(match[1], 10) : null;
 }
 
+export function readGitCommitMessage(): string | null {
+  try {
+    const msg = execFileSync("git", ["log", "-1", "--pretty=%B"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return msg || null;
+  } catch {
+    return null;
+  }
+}
+
 export function detectCI(): CIInfo | null {
   // GitHub Actions
   if (process.env.GITHUB_ACTIONS === "true") {
@@ -26,9 +39,11 @@ export function detectCI(): CIInfo | null {
       branch:
         process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || null,
       commitSha: process.env.GITHUB_SHA ?? null,
-      commitMessage: null,
+      commitMessage: readGitCommitMessage(),
       prNumber: extractGitHubPrNumber(),
       repo: process.env.GITHUB_REPOSITORY ?? null,
+      actor:
+        process.env.GITHUB_TRIGGERING_ACTOR || process.env.GITHUB_ACTOR || null,
     };
   }
 
@@ -42,11 +57,12 @@ export function detectCI(): CIInfo | null {
         process.env.CI_COMMIT_BRANCH ||
         null,
       commitSha: process.env.CI_COMMIT_SHA ?? null,
-      commitMessage: process.env.CI_COMMIT_MESSAGE ?? null,
+      commitMessage: process.env.CI_COMMIT_MESSAGE || readGitCommitMessage(),
       prNumber: process.env.CI_MERGE_REQUEST_IID
         ? parseInt(process.env.CI_MERGE_REQUEST_IID, 10)
         : null,
       repo: process.env.CI_PROJECT_PATH ?? null,
+      actor: process.env.GITLAB_USER_LOGIN ?? null,
     };
   }
 
@@ -57,13 +73,14 @@ export function detectCI(): CIInfo | null {
       ciBuildId: process.env.CIRCLE_WORKFLOW_ID ?? null,
       branch: process.env.CIRCLE_BRANCH ?? null,
       commitSha: process.env.CIRCLE_SHA1 ?? null,
-      commitMessage: null,
+      commitMessage: readGitCommitMessage(),
       prNumber: extractCirclePrNumber(),
       repo:
         process.env.CIRCLE_PROJECT_USERNAME &&
         process.env.CIRCLE_PROJECT_REPONAME
           ? `${process.env.CIRCLE_PROJECT_USERNAME}/${process.env.CIRCLE_PROJECT_REPONAME}`
           : null,
+      actor: process.env.CIRCLE_USERNAME ?? null,
     };
   }
 
@@ -74,9 +91,10 @@ export function detectCI(): CIInfo | null {
       ciBuildId: null,
       branch: null,
       commitSha: null,
-      commitMessage: null,
+      commitMessage: readGitCommitMessage(),
       prNumber: null,
       repo: null,
+      actor: null,
     };
   }
 

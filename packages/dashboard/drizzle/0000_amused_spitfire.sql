@@ -76,6 +76,7 @@ CREATE TABLE `runs` (
 	`commit_message` text,
 	`pr_number` integer,
 	`repo` text,
+	`actor` text,
 	`total_tests` integer NOT NULL,
 	`passed` integer NOT NULL,
 	`failed` integer NOT NULL,
