@@ -28,6 +28,7 @@ interface DbStub {
   select: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
   batch: ReturnType<typeof vi.fn>;
   inserted: unknown[] | null;
   get batched(): unknown[] | null;
@@ -40,6 +41,7 @@ function makeDb(selectResults: unknown[][]): DbStub {
     select: vi.fn(),
     insert: vi.fn(),
     update: vi.fn(),
+    delete: vi.fn(),
     batch: batchFn,
     inserted: null,
     get batched() {
@@ -51,6 +53,9 @@ function makeDb(selectResults: unknown[][]): DbStub {
     set: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({ toSQL: () => ({}) }),
     }),
+  }));
+  state.delete.mockImplementation(() => ({
+    where: vi.fn().mockReturnValue({ toSQL: () => ({}) }),
   }));
   state.select.mockImplementation(() => {
     const result = selectResults.shift() ?? [];
@@ -163,6 +168,15 @@ describe("appendResultsHandler", () => {
             retryCount: 0,
             tags: [],
             annotations: [],
+            attempts: [
+              {
+                attempt: 0,
+                status: "passed",
+                durationMs: 10,
+                errorMessage: null,
+                errorStack: null,
+              },
+            ],
           },
         ],
       }),
@@ -194,6 +208,15 @@ describe("appendResultsHandler", () => {
             retryCount: 0,
             tags: ["smoke"],
             annotations: [{ type: "issue", description: "X" }],
+            attempts: [
+              {
+                attempt: 0,
+                status: "passed",
+                durationMs: 10,
+                errorMessage: null,
+                errorStack: null,
+              },
+            ],
           },
           {
             clientKey: "k2",
@@ -205,6 +228,22 @@ describe("appendResultsHandler", () => {
             retryCount: 1,
             tags: [],
             annotations: [],
+            attempts: [
+              {
+                attempt: 0,
+                status: "failed",
+                durationMs: 10,
+                errorMessage: "first",
+                errorStack: null,
+              },
+              {
+                attempt: 1,
+                status: "failed",
+                durationMs: 10,
+                errorMessage: "second",
+                errorStack: null,
+              },
+            ],
           },
         ],
       }),

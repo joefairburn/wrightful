@@ -20,6 +20,15 @@ const validTestResult = {
   workerIndex: 0,
   tags: ["@smoke"],
   annotations: [{ type: "issue", description: "GH-123" }],
+  attempts: [
+    {
+      attempt: 0,
+      status: "passed",
+      durationMs: 1234,
+      errorMessage: null,
+      errorStack: null,
+    },
+  ],
 };
 
 describe("OpenRunPayloadSchema", () => {
@@ -193,6 +202,100 @@ describe("AppendResultsPayloadSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  describe("attempts[]", () => {
+    it("rejects missing attempts", () => {
+      const { attempts: _a, ...withoutAttempts } = validTestResult;
+      const result = AppendResultsPayloadSchema.safeParse({
+        results: [withoutAttempts],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects an empty attempts array", () => {
+      const result = AppendResultsPayloadSchema.safeParse({
+        results: [{ ...validTestResult, attempts: [] }],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts multiple attempts with distinct errors", () => {
+      const result = AppendResultsPayloadSchema.safeParse({
+        results: [
+          {
+            ...validTestResult,
+            status: "failed",
+            retryCount: 2,
+            errorMessage: "final",
+            attempts: [
+              {
+                attempt: 0,
+                status: "failed",
+                durationMs: 100,
+                errorMessage: "first",
+                errorStack: null,
+              },
+              {
+                attempt: 1,
+                status: "failed",
+                durationMs: 110,
+                errorMessage: "second",
+                errorStack: null,
+              },
+              {
+                attempt: 2,
+                status: "timedout",
+                durationMs: 5000,
+                errorMessage: "final",
+                errorStack: null,
+              },
+            ],
+          },
+        ],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects an invalid per-attempt status (e.g. 'flaky')", () => {
+      const result = AppendResultsPayloadSchema.safeParse({
+        results: [
+          {
+            ...validTestResult,
+            attempts: [
+              {
+                attempt: 0,
+                status: "flaky",
+                durationMs: 10,
+                errorMessage: null,
+                errorStack: null,
+              },
+            ],
+          },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects negative attempt index", () => {
+      const result = AppendResultsPayloadSchema.safeParse({
+        results: [
+          {
+            ...validTestResult,
+            attempts: [
+              {
+                attempt: -1,
+                status: "passed",
+                durationMs: 1,
+                errorMessage: null,
+                errorStack: null,
+              },
+            ],
+          },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+  });
 });
 
 describe("CompleteRunPayloadSchema", () => {
@@ -280,6 +383,33 @@ describe("RegisterArtifactsPayloadSchema", () => {
     const result = RegisterArtifactsPayloadSchema.safeParse({
       ...validPayload,
       artifacts: [{ ...validPayload.artifacts[0], sizeBytes: -1 }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("defaults attempt to 0 when omitted", () => {
+    const result = RegisterArtifactsPayloadSchema.safeParse(validPayload);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.artifacts[0].attempt).toBe(0);
+    }
+  });
+
+  it("accepts attempt >= 0", () => {
+    const result = RegisterArtifactsPayloadSchema.safeParse({
+      ...validPayload,
+      artifacts: [{ ...validPayload.artifacts[0], attempt: 2 }],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.artifacts[0].attempt).toBe(2);
+    }
+  });
+
+  it("rejects negative attempt", () => {
+    const result = RegisterArtifactsPayloadSchema.safeParse({
+      ...validPayload,
+      artifacts: [{ ...validPayload.artifacts[0], attempt: -1 }],
     });
     expect(result.success).toBe(false);
   });

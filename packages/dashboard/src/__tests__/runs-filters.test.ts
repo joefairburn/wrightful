@@ -50,6 +50,14 @@ describe("parseRunsFilters", () => {
   it("trims q", () => {
     expect(parse("q=%20%20login%20%20").q).toBe("login");
   });
+
+  it("caps list filters at 50 values to stay under D1's 100-param limit", () => {
+    const branches = Array.from({ length: 120 }, (_, i) => `b${i}`).join(",");
+    const f = parse(`branch=${branches}`);
+    expect(f.branch).toHaveLength(50);
+    expect(f.branch[0]).toBe("b0");
+    expect(f.branch[49]).toBe("b49");
+  });
 });
 
 describe("hasAnyFilter", () => {

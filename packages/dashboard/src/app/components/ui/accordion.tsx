@@ -49,6 +49,25 @@ export function AccordionTrigger({
   );
 }
 
+// Low-level Header + Trigger wrappers for callers that want to lay out
+// multiple siblings in the header row (e.g. action buttons + chevron). The
+// base-ui primitives read their item context via React context hooks, so
+// they have to be touched from a "use client" module — which is what makes
+// these thin wrappers necessary even though they just forward props.
+export function AccordionHeader(
+  props: AccordionPrimitive.Header.Props,
+): React.ReactElement {
+  return <AccordionPrimitive.Header data-slot="accordion-header" {...props} />;
+}
+
+export function AccordionTriggerRaw(
+  props: AccordionPrimitive.Trigger.Props,
+): React.ReactElement {
+  return (
+    <AccordionPrimitive.Trigger data-slot="accordion-trigger" {...props} />
+  );
+}
+
 export function AccordionPanel({
   className,
   children,
