@@ -13,6 +13,8 @@ export const RUN_STATUSES = [
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
+export const DEFAULT_PAGE_SIZE = 20;
+
 export type RunsFilters = {
   q: string;
   status: RunStatus[];
@@ -21,6 +23,7 @@ export type RunsFilters = {
   environment: string[];
   from: string | null;
   to: string | null;
+  page: number;
 };
 
 export const EMPTY_FILTERS: RunsFilters = {
@@ -31,6 +34,7 @@ export const EMPTY_FILTERS: RunsFilters = {
   environment: [],
   from: null,
   to: null,
+  page: 1,
 };
 
 function readList(params: URLSearchParams, key: string): string[] {
@@ -47,6 +51,13 @@ function isValidIsoDate(s: string): boolean {
   return isValid(parse(s, "yyyy-MM-dd", new Date()));
 }
 
+function parsePage(raw: string | null): number {
+  if (!raw) return 1;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return n;
+}
+
 export function parseRunsFilters(params: URLSearchParams): RunsFilters {
   const statusRaw = readList(params, "status");
   const statusSet: ReadonlySet<string> = new Set(RUN_STATUSES);
@@ -61,6 +72,7 @@ export function parseRunsFilters(params: URLSearchParams): RunsFilters {
     environment: readList(params, "env"),
     from: from && isValidIsoDate(from) ? from : null,
     to: to && isValidIsoDate(to) ? to : null,
+    page: parsePage(params.get("page")),
   };
 }
 
@@ -74,6 +86,7 @@ export function toSearchParams(filters: RunsFilters): URLSearchParams {
     params.set("env", filters.environment.join(","));
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
+  if (filters.page > 1) params.set("page", String(filters.page));
   return params;
 }
 

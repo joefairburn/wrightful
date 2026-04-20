@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull } from "drizzle-orm";
 import { GitBranch, GitCommit, GitPullRequest } from "lucide-react";
 import { requestInfo } from "rwsdk/worker";
 import {
@@ -20,6 +20,15 @@ import {
   EmptyTitle,
 } from "@/app/components/ui/empty";
 import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/app/components/ui/pagination";
+import {
   Table,
   TableBody,
   TableCell,
@@ -35,8 +44,10 @@ import { cn } from "@/lib/cn";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
 import {
   buildRunsWhere,
+  DEFAULT_PAGE_SIZE,
   hasAnyFilter,
   parseRunsFilters,
+  toSearchParams,
 } from "@/lib/runs-filters";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
@@ -60,14 +71,25 @@ export async function RunsListPage() {
 
   const db = getDb();
   const whereClause = buildRunsWhere(project.id, filters);
-  const allRuns = await db
-    .select()
+
+  const totalRuns = await db
+    .select({ value: count() })
     .from(committedRuns)
     .where(whereClause)
-    .orderBy(desc(committedRuns.createdAt))
-    .limit(50);
+    .then((r) => r[0]?.value ?? 0);
 
-  const [branchRows, actorRows, envRows] = await Promise.all([
+  const totalPages = Math.max(1, Math.ceil(totalRuns / DEFAULT_PAGE_SIZE));
+  const currentPage = Math.min(filters.page, totalPages);
+  const offset = (currentPage - 1) * DEFAULT_PAGE_SIZE;
+
+  const [allRuns, branchRows, actorRows, envRows] = await Promise.all([
+    db
+      .select()
+      .from(committedRuns)
+      .where(whereClause)
+      .orderBy(desc(committedRuns.createdAt))
+      .limit(DEFAULT_PAGE_SIZE)
+      .offset(offset),
     db
       .selectDistinct({ value: committedRuns.branch })
       .from(committedRuns)
@@ -96,6 +118,19 @@ export async function RunsListPage() {
         ),
       ),
   ]);
+
+  const fromRow = totalRuns === 0 ? 0 : offset + 1;
+  const toRow = offset + allRuns.length;
+
+  const pageHref = (page: number): string => {
+    // Reserialize from the parsed filters so rwsdk-internal params (e.g.
+    // `__rsc`) added during an RSC navigation don't leak into subsequent
+    // links — preserving `__rsc` turns the next click into a raw-RSC fetch.
+    const qs = toSearchParams({ ...filters, page }).toString();
+    return qs ? `${url.pathname}?${qs}` : url.pathname;
+  };
+
+  const pageWindow = buildPageWindow(currentPage, totalPages);
 
   const options = {
     branches: branchRows
@@ -133,7 +168,7 @@ export async function RunsListPage() {
         <div className="flex items-center gap-3 shrink-0">
           <h2 className="text-base font-semibold tracking-tight">All Runs</h2>
           <span className="px-2 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-xs border border-border/50">
-            {allRuns.length}
+            {totalRuns}
             {filtersActive ? " match" : " total"}
           </span>
         </div>
@@ -402,11 +437,75 @@ export async function RunsListPage() {
       </div>
 
       {/* Footer */}
-      <div className="px-6 py-3 border-t border-border flex justify-between items-center text-xs text-muted-foreground font-mono bg-background shrink-0">
+      <div className="px-6 py-3 border-t border-border flex justify-between items-center gap-4 text-xs text-muted-foreground font-mono bg-background shrink-0">
         <span>
-          Showing {allRuns.length} of {allRuns.length} runs
+          {totalRuns === 0
+            ? "No runs"
+            : `Showing ${fromRow}–${toRow} of ${totalRuns} runs`}
         </span>
+        {totalPages > 1 && (
+          <Pagination className="mx-0 w-auto justify-end">
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href={currentPage > 1 ? pageHref(currentPage - 1) : undefined}
+                  aria-disabled={currentPage === 1}
+                  className={cn(
+                    currentPage === 1 && "pointer-events-none opacity-50",
+                  )}
+                />
+              </PaginationItem>
+              {pageWindow.map((entry, i) =>
+                entry === "ellipsis" ? (
+                  <PaginationItem key={`ellipsis-${i}`}>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                ) : (
+                  <PaginationItem key={entry}>
+                    <PaginationLink
+                      href={pageHref(entry)}
+                      isActive={entry === currentPage}
+                    >
+                      {entry}
+                    </PaginationLink>
+                  </PaginationItem>
+                ),
+              )}
+              <PaginationItem>
+                <PaginationNext
+                  href={
+                    currentPage < totalPages
+                      ? pageHref(currentPage + 1)
+                      : undefined
+                  }
+                  aria-disabled={currentPage >= totalPages}
+                  className={cn(
+                    currentPage >= totalPages &&
+                      "pointer-events-none opacity-50",
+                  )}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        )}
       </div>
     </>
   );
+}
+
+function buildPageWindow(
+  current: number,
+  total: number,
+): Array<number | "ellipsis"> {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  const pages: Array<number | "ellipsis"> = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  if (start > 2) pages.push("ellipsis");
+  for (let p = start; p <= end; p++) pages.push(p);
+  if (end < total - 1) pages.push("ellipsis");
+  pages.push(total);
+  return pages;
 }

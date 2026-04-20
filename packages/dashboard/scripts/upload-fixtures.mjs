@@ -146,7 +146,7 @@ log(pc.green("done"));
 
 // ---------- Scenarios ----------
 
-const SCENARIOS = [
+const BASE_SCENARIOS = [
   {
     label: "01-main-green",
     branch: "main",
@@ -169,6 +169,57 @@ const SCENARIOS = [
     includeFailures: false,
   },
 ];
+
+// `--volume` opts into a larger seed set so the runs-list pagination has
+// enough rows to exercise multiple pages (default page size is 20). Every
+// scenario is a full Playwright invocation, so this adds minutes to setup —
+// keep it off the default path.
+const VOLUME_COUNT = 27;
+const VOLUME_BRANCHES = [
+  "main",
+  "feat/checkout-v2",
+  "feat/auth-refresh",
+  "fix/cart-race",
+  "chore/deps",
+  "release/1.2",
+];
+
+/**
+ * Produce a deterministic 40-char hex SHA for seed `n`. Uses a small LCG so
+ * the result is stable across runs without pulling in node:crypto.
+ */
+function sha40(n) {
+  let state = (n + 1) * 0x9e3779b1;
+  let out = "";
+  while (out.length < 40) {
+    state = Math.imul(state ^ (state >>> 16), 0x85ebca6b) >>> 0;
+    state = Math.imul(state ^ (state >>> 13), 0xc2b2ae35) >>> 0;
+    state = (state ^ (state >>> 16)) >>> 0;
+    out += state.toString(16).padStart(8, "0");
+  }
+  return out.slice(0, 40);
+}
+
+function volumeScenarios(count) {
+  return Array.from({ length: count }, (_, i) => {
+    const n = i + 1;
+    const branch = VOLUME_BRANCHES[n % VOLUME_BRANCHES.length];
+    const label = `v-${String(n).padStart(2, "0")}-${branch.replace(/[^a-z0-9]/gi, "-")}`;
+    return {
+      label,
+      branch,
+      sha: sha40(n),
+      buildId: `fixture-volume-${String(n).padStart(2, "0")}`,
+      // Every 4th run intentionally includes failures for visual variety.
+      includeFailures: n % 4 === 0,
+    };
+  });
+}
+
+const withVolume = process.argv.includes("--volume");
+const SCENARIOS = withVolume
+  ? [...BASE_SCENARIOS, ...volumeScenarios(VOLUME_COUNT)]
+  : BASE_SCENARIOS;
 
 /**
  * Run a subprocess with stdout/stderr captured. Returns exit code + merged
