@@ -112,4 +112,12 @@
   //   ALLOW_OPEN_SIGNUP      — Optional. `1`/`true`/`yes`/`on` enables open
   //                            email/password signup. Defaults to disabled
   //                            because email verification isn't wired yet.
+  //   SIGNUP_GITHUB_ORGS     — Optional. Comma-separated GitHub org logins that
+  //                            are allowed to sign up. When set, email/password
+  //                            signup is blocked and GitHub users must belong
+  //                            to one of the listed orgs.
+  //   SIGNUP_EMAIL_DOMAINS   — Optional. Comma-separated email domains allowed
+  //                            to sign up. Verified against the GitHub user's
+  //                            primary email; combines OR-wise with
+  //                            SIGNUP_GITHUB_ORGS.
 }

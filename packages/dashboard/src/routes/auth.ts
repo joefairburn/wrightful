@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getAuth } from "@/lib/better-auth";
 import { parseBooleanEnv } from "@/lib/env-parse";
+import { hasInstanceWhitelist } from "@/lib/instance-whitelist";
 
 /**
  * Email verification is disabled (no mailer wired up yet) so leaving signup
@@ -25,13 +26,25 @@ function isSignupRequest(url: URL): boolean {
  */
 export async function authHandler({ request }: { request: Request }) {
   const url = new URL(request.url);
-  if (isSignupRequest(url) && !isOpenSignupAllowed()) {
-    return new Response(
-      JSON.stringify({
-        error: "Signup is disabled on this Wrightful instance.",
-      }),
-      { status: 403, headers: { "Content-Type": "application/json" } },
-    );
+  if (isSignupRequest(url)) {
+    if (!isOpenSignupAllowed()) {
+      return new Response(
+        JSON.stringify({
+          error: "Signup is disabled on this Wrightful instance.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    // Email/password signups cannot satisfy the GitHub-org whitelist and
+    // the domain whitelist relies on a verified email we don't yet have.
+    if (hasInstanceWhitelist()) {
+      return new Response(
+        JSON.stringify({
+          error: "Email signup is disabled — sign in with GitHub to continue.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
   }
 
   const auth = getAuth();

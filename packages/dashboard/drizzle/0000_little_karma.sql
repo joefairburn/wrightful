@@ -117,6 +117,8 @@ CREATE TABLE `teams` (
 	`id` text PRIMARY KEY NOT NULL,
 	`slug` text NOT NULL,
 	`name` text NOT NULL,
+	`github_org_whitelist` text,
+	`email_domain_whitelist` text,
 	`created_at` integer NOT NULL
 );
 --> statement-breakpoint
