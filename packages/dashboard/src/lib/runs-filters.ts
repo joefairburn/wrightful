@@ -13,6 +13,8 @@ export const RUN_STATUSES = [
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
+export const DEFAULT_PAGE_SIZE = 20;
+
 export type RunsFilters = {
   q: string;
   status: RunStatus[];
@@ -21,6 +23,7 @@ export type RunsFilters = {
   environment: string[];
   from: string | null;
   to: string | null;
+  page: number;
 };
 
 export const EMPTY_FILTERS: RunsFilters = {
@@ -31,7 +34,14 @@ export const EMPTY_FILTERS: RunsFilters = {
   environment: [],
   from: null,
   to: null,
+  page: 1,
 };
+
+// Cap per-filter value count. Each entry becomes a bound param in an
+// `inArray(...)` on the runs list query, and D1 rejects statements with
+// >100 bound params. 50 is well below that with headroom for the query's
+// other conditions; a legit UI flow never needs more.
+const MAX_FILTER_VALUES = 50;
 
 function readList(params: URLSearchParams, key: string): string[] {
   const raw = params.get(key);
@@ -39,12 +49,20 @@ function readList(params: URLSearchParams, key: string): string[] {
   return raw
     .split(",")
     .map((v) => v.trim())
-    .filter((v) => v.length > 0);
+    .filter((v) => v.length > 0)
+    .slice(0, MAX_FILTER_VALUES);
 }
 
 function isValidIsoDate(s: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
   return isValid(parse(s, "yyyy-MM-dd", new Date()));
+}
+
+function parsePage(raw: string | null): number {
+  if (!raw) return 1;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return n;
 }
 
 export function parseRunsFilters(params: URLSearchParams): RunsFilters {
@@ -61,6 +79,7 @@ export function parseRunsFilters(params: URLSearchParams): RunsFilters {
     environment: readList(params, "env"),
     from: from && isValidIsoDate(from) ? from : null,
     to: to && isValidIsoDate(to) ? to : null,
+    page: parsePage(params.get("page")),
   };
 }
 
@@ -74,6 +93,7 @@ export function toSearchParams(filters: RunsFilters): URLSearchParams {
     params.set("env", filters.environment.join(","));
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
+  if (filters.page > 1) params.set("page", String(filters.page));
   return params;
 }
 

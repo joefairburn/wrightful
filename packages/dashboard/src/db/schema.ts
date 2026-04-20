@@ -362,7 +362,37 @@ export const artifacts = sqliteTable(
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     r2Key: text("r2_key").notNull(),
+    attempt: integer("attempt").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (table) => [index("artifacts_test_result_id_idx").on(table.testResultId)],
+);
+
+// One row per Playwright retry attempt. `test_results` still aggregates the
+// final outcome (status, errorMessage, errorStack, retryCount) — this
+// table preserves per-attempt errorMessage + errorStack + status so the
+// test detail UI can show each attempt's own failure instead of inferring
+// from final status + position. Reporter emits `attempts[]` on the wire;
+// ingest replaces the set on every upsert keyed by testResultId.
+export const testResultAttempts = sqliteTable(
+  "test_result_attempts",
+  {
+    id: text("id").primaryKey(),
+    testResultId: text("test_result_id")
+      .notNull()
+      .references(() => testResults.id, { onDelete: "cascade" }),
+    attempt: integer("attempt").notNull(),
+    status: text("status").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    errorMessage: text("error_message"),
+    errorStack: text("error_stack"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("test_result_attempts_test_result_id_idx").on(table.testResultId),
+    uniqueIndex("test_result_attempts_test_result_attempt_uq").on(
+      table.testResultId,
+      table.attempt,
+    ),
+  ],
 );

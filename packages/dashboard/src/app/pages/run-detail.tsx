@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { ArrowLeft, GitCommit, GitPullRequest } from "lucide-react";
 import type React from "react";
+import { requestInfo } from "rwsdk/worker";
 import {
   RunProgressSummary,
   RunProgressTests,
@@ -15,6 +16,7 @@ import { cn } from "@/lib/cn";
 import { prUrl } from "@/lib/pr-url";
 import { param } from "@/lib/route-params";
 import { composeRunProgress, runRoomId } from "@/routes/api/progress";
+import { loadFailingArtifactActions } from "@/lib/test-artifact-actions";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 const STATUS_DOT: Record<string, string> = {
@@ -70,6 +72,16 @@ export async function RunDetailPage() {
 
   const progress = await composeRunProgress(runId);
   if (!progress) return <NotFoundPage />;
+
+  const origin = new URL(requestInfo.request.url).origin;
+  const artifactActionsByTestId = await loadFailingArtifactActions(
+    progress.tests.map((t) => ({
+      id: t.id,
+      status: t.status,
+      retryCount: t.retryCount,
+    })),
+    origin,
+  );
 
   const shortId = run.id.slice(-7);
   const statusLabel = STATUS_LABEL[run.status] ?? run.status;
@@ -237,11 +249,13 @@ export async function RunDetailPage() {
               initial={progress}
               roomId={roomId}
               runBase={`${base}/runs/${run.id}`}
+              artifactActionsByTestId={artifactActionsByTestId}
             />
           ) : (
             <RunProgressTests
               progress={progress}
               runBase={`${base}/runs/${run.id}`}
+              artifactActionsByTestId={artifactActionsByTestId}
             />
           )}
         </div>

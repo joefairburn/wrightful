@@ -7,6 +7,7 @@ import {
   runs,
   teams,
   testAnnotations,
+  testResultAttempts,
   testResults,
   testTags,
 } from "@/db/schema";
@@ -37,6 +38,7 @@ const MAX_STATEMENTS_PER_BATCH = 1000;
 const TEST_RESULTS_COLUMNS = 13;
 const TEST_TAGS_COLUMNS = 3;
 const TEST_ANNOTATIONS_COLUMNS = 4;
+const TEST_RESULT_ATTEMPTS_COLUMNS = 7;
 
 function chunkByParams<T>(rows: T[], columnsPerRow: number): T[][] {
   const rowsPerStatement = Math.max(
@@ -111,6 +113,7 @@ function buildResultInsertStatements(
   const insertRows: (typeof testResults.$inferInsert)[] = [];
   const tagRows: (typeof testTags.$inferInsert)[] = [];
   const annotationRows: (typeof testAnnotations.$inferInsert)[] = [];
+  const attemptRows: (typeof testResultAttempts.$inferInsert)[] = [];
   const mapping: ResultMapping[] = [];
   const statements: BatchItem<"sqlite">[] = [];
 
@@ -169,6 +172,27 @@ function buildResultInsertStatements(
       });
     }
 
+    // Per-attempt rows are fully owned by this result. Delete any existing
+    // set first so the reporter re-sending (flush retry, or running with
+    // fewer retries than before) stays idempotent.
+    statements.push(
+      db
+        .delete(testResultAttempts)
+        .where(eq(testResultAttempts.testResultId, testResultId)),
+    );
+    for (const attempt of result.attempts) {
+      attemptRows.push({
+        id: ulid(),
+        testResultId,
+        attempt: attempt.attempt,
+        status: attempt.status,
+        durationMs: attempt.durationMs,
+        errorMessage: attempt.errorMessage ?? null,
+        errorStack: attempt.errorStack ?? null,
+        createdAt: now,
+      });
+    }
+
     for (const tag of result.tags) {
       tagRows.push({ id: ulid(), testResultId, tag });
     }
@@ -190,6 +214,12 @@ function buildResultInsertStatements(
   }
   for (const chunk of chunkByParams(annotationRows, TEST_ANNOTATIONS_COLUMNS)) {
     statements.push(db.insert(testAnnotations).values(chunk));
+  }
+  for (const chunk of chunkByParams(
+    attemptRows,
+    TEST_RESULT_ATTEMPTS_COLUMNS,
+  )) {
+    statements.push(db.insert(testResultAttempts).values(chunk));
   }
   return { statements, mapping };
 }

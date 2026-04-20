@@ -30,6 +30,7 @@ export interface RunProgressTest {
   durationMs: number;
   retryCount: number;
   errorMessage: string | null;
+  errorStack: string | null;
 }
 
 export interface RunProgress {
@@ -113,6 +114,7 @@ export async function composeRunProgress(
       durationMs: testResults.durationMs,
       retryCount: testResults.retryCount,
       errorMessage: testResults.errorMessage,
+      errorStack: testResults.errorStack,
     })
     .from(testResults)
     .where(eq(testResults.runId, runId));
@@ -127,6 +129,7 @@ export async function composeRunProgress(
     durationMs: r.durationMs,
     retryCount: r.retryCount,
     errorMessage: r.errorMessage,
+    errorStack: r.errorStack,
   }));
 
   let queued = 0;

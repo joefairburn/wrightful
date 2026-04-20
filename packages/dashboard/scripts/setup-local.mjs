@@ -335,7 +335,9 @@ if (!skipFixtures) {
   }
 
   console.log(`\n${pc.bold("generating example test data")}`);
-  const fixtures = spawnSync("node", ["scripts/upload-fixtures.mjs"], {
+  const fixturesArgs = ["scripts/upload-fixtures.mjs"];
+  if (process.argv.includes("--volume")) fixturesArgs.push("--volume");
+  const fixtures = spawnSync("node", fixturesArgs, {
     stdio: "inherit",
     cwd: dashboardDir,
     env: {

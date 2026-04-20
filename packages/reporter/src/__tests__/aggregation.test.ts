@@ -236,6 +236,96 @@ describe("buildPayload", () => {
     });
     expect(payload.file).toBe("/abs/path/tests/demo.spec.ts");
   });
+
+  it("emits one attempts[] entry per Playwright attempt with its own error", () => {
+    const test = makeTest({ retries: 2, outcome: "unexpected" });
+    const payload = buildPayload({
+      test,
+      results: [
+        makeResult({
+          status: "failed",
+          duration: 100,
+          retry: 0,
+          errorMessage: "first boom",
+        }),
+        makeResult({
+          status: "failed",
+          duration: 120,
+          retry: 1,
+          errorMessage: "second boom",
+        }),
+        makeResult({
+          status: "timedOut",
+          duration: 5000,
+          retry: 2,
+          errorMessage: "timeout",
+        }),
+      ],
+    });
+    expect(payload.attempts).toHaveLength(3);
+    expect(payload.attempts[0]).toMatchObject({
+      attempt: 0,
+      status: "failed",
+      durationMs: 100,
+      errorMessage: "first boom",
+    });
+    expect(payload.attempts[1]).toMatchObject({
+      attempt: 1,
+      status: "failed",
+      errorMessage: "second boom",
+    });
+    // timedOut → timedout on the wire.
+    expect(payload.attempts[2]).toMatchObject({
+      attempt: 2,
+      status: "timedout",
+      errorMessage: "timeout",
+    });
+  });
+
+  it("flaky test emits per-attempt statuses (fail, fail, pass)", () => {
+    const test = makeTest({ retries: 2, outcome: "flaky" });
+    const payload = buildPayload({
+      test,
+      results: [
+        makeResult({
+          status: "failed",
+          duration: 100,
+          retry: 0,
+          errorMessage: "nope",
+        }),
+        makeResult({
+          status: "failed",
+          duration: 100,
+          retry: 1,
+          errorMessage: "still nope",
+        }),
+        makeResult({ status: "passed", duration: 80, retry: 2 }),
+      ],
+    });
+    expect(payload.attempts.map((a) => a.status)).toEqual([
+      "failed",
+      "failed",
+      "passed",
+    ]);
+    expect(payload.attempts[2].errorMessage).toBe(null);
+  });
+
+  it("single-attempt pass has one attempts entry with no error", () => {
+    const test = makeTest({ outcome: "expected" });
+    const payload = buildPayload({
+      test,
+      results: [makeResult({ status: "passed", duration: 50, retry: 0 })],
+    });
+    expect(payload.attempts).toEqual([
+      {
+        attempt: 0,
+        status: "passed",
+        durationMs: 50,
+        errorMessage: null,
+        errorStack: null,
+      },
+    ]);
+  });
 });
 
 describe("buildTestDescriptor", () => {

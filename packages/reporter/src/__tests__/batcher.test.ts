@@ -17,6 +17,15 @@ function makeResult(key: string): TestResultPayload {
     workerIndex: 0,
     tags: [],
     annotations: [],
+    attempts: [
+      {
+        attempt: 0,
+        status: "passed",
+        durationMs: 10,
+        errorMessage: null,
+        errorStack: null,
+      },
+    ],
   };
 }
 

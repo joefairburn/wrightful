@@ -61,7 +61,7 @@ function toIsoDate(date: Date): string {
 }
 
 function applyFilters(pathname: string, next: RunsFilters): void {
-  const qs = toSearchParams(next).toString();
+  const qs = toSearchParams({ ...next, page: 1 }).toString();
   void navigate(qs ? `${pathname}?${qs}` : pathname, { history: "replace" });
 }
 

@@ -4,6 +4,8 @@ import {
   EMPTY_FILTERS,
   hasAnyFilter,
   parseRunsFilters,
+  type RunStatus,
+  toSearchParams,
 } from "../lib/runs-filters";
 
 function parse(qs: string) {
@@ -50,6 +52,49 @@ describe("parseRunsFilters", () => {
   it("trims q", () => {
     expect(parse("q=%20%20login%20%20").q).toBe("login");
   });
+
+  it("caps list filters at 50 values to stay under D1's 100-param limit", () => {
+    const branches = Array.from({ length: 120 }, (_, i) => `b${i}`).join(",");
+    const f = parse(`branch=${branches}`);
+    expect(f.branch).toHaveLength(50);
+    expect(f.branch[0]).toBe("b0");
+    expect(f.branch[49]).toBe("b49");
+  });
+
+  it("defaults page to 1 when absent, non-numeric, or out of range", () => {
+    expect(parse("").page).toBe(1);
+    expect(parse("page=abc").page).toBe(1);
+    expect(parse("page=0").page).toBe(1);
+    expect(parse("page=-5").page).toBe(1);
+  });
+
+  it("parses a valid page number", () => {
+    expect(parse("page=2").page).toBe(2);
+    expect(parse("page=42").page).toBe(42);
+  });
+});
+
+describe("toSearchParams", () => {
+  it("omits page when it is 1", () => {
+    const params = toSearchParams(EMPTY_FILTERS);
+    expect(params.has("page")).toBe(false);
+  });
+
+  it("includes page when greater than 1", () => {
+    const params = toSearchParams({ ...EMPTY_FILTERS, page: 3 });
+    expect(params.get("page")).toBe("3");
+  });
+
+  it("round-trips through parseRunsFilters", () => {
+    const original = {
+      ...EMPTY_FILTERS,
+      status: ["failed"] as RunStatus[],
+      page: 4,
+    };
+    const roundTripped = parseRunsFilters(toSearchParams(original));
+    expect(roundTripped.page).toBe(4);
+    expect(roundTripped.status).toEqual(["failed"]);
+  });
 });
 
 describe("hasAnyFilter", () => {
@@ -61,6 +106,10 @@ describe("hasAnyFilter", () => {
     expect(hasAnyFilter({ ...EMPTY_FILTERS, q: "x" })).toBe(true);
     expect(hasAnyFilter({ ...EMPTY_FILTERS, status: ["failed"] })).toBe(true);
     expect(hasAnyFilter({ ...EMPTY_FILTERS, from: "2026-04-01" })).toBe(true);
+  });
+
+  it("is false when only page is set — pagination isn't a filter", () => {
+    expect(hasAnyFilter({ ...EMPTY_FILTERS, page: 5 })).toBe(false);
   });
 });
 
@@ -76,6 +125,7 @@ describe("buildRunsWhere", () => {
         environment: ["production"],
         from: "2026-04-01",
         to: "2026-04-15",
+        page: 1,
       }),
     ).toBeDefined();
   });

@@ -37,6 +37,7 @@ CREATE TABLE `artifacts` (
 	`content_type` text NOT NULL,
 	`size_bytes` integer NOT NULL,
 	`r2_key` text NOT NULL,
+	`attempt` integer DEFAULT 0 NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`test_result_id`) REFERENCES `test_results`(`id`) ON UPDATE no action ON DELETE cascade
 );
@@ -131,6 +132,20 @@ CREATE TABLE `test_annotations` (
 );
 --> statement-breakpoint
 CREATE INDEX `test_annotations_test_result_id_idx` ON `test_annotations` (`test_result_id`);--> statement-breakpoint
+CREATE TABLE `test_result_attempts` (
+	`id` text PRIMARY KEY NOT NULL,
+	`test_result_id` text NOT NULL,
+	`attempt` integer NOT NULL,
+	`status` text NOT NULL,
+	`duration_ms` integer NOT NULL,
+	`error_message` text,
+	`error_stack` text,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`test_result_id`) REFERENCES `test_results`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `test_result_attempts_test_result_id_idx` ON `test_result_attempts` (`test_result_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `test_result_attempts_test_result_attempt_uq` ON `test_result_attempts` (`test_result_id`,`attempt`);--> statement-breakpoint
 CREATE TABLE `test_results` (
 	`id` text PRIMARY KEY NOT NULL,
 	`run_id` text NOT NULL,
@@ -191,5 +206,6 @@ CREATE TABLE `verification` (
 	`updated_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);
+--> statement-breakpoint
 CREATE VIEW `committed_runs` AS select "id", "project_id", "idempotency_key", "ci_provider", "ci_build_id", "branch", "environment", "commit_sha", "commit_message", "pr_number", "repo", "actor", "total_tests", "expected_total_tests", "passed", "failed", "flaky", "skipped", "duration_ms", "status", "reporter_version", "playwright_version", "created_at", "completed_at", "committed" from "runs" where "runs"."committed" = true;
