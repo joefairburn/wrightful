@@ -756,6 +756,20 @@
           "notNull": true,
           "autoincrement": false
         },
+        "github_org_whitelist": {
+          "name": "github_org_whitelist",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "email_domain_whitelist": {
+          "name": "email_domain_whitelist",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",

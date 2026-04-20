@@ -28,6 +28,12 @@ declare namespace Cloudflare {
     // Optional: set to "1"/"true"/"yes"/"on" to permit email/password signup.
     // Defaults to disabled because email verification isn't wired up yet.
     ALLOW_OPEN_SIGNUP?: string;
+    // Optional instance-level sign-up whitelist. Comma-separated. When either
+    // is set, email/password signup is blocked and new GitHub users must be
+    // in one of the listed orgs or have a verified email in one of the
+    // listed domains; otherwise their fresh account is deleted.
+    SIGNUP_GITHUB_ORGS?: string;
+    SIGNUP_EMAIL_DOMAINS?: string;
 
     // Native rate-limit bindings (configured in wrangler.jsonc#ratelimits).
     AUTH_RATE_LIMITER: RateLimit;

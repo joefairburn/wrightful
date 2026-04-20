@@ -16,6 +16,12 @@ export const teams = sqliteTable(
     id: text("id").primaryKey(),
     slug: text("slug").notNull(),
     name: text("name").notNull(),
+    // Comma-separated GitHub org logins. When non-empty, /invite/:slug admits
+    // any GitHub user who is a member of one of these orgs.
+    githubOrgWhitelist: text("github_org_whitelist"),
+    // Comma-separated email domains (lowercase). When non-empty, /invite/:slug
+    // admits any GitHub user whose verified email ends with one of these.
+    emailDomainWhitelist: text("email_domain_whitelist"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (table) => [uniqueIndex("teams_slug_idx").on(table.slug)],

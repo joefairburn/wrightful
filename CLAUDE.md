@@ -95,7 +95,7 @@ Two auth systems coexist:
 
 **Query scoping rule:** every read that touches `runs` (or derived tables: `testResults`, `testTags`, `testAnnotations`, `artifacts`) **must** filter by `projectId`. There is no implicit tenant filter — miss it and data leaks across tenants.
 
-**Required env vars:** `BETTER_AUTH_SECRET`, `WRIGHTFUL_PUBLIC_URL`. Optional: `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`.
+**Required env vars:** `BETTER_AUTH_SECRET`, `WRIGHTFUL_PUBLIC_URL`. Optional: `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`, `SIGNUP_GITHUB_ORGS` + `SIGNUP_EMAIL_DOMAINS` (instance-level signup whitelist — comma-separated; when either is set, email/password signup is blocked and new GitHub users are validated against `/user/orgs` + verified email domain).
 
 ## Worklogs
 

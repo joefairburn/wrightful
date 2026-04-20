@@ -58,7 +58,11 @@ import {
 } from "@/routes/api/user-state";
 import { authHandler } from "@/routes/auth";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
-import { loadSession, requireUser } from "@/routes/middleware";
+import {
+  enforceInstanceWhitelist,
+  loadSession,
+  requireUser,
+} from "@/routes/middleware";
 import { scheduledHandler } from "@/scheduled";
 
 // Native Cloudflare rate limiters — configured in wrangler.jsonc#ratelimits.
@@ -102,7 +106,10 @@ import {
   SettingsTeamNewPage,
   createTeamHandler,
 } from "@/app/pages/settings/team-new";
-import { SettingsTeamDetailPage } from "@/app/pages/settings/team-detail";
+import {
+  SettingsTeamDetailPage,
+  teamAccessControlHandler,
+} from "@/app/pages/settings/team-detail";
 import { SettingsProjectsPage } from "@/app/pages/settings/projects";
 import {
   SettingsProjectNewPage,
@@ -112,6 +119,7 @@ import {
   SettingsProjectKeysPage,
   projectKeysHandler,
 } from "@/app/pages/settings/project-keys";
+import { InvitePage, acceptInviteHandler } from "@/app/pages/invite";
 
 export interface AppContext {
   apiKey?: {
@@ -199,8 +207,13 @@ const app = defineApp([
   // without the sidebar; everything else shares the global shell.
   render(Document, [
     loadSession,
+    enforceInstanceWhitelist,
     route("/login", LoginPage),
     route("/signup", LoginPage),
+    route("/invite/:teamSlug", {
+      get: InvitePage,
+      post: acceptInviteHandler,
+    }),
     ...layout(AppLayout, [
       // Settings — declared first so prefixes win over app routes.
       route("/settings", settingsRootRedirect),
@@ -211,6 +224,9 @@ const app = defineApp([
         post: [requireUser, createTeamHandler],
       }),
       route("/settings/teams/:teamSlug", [requireUser, SettingsTeamDetailPage]),
+      route("/settings/teams/:teamSlug/access-control", {
+        post: [requireUser, teamAccessControlHandler],
+      }),
       route("/settings/teams/:teamSlug/projects", [
         requireUser,
         SettingsProjectsPage,

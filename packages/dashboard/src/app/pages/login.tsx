@@ -13,6 +13,11 @@ export function LoginPage() {
       ? "signup"
       : "signin";
   const showGithub = hasGithubOAuthConfigured();
+  const errorCode = url.searchParams.get("error");
+  const errorCopy = {
+    not_allowed:
+      "Your account isn't on the allow-list for this Wrightful instance. Contact the team owner for an invite.",
+  }[errorCode ?? ""];
 
   const copy = {
     signin: {
@@ -40,6 +45,15 @@ export function LoginPage() {
             {copy.subtitle}
           </p>
         </div>
+
+        {errorCopy && (
+          <div
+            role="alert"
+            className="mb-6 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive-foreground"
+          >
+            {errorCopy}
+          </div>
+        )}
 
         {showGithub && (
           <>

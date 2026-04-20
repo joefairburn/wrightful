@@ -10,12 +10,18 @@ export function hasGithubOAuthConfigured(): boolean {
 }
 
 function getGithubOAuthCreds():
-  | { clientId: string; clientSecret: string }
+  | { clientId: string; clientSecret: string; scope: string[] }
   | undefined {
   const clientId = env.GITHUB_CLIENT_ID;
   const clientSecret = env.GITHUB_CLIENT_SECRET;
   if (!clientId || !clientSecret) return undefined;
-  return { clientId, clientSecret };
+  // `read:org` is required so whitelist enforcement can call
+  // GET /user/orgs with the stored access token.
+  return {
+    clientId,
+    clientSecret,
+    scope: ["read:user", "user:email", "read:org"],
+  };
 }
 
 function buildAuth() {
