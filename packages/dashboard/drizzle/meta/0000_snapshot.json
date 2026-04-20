@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5c8d2f6c-6120-44dc-ae43-3e75d524c425",
+  "id": "b3d64aee-6580-4219-a18b-52c44d5da634",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -255,6 +255,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "created_at": {
           "name": "created_at",
@@ -819,6 +827,93 @@
         "test_annotations_test_result_id_test_results_id_fk": {
           "name": "test_annotations_test_result_id_test_results_id_fk",
           "tableFrom": "test_annotations",
+          "tableTo": "test_results",
+          "columnsFrom": ["test_result_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "test_result_attempts": {
+      "name": "test_result_attempts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "test_result_id": {
+          "name": "test_result_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error_stack": {
+          "name": "error_stack",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "test_result_attempts_test_result_id_idx": {
+          "name": "test_result_attempts_test_result_id_idx",
+          "columns": ["test_result_id"],
+          "isUnique": false
+        },
+        "test_result_attempts_test_result_attempt_uq": {
+          "name": "test_result_attempts_test_result_attempt_uq",
+          "columns": ["test_result_id", "attempt"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "test_result_attempts_test_result_id_test_results_id_fk": {
+          "name": "test_result_attempts_test_result_id_test_results_id_fk",
+          "tableFrom": "test_result_attempts",
           "tableTo": "test_results",
           "columnsFrom": ["test_result_id"],
           "columnsTo": ["id"],

@@ -4,6 +4,16 @@
 
 import type { ArtifactType } from "./attachments.js";
 
+export interface TestAttemptPayload {
+  /** 0 = initial attempt, 1 = first retry, … */
+  attempt: number;
+  /** Single-attempt outcome; `flaky` lives only on the aggregate. */
+  status: "passed" | "failed" | "timedout" | "skipped";
+  durationMs: number;
+  errorMessage: string | null;
+  errorStack: string | null;
+}
+
 export interface TestResultPayload {
   clientKey: string;
   testId: string;
@@ -13,11 +23,14 @@ export interface TestResultPayload {
   status: "passed" | "failed" | "flaky" | "skipped" | "timedout";
   durationMs: number;
   retryCount: number;
+  /** Aggregate error (last attempt for failed/timedout, first failing for flaky). */
   errorMessage: string | null;
   errorStack: string | null;
   workerIndex: number;
   tags: string[];
   annotations: Array<{ type: string; description?: string }>;
+  /** One entry per Playwright attempt. Always ≥ 1 — Playwright always runs at least once. */
+  attempts: TestAttemptPayload[];
 }
 
 export interface PlannedTestDescriptor {
@@ -67,6 +80,8 @@ export interface ArtifactRegistration {
   name: string;
   contentType: string;
   sizeBytes: number;
+  /** Playwright attempt index (0 = initial, 1 = first retry, …). */
+  attempt: number;
 }
 
 export type ArtifactMode = "all" | "failed" | "none";

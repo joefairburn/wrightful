@@ -12,6 +12,17 @@ import type { AppContext } from "@/worker";
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 52_428_800; // 50 MiB
 
+// D1 caps a single statement at 100 bound parameters. The artifacts insert
+// writes 9 columns per row, so batches >11 rows overflow the cap — which the
+// reporter hits on a 3-attempt × 4-attachment failed test (12 rows).
+const MAX_PARAMS_PER_STATEMENT = 99;
+const ARTIFACT_COLUMNS = 9;
+const ARTIFACT_ROWS_PER_STATEMENT = Math.floor(
+  MAX_PARAMS_PER_STATEMENT / ARTIFACT_COLUMNS,
+);
+// Single-column `inArray(...)` against the same 99-param budget.
+const MAX_IN_ARRAY_IDS = MAX_PARAMS_PER_STATEMENT;
+
 function jsonResponse(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
     status,
@@ -75,20 +86,26 @@ export async function registerHandler({
     return jsonResponse({ error: "Run not found" }, 404);
   }
 
-  // Validate every testResultId belongs to the supplied runId
+  // Validate every testResultId belongs to the supplied runId. Each id is
+  // one bound param in the inArray; chunk so we stay under D1's 100-param
+  // cap even if a client sends a huge batch.
   const requestedIds = Array.from(
     new Set(payload.artifacts.map((a) => a.testResultId)),
   );
-  const valid = await db
-    .select({ id: testResults.id })
-    .from(testResults)
-    .where(
-      and(
-        eq(testResults.runId, payload.runId),
-        inArray(testResults.id, requestedIds),
-      ),
-    );
-  const validIds = new Set(valid.map((r) => r.id));
+  const validIds = new Set<string>();
+  for (let i = 0; i < requestedIds.length; i += MAX_IN_ARRAY_IDS) {
+    const chunk = requestedIds.slice(i, i + MAX_IN_ARRAY_IDS);
+    const rows = await db
+      .select({ id: testResults.id })
+      .from(testResults)
+      .where(
+        and(
+          eq(testResults.runId, payload.runId),
+          inArray(testResults.id, chunk),
+        ),
+      );
+    for (const r of rows) validIds.add(r.id);
+  }
   const unknown = requestedIds.filter((id) => !validIds.has(id));
   if (unknown.length > 0) {
     return jsonResponse(
@@ -120,6 +137,7 @@ export async function registerHandler({
       contentType: a.contentType,
       sizeBytes: a.sizeBytes,
       r2Key,
+      attempt: a.attempt,
       createdAt: now,
     });
     uploads.push({
@@ -131,7 +149,11 @@ export async function registerHandler({
 
   // Eager insert — row existence == artifact was promised. A failed PUT leaves
   // an orphan row whose download endpoint will 404; that's acceptable for v1.
-  await db.insert(artifacts).values(rows);
+  for (let i = 0; i < rows.length; i += ARTIFACT_ROWS_PER_STATEMENT) {
+    await db
+      .insert(artifacts)
+      .values(rows.slice(i, i + ARTIFACT_ROWS_PER_STATEMENT));
+  }
 
   return jsonResponse({ uploads }, 201);
 }
