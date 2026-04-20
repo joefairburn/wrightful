@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+export const TestAttemptSchema = z.object({
+  attempt: z.number().int().min(0),
+  status: z.enum(["passed", "failed", "timedout", "skipped"]),
+  durationMs: z.number().int().min(0),
+  errorMessage: z.string().nullable().optional(),
+  errorStack: z.string().nullable().optional(),
+});
+
+export type TestAttemptInput = z.infer<typeof TestAttemptSchema>;
+
 const TestResultSchema = z.object({
   // Opaque client-generated key used to correlate each test result in the
   // request with the server-assigned testResultId returned in the response.
@@ -24,6 +34,8 @@ const TestResultSchema = z.object({
       }),
     )
     .default([]),
+  // Playwright always runs at least once, so there's always ≥ 1 attempt.
+  attempts: z.array(TestAttemptSchema).min(1),
 });
 
 export type TestResultInput = z.infer<typeof TestResultSchema>;
@@ -78,6 +90,7 @@ const ArtifactRequestSchema = z.object({
   name: z.string().min(1),
   contentType: z.string().min(1),
   sizeBytes: z.number().int().min(0),
+  attempt: z.number().int().min(0).default(0),
 });
 
 export const RegisterArtifactsPayloadSchema = z.object({

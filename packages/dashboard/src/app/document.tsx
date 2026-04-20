@@ -1,5 +1,4 @@
 import styles from "./styles.css?url";
-import { Providers } from "./providers";
 
 export const Document: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -13,7 +12,7 @@ export const Document: React.FC<{ children: React.ReactNode }> = ({
       <link rel="modulepreload" href="/src/client.tsx" />
     </head>
     <body>
-      <Providers>{children}</Providers>
+      {children}
       <script>import("/src/client.tsx")</script>
     </body>
   </html>

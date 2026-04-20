@@ -189,6 +189,7 @@ describe("registerHandler", () => {
             name: "trace.zip",
             contentType: "application/zip",
             sizeBytes: 1024,
+            attempt: 2,
           },
         ],
       }),
@@ -208,8 +209,13 @@ describe("registerHandler", () => {
     );
 
     expect(db.inserted).toBeTruthy();
-    const rows = db.inserted as Array<{ r2Key: string; testResultId: string }>;
+    const rows = db.inserted as Array<{
+      r2Key: string;
+      testResultId: string;
+      attempt: number;
+    }>;
     expect(rows).toHaveLength(1);
     expect(rows[0].testResultId).toBe("tr-1");
+    expect(rows[0].attempt).toBe(2);
   });
 });

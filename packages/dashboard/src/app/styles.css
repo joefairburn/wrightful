@@ -263,3 +263,66 @@
     @apply font-sans font-mono;
   }
 }
+
+/* Anser ANSI → HTML class hooks. Playwright embeds SGR escapes (dim, red,
+ * green, yellow, reverse) in its error/stack strings; we surface them
+ * theme-aware rather than using Anser's default terminal palette.
+ *
+ * Reverse-video (`\x1b[7m`) is what Playwright uses to mark the *differing*
+ * characters in expect-vs-received diffs. Anser handles reverse by swapping
+ * fg and bg, so the bg rules below are the ones that actually show up on
+ * diff chunks (fg becomes the default text color). */
+@layer components {
+  .ansi-red-fg,
+  .ansi-bright-red-fg {
+    color: var(--destructive);
+  }
+  .ansi-green-fg,
+  .ansi-bright-green-fg {
+    color: var(--success);
+  }
+  .ansi-yellow-fg,
+  .ansi-bright-yellow-fg {
+    color: var(--warning);
+  }
+  .ansi-cyan-fg,
+  .ansi-bright-cyan-fg,
+  .ansi-blue-fg,
+  .ansi-bright-blue-fg {
+    color: var(--info);
+  }
+  .ansi-red-bg,
+  .ansi-bright-red-bg {
+    background-color: color-mix(in oklab, var(--destructive) 24%, transparent);
+    border-radius: 2px;
+  }
+  .ansi-green-bg,
+  .ansi-bright-green-bg {
+    background-color: color-mix(in oklab, var(--success) 24%, transparent);
+    border-radius: 2px;
+  }
+  .ansi-yellow-bg,
+  .ansi-bright-yellow-bg {
+    background-color: color-mix(in oklab, var(--warning) 24%, transparent);
+    border-radius: 2px;
+  }
+  .ansi-cyan-bg,
+  .ansi-bright-cyan-bg,
+  .ansi-blue-bg,
+  .ansi-bright-blue-bg {
+    background-color: color-mix(in oklab, var(--info) 24%, transparent);
+    border-radius: 2px;
+  }
+  .ansi-dim {
+    opacity: 0.6;
+  }
+  .ansi-bold {
+    font-weight: 600;
+  }
+  .ansi-italic {
+    font-style: italic;
+  }
+  .ansi-underline {
+    text-decoration: underline;
+  }
+}

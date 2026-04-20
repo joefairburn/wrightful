@@ -22,6 +22,7 @@ import type {
   ArtifactMode,
   ArtifactRegistration,
   ReporterOptions,
+  TestAttemptPayload,
   TestResultPayload,
 } from "./types.js";
 
@@ -46,6 +47,7 @@ interface PreparedArtifact {
   contentType: string;
   sizeBytes: number;
   localPath: string;
+  attempt: number;
 }
 
 interface PendingTest {
@@ -299,6 +301,7 @@ export default class WrightfulReporter implements Reporter {
           contentType: attachment.contentType,
           sizeBytes: size,
           localPath: resolved,
+          attempt: result.retry,
         });
       }
     }
@@ -325,6 +328,7 @@ export default class WrightfulReporter implements Reporter {
           name: a.name,
           contentType: a.contentType,
           sizeBytes: a.sizeBytes,
+          attempt: a.attempt,
         });
         locals.push(a);
       }
@@ -483,6 +487,18 @@ export function buildTestDescriptor(
   };
 }
 
+/** Playwright uses "timedOut"; our wire format uses "timedout". */
+function normaliseAttemptStatus(
+  status: TestResult["status"],
+): TestAttemptPayload["status"] {
+  if (status === "timedOut") return "timedout";
+  if (status === "failed") return "failed";
+  if (status === "passed") return "passed";
+  // "interrupted" and anything unexpected → surface as skipped rather than
+  // invent a new enum value on the wire.
+  return "skipped";
+}
+
 export function buildPayload(
   entry: PendingTest,
   rootDir: string | null = null,
@@ -498,6 +514,20 @@ export function buildPayload(
 
   const status = mapOutcome(test, lastResult);
   const errorSource = status === "flaky" ? failing : lastResult;
+
+  // One entry per Playwright attempt, ordered by `retry` (0 = initial).
+  // Preserves each attempt's own error instead of collapsing to one, so
+  // the test detail page can stop inferring which attempt "carries" the
+  // failure.
+  const attempts: TestAttemptPayload[] = [...results]
+    .sort((a, b) => a.retry - b.retry)
+    .map((r) => ({
+      attempt: r.retry,
+      status: normaliseAttemptStatus(r.status),
+      durationMs: Math.round(r.duration),
+      errorMessage: r.errors?.[0]?.message ?? null,
+      errorStack: r.errors?.[0]?.stack ?? null,
+    }));
 
   return {
     clientKey: descriptor.testId,
@@ -517,6 +547,7 @@ export function buildPayload(
       type: a.type,
       description: a.description,
     })),
+    attempts,
   };
 }
 
