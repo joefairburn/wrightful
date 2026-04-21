@@ -22,11 +22,12 @@
       "bucket_name": "wrightful-test-artifacts",
     },
   ],
-  // Tests don't use the realtime `SyncedStateServer` — it's a rwsdk
-  // export that requires dev-server resolve conditions we bypass for the
-  // integration pool. Only the `TENANT` DO is bound here.
   "durable_objects": {
     "bindings": [
+      {
+        "name": "SYNCED_STATE_SERVER",
+        "class_name": "SyncedStateServer",
+      },
       {
         "name": "TENANT",
         "class_name": "TenantDO",
@@ -36,6 +37,10 @@
   "migrations": [
     {
       "tag": "v1",
+      "new_sqlite_classes": ["SyncedStateServer"],
+    },
+    {
+      "tag": "v2",
       "new_sqlite_classes": ["TenantDO"],
     },
   ],

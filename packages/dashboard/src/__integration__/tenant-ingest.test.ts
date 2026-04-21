@@ -1,14 +1,33 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { env } from "cloudflare:test";
 import { ulid } from "ulid";
 import {
   appendResultsHandler,
   completeRunHandler,
   openRunHandler,
 } from "@/routes/api/runs";
-import { composeRunProgress } from "@/routes/api/progress";
+import {
+  composeRunProgress,
+  runRoomId,
+  type RunProgress,
+} from "@/routes/api/progress";
 import { tenantScopeForApiKey } from "@/tenant";
 import { getTenantDb } from "@/tenant/internal";
 import { ensureControlSchema, seedTeamAndProject } from "./helpers/tenant";
+// Workers RPC always wraps stub method calls in Promises at runtime.
+// Typed separately here so `await stub.getState(...)` satisfies oxlint's
+// await-thenable rule (the real SyncedStateServer class declares getState
+// as synchronous, but the stub invocation is always async over the wire).
+interface SyncedStateDOStub {
+  getState(key: string): Promise<unknown>;
+}
+interface TestEnvWithRealtime {
+  SYNCED_STATE_SERVER: {
+    idFromName(name: string): DurableObjectId;
+    get(id: DurableObjectId): SyncedStateDOStub;
+  };
+}
+const testEnvRt = env as unknown as TestEnvWithRealtime;
 
 /**
  * End-to-end ingest flow against real D1 + real tenant DO. No mocks.
@@ -166,7 +185,25 @@ describe("streaming ingest → composeRunProgress", () => {
     expect(byTestId.get("a.spec.ts|failing")?.status).toBe("failed");
     expect(byTestId.get("a.spec.ts|failing")?.errorMessage).toBe("still oops");
 
-    // 5. Spot-check persisted side-effects beyond the progress composite:
+    // 5. Verify broadcastRunProgress reached the realtime DO. The ingest
+    //    handlers call broadcastRunProgress after every write; after
+    //    completeRun the "progress" key should hold the terminal state.
+    const ns = testEnvRt.SYNCED_STATE_SERVER;
+    const roomId = runRoomId({
+      teamSlug: scope!.teamSlug,
+      projectSlug: scope!.projectSlug,
+      runId,
+    });
+    const realtimeStub = ns.get(ns.idFromName(roomId));
+    const broadcastedState = (await realtimeStub.getState("progress")) as
+      | RunProgress
+      | undefined;
+    expect(broadcastedState).not.toBeNull();
+    expect(broadcastedState?.status).toBe("failed");
+    expect(broadcastedState?.counts.passed).toBe(1);
+    expect(broadcastedState?.counts.failed).toBe(1);
+
+    // 6. Spot-check persisted side-effects beyond the progress composite:
     //    tags + annotations + attempts were written correctly.
     const tenantDb = getTenantDb(teamId);
 
