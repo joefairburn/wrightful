@@ -1,7 +1,4 @@
-import { eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
-import { getDb } from "@/db";
-import { artifacts } from "@/db/schema";
 import { verifyArtifactToken } from "@/lib/artifact-tokens";
 
 const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
@@ -9,11 +6,11 @@ const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
 /**
  * GET /api/artifacts/:id/download?t=<token>
  *
- * Authentication: a short-lived HMAC token signed by BETTER_AUTH_SECRET.
- * Tokens are minted server-side on authenticated dashboard pages and embedded
- * in the download href. This replaces the earlier "ULID-in-URL is enough"
- * posture so a leaked ULID (referrer, browser history, share link) doesn't
- * grant permanent global read.
+ * Authentication: a short-lived HMAC token signed by BETTER_AUTH_SECRET. The
+ * token carries the R2 key + content type directly, so this handler doesn't
+ * need to touch the tenant DO at all — verify the signature, stream from R2,
+ * done. The `:id` path parameter is vestigial (it makes URLs easier to read
+ * in logs) and is ignored.
  *
  * CORS: narrowed from `*` to the dashboard origin + the Playwright trace
  * viewer (`https://trace.playwright.dev`), since the viewer fetches the .zip
@@ -21,48 +18,32 @@ const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
  */
 export async function artifactDownloadHandler({
   request,
-  params,
 }: {
   request: Request;
   params: Record<string, string>;
 }) {
-  const artifactId = params.id;
-  if (!artifactId) {
-    return new Response("Not found", { status: 404 });
-  }
-
   const url = new URL(request.url);
   const token = url.searchParams.get("t");
-  if (!token || !(await verifyArtifactToken(artifactId, token))) {
+  const payload = token ? await verifyArtifactToken(token) : null;
+  if (!payload) {
     return new Response("Unauthorized", { status: 401 });
   }
 
   const corsOrigin = resolveAllowedOrigin(request, url.origin);
-
-  const db = getDb();
-  const rows = await db
-    .select({ r2Key: artifacts.r2Key })
-    .from(artifacts)
-    .where(eq(artifacts.id, artifactId))
-    .limit(1);
-  if (rows.length === 0) {
-    return new Response("Not found", { status: 404 });
-  }
-
-  const key = rows[0].r2Key;
+  const { r2Key, contentType } = payload;
 
   if (request.method === "HEAD") {
-    const head = await env.R2.head(key);
+    const head = await env.R2.head(r2Key);
     if (!head) {
       return new Response("Not found", { status: 404 });
     }
     return new Response(null, {
       status: 200,
-      headers: buildHeaders(head, corsOrigin),
+      headers: buildHeaders(head, contentType, corsOrigin),
     });
   }
 
-  const object = await env.R2.get(key, {
+  const object = await env.R2.get(r2Key, {
     range: request.headers,
     onlyIf: request.headers,
   });
@@ -70,7 +51,7 @@ export async function artifactDownloadHandler({
     return new Response("Not found", { status: 404 });
   }
 
-  const headers = buildHeaders(object, corsOrigin);
+  const headers = buildHeaders(object, contentType, corsOrigin);
   const hasBody = "body" in object && object.body !== null;
   // 206 per RFC 7233 requires BOTH a client Range request AND the server
   // serving that partial response. Miniflare populates object.range even
@@ -116,18 +97,22 @@ function resolveAllowedOrigin(
   return dashboardOrigin;
 }
 
-function buildHeaders(object: R2Object, allowedOrigin: string): Headers {
+function buildHeaders(
+  object: R2Object,
+  tokenContentType: string,
+  allowedOrigin: string,
+): Headers {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
+  // Prefer the content-type from the signed token — it reflects what was
+  // registered at upload time and survives R2 HEAD calls that occasionally
+  // miss the attribute.
+  if (!headers.get("content-type")) {
+    headers.set("content-type", tokenContentType);
+  }
   headers.set("etag", object.httpEtag);
   headers.set("content-length", String(object.size));
-  // Artifacts are immutable (ULID-keyed). Let the Cloudflare edge cache
-  // absorb repeat reads — the trace viewer reloads chunks of the zip on
-  // every navigation.
   headers.set("cache-control", "public, max-age=31536000, immutable");
-  // CORS is now restricted to the dashboard origin + known cross-origin
-  // consumers (currently just the Playwright trace viewer). `Vary: Origin`
-  // keeps the CF edge cache from mixing headers across callers.
   headers.set("access-control-allow-origin", allowedOrigin);
   headers.set("vary", "Origin");
   headers.set("access-control-allow-methods", "GET, HEAD, OPTIONS");

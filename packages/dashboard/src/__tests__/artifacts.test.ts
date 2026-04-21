@@ -1,17 +1,34 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Shared holder populated via `vi.hoisted` so the vi.mock factory (which is
-// itself hoisted to the top of the module) can safely read it.
-const { mockEnv } = vi.hoisted(() => ({
+const { mockEnv, tenantDbRef } = vi.hoisted(() => ({
   mockEnv: {
     WRIGHTFUL_MAX_ARTIFACT_BYTES: "52428800",
-  } as Record<string, string>,
+  } as Record<string, unknown> & { WRIGHTFUL_MAX_ARTIFACT_BYTES: string },
+  tenantDbRef: { current: null as unknown },
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
-
 vi.mock("@/db", () => ({ getDb: vi.fn() }));
+vi.mock("@/tenant", () => ({
+  tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) => {
+    if (!apiKey || !tenantDbRef.current) return null;
+    return {
+      teamId: "team-1",
+      teamSlug: "t",
+      projectId: apiKey.projectId,
+      projectSlug: "p",
+      db: tenantDbRef.current,
+      batch: async () => {},
+    };
+  }),
+}));
 
+import {
+  makeTenantTestDb,
+  makeTestDb,
+  selectResult,
+  type ScriptedDriver,
+} from "./helpers/test-db";
 import { registerHandler } from "../routes/api/artifacts";
 import { getDb } from "@/db";
 
@@ -29,45 +46,27 @@ const AUTH_CTX = {
   apiKey: { id: "key-1", label: "test", projectId: "proj-1" },
 };
 
-interface DbMock {
-  select: ReturnType<typeof vi.fn>;
-  insert: ReturnType<typeof vi.fn>;
-  inserted: unknown[] | null;
-}
+let tenantDriver: ScriptedDriver;
 
-// Register handler runs two selects: (1) run ownership by (runId, projectId),
-// (2) testResultId membership in that run. The mock returns those in order.
-function makeDbMock(opts: {
-  runOwned?: boolean;
-  validTestResultIds?: string[];
-}): DbMock {
+/**
+ * registerHandler runs in order (via the scoped tenant db):
+ *   1. tenant: runs ownership (committed = 1)
+ *   2. tenant: testResults id-in-chunk membership
+ *   3. tenant: artifacts INSERT
+ */
+function setupDb(opts: { runOwned?: boolean; validTestResultIds?: string[] }) {
   const runOwned = opts.runOwned ?? true;
   const validTestResultIds = opts.validTestResultIds ?? [];
-
-  const selectResults = [
-    runOwned ? [{ id: "run-1" }] : [],
-    validTestResultIds.map((id) => ({ id })),
-  ];
-
-  const select = vi.fn().mockImplementation(() => {
-    const result = selectResults.shift() ?? [];
-    return {
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(result),
-        then: (resolve: (v: unknown) => void) => resolve(result),
-      }),
-    };
-  });
-
-  const state: DbMock = { select, insert: vi.fn(), inserted: null };
-  state.insert.mockImplementation(() => ({
-    values: vi.fn().mockImplementation((rows: unknown[]) => {
-      state.inserted = rows;
-      return Promise.resolve();
-    }),
-  }));
-  return state;
+  const control = makeTestDb();
+  const tenant = makeTenantTestDb();
+  tenantDriver = tenant.driver;
+  tenant.driver.results.push(selectResult(runOwned ? [{ id: "run-1" }] : []));
+  tenant.driver.results.push(
+    selectResult(validTestResultIds.map((id) => ({ id }))),
+  );
+  tenant.driver.results.push(selectResult([]));
+  mockedGetDb.mockReturnValue(control.db);
+  tenantDbRef.current = tenant.db;
 }
 
 describe("registerHandler", () => {
@@ -76,10 +75,10 @@ describe("registerHandler", () => {
     Object.assign(mockEnv, {
       WRIGHTFUL_MAX_ARTIFACT_BYTES: "52428800",
     });
+    tenantDbRef.current = null;
   });
 
   it("401s when no API key is on the context", async () => {
-    mockedGetDb.mockReturnValue({} as never);
     const res = await registerHandler({
       request: makeRequest({ runId: "run-1", artifacts: [] }),
       ctx: {},
@@ -88,7 +87,6 @@ describe("registerHandler", () => {
   });
 
   it("400s on invalid payload", async () => {
-    mockedGetDb.mockReturnValue({} as never);
     const res = await registerHandler({
       request: makeRequest({ runId: "", artifacts: [] }),
       ctx: AUTH_CTX,
@@ -98,8 +96,7 @@ describe("registerHandler", () => {
 
   it("413s when an artifact exceeds the size cap", async () => {
     mockEnv.WRIGHTFUL_MAX_ARTIFACT_BYTES = "1024";
-    const db = makeDbMock({});
-    mockedGetDb.mockReturnValue(db as never);
+    setupDb({});
 
     const res = await registerHandler({
       request: makeRequest({
@@ -122,8 +119,7 @@ describe("registerHandler", () => {
   });
 
   it("404s when the run doesn't belong to the caller's project", async () => {
-    const db = makeDbMock({ runOwned: false });
-    mockedGetDb.mockReturnValue(db as never);
+    setupDb({ runOwned: false });
 
     const res = await registerHandler({
       request: makeRequest({
@@ -144,9 +140,7 @@ describe("registerHandler", () => {
   });
 
   it("400s when a testResultId doesn't belong to the run", async () => {
-    // db returns only "tr-ok"; we'll ask about "tr-ok" and "tr-bad"
-    const db = makeDbMock({ validTestResultIds: ["tr-ok"] });
-    mockedGetDb.mockReturnValue(db as never);
+    setupDb({ validTestResultIds: ["tr-ok"] });
 
     const res = await registerHandler({
       request: makeRequest({
@@ -176,8 +170,7 @@ describe("registerHandler", () => {
   });
 
   it("returns 201 with upload URLs and eagerly inserts artifact rows", async () => {
-    const db = makeDbMock({ validTestResultIds: ["tr-1"] });
-    mockedGetDb.mockReturnValue(db as never);
+    setupDb({ validTestResultIds: ["tr-1"] });
 
     const res = await registerHandler({
       request: makeRequest({
@@ -208,14 +201,11 @@ describe("registerHandler", () => {
       `/api/artifacts/${body.uploads[0].artifactId}/upload`,
     );
 
-    expect(db.inserted).toBeTruthy();
-    const rows = db.inserted as Array<{
-      r2Key: string;
-      testResultId: string;
-      attempt: number;
-    }>;
-    expect(rows).toHaveLength(1);
-    expect(rows[0].testResultId).toBe("tr-1");
-    expect(rows[0].attempt).toBe(2);
+    const insertQ = tenantDriver.queries.find((q) =>
+      /^insert\s+into\s+"artifacts"/i.test(q.sql),
+    );
+    expect(insertQ).toBeDefined();
+    expect(insertQ!.parameters).toContain("tr-1");
+    expect(insertQ!.parameters).toContain(2);
   });
 });

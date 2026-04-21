@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  DummyDriver,
+  Kysely,
+  SqliteAdapter,
+  SqliteIntrospector,
+  SqliteQueryCompiler,
+} from "kysely";
+import type { TenantDatabase } from "@/tenant";
+import {
   buildRunsWhere,
   EMPTY_FILTERS,
   hasAnyFilter,
@@ -7,6 +15,19 @@ import {
   type RunStatus,
   toSearchParams,
 } from "../lib/runs-filters";
+
+function makeDb(): Kysely<TenantDatabase> {
+  // No CamelCasePlugin — the tenant DO stores columns with camelCase names
+  // verbatim (see src/tenant/migrations.ts).
+  return new Kysely<TenantDatabase>({
+    dialect: {
+      createAdapter: () => new SqliteAdapter(),
+      createDriver: () => new DummyDriver(),
+      createIntrospector: (db) => new SqliteIntrospector(db),
+      createQueryCompiler: () => new SqliteQueryCompiler(),
+    },
+  });
+}
 
 function parse(qs: string) {
   return parseRunsFilters(new URLSearchParams(qs));
@@ -114,19 +135,42 @@ describe("hasAnyFilter", () => {
 });
 
 describe("buildRunsWhere", () => {
-  it("returns a SQL clause for empty filters and every filter field set", () => {
-    expect(buildRunsWhere("proj_123", EMPTY_FILTERS)).toBeDefined();
-    expect(
-      buildRunsWhere("proj_123", {
-        q: "login",
-        status: ["failed"],
-        branch: ["main"],
-        actor: ["alice"],
-        environment: ["production"],
-        from: "2026-04-01",
-        to: "2026-04-15",
-        page: 1,
-      }),
-    ).toBeDefined();
+  it("compiles a projectId-scoped predicate for every filter combination", () => {
+    const db = makeDb();
+    // Empty filters — projectId + committed clauses only.
+    const empty = db
+      .selectFrom("runs")
+      .selectAll()
+      .where((eb) => buildRunsWhere(eb, "proj_123", EMPTY_FILTERS))
+      .compile();
+    expect(empty.sql).toMatch(/"projectId"\s*=\s*\?/);
+    expect(empty.sql).toMatch(/"committed"\s*=\s*\?/);
+    expect(empty.parameters).toContain("proj_123");
+
+    // All filters — ensures every branch of the builder contributes a clause.
+    const full = db
+      .selectFrom("runs")
+      .selectAll()
+      .where((eb) =>
+        buildRunsWhere(eb, "proj_123", {
+          q: "login",
+          status: ["failed"],
+          branch: ["main"],
+          actor: ["alice"],
+          environment: ["production"],
+          from: "2026-04-01",
+          to: "2026-04-15",
+          page: 1,
+        }),
+      )
+      .compile();
+    expect(full.sql).toMatch(/"projectId"\s*=\s*\?/);
+    expect(full.sql).toMatch(/"committed"\s*=\s*\?/);
+    expect(full.sql).toMatch(/"status"\s+in\s*\(\s*\?\s*\)/i);
+    expect(full.sql).toMatch(/"branch"\s+in\s*\(\s*\?\s*\)/i);
+    expect(full.sql).toMatch(/"actor"\s+in\s*\(\s*\?\s*\)/i);
+    expect(full.sql).toMatch(/"environment"\s+in\s*\(\s*\?\s*\)/i);
+    expect(full.sql).toMatch(/"createdAt"\s*>=\s*\?/);
+    expect(full.sql).toMatch(/"createdAt"\s*<=\s*\?/);
   });
 });

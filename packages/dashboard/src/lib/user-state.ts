@@ -1,6 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { memberships, projects, teams, userState } from "@/db/schema";
 
 export type DefaultLanding =
   | { kind: "project"; teamSlug: string; projectSlug: string }
@@ -17,41 +15,38 @@ export async function resolveDefaultLanding(
   const db = getDb();
 
   // Stored state — only trust values the user still has access to.
-  const [stored] = await db
-    .select({
-      teamId: userState.lastTeamId,
-      projectId: userState.lastProjectId,
-    })
-    .from(userState)
-    .where(eq(userState.userId, userId))
-    .limit(1);
+  const stored = await db
+    .selectFrom("userState")
+    .select(["lastTeamId as teamId", "lastProjectId as projectId"])
+    .where("userId", "=", userId)
+    .limit(1)
+    .executeTakeFirst();
 
   const storedTeamId = stored?.teamId ?? null;
   const storedProjectId = stored?.projectId ?? null;
 
   if (storedTeamId) {
-    const [row] = await db
-      .select({ teamSlug: teams.slug })
-      .from(teams)
-      .innerJoin(
-        memberships,
-        and(eq(memberships.teamId, teams.id), eq(memberships.userId, userId)),
+    const row = await db
+      .selectFrom("teams")
+      .innerJoin("memberships", (join) =>
+        join
+          .onRef("memberships.teamId", "=", "teams.id")
+          .on("memberships.userId", "=", userId),
       )
-      .where(eq(teams.id, storedTeamId))
-      .limit(1);
+      .select("teams.slug as teamSlug")
+      .where("teams.id", "=", storedTeamId)
+      .limit(1)
+      .executeTakeFirst();
 
     if (row) {
       if (storedProjectId) {
-        const [projectRow] = await db
-          .select({ projectSlug: projects.slug })
-          .from(projects)
-          .where(
-            and(
-              eq(projects.id, storedProjectId),
-              eq(projects.teamId, storedTeamId),
-            ),
-          )
-          .limit(1);
+        const projectRow = await db
+          .selectFrom("projects")
+          .select("slug as projectSlug")
+          .where("id", "=", storedProjectId)
+          .where("teamId", "=", storedTeamId)
+          .limit(1)
+          .executeTakeFirst();
         if (projectRow) {
           return {
             kind: "project",
@@ -61,12 +56,13 @@ export async function resolveDefaultLanding(
         }
       }
 
-      const [firstProject] = await db
-        .select({ projectSlug: projects.slug })
-        .from(projects)
-        .where(eq(projects.teamId, storedTeamId))
-        .orderBy(asc(projects.id))
-        .limit(1);
+      const firstProject = await db
+        .selectFrom("projects")
+        .select("slug as projectSlug")
+        .where("teamId", "=", storedTeamId)
+        .orderBy("id", "asc")
+        .limit(1)
+        .executeTakeFirst();
       if (firstProject) {
         return {
           kind: "project",
@@ -79,22 +75,24 @@ export async function resolveDefaultLanding(
   }
 
   // No stored team (or user lost access) — pick the user's first team.
-  const [firstTeam] = await db
-    .select({ teamId: teams.id, teamSlug: teams.slug })
-    .from(memberships)
-    .innerJoin(teams, eq(teams.id, memberships.teamId))
-    .where(eq(memberships.userId, userId))
-    .orderBy(asc(teams.id))
-    .limit(1);
+  const firstTeam = await db
+    .selectFrom("memberships")
+    .innerJoin("teams", "teams.id", "memberships.teamId")
+    .select(["teams.id as teamId", "teams.slug as teamSlug"])
+    .where("memberships.userId", "=", userId)
+    .orderBy("teams.id", "asc")
+    .limit(1)
+    .executeTakeFirst();
 
   if (!firstTeam) return null;
 
-  const [firstProject] = await db
-    .select({ projectSlug: projects.slug })
-    .from(projects)
-    .where(eq(projects.teamId, firstTeam.teamId))
-    .orderBy(asc(projects.id))
-    .limit(1);
+  const firstProject = await db
+    .selectFrom("projects")
+    .select("slug as projectSlug")
+    .where("teamId", "=", firstTeam.teamId)
+    .orderBy("id", "asc")
+    .limit(1)
+    .executeTakeFirst();
 
   if (firstProject) {
     return {
@@ -111,18 +109,22 @@ export async function setLastTeam(
   teamId: string,
 ): Promise<void> {
   const db = getDb();
+  const now = Date.now();
   await db
-    .insert(userState)
+    .insertInto("userState")
     .values({
       userId,
       lastTeamId: teamId,
       lastProjectId: null,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
-    .onConflictDoUpdate({
-      target: userState.userId,
-      set: { lastTeamId: teamId, updatedAt: new Date() },
-    });
+    .onConflict((oc) =>
+      oc.column("userId").doUpdateSet({
+        lastTeamId: teamId,
+        updatedAt: now,
+      }),
+    )
+    .execute();
 }
 
 export async function setLastProject(
@@ -131,20 +133,21 @@ export async function setLastProject(
   projectId: string,
 ): Promise<void> {
   const db = getDb();
+  const now = Date.now();
   await db
-    .insert(userState)
+    .insertInto("userState")
     .values({
       userId,
       lastTeamId: teamId,
       lastProjectId: projectId,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
-    .onConflictDoUpdate({
-      target: userState.userId,
-      set: {
+    .onConflict((oc) =>
+      oc.column("userId").doUpdateSet({
         lastTeamId: teamId,
         lastProjectId: projectId,
-        updatedAt: new Date(),
-      },
-    });
+        updatedAt: now,
+      }),
+    )
+    .execute();
 }

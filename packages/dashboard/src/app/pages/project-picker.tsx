@@ -1,8 +1,6 @@
-import { eq } from "drizzle-orm";
 import { requestInfo } from "rwsdk/worker";
 import { NotFoundPage } from "@/app/pages/not-found";
 import { getDb } from "@/db";
-import { projects } from "@/db/schema";
 import { resolveTeamBySlug } from "@/lib/authz";
 import { param } from "@/lib/route-params";
 import type { AppContext } from "@/worker";
@@ -16,10 +14,21 @@ export async function ProjectPickerPage() {
   if (!team) return <NotFoundPage />;
 
   const db = getDb();
-  const rows = await db
-    .select({ id: projects.id, slug: projects.slug, name: projects.name })
-    .from(projects)
-    .where(eq(projects.teamId, team.id));
+  const firstProject = await db
+    .selectFrom("projects")
+    .select("slug")
+    .where("teamId", "=", team.id)
+    .orderBy("id", "asc")
+    .limit(1)
+    .executeTakeFirst();
+
+  if (firstProject) {
+    const origin = new URL(requestInfo.request.url).origin;
+    return Response.redirect(
+      `${origin}/t/${team.slug}/p/${firstProject.slug}`,
+      302,
+    );
+  }
 
   return (
     <div className="mx-auto max-w-2xl p-6 sm:p-8">
@@ -32,32 +41,17 @@ export async function ProjectPickerPage() {
       <p className="mb-6 text-muted-foreground">
         Pick a project to view its test runs.
       </p>
-      {rows.length === 0 ? (
-        <div className="text-muted-foreground">
-          <p className="mb-2">No projects yet.</p>
-          {team.role === "owner" && (
-            <a
-              href={`/settings/teams/${team.slug}/projects/new`}
-              className="text-foreground underline-offset-4 hover:underline"
-            >
-              Create the first project &rarr;
-            </a>
-          )}
-        </div>
-      ) : (
-        <ul className="divide-y border-y">
-          {rows.map((p) => (
-            <li key={p.id}>
-              <a
-                href={`/t/${team.slug}/p/${p.slug}`}
-                className="block py-3 font-semibold hover:bg-accent/32"
-              >
-                {p.name}
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="text-muted-foreground">
+        <p className="mb-2">No projects yet.</p>
+        {team.role === "owner" && (
+          <a
+            href={`/settings/teams/${team.slug}/projects/new`}
+            className="text-foreground underline-offset-4 hover:underline"
+          >
+            Create the first project &rarr;
+          </a>
+        )}
+      </div>
       <div className="mt-8">
         <a
           href={`/settings/teams/${team.slug}`}

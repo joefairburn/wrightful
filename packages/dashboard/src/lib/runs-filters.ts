@@ -1,6 +1,6 @@
 import { isValid, parse, parseISO } from "date-fns";
-import { and, eq, gte, inArray, like, lte, or, type SQL } from "drizzle-orm";
-import { committedRuns } from "@/db/schema";
+import type { ExpressionBuilder, ExpressionWrapper, SqlBool } from "kysely";
+import type { TenantDatabase } from "@/tenant";
 
 export const RUN_STATUSES = [
   "passed",
@@ -38,9 +38,8 @@ export const EMPTY_FILTERS: RunsFilters = {
 };
 
 // Cap per-filter value count. Each entry becomes a bound param in an
-// `inArray(...)` on the runs list query, and D1 rejects statements with
-// >100 bound params. 50 is well below that with headroom for the query's
-// other conditions; a legit UI flow never needs more.
+// `in (...)` clause; 50 leaves comfortable headroom for the query's
+// other conditions and keeps the generated SQL small.
 const MAX_FILTER_VALUES = 50;
 
 function readList(params: URLSearchParams, key: string): string[] {
@@ -113,43 +112,61 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+/**
+ * Predicate builder for `db.selectFrom("runs")` scoped to a project and the
+ * supplied filters. Caller applies via
+ *   `.where((eb) => buildRunsWhere(eb, projectId, filters))`.
+ *
+ * Always pins `committed = 1` so in-flight / uncommitted rows stay hidden
+ * — replaces the pre-M3 `committedRuns` view.
+ *
+ * Timestamps are stored as unix seconds; date-range filters convert the
+ * ISO YYYY-MM-DD bounds to seconds at the UTC day boundary.
+ */
 export function buildRunsWhere(
+  eb: ExpressionBuilder<TenantDatabase, "runs">,
   projectId: string,
   filters: RunsFilters,
-): SQL | undefined {
-  const conditions: (SQL | undefined)[] = [
-    eq(committedRuns.projectId, projectId),
+): ExpressionWrapper<TenantDatabase, "runs", SqlBool> {
+  const clauses: ExpressionWrapper<TenantDatabase, "runs", SqlBool>[] = [
+    eb("runs.projectId", "=", projectId),
+    eb("runs.committed", "=", 1),
   ];
 
   if (filters.status.length > 0) {
-    conditions.push(inArray(committedRuns.status, filters.status));
+    clauses.push(eb("runs.status", "in", filters.status));
   }
   if (filters.branch.length > 0) {
-    conditions.push(inArray(committedRuns.branch, filters.branch));
+    clauses.push(eb("runs.branch", "in", filters.branch));
   }
   if (filters.actor.length > 0) {
-    conditions.push(inArray(committedRuns.actor, filters.actor));
+    clauses.push(eb("runs.actor", "in", filters.actor));
   }
   if (filters.environment.length > 0) {
-    conditions.push(inArray(committedRuns.environment, filters.environment));
+    clauses.push(eb("runs.environment", "in", filters.environment));
   }
   if (filters.from) {
-    const fromDate = parseISO(`${filters.from}T00:00:00.000Z`);
-    conditions.push(gte(committedRuns.createdAt, fromDate));
+    const fromSeconds = Math.floor(
+      parseISO(`${filters.from}T00:00:00.000Z`).getTime() / 1000,
+    );
+    clauses.push(eb("runs.createdAt", ">=", fromSeconds));
   }
   if (filters.to) {
-    const toDate = parseISO(`${filters.to}T23:59:59.999Z`);
-    conditions.push(lte(committedRuns.createdAt, toDate));
+    const toSeconds = Math.floor(
+      parseISO(`${filters.to}T23:59:59.999Z`).getTime() / 1000,
+    );
+    clauses.push(eb("runs.createdAt", "<=", toSeconds));
   }
   if (filters.q) {
     const pattern = `%${escapeLike(filters.q)}%`;
-    const searchCondition = or(
-      like(committedRuns.commitMessage, pattern),
-      like(committedRuns.commitSha, pattern),
-      like(committedRuns.branch, pattern),
+    clauses.push(
+      eb.or([
+        eb("runs.commitMessage", "like", pattern),
+        eb("runs.commitSha", "like", pattern),
+        eb("runs.branch", "like", pattern),
+      ]),
     );
-    if (searchCondition) conditions.push(searchCondition);
   }
 
-  return and(...conditions);
+  return eb.and(clauses);
 }

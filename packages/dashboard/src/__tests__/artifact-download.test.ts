@@ -20,23 +20,12 @@ const { mockEnv, mockR2 } = vi.hoisted(() => {
 });
 
 vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
-vi.mock("@/db", () => ({ getDb: vi.fn() }));
 
 import { artifactDownloadHandler } from "../routes/api/artifact-download";
 import { signArtifactToken } from "../lib/artifact-tokens";
-import { getDb } from "@/db";
 
-const mockedGetDb = vi.mocked(getDb);
-
-function mockDb(row: { r2Key: string } | null) {
-  const chain = {
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockResolvedValue(row ? [row] : []),
-  };
-  const db = { select: vi.fn().mockReturnValue(chain) };
-  mockedGetDb.mockReturnValue(db as never);
-}
+const R2_KEY = "runs/r1/tr-1/a-1/trace.zip";
+const CONTENT_TYPE = "application/zip";
 
 function makeR2Body(
   bytes: Uint8Array,
@@ -53,7 +42,7 @@ function makeR2Body(
     httpEtag: '"abc123"',
     range: overrides.range,
     writeHttpMetadata: (h: Headers) => {
-      h.set("content-type", "application/zip");
+      h.set("content-type", CONTENT_TYPE);
     },
   };
 }
@@ -62,8 +51,9 @@ async function makeRequest(
   method = "GET",
   headers: Record<string, string> = {},
   id = "a-1",
+  r2Key = R2_KEY,
 ) {
-  const token = await signArtifactToken(id);
+  const token = await signArtifactToken({ r2Key, contentType: CONTENT_TYPE });
   return new Request(
     `https://example.com/api/artifacts/${id}/download?t=${encodeURIComponent(token)}`,
     { method, headers },
@@ -82,7 +72,6 @@ describe("artifactDownloadHandler", () => {
   });
 
   it("401s when the signed token is missing", async () => {
-    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     const res = await artifactDownloadHandler({
       request: makeRequestWithoutToken(),
       params: { id: "a-1" },
@@ -90,11 +79,9 @@ describe("artifactDownloadHandler", () => {
     expect(res.status).toBe(401);
   });
 
-  it("401s when the token is valid for a different artifact", async () => {
-    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
-    const token = await signArtifactToken("other-artifact");
+  it("401s when the token signature is invalid", async () => {
     const req = new Request(
-      `https://example.com/api/artifacts/a-1/download?t=${encodeURIComponent(token)}`,
+      "https://example.com/api/artifacts/a-1/download?t=garbage.deadbeef",
     );
     const res = await artifactDownloadHandler({
       request: req,
@@ -103,17 +90,7 @@ describe("artifactDownloadHandler", () => {
     expect(res.status).toBe(401);
   });
 
-  it("404s when the artifact row does not exist", async () => {
-    mockDb(null);
-    const res = await artifactDownloadHandler({
-      request: await makeRequest("GET", {}, "missing"),
-      params: { id: "missing" },
-    });
-    expect(res.status).toBe(404);
-  });
-
-  it("404s when R2 has no object for the stored key", async () => {
-    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
+  it("404s when R2 has no object for the token's r2Key", async () => {
     mockR2.get.mockResolvedValue(null);
     const res = await artifactDownloadHandler({
       request: await makeRequest(),
@@ -123,7 +100,6 @@ describe("artifactDownloadHandler", () => {
   });
 
   it("200s with body, Content-Type, and dashboard-origin CORS headers", async () => {
-    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     const bytes = new Uint8Array([1, 2, 3, 4]);
     mockR2.get.mockResolvedValue(makeR2Body(bytes));
 
@@ -133,7 +109,7 @@ describe("artifactDownloadHandler", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("application/zip");
+    expect(res.headers.get("content-type")).toBe(CONTENT_TYPE);
     expect(res.headers.get("access-control-allow-origin")).toBe(
       "https://example.com",
     );
@@ -145,13 +121,12 @@ describe("artifactDownloadHandler", () => {
     expect(Array.from(received)).toEqual(Array.from(bytes));
 
     expect(mockR2.get).toHaveBeenCalledWith(
-      "runs/r1/tr-1/a-1/trace.zip",
+      R2_KEY,
       expect.objectContaining({ range: expect.any(Headers) }),
     );
   });
 
   it("returns 206 with Content-Range for a Range request", async () => {
-    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     const bytes = new Uint8Array([1, 2, 3, 4]);
     mockR2.get.mockResolvedValue(
       makeR2Body(bytes, {
@@ -170,7 +145,6 @@ describe("artifactDownloadHandler", () => {
   });
 
   it("returns 200 (not 206) when R2 ignores an unsatisfiable Range", async () => {
-    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     const bytes = new Uint8Array([1, 2, 3, 4]);
     mockR2.get.mockResolvedValue(makeR2Body(bytes, { range: undefined }));
 
@@ -184,12 +158,11 @@ describe("artifactDownloadHandler", () => {
   });
 
   it("HEAD returns headers without body via env.R2.head", async () => {
-    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     mockR2.head.mockResolvedValue({
       size: 1234,
       httpEtag: '"abc123"',
       writeHttpMetadata: (h: Headers) => {
-        h.set("content-type", "application/zip");
+        h.set("content-type", CONTENT_TYPE);
       },
     });
 
@@ -204,11 +177,10 @@ describe("artifactDownloadHandler", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe(
       "https://example.com",
     );
-    expect(mockR2.head).toHaveBeenCalledWith("runs/r1/tr-1/a-1/trace.zip");
+    expect(mockR2.head).toHaveBeenCalledWith(R2_KEY);
   });
 
   it("echoes the Playwright trace viewer origin when set", async () => {
-    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     const bytes = new Uint8Array([1, 2, 3, 4]);
     mockR2.get.mockResolvedValue(makeR2Body(bytes));
 
@@ -225,7 +197,6 @@ describe("artifactDownloadHandler", () => {
   });
 
   it("falls back to dashboard origin for unknown cross-origin callers", async () => {
-    mockDb({ r2Key: "runs/r1/tr-1/a-1/trace.zip" });
     const bytes = new Uint8Array([1, 2, 3, 4]);
     mockR2.get.mockResolvedValue(makeR2Body(bytes));
 

@@ -1,7 +1,5 @@
 import { env } from "cloudflare:workers";
-import { eq } from "drizzle-orm";
-import { getDb } from "@/db";
-import { runs, testResults } from "@/db/schema";
+import type { TenantScope } from "@/tenant";
 
 export type RunProgressTestStatus =
   | "queued"
@@ -20,7 +18,7 @@ export type RunProgressStatus =
   | "interrupted";
 
 export interface RunProgressTest {
-  /** `test_results.id` — stable across streaming; used for tests/:id links. */
+  /** `testResults.id` — stable across streaming; used for tests/:id links. */
   id: string;
   testId: string;
   title: string;
@@ -49,8 +47,8 @@ export interface RunProgress {
 }
 
 /**
- * Canonical roomId for the realtime DO backing a run's progress. The shape is
- * parsed + auth-gated by `registerRoomHandler` in `worker.tsx`.
+ * Canonical roomId for the realtime DO backing a run's progress. The shape
+ * is parsed + auth-gated by `registerRoomHandler` in `worker.tsx`.
  */
 export function runRoomId(scope: {
   teamSlug: string;
@@ -90,34 +88,42 @@ function normalizeTestStatus(status: string): RunProgressTestStatus {
 }
 
 /**
- * Compose the full progress snapshot for a run from D1. One indexed SELECT
- * on `runs` + one indexed SELECT on `test_results`. Called from the ingest
- * handlers to build the payload that's then broadcast via `setState` on the
- * realtime DO, and from SSR on the run detail / list pages to seed the
- * initial island state.
+ * Compose the full progress snapshot for a run from the team's tenant DO.
+ * Takes a `TenantScope` so the caller is forced to have been authorized
+ * already — there's no raw-teamId entry point.
+ *
+ * Called from the ingest handlers to build the payload that's then
+ * broadcast via `setState` on the realtime DO, and from SSR on the run
+ * detail / list pages to seed the initial island state.
  */
 export async function composeRunProgress(
+  scope: TenantScope,
   runId: string,
 ): Promise<RunProgress | null> {
-  const db = getDb();
-  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  const run = await scope.db
+    .selectFrom("runs")
+    .selectAll()
+    .where("id", "=", runId)
+    .limit(1)
+    .executeTakeFirst();
   if (!run) return null;
 
-  const rows = await db
-    .select({
-      id: testResults.id,
-      testId: testResults.testId,
-      title: testResults.title,
-      file: testResults.file,
-      projectName: testResults.projectName,
-      status: testResults.status,
-      durationMs: testResults.durationMs,
-      retryCount: testResults.retryCount,
-      errorMessage: testResults.errorMessage,
-      errorStack: testResults.errorStack,
-    })
-    .from(testResults)
-    .where(eq(testResults.runId, runId));
+  const rows = await scope.db
+    .selectFrom("testResults")
+    .select([
+      "id",
+      "testId",
+      "title",
+      "file",
+      "projectName",
+      "status",
+      "durationMs",
+      "retryCount",
+      "errorMessage",
+      "errorStack",
+    ])
+    .where("runId", "=", runId)
+    .execute();
 
   const tests: RunProgressTest[] = rows.map((r) => ({
     id: r.id,
@@ -153,23 +159,31 @@ export async function composeRunProgress(
 }
 
 /**
- * Compose the latest progress from D1 and broadcast it via `setState` on the
- * realtime DO. Clients subscribed via `useSyncedState("progress", roomId)`
- * receive the new value instantly.
+ * Compose the latest progress from the tenant DO and broadcast it via
+ * `setState` on the realtime DO. Clients subscribed via
+ * `useSyncedState("progress", roomId)` receive the new value instantly.
  *
- * Best-effort: any error here is logged but never propagated — D1 is the
- * source of truth; the realtime layer is a delivery channel. Ingest writes
- * must not fail because a DO stub is unreachable.
+ * Best-effort: any error here is logged but never propagated — the tenant
+ * DO is the source of truth; the realtime layer is a delivery channel.
+ * Ingest writes must not fail because a DO stub is unreachable.
  */
 export async function broadcastRunProgress(
+  scope: TenantScope,
   runId: string,
-  scope: { teamSlug: string; projectSlug: string },
 ): Promise<void> {
   try {
-    const progress = await composeRunProgress(runId);
+    const progress = await composeRunProgress(scope, runId);
     if (!progress) return;
     const ns = env.SYNCED_STATE_SERVER;
-    const stub = ns.get(ns.idFromName(runRoomId({ ...scope, runId })));
+    const stub = ns.get(
+      ns.idFromName(
+        runRoomId({
+          teamSlug: scope.teamSlug,
+          projectSlug: scope.projectSlug,
+          runId,
+        }),
+      ),
+    );
     await stub.setState(progress, "progress");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

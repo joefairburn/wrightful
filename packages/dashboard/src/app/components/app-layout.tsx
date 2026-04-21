@@ -5,11 +5,11 @@ import {
   CheckSquare,
   CircleHelp,
   FlaskConical,
+  Plus,
   Settings,
   TriangleAlert,
   User,
   UserRound,
-  Users,
 } from "lucide-react";
 import type { LayoutProps } from "rwsdk/router";
 import { requestInfo } from "rwsdk/worker";
@@ -80,13 +80,19 @@ export async function AppLayout({ children }: LayoutProps) {
       ? await fetchAppSidebarData(userId, teamSlug, projectSlug)
       : null;
 
+  const settingsTeams =
+    mode === "settings" && userId ? await getUserTeams(userId) : [];
+
   return (
     <NuqsRwsdkAdapter serverSearch={serverSearch}>
       <QueryProvider>
         <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans">
           <nav className="fixed left-0 top-0 h-full w-64 flex flex-col border-r border-sidebar-border bg-sidebar z-50">
             {mode === "settings" ? (
-              <SettingsSidebarContents pathname={pathname} />
+              <SettingsSidebarContents
+                pathname={pathname}
+                teams={settingsTeams}
+              />
             ) : (
               <AppSidebarContents
                 pathname={pathname}
@@ -251,44 +257,14 @@ function AppSidebarContents({
 
 interface SettingsSidebarContentsProps {
   pathname: string;
+  teams: { slug: string; name: string }[];
 }
 
-function SettingsSidebarContents({ pathname }: SettingsSidebarContentsProps) {
-  const groups: {
-    label: string;
-    items: {
-      id: string;
-      label: string;
-      href: string;
-      icon: typeof UserRound;
-      match: (p: string) => boolean;
-    }[];
-  }[] = [
-    {
-      label: "Account",
-      items: [
-        {
-          id: "profile",
-          label: "Profile",
-          href: "/settings/profile",
-          icon: UserRound,
-          match: (p) => p.startsWith("/settings/profile"),
-        },
-      ],
-    },
-    {
-      label: "Workspaces",
-      items: [
-        {
-          id: "teams",
-          label: "Teams",
-          href: "/settings/teams",
-          icon: Users,
-          match: (p) => p.startsWith("/settings/teams"),
-        },
-      ],
-    },
-  ];
+function SettingsSidebarContents({
+  pathname,
+  teams,
+}: SettingsSidebarContentsProps) {
+  const profileActive = pathname.startsWith("/settings/profile");
 
   return (
     <>
@@ -303,31 +279,69 @@ function SettingsSidebarContents({ pathname }: SettingsSidebarContentsProps) {
       </div>
 
       <div className="flex-1 flex flex-col gap-4 px-2 overflow-y-auto">
-        {groups.map((group) => (
-          <div key={group.label} className="flex flex-col gap-0.5">
-            <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-              {group.label}
-            </div>
-            {group.items.map((item) => {
-              const active = item.match(pathname);
+        <div className="flex flex-col gap-0.5">
+          <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+            Account
+          </div>
+          <a
+            href="/settings/profile"
+            className={cn(
+              "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors border-l-2",
+              profileActive
+                ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-semibold"
+                : "border-transparent text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+            )}
+          >
+            <UserRound size={16} />
+            Profile
+          </a>
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+            Your teams
+          </div>
+          {teams.length === 0 ? (
+            <p className="px-3 py-1 text-sidebar-foreground/50 text-xs">
+              No teams yet.
+            </p>
+          ) : (
+            teams.map((team) => {
+              const href = `/settings/teams/${team.slug}`;
+              const active =
+                pathname === href || pathname.startsWith(`${href}/`);
               return (
                 <a
-                  key={item.id}
-                  href={item.href}
+                  key={team.slug}
+                  href={href}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors border-l-2",
+                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors border-l-2 min-w-0",
                     active
                       ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-semibold"
                       : "border-transparent text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
                   )}
                 >
-                  <item.icon size={16} />
-                  {item.label}
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-sm border border-sidebar-border bg-sidebar-accent font-mono font-semibold text-[10px] text-sidebar-foreground/70 uppercase">
+                    {team.name.charAt(0)}
+                  </span>
+                  <span className="truncate">{team.name}</span>
                 </a>
               );
-            })}
-          </div>
-        ))}
+            })
+          )}
+          <a
+            href="/settings/teams/new"
+            className={cn(
+              "mt-1 flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors border-l-2",
+              pathname === "/settings/teams/new"
+                ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-semibold"
+                : "border-transparent text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+            )}
+          >
+            <Plus size={16} />
+            Create team
+          </a>
+        </div>
       </div>
     </>
   );

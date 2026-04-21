@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import type { Selectable } from "kysely";
 import { getDb } from "@/db";
-import { apiKeys } from "@/db/schema";
+import type { ApiKeysTable } from "@/db/schema";
 
 async function hashKey(key: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -19,9 +19,11 @@ function timingSafeEqualHex(a: string, b: string): boolean {
   return diff === 0;
 }
 
+export type ApiKey = Selectable<ApiKeysTable>;
+
 export async function validateApiKey(
   authHeader: string | null,
-): Promise<typeof apiKeys.$inferSelect | null> {
+): Promise<ApiKey | null> {
   if (!authHeader) return null;
 
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
@@ -33,19 +35,21 @@ export async function validateApiKey(
 
   const db = getDb();
   const candidates = await db
-    .select()
-    .from(apiKeys)
-    .where(eq(apiKeys.keyPrefix, prefix));
+    .selectFrom("apiKeys")
+    .selectAll()
+    .where("keyPrefix", "=", prefix)
+    .execute();
 
   const key = candidates.find((k) => timingSafeEqualHex(k.keyHash, hash));
   if (!key) return null;
   if (key.revokedAt) return null;
 
-  // Update lastUsedAt (fire and forget)
-  db.update(apiKeys)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(apiKeys.id, key.id))
-    .run()
+  // Update lastUsedAt (fire and forget — the metadata isn't load-bearing and
+  // we don't want auth-path latency to depend on a second write).
+  db.updateTable("apiKeys")
+    .set({ lastUsedAt: Math.floor(Date.now() / 1000) })
+    .where("id", "=", key.id)
+    .execute()
     .catch(() => {});
 
   return key;

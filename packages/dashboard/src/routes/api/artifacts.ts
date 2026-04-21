@@ -1,8 +1,6 @@
-import { and, eq, inArray } from "drizzle-orm";
-import { ulid } from "ulid";
 import { env } from "cloudflare:workers";
-import { getDb } from "@/db";
-import { artifacts, committedRuns, testResults } from "@/db/schema";
+import { ulid } from "ulid";
+import { tenantScopeForApiKey } from "@/tenant";
 import {
   RegisterArtifactsPayloadSchema,
   type RegisterArtifactsPayload,
@@ -12,15 +10,14 @@ import type { AppContext } from "@/worker";
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 52_428_800; // 50 MiB
 
-// D1 caps a single statement at 100 bound parameters. The artifacts insert
-// writes 9 columns per row, so batches >11 rows overflow the cap — which the
-// reporter hits on a 3-attempt × 4-attachment failed test (12 rows).
+// SQLite inside a DO doesn't enforce D1's 100-param cap, but we keep the
+// statement size bounded so a single huge reporter batch doesn't blow up
+// memory in the RPC round-trip. 9 columns × 11 rows = 99 params.
 const MAX_PARAMS_PER_STATEMENT = 99;
 const ARTIFACT_COLUMNS = 9;
 const ARTIFACT_ROWS_PER_STATEMENT = Math.floor(
   MAX_PARAMS_PER_STATEMENT / ARTIFACT_COLUMNS,
 );
-// Single-column `inArray(...)` against the same 99-param budget.
 const MAX_IN_ARRAY_IDS = MAX_PARAMS_PER_STATEMENT;
 
 function jsonResponse(body: unknown, status: number) {
@@ -37,10 +34,7 @@ export async function registerHandler({
   request: Request;
   ctx: AppContext;
 }) {
-  const projectId = ctx.apiKey?.projectId;
-  if (!projectId) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
+  if (!ctx.apiKey) return jsonResponse({ error: "Unauthorized" }, 401);
 
   let payload: RegisterArtifactsPayload;
   try {
@@ -67,43 +61,40 @@ export async function registerHandler({
     );
   }
 
-  const db = getDb();
+  const scope = await tenantScopeForApiKey(ctx.apiKey);
+  if (!scope) return jsonResponse({ error: "Unauthorized" }, 401);
 
   // Validate the run belongs to this API key's project before touching any
-  // testResultId. Without this check a caller could register uploads against
-  // another tenant's run by guessing its ULID.
-  const [ownerRun] = await db
-    .select({ id: committedRuns.id })
-    .from(committedRuns)
-    .where(
-      and(
-        eq(committedRuns.id, payload.runId),
-        eq(committedRuns.projectId, projectId),
-      ),
-    )
-    .limit(1);
+  // testResultId. Without this check a caller could register uploads
+  // against another tenant's run by guessing its ULID (within-team
+  // cross-project). `committed = 1` keeps in-flight-at-open rows
+  // invisible.
+  const ownerRun = await scope.db
+    .selectFrom("runs")
+    .select("id")
+    .where("id", "=", payload.runId)
+    .where("projectId", "=", scope.projectId)
+    .where("committed", "=", 1)
+    .limit(1)
+    .executeTakeFirst();
   if (!ownerRun) {
     return jsonResponse({ error: "Run not found" }, 404);
   }
 
-  // Validate every testResultId belongs to the supplied runId. Each id is
-  // one bound param in the inArray; chunk so we stay under D1's 100-param
-  // cap even if a client sends a huge batch.
+  // Validate every testResultId belongs to the supplied runId. Chunk so
+  // we don't overgrow a single statement's parameter list.
   const requestedIds = Array.from(
     new Set(payload.artifacts.map((a) => a.testResultId)),
   );
   const validIds = new Set<string>();
   for (let i = 0; i < requestedIds.length; i += MAX_IN_ARRAY_IDS) {
     const chunk = requestedIds.slice(i, i + MAX_IN_ARRAY_IDS);
-    const rows = await db
-      .select({ id: testResults.id })
-      .from(testResults)
-      .where(
-        and(
-          eq(testResults.runId, payload.runId),
-          inArray(testResults.id, chunk),
-        ),
-      );
+    const rows = await scope.db
+      .selectFrom("testResults")
+      .select("id")
+      .where("runId", "=", payload.runId)
+      .where("id", "in", chunk)
+      .execute();
     for (const r of rows) validIds.add(r.id);
   }
   const unknown = requestedIds.filter((id) => !validIds.has(id));
@@ -117,9 +108,19 @@ export async function registerHandler({
     );
   }
 
-  const now = new Date();
+  const nowSeconds = Math.floor(Date.now() / 1000);
 
-  const rows: (typeof artifacts.$inferInsert)[] = [];
+  const rows: Array<{
+    id: string;
+    testResultId: string;
+    type: string;
+    name: string;
+    contentType: string;
+    sizeBytes: number;
+    r2Key: string;
+    attempt: number;
+    createdAt: number;
+  }> = [];
   const uploads: Array<{
     artifactId: string;
     uploadUrl: string;
@@ -138,7 +139,7 @@ export async function registerHandler({
       sizeBytes: a.sizeBytes,
       r2Key,
       attempt: a.attempt,
-      createdAt: now,
+      createdAt: nowSeconds,
     });
     uploads.push({
       artifactId,
@@ -147,12 +148,14 @@ export async function registerHandler({
     });
   }
 
-  // Eager insert — row existence == artifact was promised. A failed PUT leaves
-  // an orphan row whose download endpoint will 404; that's acceptable for v1.
+  // Eager insert — row existence == artifact was promised. A failed PUT
+  // leaves an orphan row whose download endpoint will 404; that's
+  // acceptable for v1.
   for (let i = 0; i < rows.length; i += ARTIFACT_ROWS_PER_STATEMENT) {
-    await db
-      .insert(artifacts)
-      .values(rows.slice(i, i + ARTIFACT_ROWS_PER_STATEMENT));
+    await scope.db
+      .insertInto("artifacts")
+      .values(rows.slice(i, i + ARTIFACT_ROWS_PER_STATEMENT))
+      .execute();
   }
 
   return jsonResponse({ uploads }, 201);

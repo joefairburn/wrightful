@@ -1,7 +1,5 @@
-import { and, eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
-import { getDb } from "@/db";
-import { artifacts, committedRuns, testResults } from "@/db/schema";
+import { tenantScopeForApiKey } from "@/tenant";
 import type { AppContext } from "@/worker";
 
 function jsonResponse(body: unknown, status: number) {
@@ -14,10 +12,9 @@ function jsonResponse(body: unknown, status: number) {
 /**
  * PUT /api/artifacts/:id/upload
  *
- * Streams the request body into R2 via the native binding. The artifact row
- * was inserted by /api/artifacts/register; we verify the caller's API key
- * owns the project that owns the run that owns the testResult before
- * accepting the write.
+ * Streams the request body into R2 via the native binding. The artifact
+ * row was inserted by /api/artifacts/register into the team's tenant DO;
+ * we re-verify ownership there before accepting the write.
  */
 export async function artifactUploadHandler({
   request,
@@ -28,30 +25,30 @@ export async function artifactUploadHandler({
   params: Record<string, string>;
   ctx: AppContext;
 }) {
-  const projectId = ctx.apiKey?.projectId;
-  if (!projectId) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
+  if (!ctx.apiKey) return jsonResponse({ error: "Unauthorized" }, 401);
 
   const artifactId = params.id;
   if (!artifactId) {
     return jsonResponse({ error: "Not found" }, 404);
   }
 
-  const db = getDb();
-  const [row] = await db
-    .select({
-      r2Key: artifacts.r2Key,
-      contentType: artifacts.contentType,
-      sizeBytes: artifacts.sizeBytes,
-    })
-    .from(artifacts)
-    .innerJoin(testResults, eq(testResults.id, artifacts.testResultId))
-    .innerJoin(committedRuns, eq(committedRuns.id, testResults.runId))
-    .where(
-      and(eq(artifacts.id, artifactId), eq(committedRuns.projectId, projectId)),
-    )
-    .limit(1);
+  const scope = await tenantScopeForApiKey(ctx.apiKey);
+  if (!scope) return jsonResponse({ error: "Not found" }, 404);
+
+  const row = await scope.db
+    .selectFrom("artifacts")
+    .innerJoin("testResults", "testResults.id", "artifacts.testResultId")
+    .innerJoin("runs", "runs.id", "testResults.runId")
+    .select([
+      "artifacts.r2Key as r2Key",
+      "artifacts.contentType as contentType",
+      "artifacts.sizeBytes as sizeBytes",
+    ])
+    .where("artifacts.id", "=", artifactId)
+    .where("runs.projectId", "=", scope.projectId)
+    .where("runs.committed", "=", 1)
+    .limit(1)
+    .executeTakeFirst();
 
   if (!row) {
     return jsonResponse({ error: "Not found" }, 404);

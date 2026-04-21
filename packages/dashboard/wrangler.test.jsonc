@@ -1,0 +1,49 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wrightful-test",
+  "main": "src/__integration__/entrypoint.ts",
+  "compatibility_date": "2026-04-17",
+  "compatibility_flags": ["nodejs_compat"],
+  // Scoped to what integration tests actually touch. Everything the
+  // production config has (rate limiters, cron triggers, observability,
+  // public asset binding) is intentionally omitted — keeps the miniflare
+  // instance small and test startup fast.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wrightful-test",
+      "database_id": "LOCAL_PLACEHOLDER",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "wrightful-test-artifacts",
+    },
+  ],
+  // Tests don't use the realtime `SyncedStateServer` — it's a rwsdk
+  // export that requires dev-server resolve conditions we bypass for the
+  // integration pool. Only the `TENANT` DO is bound here.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TENANT",
+        "class_name": "TenantDO",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TenantDO"],
+    },
+  ],
+  "vars": {
+    "WRIGHTFUL_MAX_ARTIFACT_BYTES": "52428800",
+    "WRIGHTFUL_PUBLIC_URL": "http://localhost:5173",
+    "WRIGHTFUL_RUN_STALE_MINUTES": "30",
+    // Fixed secret for deterministic artifact-token signatures in tests.
+    "BETTER_AUTH_SECRET": "test-secret-please-do-not-use-in-prod",
+  },
+}

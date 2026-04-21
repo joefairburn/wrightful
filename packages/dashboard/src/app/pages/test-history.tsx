@@ -1,4 +1,3 @@
-import { and, desc, eq } from "drizzle-orm";
 import { DurationChart } from "@/app/components/duration-chart";
 import { Sparkline } from "@/app/components/sparkline";
 import { StatusBadge } from "@/app/components/status-badge";
@@ -12,8 +11,6 @@ import {
   TableRow,
 } from "@/app/components/ui/table";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getDb } from "@/db";
-import { committedRuns, testResults } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { param } from "@/lib/route-params";
@@ -48,32 +45,32 @@ export async function TestHistoryPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
-  const db = getDb();
+  const tenantDb = project.db;
 
-  // Left join runs for branch/commit context on each point, scoped to project.
-  const history = await db
-    .select({
-      testResultId: testResults.id,
-      runId: testResults.runId,
-      status: testResults.status,
-      title: testResults.title,
-      file: testResults.file,
-      projectName: testResults.projectName,
-      durationMs: testResults.durationMs,
-      createdAt: testResults.createdAt,
-      branch: committedRuns.branch,
-      commitSha: committedRuns.commitSha,
-    })
-    .from(testResults)
-    .innerJoin(committedRuns, eq(committedRuns.id, testResults.runId))
-    .where(
-      and(
-        eq(testResults.testId, testId),
-        eq(committedRuns.projectId, project.id),
-      ),
-    )
-    .orderBy(desc(testResults.createdAt))
-    .limit(HISTORY_LIMIT);
+  // Inner-join runs for branch/commit context on each point, scoped to
+  // project. The `runs.committed = 1` predicate keeps in-flight /
+  // uncommitted runs out of the history view.
+  const history = await tenantDb
+    .selectFrom("testResults")
+    .innerJoin("runs", "runs.id", "testResults.runId")
+    .select([
+      "testResults.id as testResultId",
+      "testResults.runId as runId",
+      "testResults.status as status",
+      "testResults.title as title",
+      "testResults.file as file",
+      "testResults.projectName as projectName",
+      "testResults.durationMs as durationMs",
+      "testResults.createdAt as createdAt",
+      "runs.branch as branch",
+      "runs.commitSha as commitSha",
+    ])
+    .where("testResults.testId", "=", testId)
+    .where("runs.projectId", "=", project.id)
+    .where("runs.committed", "=", 1)
+    .orderBy("testResults.createdAt", "desc")
+    .limit(HISTORY_LIMIT)
+    .execute();
 
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
 

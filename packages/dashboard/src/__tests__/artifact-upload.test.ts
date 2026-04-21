@@ -4,21 +4,32 @@ type R2Mock = {
   put: ReturnType<typeof vi.fn>;
 };
 
-const { mockEnv, mockR2 } = vi.hoisted(() => {
+const { mockEnv, mockR2, tenantDbRef } = vi.hoisted(() => {
   const r2: R2Mock = { put: vi.fn() };
   return {
     mockR2: r2,
     mockEnv: { R2: r2 } as { R2: R2Mock },
+    tenantDbRef: { current: null as unknown },
   };
 });
 
 vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
-vi.mock("@/db", () => ({ getDb: vi.fn() }));
+vi.mock("@/tenant", () => ({
+  tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) => {
+    if (!apiKey || !tenantDbRef.current) return null;
+    return {
+      teamId: "team-1",
+      teamSlug: "t",
+      projectId: apiKey.projectId,
+      projectSlug: "p",
+      db: tenantDbRef.current,
+      batch: async () => {},
+    };
+  }),
+}));
 
+import { makeTenantTestDb, selectResult } from "./helpers/test-db";
 import { artifactUploadHandler } from "../routes/api/artifact-upload";
-import { getDb } from "@/db";
-
-const mockedGetDb = vi.mocked(getDb);
 
 const AUTH_CTX = {
   apiKey: { id: "key-1", label: "test", projectId: "proj-1" },
@@ -27,14 +38,15 @@ const AUTH_CTX = {
 function mockDb(
   row: { r2Key: string; contentType: string; sizeBytes: number } | null,
 ) {
-  const chain = {
-    from: vi.fn().mockReturnThis(),
-    innerJoin: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockResolvedValue(row ? [row] : []),
-  };
-  const db = { select: vi.fn().mockReturnValue(chain) };
-  mockedGetDb.mockReturnValue(db as never);
+  const tenant = makeTenantTestDb();
+  tenant.driver.results.push(
+    selectResult(row ? [row as unknown as Record<string, unknown>] : []),
+  );
+  tenantDbRef.current = tenant.db;
+}
+
+function mockDbNoScope() {
+  tenantDbRef.current = null;
 }
 
 function makeRequest(
@@ -62,6 +74,16 @@ describe("artifactUploadHandler", () => {
       ctx: {},
     });
     expect(res.status).toBe(401);
+  });
+
+  it("404s when the scope lookup fails", async () => {
+    mockDbNoScope();
+    const res = await artifactUploadHandler({
+      request: makeRequest("x", { "content-length": "1" }),
+      params: { id: "a-1" },
+      ctx: AUTH_CTX,
+    });
+    expect(res.status).toBe(404);
   });
 
   it("404s when the artifact row is missing or cross-tenant", async () => {

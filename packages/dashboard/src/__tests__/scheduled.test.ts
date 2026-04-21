@@ -1,94 +1,132 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Hoisted mock env — flipped per-test to assert threshold override.
-const { mockEnv } = vi.hoisted(() => ({
-  mockEnv: {} as Record<string, string>,
-}));
+type TenantStub = {
+  sweepStuckRuns: ReturnType<typeof vi.fn>;
+};
+
+const { mockEnv, tenantStubs } = vi.hoisted(() => {
+  const stubs = new Map<string, TenantStub>();
+  return {
+    mockEnv: {
+      TENANT: {
+        idFromName: (name: string) => name,
+        get: (id: unknown) => stubs.get(id as string),
+      },
+    } as Record<string, unknown>,
+    tenantStubs: stubs,
+  };
+});
 
 vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
 vi.mock("@/db", () => ({ getDb: vi.fn() }));
+// Prevent the transitive `rwsdk/db` import (which ESM-fails in Node) from
+// loading. Tests exercise the fan-out by scripting stubs into
+// `tenantStubs` and overriding the internal accessor.
+vi.mock("@/tenant/internal", () => ({
+  internalTenantStubForCron: (teamId: string) => tenantStubs.get(teamId),
+}));
 
+import {
+  makeTestDb,
+  selectResult,
+  type ScriptedDriver,
+} from "./helpers/test-db";
 import { sweepStuckRuns } from "../scheduled";
 import { getDb } from "@/db";
 
 const mockedGetDb = vi.mocked(getDb);
 
-interface DbStub {
-  update: ReturnType<typeof vi.fn>;
-  whereClause: unknown;
-  setValue: unknown;
+let controlDriver: ScriptedDriver;
+
+function setupActiveTeams(teamIds: string[]) {
+  const control = makeTestDb();
+  controlDriver = control.driver;
+  controlDriver.results.push(selectResult(teamIds.map((id) => ({ id }))));
+  mockedGetDb.mockReturnValue(control.db);
 }
 
-function makeDb(returnedRows: Array<{ id: string; createdAt: Date }>): DbStub {
-  const state: DbStub = {
-    update: vi.fn(),
-    whereClause: null,
-    setValue: null,
+function setTenantSweep(
+  teamId: string,
+  rows: Array<{ id: string; createdAt: number }>,
+) {
+  const stub: TenantStub = {
+    sweepStuckRuns: vi.fn().mockResolvedValue(rows),
   };
-  state.update.mockImplementation(() => ({
-    set: vi.fn().mockImplementation((value: unknown) => {
-      state.setValue = value;
-      return {
-        where: vi.fn().mockImplementation((clause: unknown) => {
-          state.whereClause = clause;
-          return {
-            returning: vi.fn().mockResolvedValue(returnedRows),
-          };
-        }),
-      };
-    }),
-  }));
-  return state;
+  tenantStubs.set(teamId, stub);
+  return stub;
 }
 
 describe("sweepStuckRuns", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    for (const k of Object.keys(mockEnv)) delete mockEnv[k];
+    tenantStubs.clear();
+    for (const k of Object.keys(mockEnv)) {
+      if (k !== "TENANT") delete mockEnv[k];
+    }
   });
 
-  it("marks stuck runs as interrupted and returns the count", async () => {
-    const now = new Date("2026-04-19T12:00:00Z");
-    const stuck = new Date("2026-04-19T11:00:00Z");
-    const db = makeDb([
-      { id: "run-1", createdAt: stuck },
-      { id: "run-2", createdAt: stuck },
+  it("fans out to active teams only and aggregates swept counts", async () => {
+    setupActiveTeams(["team-a", "team-b"]);
+    setTenantSweep("team-a", [
+      { id: "run-1", createdAt: 1_000 },
+      { id: "run-2", createdAt: 1_100 },
     ]);
-    mockedGetDb.mockReturnValue(db as never);
+    setTenantSweep("team-b", [{ id: "run-3", createdAt: 1_200 }]);
 
+    const now = new Date("2026-04-19T12:00:00Z");
     const count = await sweepStuckRuns(now);
 
-    expect(count).toBe(2);
-    expect(db.update).toHaveBeenCalledTimes(1);
-    const setValue = db.setValue as Record<string, unknown>;
-    expect(setValue.status).toBe("interrupted");
-    expect(setValue.completedAt).toBe(now);
+    expect(count).toBe(3);
+    expect(tenantStubs.get("team-a")!.sweepStuckRuns).toHaveBeenCalledTimes(1);
+    expect(tenantStubs.get("team-b")!.sweepStuckRuns).toHaveBeenCalledTimes(1);
+
+    // Default stale = 30 min → cutoff = now - 30*60s.
+    const expectedCutoff = Math.floor(now.getTime() / 1000) - 30 * 60;
+    const expectedNow = Math.floor(now.getTime() / 1000);
+    expect(tenantStubs.get("team-a")!.sweepStuckRuns).toHaveBeenCalledWith(
+      expectedCutoff,
+      expectedNow,
+    );
   });
 
-  it("returns 0 when nothing is stuck", async () => {
-    const db = makeDb([]);
-    mockedGetDb.mockReturnValue(db as never);
+  it("returns 0 when no teams have recent activity", async () => {
+    setupActiveTeams([]);
     const count = await sweepStuckRuns();
     expect(count).toBe(0);
   });
 
   it("honors WRIGHTFUL_RUN_STALE_MINUTES env override", async () => {
     mockEnv.WRIGHTFUL_RUN_STALE_MINUTES = "5";
-    const db = makeDb([]);
-    mockedGetDb.mockReturnValue(db as never);
-    await sweepStuckRuns(new Date("2026-04-19T12:00:00Z"));
-    // The whereClause is drizzle's internal AST — we don't inspect it
-    // directly here, just assert the handler ran without throwing when the
-    // threshold is overridden. A smaller threshold means more aggressive
-    // sweeping; the default-vs-override behavior is exercised by the
-    // integration test (see watchdog smoke in worklog).
-    expect(db.update).toHaveBeenCalled();
+    setupActiveTeams(["team-a"]);
+    setTenantSweep("team-a", []);
+
+    const now = new Date("2026-04-19T12:00:00Z");
+    await sweepStuckRuns(now);
+
+    // Control-DB query must filter teams against a 5-minute cutoff.
+    const teamsQuery = controlDriver.queries[0];
+    expect(teamsQuery.sql).toMatch(/"last_activity_at"\s*>=\s*\?/);
+    const expectedCutoff = Math.floor(now.getTime() / 1000) - 5 * 60;
+    expect(teamsQuery.parameters).toContain(expectedCutoff);
+    expect(tenantStubs.get("team-a")!.sweepStuckRuns).toHaveBeenCalledWith(
+      expectedCutoff,
+      Math.floor(now.getTime() / 1000),
+    );
   });
 
   it("falls back to default when env is non-numeric", async () => {
     mockEnv.WRIGHTFUL_RUN_STALE_MINUTES = "not-a-number";
-    const db = makeDb([]);
-    mockedGetDb.mockReturnValue(db as never);
+    setupActiveTeams([]);
     await expect(sweepStuckRuns()).resolves.toBe(0);
+  });
+
+  it("continues sweeping other teams when one DO call throws", async () => {
+    setupActiveTeams(["team-a", "team-b"]);
+    const a = setTenantSweep("team-a", []);
+    a.sweepStuckRuns.mockRejectedValueOnce(new Error("DO unreachable"));
+    setTenantSweep("team-b", [{ id: "run-3", createdAt: 1_200 }]);
+
+    const count = await sweepStuckRuns();
+    expect(count).toBe(1);
   });
 });

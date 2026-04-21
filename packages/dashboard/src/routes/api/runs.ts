@@ -1,16 +1,7 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
+import { type Compilable, sql } from "kysely";
 import { ulid } from "ulid";
-import { getDb, type Db } from "@/db";
-import {
-  projects,
-  runs,
-  teams,
-  testAnnotations,
-  testResultAttempts,
-  testResults,
-  testTags,
-} from "@/db/schema";
+import { getDb } from "@/db";
+import { type TenantScope, tenantScopeForApiKey } from "@/tenant";
 import {
   OpenRunPayloadSchema,
   AppendResultsPayloadSchema,
@@ -30,11 +21,10 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
-// D1 caps: 100 bound parameters per query, 1000 statements per batch. We
-// chunk multi-row inserts so no statement exceeds the param cap, then split
-// those statements across 1000-statement batches.
+// Even though tenant DOs don't enforce D1's 100-param cap, we still chunk
+// multi-row INSERTs. It keeps statements readable, bounds memory for very
+// large appends, and matches the reporter's existing batching cadence.
 const MAX_PARAMS_PER_STATEMENT = 99;
-const MAX_STATEMENTS_PER_BATCH = 1000;
 const TEST_RESULTS_COLUMNS = 13;
 const TEST_TAGS_COLUMNS = 3;
 const TEST_ANNOTATIONS_COLUMNS = 4;
@@ -57,15 +47,12 @@ interface ResultMapping {
   testResultId: string;
 }
 
-/**
- * Resolve the `(runId, testId)` pair to the test_result row's `id`, preferring
- * a prefilled queued row if one exists. The caller gets a map from the input
- * `testId` to the id to use (existing or fresh). Existing-row ids let us
- * UPDATE in place; fresh ids are for the safety net where a reporter skipped
- * the queue prefill.
- */
+function runUrl(scope: TenantScope, id: string) {
+  return `/t/${scope.teamSlug}/p/${scope.projectSlug}/runs/${id}`;
+}
+
 async function resolveTestResultIds(
-  db: Db,
+  scope: TenantScope,
   runId: string,
   testIds: string[],
 ): Promise<{
@@ -74,12 +61,12 @@ async function resolveTestResultIds(
 }> {
   const existingIds = new Map<string, string>();
   if (testIds.length > 0) {
-    const rows = await db
-      .select({ id: testResults.id, testId: testResults.testId })
-      .from(testResults)
-      .where(
-        and(eq(testResults.runId, runId), inArray(testResults.testId, testIds)),
-      );
+    const rows = await scope.db
+      .selectFrom("testResults")
+      .select(["id", "testId"])
+      .where("runId", "=", runId)
+      .where("testId", "in", testIds)
+      .execute();
     for (const row of rows) {
       existingIds.set(row.testId, row.id);
     }
@@ -92,30 +79,58 @@ async function resolveTestResultIds(
 }
 
 /**
- * Build batch statements that upsert test_results + replace their tags and
- * annotations, chunked to respect D1's per-statement parameter cap.
+ * Build batch statements that upsert testResults + replace their tags and
+ * annotations. The whole set is sent to the tenant DO as one atomic
+ * transaction via `scope.batch`.
  *
- * - If a row already exists for `(run_id, test_id)` (typical case: the run
- *   was opened with a queue prefill), we UPDATE it in place. Tags and
- *   annotations belonging to that existing id are DELETEd first so the new
- *   set replaces them cleanly.
- * - If no row exists (a reporter that skipped the prefill, or a test added
- *   dynamically), we INSERT a fresh row.
+ * - If a row already exists for `(runId, testId)` (typical case: the run
+ *   was opened with a queue prefill), UPDATE in place. Tags and
+ *   annotations belonging to that existing id are DELETEd first so the
+ *   new set replaces them cleanly.
+ * - Otherwise INSERT a fresh row.
  */
 function buildResultInsertStatements(
-  db: Db,
+  scope: TenantScope,
   runId: string,
   results: TestResultInput[],
-  now: Date,
+  nowSeconds: number,
   existingIds: Map<string, string>,
   assignedIds: Map<string, string>,
-): { statements: BatchItem<"sqlite">[]; mapping: ResultMapping[] } {
-  const insertRows: (typeof testResults.$inferInsert)[] = [];
-  const tagRows: (typeof testTags.$inferInsert)[] = [];
-  const annotationRows: (typeof testAnnotations.$inferInsert)[] = [];
-  const attemptRows: (typeof testResultAttempts.$inferInsert)[] = [];
+): { statements: Compilable[]; mapping: ResultMapping[] } {
+  const insertRows: Array<{
+    id: string;
+    runId: string;
+    testId: string;
+    title: string;
+    file: string;
+    projectName: string | null;
+    status: string;
+    durationMs: number;
+    retryCount: number;
+    errorMessage: string | null;
+    errorStack: string | null;
+    workerIndex: number | null;
+    createdAt: number;
+  }> = [];
+  const tagRows: Array<{ id: string; testResultId: string; tag: string }> = [];
+  const annotationRows: Array<{
+    id: string;
+    testResultId: string;
+    type: string;
+    description: string | null;
+  }> = [];
+  const attemptRows: Array<{
+    id: string;
+    testResultId: string;
+    attempt: number;
+    status: string;
+    durationMs: number;
+    errorMessage: string | null;
+    errorStack: string | null;
+    createdAt: number;
+  }> = [];
   const mapping: ResultMapping[] = [];
-  const statements: BatchItem<"sqlite">[] = [];
+  const statements: Compilable[] = [];
 
   for (const result of results) {
     const testResultId = assignedIds.get(result.testId);
@@ -125,11 +140,9 @@ function buildResultInsertStatements(
     }
 
     if (existingIds.has(result.testId)) {
-      // UPDATE in place — preserves the row id so artifacts referencing it
-      // stay valid.
       statements.push(
-        db
-          .update(testResults)
+        scope.db
+          .updateTable("testResults")
           .set({
             title: result.title,
             file: result.file,
@@ -140,19 +153,19 @@ function buildResultInsertStatements(
             errorMessage: result.errorMessage ?? null,
             errorStack: result.errorStack ?? null,
             workerIndex: result.workerIndex ?? null,
-            createdAt: now,
+            createdAt: nowSeconds,
           })
-          .where(eq(testResults.id, testResultId)),
-      );
-      // Replace tags / annotations for this row. Tag lists are short (a few
-      // per test at most), so DELETE-then-INSERT is cheaper than diffing.
-      statements.push(
-        db.delete(testTags).where(eq(testTags.testResultId, testResultId)),
+          .where("id", "=", testResultId),
       );
       statements.push(
-        db
-          .delete(testAnnotations)
-          .where(eq(testAnnotations.testResultId, testResultId)),
+        scope.db
+          .deleteFrom("testTags")
+          .where("testResultId", "=", testResultId),
+      );
+      statements.push(
+        scope.db
+          .deleteFrom("testAnnotations")
+          .where("testResultId", "=", testResultId),
       );
     } else {
       insertRows.push({
@@ -168,7 +181,7 @@ function buildResultInsertStatements(
         errorMessage: result.errorMessage ?? null,
         errorStack: result.errorStack ?? null,
         workerIndex: result.workerIndex ?? null,
-        createdAt: now,
+        createdAt: nowSeconds,
       });
     }
 
@@ -176,9 +189,9 @@ function buildResultInsertStatements(
     // set first so the reporter re-sending (flush retry, or running with
     // fewer retries than before) stays idempotent.
     statements.push(
-      db
-        .delete(testResultAttempts)
-        .where(eq(testResultAttempts.testResultId, testResultId)),
+      scope.db
+        .deleteFrom("testResultAttempts")
+        .where("testResultId", "=", testResultId),
     );
     for (const attempt of result.attempts) {
       attemptRows.push({
@@ -189,7 +202,7 @@ function buildResultInsertStatements(
         durationMs: attempt.durationMs,
         errorMessage: attempt.errorMessage ?? null,
         errorStack: attempt.errorStack ?? null,
-        createdAt: now,
+        createdAt: nowSeconds,
       });
     }
 
@@ -207,31 +220,30 @@ function buildResultInsertStatements(
   }
 
   for (const chunk of chunkByParams(insertRows, TEST_RESULTS_COLUMNS)) {
-    statements.push(db.insert(testResults).values(chunk));
+    statements.push(scope.db.insertInto("testResults").values(chunk));
   }
   for (const chunk of chunkByParams(tagRows, TEST_TAGS_COLUMNS)) {
-    statements.push(db.insert(testTags).values(chunk));
+    statements.push(scope.db.insertInto("testTags").values(chunk));
   }
   for (const chunk of chunkByParams(annotationRows, TEST_ANNOTATIONS_COLUMNS)) {
-    statements.push(db.insert(testAnnotations).values(chunk));
+    statements.push(scope.db.insertInto("testAnnotations").values(chunk));
   }
   for (const chunk of chunkByParams(
     attemptRows,
     TEST_RESULT_ATTEMPTS_COLUMNS,
   )) {
-    statements.push(db.insert(testResultAttempts).values(chunk));
+    statements.push(scope.db.insertInto("testResultAttempts").values(chunk));
   }
   return { statements, mapping };
 }
 
 /**
- * Build the batch statements that prefill one queued test_results row per
- * planned test at openRun. Status = "queued", duration = 0, no errors. The
- * unique `(run_id, test_id)` index is what lets /results later upsert these
+ * Prefill one queued testResults row per planned test at openRun. The
+ * unique `(runId, testId)` index lets /results later upsert these
  * in place.
  */
 function buildQueuePrefillStatements(
-  db: Db,
+  scope: TenantScope,
   runId: string,
   plannedTests: ReadonlyArray<{
     testId: string;
@@ -239,10 +251,10 @@ function buildQueuePrefillStatements(
     file: string;
     projectName?: string | null | undefined;
   }>,
-  now: Date,
-): BatchItem<"sqlite">[] {
+  nowSeconds: number,
+): Compilable[] {
   if (plannedTests.length === 0) return [];
-  const rows: (typeof testResults.$inferInsert)[] = plannedTests.map((p) => ({
+  const rows = plannedTests.map((p) => ({
     id: ulid(),
     runId,
     testId: p.testId,
@@ -255,52 +267,62 @@ function buildQueuePrefillStatements(
     errorMessage: null,
     errorStack: null,
     workerIndex: null,
-    createdAt: now,
+    createdAt: nowSeconds,
   }));
-  const statements: BatchItem<"sqlite">[] = [];
+  const statements: Compilable[] = [];
   for (const chunk of chunkByParams(rows, TEST_RESULTS_COLUMNS)) {
-    statements.push(db.insert(testResults).values(chunk));
+    statements.push(scope.db.insertInto("testResults").values(chunk));
   }
   return statements;
 }
 
-async function runBatches(statements: BatchItem<"sqlite">[]): Promise<void> {
-  const db = getDb();
-  for (let i = 0; i < statements.length; i += MAX_STATEMENTS_PER_BATCH) {
-    const chunk = statements.slice(i, i + MAX_STATEMENTS_PER_BATCH) as [
-      BatchItem<"sqlite">,
-      ...BatchItem<"sqlite">[],
-    ];
-    await db.batch(chunk);
-  }
+/**
+ * Build a single UPDATE that recomputes run aggregates from testResults.
+ * Derives counts in one statement — avoids a round-trip to SELECT first.
+ * Identifiers are camelCase (the tenant DO doesn't run CamelCasePlugin).
+ */
+function aggregateRecomputeStatement(
+  scope: TenantScope,
+  runId: string,
+): Compilable {
+  return scope.db
+    .updateTable("runs")
+    .set({
+      totalTests: sql<number>`(SELECT COUNT(*) FROM "testResults" WHERE "runId" = ${runId})`,
+      passed: sql<number>`(SELECT COUNT(*) FROM "testResults" WHERE "runId" = ${runId} AND "status" = 'passed')`,
+      failed: sql<number>`(SELECT COUNT(*) FROM "testResults" WHERE "runId" = ${runId} AND "status" IN ('failed', 'timedout'))`,
+      flaky: sql<number>`(SELECT COUNT(*) FROM "testResults" WHERE "runId" = ${runId} AND "status" = 'flaky')`,
+      skipped: sql<number>`(SELECT COUNT(*) FROM "testResults" WHERE "runId" = ${runId} AND "status" = 'skipped')`,
+    })
+    .where("id", "=", runId);
 }
 
-async function resolveProjectScope(projectId: string) {
-  const db = getDb();
-  const [scope] = await db
-    .select({ teamSlug: teams.slug, projectSlug: projects.slug })
-    .from(projects)
-    .innerJoin(teams, eq(teams.id, projects.teamId))
-    .where(eq(projects.id, projectId))
-    .limit(1);
-  return scope;
-}
-
-function runUrl(scope: { teamSlug: string; projectSlug: string }, id: string) {
-  return `/t/${scope.teamSlug}/p/${scope.projectSlug}/runs/${id}`;
+/**
+ * Fire-and-forget bump of `teams.lastActivityAt` on the control DB. The
+ * watchdog in `scheduled.ts` uses this to skip idle teams during its
+ * sweep; a missed update doesn't break correctness (the sweep still
+ * picks it up on the next cron tick if anything got stuck).
+ */
+function bumpTeamActivity(teamId: string, nowSeconds: number): void {
+  getDb()
+    .updateTable("teams")
+    .set({ lastActivityAt: nowSeconds })
+    .where("id", "=", teamId)
+    .execute()
+    .catch(() => {});
 }
 
 /**
  * POST /api/runs — open a streaming run.
  *
- * The run is visible (committed=true) from the moment it is opened so the
- * dashboard can render results as they stream in. Aggregates start at zero
- * and are recomputed on each /results append.
+ * Visible (committed=true) from the moment it's opened so the dashboard can
+ * render results as they stream in. Aggregates start at zero and are
+ * recomputed on each /results append.
  *
  * Idempotent on (projectId, idempotencyKey): resending the same key returns
- * the existing runId rather than creating a duplicate run. This lets multiple
- * Playwright shards — each of which runs its own reporter — converge on one
- * run for a CI build.
+ * the existing runId rather than creating a duplicate run. Lets multiple
+ * Playwright shards — each of which runs its own reporter — converge on
+ * one run for a CI build.
  */
 export async function openRunHandler({
   request,
@@ -309,8 +331,7 @@ export async function openRunHandler({
   request: Request;
   ctx: AppContext;
 }) {
-  const projectId = ctx.apiKey?.projectId;
-  if (!projectId) return jsonResponse({ error: "Unauthorized" }, 401);
+  if (!ctx.apiKey) return jsonResponse({ error: "Unauthorized" }, 401);
 
   let payload: OpenRunPayload;
   try {
@@ -320,21 +341,16 @@ export async function openRunHandler({
     return jsonResponse({ error: "Validation failed", details: message }, 400);
   }
 
-  const scope = await resolveProjectScope(projectId);
+  const scope = await tenantScopeForApiKey(ctx.apiKey);
   if (!scope) return jsonResponse({ error: "Unauthorized" }, 401);
 
-  const db = getDb();
-
-  const existing = await db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(
-      and(
-        eq(runs.projectId, projectId),
-        eq(runs.idempotencyKey, payload.idempotencyKey),
-      ),
-    )
-    .limit(1);
+  const existing = await scope.db
+    .selectFrom("runs")
+    .select("id")
+    .where("projectId", "=", scope.projectId)
+    .where("idempotencyKey", "=", payload.idempotencyKey)
+    .limit(1)
+    .execute();
   if (existing.length > 0) {
     return jsonResponse(
       {
@@ -347,74 +363,54 @@ export async function openRunHandler({
   }
 
   const runId = ulid();
-  const now = new Date();
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const plannedTests = payload.run.plannedTests ?? [];
 
-  const openStatements: BatchItem<"sqlite">[] = [
-    db.insert(runs).values({
-      id: runId,
-      projectId,
-      idempotencyKey: payload.idempotencyKey,
-      ciProvider: payload.run.ciProvider ?? null,
-      ciBuildId: payload.run.ciBuildId ?? null,
-      branch: payload.run.branch ?? null,
-      environment: payload.run.environment ?? null,
-      commitSha: payload.run.commitSha ?? null,
-      commitMessage: payload.run.commitMessage ?? null,
-      prNumber: payload.run.prNumber ?? null,
-      repo: payload.run.repo ?? null,
-      actor: payload.run.actor ?? null,
-      // `totalTests` is the number of rows currently in `test_results`
-      // for this run. With queue prefill it starts at plannedTests.length
-      // and stays there as results upsert in place; `expectedTotalTests`
-      // mirrors the same value for UI consistency.
-      totalTests: plannedTests.length,
-      expectedTotalTests: payload.run.expectedTotalTests ?? plannedTests.length,
-      passed: 0,
-      failed: 0,
-      flaky: 0,
-      skipped: 0,
-      durationMs: 0,
-      status: "running",
-      reporterVersion: payload.run.reporterVersion ?? null,
-      playwrightVersion: payload.run.playwrightVersion ?? null,
-      createdAt: now,
-      completedAt: null,
-      committed: true,
-    }),
-    ...buildQueuePrefillStatements(db, runId, plannedTests, now),
+  const runRow = {
+    id: runId,
+    projectId: scope.projectId,
+    idempotencyKey: payload.idempotencyKey,
+    ciProvider: payload.run.ciProvider ?? null,
+    ciBuildId: payload.run.ciBuildId ?? null,
+    branch: payload.run.branch ?? null,
+    environment: payload.run.environment ?? null,
+    commitSha: payload.run.commitSha ?? null,
+    commitMessage: payload.run.commitMessage ?? null,
+    prNumber: payload.run.prNumber ?? null,
+    repo: payload.run.repo ?? null,
+    actor: payload.run.actor ?? null,
+    totalTests: plannedTests.length,
+    expectedTotalTests: payload.run.expectedTotalTests ?? plannedTests.length,
+    passed: 0,
+    failed: 0,
+    flaky: 0,
+    skipped: 0,
+    durationMs: 0,
+    status: "running",
+    reporterVersion: payload.run.reporterVersion ?? null,
+    playwrightVersion: payload.run.playwrightVersion ?? null,
+    createdAt: nowSeconds,
+    completedAt: null,
+    committed: 1,
+  };
+
+  const openStatements: Compilable[] = [
+    scope.db.insertInto("runs").values(runRow),
+    ...buildQueuePrefillStatements(scope, runId, plannedTests, nowSeconds),
   ];
-  await runBatches(openStatements);
-  await broadcastRunProgress(runId, scope);
+  await scope.batch(openStatements);
+  bumpTeamActivity(scope.teamId, nowSeconds);
+  await broadcastRunProgress(scope, runId);
 
   return jsonResponse({ runId, runUrl: runUrl(scope, runId) }, 201);
-}
-
-/** Build a single UPDATE that recomputes run aggregates from test_results. */
-function aggregateRecomputeStatement(
-  db: ReturnType<typeof getDb>,
-  runId: string,
-): BatchItem<"sqlite"> {
-  const idExpr = sql.raw(`'${runId.replace(/'/g, "''")}'`);
-  // Derive counts in one statement — avoids a round-trip to SELECT first.
-  return db
-    .update(runs)
-    .set({
-      totalTests: sql`(SELECT COUNT(*) FROM test_results WHERE run_id = ${idExpr})`,
-      passed: sql`(SELECT COUNT(*) FROM test_results WHERE run_id = ${idExpr} AND status = 'passed')`,
-      failed: sql`(SELECT COUNT(*) FROM test_results WHERE run_id = ${idExpr} AND status IN ('failed', 'timedout'))`,
-      flaky: sql`(SELECT COUNT(*) FROM test_results WHERE run_id = ${idExpr} AND status = 'flaky')`,
-      skipped: sql`(SELECT COUNT(*) FROM test_results WHERE run_id = ${idExpr} AND status = 'skipped')`,
-    })
-    .where(eq(runs.id, runId));
 }
 
 /**
  * POST /api/runs/:id/results — append a batch of test results.
  *
  * Validates that the run belongs to this API key's project, then inserts
- * rows + recomputes aggregates in a single D1 batch. Returns the
- * clientKey → testResultId mapping so the reporter can fire per-test
+ * rows + recomputes aggregates in a single tenant-DO transaction. Returns
+ * the clientKey → testResultId mapping so the reporter can fire per-test
  * artifact uploads in parallel as tests complete.
  */
 export async function appendResultsHandler({
@@ -426,8 +422,7 @@ export async function appendResultsHandler({
   params: Record<string, string>;
   ctx: AppContext;
 }) {
-  const projectId = ctx.apiKey?.projectId;
-  if (!projectId) return jsonResponse({ error: "Unauthorized" }, 401);
+  if (!ctx.apiKey) return jsonResponse({ error: "Unauthorized" }, 401);
 
   const runId = params.id;
   if (!runId) return jsonResponse({ error: "Not found" }, 404);
@@ -440,34 +435,38 @@ export async function appendResultsHandler({
     return jsonResponse({ error: "Validation failed", details: message }, 400);
   }
 
-  const db = getDb();
-  const [owner] = await db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(and(eq(runs.id, runId), eq(runs.projectId, projectId)))
-    .limit(1);
+  const scope = await tenantScopeForApiKey(ctx.apiKey);
+  if (!scope) return jsonResponse({ error: "Unauthorized" }, 401);
+
+  const owner = await scope.db
+    .selectFrom("runs")
+    .select("id")
+    .where("id", "=", runId)
+    .where("projectId", "=", scope.projectId)
+    .limit(1)
+    .executeTakeFirst();
   if (!owner) return jsonResponse({ error: "Run not found" }, 404);
 
-  const now = new Date();
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const testIds = payload.results.map((r) => r.testId);
   const { existingIds, assignedIds } = await resolveTestResultIds(
-    db,
+    scope,
     runId,
     testIds,
   );
   const { statements, mapping } = buildResultInsertStatements(
-    db,
+    scope,
     runId,
     payload.results,
-    now,
+    nowSeconds,
     existingIds,
     assignedIds,
   );
-  statements.push(aggregateRecomputeStatement(db, runId));
-  await runBatches(statements);
+  statements.push(aggregateRecomputeStatement(scope, runId));
+  await scope.batch(statements);
+  bumpTeamActivity(scope.teamId, nowSeconds);
 
-  const scope = await resolveProjectScope(projectId);
-  if (scope) await broadcastRunProgress(runId, scope);
+  await broadcastRunProgress(scope, runId);
 
   return jsonResponse({ results: mapping }, 200);
 }
@@ -475,9 +474,10 @@ export async function appendResultsHandler({
 /**
  * POST /api/runs/:id/complete — finalize a streaming run.
  *
- * Sets the terminal status + completedAt + final durationMs, and does one
- * last aggregate recompute in case a straggler /results call raced with this.
- * Idempotent: a second call from another shard just re-sets the same values.
+ * Sets the terminal status + completedAt + final durationMs and does one
+ * last aggregate recompute in case a straggler /results call raced with
+ * this. Idempotent: a second call from another shard just re-sets the
+ * same values.
  */
 export async function completeRunHandler({
   request,
@@ -488,8 +488,7 @@ export async function completeRunHandler({
   params: Record<string, string>;
   ctx: AppContext;
 }) {
-  const projectId = ctx.apiKey?.projectId;
-  if (!projectId) return jsonResponse({ error: "Unauthorized" }, 401);
+  if (!ctx.apiKey) return jsonResponse({ error: "Unauthorized" }, 401);
 
   const runId = params.id;
   if (!runId) return jsonResponse({ error: "Not found" }, 404);
@@ -502,29 +501,33 @@ export async function completeRunHandler({
     return jsonResponse({ error: "Validation failed", details: message }, 400);
   }
 
-  const db = getDb();
-  const [owner] = await db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(and(eq(runs.id, runId), eq(runs.projectId, projectId)))
-    .limit(1);
+  const scope = await tenantScopeForApiKey(ctx.apiKey);
+  if (!scope) return jsonResponse({ error: "Unauthorized" }, 401);
+
+  const owner = await scope.db
+    .selectFrom("runs")
+    .select("id")
+    .where("id", "=", runId)
+    .where("projectId", "=", scope.projectId)
+    .limit(1)
+    .executeTakeFirst();
   if (!owner) return jsonResponse({ error: "Run not found" }, 404);
 
-  const now = new Date();
-  await db.batch([
-    db
-      .update(runs)
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  await scope.batch([
+    scope.db
+      .updateTable("runs")
       .set({
         status: payload.status,
         durationMs: payload.durationMs,
-        completedAt: now,
+        completedAt: nowSeconds,
       })
-      .where(eq(runs.id, runId)),
-    aggregateRecomputeStatement(db, runId),
+      .where("id", "=", runId),
+    aggregateRecomputeStatement(scope, runId),
   ]);
+  bumpTeamActivity(scope.teamId, nowSeconds);
 
-  const scope = await resolveProjectScope(projectId);
-  if (scope) await broadcastRunProgress(runId, scope);
+  await broadcastRunProgress(scope, runId);
 
   return jsonResponse({ runId, status: payload.status }, 200);
 }

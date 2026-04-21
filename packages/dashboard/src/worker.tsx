@@ -22,6 +22,11 @@ import { resolveProjectBySlugs } from "@/lib/authz";
 // via the binding declared in wrangler.jsonc.
 export { SyncedStateServer };
 
+// Per-team tenant DO. Re-exported at module level so Workers registers it
+// under the `TENANT` binding. All tenant-owned tables (runs, testResults,
+// …) live inside each team's instance — routed via `getTenantDb`.
+export { TenantDO } from "@/tenant/tenant-do";
+
 // Register the namespace so the DO can build self-stubs when firing the
 // setState persistence handler from inside its own instance.
 SyncedStateServer.registerNamespace(env.SYNCED_STATE_SERVER);
@@ -94,16 +99,18 @@ import { RunDetailPage } from "@/app/pages/run-detail";
 import { TestDetailPage } from "@/app/pages/test-detail";
 import { TestHistoryPage } from "@/app/pages/test-history";
 import { LoginPage } from "@/app/pages/login";
+import { InvitePage, acceptInviteHandler } from "@/app/pages/invite";
 import { TeamPickerPage } from "@/app/pages/team-picker";
 import { ProjectPickerPage } from "@/app/pages/project-picker";
 import { SettingsProfilePage } from "@/app/pages/settings/profile";
-import { SettingsTeamsPage } from "@/app/pages/settings/teams";
 import {
   SettingsTeamNewPage,
   createTeamHandler,
 } from "@/app/pages/settings/team-new";
-import { SettingsTeamDetailPage } from "@/app/pages/settings/team-detail";
-import { SettingsProjectsPage } from "@/app/pages/settings/projects";
+import {
+  SettingsTeamDetailPage,
+  teamDetailHandler,
+} from "@/app/pages/settings/team-detail";
 import {
   SettingsProjectNewPage,
   createProjectHandler,
@@ -136,7 +143,7 @@ declare module "rwsdk/worker" {
 
 function settingsRootRedirect({ request }: { request: Request }) {
   return Response.redirect(
-    `${new URL(request.url).origin}/settings/teams`,
+    `${new URL(request.url).origin}/settings/profile`,
     302,
   );
 }
@@ -201,20 +208,22 @@ const app = defineApp([
     loadSession,
     route("/login", LoginPage),
     route("/signup", LoginPage),
+    route("/invite/:token", {
+      get: [requireUser, InvitePage],
+      post: [requireUser, acceptInviteHandler],
+    }),
     ...layout(AppLayout, [
       // Settings — declared first so prefixes win over app routes.
       route("/settings", settingsRootRedirect),
       route("/settings/profile", [requireUser, SettingsProfilePage]),
-      route("/settings/teams", [requireUser, SettingsTeamsPage]),
       route("/settings/teams/new", {
         get: [requireUser, SettingsTeamNewPage],
         post: [requireUser, createTeamHandler],
       }),
-      route("/settings/teams/:teamSlug", [requireUser, SettingsTeamDetailPage]),
-      route("/settings/teams/:teamSlug/projects", [
-        requireUser,
-        SettingsProjectsPage,
-      ]),
+      route("/settings/teams/:teamSlug", {
+        get: [requireUser, SettingsTeamDetailPage],
+        post: [requireUser, teamDetailHandler],
+      }),
       route("/settings/teams/:teamSlug/projects/new", {
         get: [requireUser, SettingsProjectNewPage],
         post: [requireUser, createProjectHandler],

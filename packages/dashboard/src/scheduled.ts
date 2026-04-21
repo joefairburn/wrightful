@@ -1,8 +1,7 @@
-import { and, eq, lt, sql } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
-import { runs } from "@/db/schema";
 import { readIntVar } from "@/lib/env-parse";
+import { internalTenantStubForCron } from "@/tenant/internal";
 
 const DEFAULT_STALE_MINUTES = 30;
 
@@ -21,36 +20,70 @@ const DEFAULT_STALE_MINUTES = 30;
  *
  * Schedule is configured in wrangler.jsonc under `triggers.crons`
  * (every 5 minutes). Threshold is env-overridable via
- * WRIGHTFUL_RUN_STALE_MINUTES.
+ * `WRIGHTFUL_RUN_STALE_MINUTES`.
+ *
+ * Fan-out: tenant data lives in per-team Durable Objects, so the sweep
+ * iterates teams active within the stale window and RPCs each one. Teams
+ * idle for longer than the stale threshold cannot have a newly-stuck run,
+ * so we can safely skip them via the `teams.lastActivityAt` index.
  */
 export async function sweepStuckRuns(now = new Date()): Promise<number> {
   const staleMinutes = readIntVar(
     env.WRIGHTFUL_RUN_STALE_MINUTES ?? "",
     DEFAULT_STALE_MINUTES,
   );
-  const cutoff = new Date(now.getTime() - staleMinutes * 60_000);
+  const cutoffSeconds = Math.floor(
+    (now.getTime() - staleMinutes * 60_000) / 1000,
+  );
+  const nowSeconds = Math.floor(now.getTime() / 1000);
 
-  const db = getDb();
-  // RETURNING tells us which rows we actually swept so we can log them —
-  // useful when diagnosing "why did my run get marked interrupted?" from
-  // Workers logs after the fact.
-  const swept = await db
-    .update(runs)
-    .set({ status: "interrupted", completedAt: now })
-    .where(and(eq(runs.status, "running"), lt(runs.createdAt, cutoff)))
-    .returning({ id: runs.id, createdAt: runs.createdAt });
+  const controlDb = getDb();
+  const activeTeams = await controlDb
+    .selectFrom("teams")
+    .select("id")
+    .where("lastActivityAt", ">=", cutoffSeconds)
+    .execute();
 
-  for (const row of swept) {
-    console.log(
-      JSON.stringify({
-        event: "watchdog.run_interrupted",
-        runId: row.id,
-        createdAt: row.createdAt,
-        staleMinutes,
-      }),
-    );
+  if (activeTeams.length === 0) return 0;
+
+  const perTeam = await Promise.all(
+    activeTeams.map(async (team) => {
+      try {
+        // The watchdog runs without a user / API-key context — it fans
+        // out to every team that had recent activity. `internalTenantStubForCron`
+        // is the explicit, grep-able escape hatch for exactly this case.
+        const stub = internalTenantStubForCron(team.id);
+        const swept = await stub.sweepStuckRuns(cutoffSeconds, nowSeconds);
+        return { teamId: team.id, swept };
+      } catch (err) {
+        console.error(
+          JSON.stringify({
+            event: "watchdog.team_sweep_failed",
+            teamId: team.id,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+        return { teamId: team.id, swept: [] as Array<never> };
+      }
+    }),
+  );
+
+  let total = 0;
+  for (const { teamId, swept } of perTeam) {
+    for (const row of swept) {
+      console.log(
+        JSON.stringify({
+          event: "watchdog.run_interrupted",
+          teamId,
+          runId: row.id,
+          createdAt: row.createdAt,
+          staleMinutes,
+        }),
+      );
+      total += 1;
+    }
   }
-  return swept.length;
+  return total;
 }
 
 export async function scheduledHandler(
@@ -68,8 +101,6 @@ export async function scheduledHandler(
         }
       },
       (err: unknown) => {
-        // Log but don't throw — Cron Triggers retry failed invocations, and
-        // a transient D1 hiccup shouldn't fire alerts until it repeats.
         console.error(
           JSON.stringify({
             event: "watchdog.sweep_failed",
@@ -80,6 +111,3 @@ export async function scheduledHandler(
     ),
   );
 }
-
-// Drizzle's sql helper kept here for reference / imported elsewhere.
-export { sql };

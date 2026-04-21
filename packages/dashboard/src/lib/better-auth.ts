@@ -1,9 +1,8 @@
 import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { kyselyAdapter } from "@better-auth/kysely-adapter";
 import { ulid } from "ulid";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
-import * as schema from "@/db/schema";
 
 export function hasGithubOAuthConfigured(): boolean {
   return Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
@@ -36,7 +35,10 @@ function buildAuth() {
   return betterAuth({
     baseURL: publicUrl,
     secret,
-    database: drizzleAdapter(getDb(), { provider: "sqlite", schema }),
+    // kyselyAdapter uses Better Auth's default camelCase field names
+    // (`userId`, `emailVerified`, …). Our Kysely instance installs
+    // CamelCasePlugin, so those map to the existing snake_case columns.
+    database: kyselyAdapter(getDb(), { type: "sqlite" }),
     advanced: {
       // Keep Wrightful's ULID convention for user/session/account/verification ids.
       database: { generateId: () => ulid() },

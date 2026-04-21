@@ -14,11 +14,18 @@ export function formatDuration(ms: number): string {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
-/** Short relative timestamp: `just now`, `5m ago`, `3h ago`, `2d ago`. */
+/**
+ * Short relative timestamp: `just now`, `5m ago`, `3h ago`, `2d ago`.
+ *
+ * Accepts either a `Date` or a unix-seconds `number` — the control DB and
+ * tenant tables store timestamps as INTEGER seconds, so the page layer
+ * doesn't need to wrap rows in `new Date(...)` before formatting.
+ */
 export function formatRelativeTime(
-  date: Date,
+  input: Date | number,
   now: number = Date.now(),
 ): string {
+  const date = input instanceof Date ? input : new Date(input * 1000);
   const base = new Date(now);
   const minutes = differenceInMinutes(base, date);
   if (minutes < 1) return "just now";

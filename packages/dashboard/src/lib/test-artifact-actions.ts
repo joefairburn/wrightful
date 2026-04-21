@@ -1,8 +1,6 @@
-import { asc, inArray } from "drizzle-orm";
-import { getDb } from "@/db";
-import { artifacts } from "@/db/schema";
 import type { ArtifactAction } from "@/app/components/artifact-actions";
 import { signArtifactToken } from "@/lib/artifact-tokens";
+import type { TenantScope } from "@/tenant";
 
 // Order within an attempt: trace first (most useful for debugging), then
 // video, screenshot, everything else. `other` covers error-context /
@@ -53,6 +51,7 @@ export interface ArtifactRow {
   contentType: string;
   sizeBytes: number;
   attempt: number;
+  r2Key: string;
 }
 
 /**
@@ -89,11 +88,12 @@ export interface FailingTestInput {
  * `testResultId` with the already-signed `ArtifactAction[]`, sorted by
  * `TYPE_ORDER` then name.
  *
- * One SELECT indexed by `artifacts_test_result_id_idx`, then N HMAC signs
- * (cheap — `crypto.subtle` is synchronous-fast on Workers). Only failing
- * tests are considered — passing rows don't need artifact buttons.
+ * Takes a pre-authorized `TenantScope` (or anything with a `db` handle
+ * for the tenant DB, e.g. `ActiveProject`). The artifacts table lives in
+ * the team's DO, never the control D1.
  */
 export async function loadFailingArtifactActions(
+  tenantDb: Pick<TenantScope, "db">["db"],
   failingTests: FailingTestInput[],
   origin: string,
 ): Promise<Record<string, ArtifactAction[]>> {
@@ -103,24 +103,24 @@ export async function loadFailingArtifactActions(
   );
   if (relevant.length === 0) return {};
 
-  const db = getDb();
-  const rows = await db
-    .select({
-      id: artifacts.id,
-      testResultId: artifacts.testResultId,
-      type: artifacts.type,
-      name: artifacts.name,
-      contentType: artifacts.contentType,
-      attempt: artifacts.attempt,
-    })
-    .from(artifacts)
+  const rows = await tenantDb
+    .selectFrom("artifacts")
+    .select([
+      "id",
+      "testResultId",
+      "type",
+      "name",
+      "contentType",
+      "attempt",
+      "r2Key",
+    ])
     .where(
-      inArray(
-        artifacts.testResultId,
-        relevant.map((t) => t.id),
-      ),
+      "testResultId",
+      "in",
+      relevant.map((t) => t.id),
     )
-    .orderBy(asc(artifacts.attempt));
+    .orderBy("attempt", "asc")
+    .execute();
 
   // Group artifacts by testResultId.
   const byTest = new Map<string, typeof rows>();
@@ -150,7 +150,10 @@ export async function loadFailingArtifactActions(
       if (forAttempt.length === 0) return;
       const actions = await Promise.all(
         forAttempt.map(async (a) => {
-          const token = await signArtifactToken(a.id);
+          const token = await signArtifactToken({
+            r2Key: a.r2Key,
+            contentType: a.contentType,
+          });
           return toArtifactAction(a, origin, token);
         }),
       );

@@ -26,7 +26,7 @@
       // trips the `assert(databaseId)` check inside the explorer binding
       // map construction).
       "database_id": "LOCAL_PLACEHOLDER",
-      "migrations_dir": "drizzle",
+      "migrations_dir": "migrations",
     },
   ],
   "r2_buckets": [
@@ -48,12 +48,24 @@
         "name": "SYNCED_STATE_SERVER",
         "class_name": "SyncedStateServer",
       },
+      // Per-team SQLite-backed Durable Object. Tenant-owned tables (runs,
+      // testResults, testTags, testAnnotations, testResultAttempts,
+      // artifacts) live inside each team's instance. Routed via
+      // `getTenantDb(env.TENANT, teamId)` (see src/tenant/index.ts).
+      {
+        "name": "TENANT",
+        "class_name": "TenantDO",
+      },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["SyncedStateServer"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["TenantDO"],
     },
   ],
   "vars": {

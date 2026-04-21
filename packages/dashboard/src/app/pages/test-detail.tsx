@@ -1,4 +1,3 @@
-import { and, asc, eq } from "drizzle-orm";
 import { requestInfo } from "rwsdk/worker";
 import type { ArtifactAction } from "@/app/components/artifact-actions";
 import { ArtifactsRail } from "@/app/components/artifacts-rail";
@@ -11,15 +10,6 @@ import { StatusBadge } from "@/app/components/status-badge";
 import { Badge } from "@/app/components/ui/badge";
 import { TestErrorAlert } from "@/app/components/test-error-alert";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getDb } from "@/db";
-import {
-  artifacts,
-  committedRuns,
-  testAnnotations,
-  testResultAttempts,
-  testResults,
-  testTags,
-} from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { signArtifactToken } from "@/lib/artifact-tokens";
 import { cn } from "@/lib/cn";
@@ -34,6 +24,7 @@ interface Artifact {
   contentType: string;
   sizeBytes: number;
   attempt: number;
+  r2Key: string;
 }
 
 // Order within an attempt: trace first (most useful for debugging), then
@@ -124,35 +115,29 @@ export async function TestDetailPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
-  const db = getDb();
+  const tenantDb = project.db;
 
-  // Two queries keeps drizzle's inference clean when joining a view (runs)
-  // with a table (testResults). The `innerJoin` gates visibility — if the
-  // run isn't committed the testResult lookup returns zero rows.
-  const [[result], [run]] = await Promise.all([
-    db
-      .select()
-      .from(testResults)
-      .innerJoin(committedRuns, eq(committedRuns.id, testResults.runId))
-      .where(
-        and(
-          eq(testResults.id, testResultId),
-          eq(testResults.runId, runId),
-          eq(committedRuns.projectId, project.id),
-        ),
-      )
+  // Two queries — one gated on `runs.committed = 1` to prove ownership + hide
+  // uncommitted rows, one to surface run-level metadata (playwrightVersion).
+  const [result, run] = await Promise.all([
+    tenantDb
+      .selectFrom("testResults")
+      .innerJoin("runs", "runs.id", "testResults.runId")
+      .selectAll("testResults")
+      .where("testResults.id", "=", testResultId)
+      .where("testResults.runId", "=", runId)
+      .where("runs.projectId", "=", project.id)
+      .where("runs.committed", "=", 1)
       .limit(1)
-      .then((rows) => rows.map((r) => r.test_results)),
-    db
-      .select()
-      .from(committedRuns)
-      .where(
-        and(
-          eq(committedRuns.id, runId),
-          eq(committedRuns.projectId, project.id),
-        ),
-      )
-      .limit(1),
+      .executeTakeFirst(),
+    tenantDb
+      .selectFrom("runs")
+      .selectAll()
+      .where("id", "=", runId)
+      .where("projectId", "=", project.id)
+      .where("committed", "=", 1)
+      .limit(1)
+      .executeTakeFirst(),
   ]);
 
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
@@ -173,40 +158,42 @@ export async function TestDetailPage() {
 
   const [tagRows, annotationRows, artifactRows, attemptRows] =
     await Promise.all([
-      db
-        .select({ tag: testTags.tag })
-        .from(testTags)
-        .where(eq(testTags.testResultId, testResultId)),
-      db
-        .select({
-          type: testAnnotations.type,
-          description: testAnnotations.description,
-        })
-        .from(testAnnotations)
-        .where(eq(testAnnotations.testResultId, testResultId)),
-      db
-        .select({
-          id: artifacts.id,
-          type: artifacts.type,
-          name: artifacts.name,
-          contentType: artifacts.contentType,
-          sizeBytes: artifacts.sizeBytes,
-          attempt: artifacts.attempt,
-        })
-        .from(artifacts)
-        .where(eq(artifacts.testResultId, testResultId))
-        .orderBy(asc(artifacts.attempt)),
-      db
-        .select({
-          attempt: testResultAttempts.attempt,
-          status: testResultAttempts.status,
-          durationMs: testResultAttempts.durationMs,
-          errorMessage: testResultAttempts.errorMessage,
-          errorStack: testResultAttempts.errorStack,
-        })
-        .from(testResultAttempts)
-        .where(eq(testResultAttempts.testResultId, testResultId))
-        .orderBy(asc(testResultAttempts.attempt)),
+      tenantDb
+        .selectFrom("testTags")
+        .select("tag")
+        .where("testResultId", "=", testResultId)
+        .execute(),
+      tenantDb
+        .selectFrom("testAnnotations")
+        .select(["type", "description"])
+        .where("testResultId", "=", testResultId)
+        .execute(),
+      tenantDb
+        .selectFrom("artifacts")
+        .select([
+          "id",
+          "type",
+          "name",
+          "contentType",
+          "sizeBytes",
+          "attempt",
+          "r2Key",
+        ])
+        .where("testResultId", "=", testResultId)
+        .orderBy("attempt", "asc")
+        .execute(),
+      tenantDb
+        .selectFrom("testResultAttempts")
+        .select([
+          "attempt",
+          "status",
+          "durationMs",
+          "errorMessage",
+          "errorStack",
+        ])
+        .where("testResultId", "=", testResultId)
+        .orderBy("attempt", "asc")
+        .execute(),
     ]);
 
   const artifactsByAttempt = new Map<number, Artifact[]>();
@@ -255,7 +242,13 @@ export async function TestDetailPage() {
   const artifactTokens = new Map<string, string>();
   await Promise.all(
     artifactRows.map(async (a) => {
-      artifactTokens.set(a.id, await signArtifactToken(a.id));
+      artifactTokens.set(
+        a.id,
+        await signArtifactToken({
+          r2Key: a.r2Key,
+          contentType: a.contentType,
+        }),
+      );
     }),
   );
   const downloadHref = (artifactId: string): string =>

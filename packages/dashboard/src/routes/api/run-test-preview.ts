@@ -1,7 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
-import { getDb } from "@/db";
-import { committedRuns, testResults } from "@/db/schema";
-import { resolveProjectBySlugs } from "@/lib/authz";
+import { tenantScopeForUser } from "@/tenant";
 import type { AppContext } from "@/worker";
 
 const PREVIEW_LIMIT = 5;
@@ -42,11 +39,12 @@ function jsonResponse(body: unknown, status: number, cacheControl?: string) {
 /**
  * GET /api/t/:teamSlug/p/:projectSlug/runs/:runId/test-preview
  *
- * Returns up to 5 test results per category (failed, flaky, passed, skipped)
- * for the given run. Used by the runs list badge popovers. Totals already
- * live on the runs row on the client, so we don't echo them back.
- *
- * Tenancy is enforced via the runs.projectId predicate on every sub-query.
+ * Returns up to 5 test results per category (failed, flaky, passed,
+ * skipped) for the given run. Used by the runs list badge popovers.
+ * Totals already live on the runs row on the client, so we don't echo
+ * them back. Tenancy is enforced by `tenantScopeForUser` (membership
+ * check on the session user) plus `runs.projectId` + `runs.committed = 1`
+ * predicates on each sub-query.
  */
 export async function runTestPreviewHandler({
   params,
@@ -63,37 +61,30 @@ export async function runTestPreviewHandler({
     return new Response("Not found", { status: 404 });
   }
 
-  const project = await resolveProjectBySlugs(
-    ctx.user.id,
-    teamSlug,
-    projectSlug,
-  );
-  if (!project) return new Response("Not found", { status: 404 });
-
-  const db = getDb();
+  const scope = await tenantScopeForUser(ctx.user.id, teamSlug, projectSlug);
+  if (!scope) return new Response("Not found", { status: 404 });
 
   const results = await Promise.all(
     BUCKETS.map((bucket) =>
-      db
-        .select({
-          id: testResults.id,
-          title: testResults.title,
-          file: testResults.file,
-          projectName: testResults.projectName,
-          status: testResults.status,
-          errorMessage: testResults.errorMessage,
-        })
-        .from(testResults)
-        .innerJoin(committedRuns, eq(committedRuns.id, testResults.runId))
-        .where(
-          and(
-            eq(committedRuns.id, runId),
-            eq(committedRuns.projectId, project.id),
-            inArray(testResults.status, bucket.statuses),
-          ),
-        )
-        .orderBy(testResults.file, testResults.title)
-        .limit(PREVIEW_LIMIT),
+      scope.db
+        .selectFrom("testResults")
+        .innerJoin("runs", "runs.id", "testResults.runId")
+        .select([
+          "testResults.id as id",
+          "testResults.title as title",
+          "testResults.file as file",
+          "testResults.projectName as projectName",
+          "testResults.status as status",
+          "testResults.errorMessage as errorMessage",
+        ])
+        .where("runs.id", "=", runId)
+        .where("runs.projectId", "=", scope.projectId)
+        .where("runs.committed", "=", 1)
+        .where("testResults.status", "in", bucket.statuses)
+        .orderBy("testResults.file", "asc")
+        .orderBy("testResults.title", "asc")
+        .limit(PREVIEW_LIMIT)
+        .execute(),
     ),
   );
 

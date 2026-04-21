@@ -1,21 +1,35 @@
 import { requestInfo } from "rwsdk/worker";
-import { and, eq } from "drizzle-orm";
-import { getDb } from "@/db";
-import { memberships, projects, teams } from "@/db/schema";
+import { type TenantScope, tenantScopeForUser } from "@/tenant";
 
-export type ActiveProject = {
-  id: string;
-  teamId: string;
-  slug: string;
-  name: string;
-  teamSlug: string;
-  teamName: string;
+/**
+ * The project scoping an RSC page render. Combines authorization (the
+ * user is a member of the owning team) with the tenant-DO handle they
+ * need for reads, plus the control-DB display fields used in the UI.
+ *
+ * Because `teamId` / `projectId` are branded and only mintable from
+ * `tenantScopeFor*` helpers, any code that lands in an RSC page is
+ * forced to go through the membership check before touching tenant
+ * data. `scope.db` / `scope.batch` are the only way in.
+ */
+export type ActiveProject = TenantScope & {
+  /** Alias of `projectSlug` — preserved for call-site legibility. */
+  readonly slug: string;
+  /** Display name of the project (from control-D1 `projects.name`). */
+  readonly name: string;
+  /** Display name of the team (from control-D1 `teams.name`). */
+  readonly teamName: string;
+  /**
+   * Historical alias of `projectId`. Plain string (same underlying value)
+   * so call sites that pass it straight into Kysely `where` clauses keep
+   * working without a brand-narrowing cast.
+   */
+  readonly id: string;
 };
 
 /**
  * Resolve the project that scopes the current RSC page render from
- * `:teamSlug` / `:projectSlug` route params, gated on the signed-in user's
- * membership of the owning team.
+ * `:teamSlug` / `:projectSlug` route params, gated on the signed-in
+ * user's membership of the owning team.
  *
  * Returns null when the user isn't authorised to view the project (caller
  * should render a 404 shell — we intentionally don't distinguish "no such
@@ -32,24 +46,12 @@ export async function getActiveProject(): Promise<ActiveProject | null> {
   const userId = ctx.user?.id;
   if (!userId) return null;
 
-  const db = getDb();
-  const [row] = await db
-    .select({
-      id: projects.id,
-      teamId: projects.teamId,
-      slug: projects.slug,
-      name: projects.name,
-      teamSlug: teams.slug,
-      teamName: teams.name,
-    })
-    .from(projects)
-    .innerJoin(teams, eq(teams.id, projects.teamId))
-    .innerJoin(
-      memberships,
-      and(eq(memberships.teamId, teams.id), eq(memberships.userId, userId)),
-    )
-    .where(and(eq(teams.slug, teamSlug), eq(projects.slug, projectSlug)))
-    .limit(1);
+  const scope = await tenantScopeForUser(userId, teamSlug, projectSlug);
+  if (!scope) return null;
 
-  return row ?? null;
+  return {
+    ...scope,
+    id: scope.projectId,
+    slug: scope.projectSlug,
+  };
 }

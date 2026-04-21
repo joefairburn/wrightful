@@ -1,4 +1,3 @@
-import { and, count, desc, eq, isNotNull } from "drizzle-orm";
 import { GitBranch, GitCommit, GitPullRequest } from "lucide-react";
 import { requestInfo } from "rwsdk/worker";
 import {
@@ -37,8 +36,6 @@ import {
   TableRow,
 } from "@/app/components/ui/table";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getDb } from "@/db";
-import { committedRuns } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
@@ -69,54 +66,50 @@ export async function RunsListPage() {
   const filters = parseRunsFilters(url.searchParams);
   const filtersActive = hasAnyFilter(filters);
 
-  const db = getDb();
-  const whereClause = buildRunsWhere(project.id, filters);
-
-  const totalRuns = await db
-    .select({ value: count() })
-    .from(committedRuns)
-    .where(whereClause)
-    .then((r) => r[0]?.value ?? 0);
+  const totalsRow = await project.db
+    .selectFrom("runs")
+    .select((eb) => eb.fn.countAll<number>().as("value"))
+    .where((eb) => buildRunsWhere(eb, project.id, filters))
+    .executeTakeFirst();
+  const totalRuns = totalsRow?.value ?? 0;
 
   const totalPages = Math.max(1, Math.ceil(totalRuns / DEFAULT_PAGE_SIZE));
   const currentPage = Math.min(filters.page, totalPages);
   const offset = (currentPage - 1) * DEFAULT_PAGE_SIZE;
 
   const [allRuns, branchRows, actorRows, envRows] = await Promise.all([
-    db
-      .select()
-      .from(committedRuns)
-      .where(whereClause)
-      .orderBy(desc(committedRuns.createdAt))
+    project.db
+      .selectFrom("runs")
+      .selectAll()
+      .where((eb) => buildRunsWhere(eb, project.id, filters))
+      .orderBy("createdAt", "desc")
       .limit(DEFAULT_PAGE_SIZE)
-      .offset(offset),
-    db
-      .selectDistinct({ value: committedRuns.branch })
-      .from(committedRuns)
-      .where(
-        and(
-          eq(committedRuns.projectId, project.id),
-          isNotNull(committedRuns.branch),
-        ),
-      ),
-    db
-      .selectDistinct({ value: committedRuns.actor })
-      .from(committedRuns)
-      .where(
-        and(
-          eq(committedRuns.projectId, project.id),
-          isNotNull(committedRuns.actor),
-        ),
-      ),
-    db
-      .selectDistinct({ value: committedRuns.environment })
-      .from(committedRuns)
-      .where(
-        and(
-          eq(committedRuns.projectId, project.id),
-          isNotNull(committedRuns.environment),
-        ),
-      ),
+      .offset(offset)
+      .execute(),
+    project.db
+      .selectFrom("runs")
+      .select("branch as value")
+      .distinct()
+      .where("projectId", "=", project.id)
+      .where("committed", "=", 1)
+      .where("branch", "is not", null)
+      .execute(),
+    project.db
+      .selectFrom("runs")
+      .select("actor as value")
+      .distinct()
+      .where("projectId", "=", project.id)
+      .where("committed", "=", 1)
+      .where("actor", "is not", null)
+      .execute(),
+    project.db
+      .selectFrom("runs")
+      .select("environment as value")
+      .distinct()
+      .where("projectId", "=", project.id)
+      .where("committed", "=", 1)
+      .where("environment", "is not", null)
+      .execute(),
   ]);
 
   const fromRow = totalRuns === 0 ? 0 : offset + 1;
@@ -154,7 +147,7 @@ export async function RunsListPage() {
     allRuns
       .filter((r) => r.status === "running")
       .map(async (r) => {
-        const p = await composeRunProgress(r.id);
+        const p = await composeRunProgress(project, r.id);
         if (p) runningProgress.set(r.id, p);
       }),
   );

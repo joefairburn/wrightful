@@ -1,4 +1,3 @@
-import { and, eq } from "drizzle-orm";
 import { ArrowLeft, GitCommit, GitPullRequest } from "lucide-react";
 import type React from "react";
 import { requestInfo } from "rwsdk/worker";
@@ -9,8 +8,6 @@ import {
   RunTestsIsland,
 } from "@/app/components/run-progress";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getDb } from "@/db";
-import { committedRuns } from "@/db/schema";
 import { getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { prUrl } from "@/lib/pr-url";
@@ -54,15 +51,14 @@ export async function RunDetailPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
-  const db = getDb();
-
-  const [run] = await db
-    .select()
-    .from(committedRuns)
-    .where(
-      and(eq(committedRuns.id, runId), eq(committedRuns.projectId, project.id)),
-    )
-    .limit(1);
+  const run = await project.db
+    .selectFrom("runs")
+    .selectAll()
+    .where("id", "=", runId)
+    .where("projectId", "=", project.id)
+    .where("committed", "=", 1)
+    .limit(1)
+    .executeTakeFirst();
 
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
@@ -70,11 +66,12 @@ export async function RunDetailPage() {
     return <NotFoundPage />;
   }
 
-  const progress = await composeRunProgress(runId);
+  const progress = await composeRunProgress(project, runId);
   if (!progress) return <NotFoundPage />;
 
   const origin = new URL(requestInfo.request.url).origin;
   const artifactActionsByTestId = await loadFailingArtifactActions(
+    project.db,
     progress.tests.map((t) => ({
       id: t.id,
       status: t.status,

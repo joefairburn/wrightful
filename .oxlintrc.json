@@ -29,6 +29,33 @@
         "typescript/no-unsafe-argument": "off",
         "typescript/no-unsafe-type-assertion": "off"
       }
+    },
+    {
+      "files": ["packages/dashboard/src/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@/tenant/internal",
+                "message": "Raw tenant DO access skips the membership / API-key auth check. Use tenantScopeForUser / tenantScopeForApiKey from `@/tenant` instead. The only legitimate importers are src/tenant/** and src/scheduled.ts (cron watchdog)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "packages/dashboard/src/tenant/**",
+        "packages/dashboard/src/scheduled.ts",
+        "packages/dashboard/src/__integration__/**",
+        "packages/dashboard/src/__tests__/**"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
     }
   ],
   "ignorePatterns": ["dist", "coverage", ".wrangler", "*.d.ts", "drizzle"],
