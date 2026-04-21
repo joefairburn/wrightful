@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Wrightful
 
-Wrightful is a Playwright test reporting dashboard. A custom Playwright reporter streams test results live to a Cloudflare Workers-based dashboard that stores data in D1 (SQLite) and artifacts in R2.
+Wrightful is a Playwright test reporting dashboard. A custom Playwright reporter streams test results live to a Cloudflare Workers-based dashboard that stores auth/tenancy data in a control D1, per-tenant test data in per-team SQLite-backed Durable Objects, and artifacts in R2.
 
 ## Monorepo Structure
 
 pnpm workspace with three packages:
 
 - **`packages/reporter`** — Playwright reporter (`@wrightful/reporter`). Streams results + artifacts to the dashboard as each test completes. Built with tsdown (rolldown). Per-test emission: one row per test at its final outcome, with retries aggregated into `flaky`.
-- **`packages/dashboard`** — Cloudflare Worker app using [RedwoodSDK (rwsdk)](https://docs.rwsdk.com). Vite + React 19 RSC. Drizzle ORM on D1, R2 for artifacts. Styled with Tailwind v4 + Base UI primitives wrapped as a local component library in `src/app/components/ui/`; nuqs for URL state. Dashboard auth is Better Auth (sessions, email + password, optional GitHub OAuth); API auth is Bearer API keys. Dashboard serves the streaming ingest + artifact API (`/api/runs/*`, `/api/artifacts/*`) and the tenant-scoped UI (`/t/:teamSlug/p/:projectSlug/…`).
+- **`packages/dashboard`** — Cloudflare Worker app using [RedwoodSDK (rwsdk)](https://docs.rwsdk.com). Vite + React 19 RSC. Kysely everywhere; control D1 holds auth/tenancy (users, teams, projects, memberships, API keys, invites) and per-team `TenantDO` (`SqliteDurableObject`) instances hold runs + derived tables. R2 for artifact bytes. Styled with Tailwind v4 + Base UI primitives wrapped as a local component library in `src/app/components/ui/`; nuqs for URL state. Dashboard auth is Better Auth (sessions, email + password, optional GitHub OAuth) via `kyselyAdapter`; API auth is Bearer API keys. Dashboard serves the streaming ingest + artifact API (`/api/runs/*`, `/api/artifacts/*`) and the tenant-scoped UI (`/t/:teamSlug/p/:projectSlug/…`).
 - **`packages/e2e`** — Playwright E2E tests that run against the Playwright docs site (demo suite used to generate test reports for dogfooding). Uses the reporter when `WRIGHTFUL_URL` / `WRIGHTFUL_TOKEN` env is set.
 
 ## Commands
@@ -46,8 +46,9 @@ pnpm format:fix                         # oxfmt --write
 # Typecheck (uses tsgo — native TypeScript compiler preview)
 pnpm typecheck                          # dashboard + reporter
 
-# Database migrations (dashboard)
-pnpm --filter @wrightful/dashboard db:generate       # generate migration from schema
+# Database migrations (dashboard) — applies to the control D1. Tenant-DO
+# migrations live in src/tenant/migrations.ts and are applied on first DO
+# access via rwsdk's Database DSL — no CLI step needed.
 pnpm --filter @wrightful/dashboard db:migrate:local  # apply to local D1
 pnpm --filter @wrightful/dashboard db:migrate:remote # apply to remote D1
 ```
@@ -59,6 +60,13 @@ pnpm --filter @wrightful/dashboard db:migrate:remote # apply to remote D1
 **Streaming ingest flow**: `@wrightful/reporter` loads in the user's `playwright.config.ts`. At `onBegin` it opens a run via `POST /api/runs`; per-test `onTestEnd` events buffer until the test is done (all retries finished) and then flush in batches via `POST /api/runs/:id/results`. Each response returns `clientKey → testResultId`, which the reporter uses to register + PUT artifacts via `POST /api/artifacts/register` + presigned R2 URLs. `onEnd` calls `POST /api/runs/:id/complete` to set the terminal status.
 
 **Shared schema contract**: Wire types live in both `packages/reporter/src/types.ts` (TypeScript interfaces) and `packages/dashboard/src/routes/api/schemas.ts` (Zod). Keep them in sync when changing the API contract.
+
+**Data layer**: Two stores, one query builder.
+
+- **Control D1** — users, teams, projects, memberships, API keys, invites. Accessed via `getDb()` (`src/db/index.ts`) returning a `Kysely<DB>`.
+- **Tenant DO** — one `TenantDO` (binding `TENANT`, class `TenantDO`) per team. Holds `runs`, `testResults`, `testResultAttempts`, `testTags`, `testAnnotations`, `artifacts`. Never reached by raw bindings from route code — go through `tenantScopeForUser(userId, teamSlug, projectSlug)` (session flow) or `tenantScopeForApiKey(apiKey)` (ingest flow), both in `src/tenant/index.ts`. Both return a `TenantScope` with a branded `projectId`, a `Kysely<TenantDatabase>` `db`, and a `batch()` for atomic multi-statement writes.
+- **Realtime** — a separate `SyncedStateServer` DO (binding `SYNCED_STATE_SERVER`) broadcasts progress snapshots; run-detail/list client islands subscribe via rwsdk's synced-state.
+- **Tenant isolation is physical, not conventional.** Within a team's DO, you must still filter by `projectId` to keep projects from bleeding into each other. The branded `AuthorizedProjectId` in `TenantScope` forces every query to carry the auth-checked project id through the type system.
 
 **Auth**: API key auth via `Authorization: Bearer <key>`. Keys are SHA-256 hashed, looked up by 8-char prefix, then hash-compared. Defined in `packages/dashboard/src/lib/auth.ts`.
 
@@ -92,8 +100,9 @@ Two auth systems coexist:
 - `resolveTeamBySlug(slug, userId)` — same file
 - `resolveProjectBySlugs(teamSlug, projectSlug, userId)` — same file
 - `getActiveProject()` — `packages/dashboard/src/lib/active-project.ts` — reads route params, verifies membership, returns the active project. Use this at the top of any scoped route handler.
+- `tenantScopeForUser(userId, teamSlug, projectSlug)` / `tenantScopeForApiKey(apiKey)` — `packages/dashboard/src/tenant/index.ts` — resolve auth and return a `TenantScope` with a Kysely handle to the team's DO. Any read or write of runs/derived tables goes through this.
 
-**Query scoping rule:** every read that touches `runs` (or derived tables: `testResults`, `testTags`, `testAnnotations`, `artifacts`) **must** filter by `projectId`. There is no implicit tenant filter — miss it and data leaks across tenants.
+**Query scoping rule:** team-level isolation is enforced by the DO boundary (each team gets its own `TenantDO` instance). Inside a team's DO, every query against `runs` / `testResults` / `testResultAttempts` / `testTags` / `testAnnotations` / `artifacts` **must** still filter by `projectId` — the branded `AuthorizedProjectId` on `TenantScope` exists to make this impossible to forget.
 
 **Required env vars:** `BETTER_AUTH_SECRET`, `WRIGHTFUL_PUBLIC_URL`. Optional: `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`.
 

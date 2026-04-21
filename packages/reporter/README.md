@@ -36,11 +36,17 @@ Options:
 | option            | default               | notes                                                             |
 | ----------------- | --------------------- | ----------------------------------------------------------------- |
 | `url`             | `WRIGHTFUL_URL` env   | Dashboard base URL                                                |
-| `token`           | `WRIGHTFUL_TOKEN` env | Bearer API key                                                    |
+| `token`           | `WRIGHTFUL_TOKEN` env | Bearer API key — project-scoped; seed via `db:seed-api-key`       |
 | `batchSize`       | `20`                  | Max results per flush                                             |
 | `flushIntervalMs` | `500`                 | Max ms to wait between flushes                                    |
 | `environment`     | —                     | Environment tag for the run                                       |
 | `artifacts`       | `'failed'`            | Which tests' attachments to upload: `'all' \| 'failed' \| 'none'` |
+
+## Protocol
+
+Every request carries `X-Wrightful-Version: 3`. The dashboard rejects older
+versions with `409 Conflict`, so reporter and dashboard must be upgraded
+together across protocol bumps.
 
 ## Fail-closed semantics
 

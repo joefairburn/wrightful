@@ -3,7 +3,7 @@
 A Playwright test reporting dashboard. Ships as two pieces:
 
 - **`@wrightful/reporter`** — Playwright reporter that streams results and artifacts to the dashboard live as each test completes.
-- **`@wrightful/dashboard`** — a Cloudflare Worker (Vite + React 19 RSC on RedwoodSDK, Drizzle ORM on D1, R2 for artifacts) that ingests results and serves the UI.
+- **`@wrightful/dashboard`** — a Cloudflare Worker (Vite + React 19 RSC on RedwoodSDK, Kysely on D1, Durable Objects for per-team test data, R2 for artifacts) that ingests results and serves the UI.
 
 ## Deploy your own dashboard
 
@@ -37,11 +37,11 @@ export default defineConfig({
 });
 ```
 
-Set credentials in CI:
+Set credentials in CI (`WRIGHTFUL_TOKEN` is a project-scoped API key — generate one from your project's settings page in the dashboard):
 
 ```yaml
 env:
-  WRIGHTFUL_URL: https://wrightful.<your-subdomain>.workers.dev
+  WRIGHTFUL_URL: https://your-dashboard-url.com
   WRIGHTFUL_TOKEN: ${{ secrets.WRIGHTFUL_TOKEN }}
 ```
 
