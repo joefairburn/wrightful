@@ -251,94 +251,88 @@ export async function RunsListPage() {
                       </a>
                     </TableCell>
 
-                    {/* Branch (top) + Commit SHA + message (bottom) */}
+                    {/* Commit message (top) + Branch + SHA (bottom) */}
                     <TableCell className="px-4 py-3 max-w-md">
                       <div className="flex flex-col gap-1 min-w-0 font-mono text-xs">
-                        {/* Branch row */}
-                        <span className="flex items-center gap-2 min-w-0 text-foreground">
-                          <GitBranch
-                            size={12}
-                            strokeWidth={2}
-                            className="shrink-0 text-muted-foreground"
-                          />
-                          {run.branch ? (
-                            branchHref ? (
+                        {/* Message row */}
+                        <span className="truncate text-foreground">
+                          {run.commitMessage ? (
+                            run.commitMessage
+                          ) : run.actor ? (
+                            `@${run.actor}`
+                          ) : (
+                            <span className="italic text-muted-foreground">
+                              No message
+                            </span>
+                          )}
+                        </span>
+                        {/* Branch + hash row */}
+                        <span className="flex items-center gap-3 min-w-0 text-muted-foreground">
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <GitBranch
+                              size={12}
+                              strokeWidth={2}
+                              className="shrink-0"
+                            />
+                            {run.branch ? (
+                              branchHref ? (
+                                <a
+                                  href={branchHref}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="relative z-10 truncate hover:underline hover:text-foreground"
+                                >
+                                  {run.branch}
+                                </a>
+                              ) : (
+                                <span className="truncate">{run.branch}</span>
+                              )
+                            ) : (
+                              <span>—</span>
+                            )}
+                            {run.prNumber != null && prHref ? (
                               <a
-                                href={branchHref}
+                                href={prHref}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="relative z-10 truncate hover:underline"
+                                className="relative z-10 inline-flex items-center gap-0.5 shrink-0 hover:text-foreground"
+                                title={`Open PR #${run.prNumber}`}
                               >
-                                {run.branch}
+                                <GitPullRequest size={10} strokeWidth={2.5} />#
+                                {run.prNumber}
                               </a>
-                            ) : (
-                              <span className="truncate">{run.branch}</span>
-                            )
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                          {run.prNumber != null && prHref ? (
-                            <a
-                              href={prHref}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="relative z-10 inline-flex items-center gap-0.5 shrink-0 text-muted-foreground hover:text-foreground"
-                              title={`Open PR #${run.prNumber}`}
-                            >
-                              <GitPullRequest size={10} strokeWidth={2.5} />#
-                              {run.prNumber}
-                            </a>
-                          ) : run.prNumber != null ? (
-                            <span className="inline-flex items-center gap-0.5 shrink-0 text-muted-foreground">
-                              <GitPullRequest size={10} strokeWidth={2.5} />#
-                              {run.prNumber}
+                            ) : run.prNumber != null ? (
+                              <span className="inline-flex items-center gap-0.5 shrink-0">
+                                <GitPullRequest size={10} strokeWidth={2.5} />#
+                                {run.prNumber}
+                              </span>
+                            ) : null}
+                          </span>
+                          {run.commitSha ? (
+                            <span className="flex items-center gap-1.5 shrink-0">
+                              <GitCommit
+                                size={12}
+                                strokeWidth={2}
+                                className="shrink-0"
+                              />
+                              {commitHref ? (
+                                <a
+                                  href={commitHref}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="relative z-10 hover:underline hover:text-foreground"
+                                  title="View commit"
+                                >
+                                  {run.commitSha.slice(0, 7)}
+                                </a>
+                              ) : (
+                                <span>{run.commitSha.slice(0, 7)}</span>
+                              )}
+                              {run.actor && run.commitMessage ? (
+                                <span className="shrink-0">· @{run.actor}</span>
+                              ) : null}
                             </span>
                           ) : null}
-                        </span>
-                        {/* Commit row */}
-                        <span className="flex items-center gap-2 min-w-0 text-muted-foreground">
-                          <GitCommit
-                            size={12}
-                            strokeWidth={2}
-                            className="shrink-0"
-                          />
-                          {commitHref ? (
-                            <a
-                              href={commitHref}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="relative z-10 flex items-center gap-2 min-w-0 hover:underline"
-                              title="View commit on GitHub"
-                            >
-                              {run.commitSha ? (
-                                <span className="shrink-0">
-                                  {run.commitSha.slice(0, 7)}
-                                </span>
-                              ) : null}
-                              <span className="truncate">
-                                {run.actor && `@${run.actor} · `}
-                                {run.commitMessage ??
-                                  (!run.actor && (
-                                    <span className="italic">No message</span>
-                                  ))}
-                              </span>
-                            </a>
-                          ) : (
-                            <>
-                              {run.commitSha ? (
-                                <span className="shrink-0">
-                                  {run.commitSha.slice(0, 7)}
-                                </span>
-                              ) : null}
-                              <span className="truncate">
-                                {run.actor && `@${run.actor} · `}
-                                {run.commitMessage ??
-                                  (!run.actor && (
-                                    <span className="italic">No message</span>
-                                  ))}
-                              </span>
-                            </>
-                          )}
                         </span>
                       </div>
                     </TableCell>
