@@ -30,12 +30,15 @@ import { batchD1 } from "@/db/batch";
 import { resolveTeamBySlug } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 import { readField } from "@/lib/form";
+import { generateInviteToken, hashInviteToken } from "@/lib/invite-tokens";
 import { param } from "@/lib/route-params";
 import { formatRelativeTime } from "@/lib/time-format";
 import type { AppContext } from "@/worker";
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 const INVITE_TTL_SECONDS = 7 * 24 * 60 * 60;
+const INVITE_FLASH_COOKIE = "wrightful_invite_flash";
+const INVITE_FLASH_MAX_AGE = 60;
 
 function formatExpiresIn(
   expiresAt: number,
@@ -50,12 +53,39 @@ function formatExpiresIn(
   return "expires in <1h";
 }
 
-function generateInviteToken(): string {
-  const rand = crypto.getRandomValues(new Uint8Array(24));
-  return btoa(String.fromCharCode(...rand))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+function readFlashCookie(
+  cookieHeader: string | null,
+  name: string,
+): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const [rawKey, ...rest] = part.split("=");
+    if (!rawKey) continue;
+    if (rawKey.trim() !== name) continue;
+    const rawValue = rest.join("=");
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function buildInviteFlashCookie(
+  value: string | null,
+  path: string,
+  isHttps: boolean,
+): string {
+  const attrs = [
+    `${INVITE_FLASH_COOKIE}=${value === null ? "" : encodeURIComponent(value)}`,
+    value === null ? "Max-Age=0" : `Max-Age=${INVITE_FLASH_MAX_AGE}`,
+    "HttpOnly",
+    "SameSite=Strict",
+    `Path=${path}`,
+  ];
+  if (isHttps) attrs.push("Secure");
+  return attrs.join("; ");
 }
 
 function initials(name: string): string {
@@ -79,7 +109,7 @@ export async function SettingsTeamDetailPage() {
   const generalError = url.searchParams.get("generalError");
   const dangerError = url.searchParams.get("dangerError");
   const inviteError = url.searchParams.get("inviteError");
-  const showInviteToken = url.searchParams.get("showInvite");
+  const newInviteId = url.searchParams.get("newInvite");
 
   const db = getDb();
   const [memberRows, projectRows, inviteRows] = await Promise.all([
@@ -102,7 +132,7 @@ export async function SettingsTeamDetailPage() {
       .execute(),
     db
       .selectFrom("teamInvites")
-      .select(["id", "token", "role", "createdAt", "expiresAt"])
+      .select(["id", "role", "createdAt", "expiresAt"])
       .where("teamId", "=", team.id)
       .where("expiresAt", ">", Math.floor(Date.now() / 1000))
       .orderBy("createdAt", "desc")
@@ -111,12 +141,28 @@ export async function SettingsTeamDetailPage() {
 
   const isOwner = team.role === "owner";
   const teamHref = `/settings/teams/${team.slug}`;
-  const shownInvite = showInviteToken
-    ? inviteRows.find((i) => i.token === showInviteToken)
+
+  // One-shot reveal: the create handler stashes the plaintext URL in an
+  // HttpOnly flash cookie scoped to this page. We read it on the next render,
+  // show the modal, then clear the cookie. The plaintext is never stored and
+  // never appears in the URL.
+  const shownInvite = newInviteId
+    ? inviteRows.find((i) => i.id === newInviteId)
     : null;
-  const shownInviteUrl = shownInvite
-    ? `${url.origin}/invite/${shownInvite.token}`
-    : null;
+  let shownInviteUrl: string | null = null;
+  if (shownInvite) {
+    const flash = readFlashCookie(
+      requestInfo.request.headers.get("Cookie"),
+      INVITE_FLASH_COOKIE,
+    );
+    if (flash) {
+      shownInviteUrl = flash;
+      requestInfo.response.headers.append(
+        "Set-Cookie",
+        buildInviteFlashCookie(null, teamHref, url.protocol === "https:"),
+      );
+    }
+  }
 
   return (
     <div className="mx-auto w-full max-w-5xl p-6 sm:p-8">
@@ -441,36 +487,26 @@ export async function SettingsTeamDetailPage() {
                       {invite.role}
                     </span>
                     {isOwner && (
-                      <>
-                        <a
-                          href={`${teamHref}?showInvite=${invite.token}`}
-                          aria-label="Show invite link"
-                          title="Show invite link"
-                          className="inline-flex size-7 items-center justify-center rounded-sm border border-transparent text-muted-foreground transition-colors hover:border-border/50 hover:bg-muted hover:text-foreground"
+                      <form method="post" className="m-0">
+                        <input
+                          type="hidden"
+                          name="action"
+                          value="revoke-invite"
+                        />
+                        <input
+                          type="hidden"
+                          name="inviteId"
+                          value={invite.id}
+                        />
+                        <button
+                          type="submit"
+                          aria-label="Revoke invite"
+                          title="Revoke invite"
+                          className="inline-flex size-7 items-center justify-center rounded-sm border border-transparent text-muted-foreground transition-colors hover:border-destructive/32 hover:bg-destructive/8 hover:text-destructive-foreground"
                         >
-                          <LinkIcon size={14} strokeWidth={2} />
-                        </a>
-                        <form method="post" className="m-0">
-                          <input
-                            type="hidden"
-                            name="action"
-                            value="revoke-invite"
-                          />
-                          <input
-                            type="hidden"
-                            name="inviteId"
-                            value={invite.id}
-                          />
-                          <button
-                            type="submit"
-                            aria-label="Revoke invite"
-                            title="Revoke invite"
-                            className="inline-flex size-7 items-center justify-center rounded-sm border border-transparent text-muted-foreground transition-colors hover:border-destructive/32 hover:bg-destructive/8 hover:text-destructive-foreground"
-                          >
-                            <X size={14} strokeWidth={2} />
-                          </button>
-                        </form>
-                      </>
+                          <X size={14} strokeWidth={2} />
+                        </button>
+                      </form>
                     )}
                   </div>
                 </li>
@@ -624,14 +660,16 @@ export async function teamDetailHandler({
 
   if (action === "create-invite") {
     const token = generateInviteToken();
+    const tokenHash = await hashInviteToken(token);
+    const inviteId = ulid();
     const nowSeconds = Math.floor(Date.now() / 1000);
     try {
       await getDb()
         .insertInto("teamInvites")
         .values({
-          id: ulid(),
+          id: inviteId,
           teamId: team.id,
-          token,
+          tokenHash,
           role: "member",
           createdBy: ctx.user.id,
           createdAt: nowSeconds,
@@ -645,7 +683,24 @@ export async function teamDetailHandler({
         "Could not create invite link — please try again.",
       );
     }
-    return Response.redirect(`${here}?showInvite=${token}`, 302);
+    // Stash the plaintext URL in an HttpOnly, path-scoped flash cookie so it
+    // never appears in the redirect URL, browser history, or access logs. The
+    // next render consumes it once and clears the cookie; `Max-Age` bounds
+    // the leak even if that render never happens.
+    const inviteUrl = `${origin}/invite/${token}`;
+    const requestUrl = new URL(request.url);
+    const flashCookie = buildInviteFlashCookie(
+      inviteUrl,
+      `/settings/teams/${team.slug}`,
+      requestUrl.protocol === "https:",
+    );
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: `${here}?newInvite=${inviteId}`,
+        "Set-Cookie": flashCookie,
+      },
+    });
   }
 
   if (action === "revoke-invite") {

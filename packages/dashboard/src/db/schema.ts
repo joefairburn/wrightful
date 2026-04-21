@@ -45,8 +45,9 @@ export interface MembershipsTable {
 export interface TeamInvitesTable {
   id: string;
   teamId: string;
-  /** URL-safe random token used in invite links. */
-  token: string;
+  /** SHA-256 hex of the URL-safe random token. Plaintext is shown once at
+   *  creation and never stored. */
+  tokenHash: string;
   /** Role granted to accepting users. */
   role: MembershipRole;
   /** User who created the invite. */

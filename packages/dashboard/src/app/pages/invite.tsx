@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { Button } from "@/app/components/ui/button";
 import { getDb } from "@/db";
 import { batchD1 } from "@/db/batch";
+import { hashInviteToken } from "@/lib/invite-tokens";
 import { param } from "@/lib/route-params";
 import type { AppContext } from "@/worker";
 
@@ -17,6 +18,7 @@ export async function InvitePage() {
   const error = url.searchParams.get("error");
 
   const db = getDb();
+  const tokenHash = await hashInviteToken(token);
   const invite = await db
     .selectFrom("teamInvites")
     .innerJoin("teams", "teams.id", "teamInvites.teamId")
@@ -27,7 +29,7 @@ export async function InvitePage() {
       "teams.slug as teamSlug",
       "teams.name as teamName",
     ])
-    .where("teamInvites.token", "=", token)
+    .where("teamInvites.tokenHash", "=", tokenHash)
     .where("teamInvites.expiresAt", ">", Math.floor(Date.now() / 1000))
     .limit(1)
     .executeTakeFirst();
@@ -39,8 +41,8 @@ export async function InvitePage() {
           Invite not valid
         </h1>
         <p className="text-muted-foreground text-sm">
-          This invite link is no longer active. Ask the team owner for a fresh
-          link.
+          {error ??
+            "This invite link is no longer active. Ask the team owner for a fresh link."}
         </p>
         <a
           href="/"
@@ -144,6 +146,7 @@ export async function acceptInviteHandler({
   const here = `${origin}/invite/${token}`;
 
   const db = getDb();
+  const tokenHash = await hashInviteToken(token);
   const invite = await db
     .selectFrom("teamInvites")
     .innerJoin("teams", "teams.id", "teamInvites.teamId")
@@ -153,13 +156,18 @@ export async function acceptInviteHandler({
       "teamInvites.role as role",
       "teams.slug as teamSlug",
     ])
-    .where("teamInvites.token", "=", token)
+    .where("teamInvites.tokenHash", "=", tokenHash)
     .where("teamInvites.expiresAt", ">", Math.floor(Date.now() / 1000))
     .limit(1)
     .executeTakeFirst();
 
   if (!invite) {
-    return Response.redirect(here, 302);
+    const url = new URL(here);
+    url.searchParams.set(
+      "error",
+      "This invite is no longer valid. Ask the team owner for a fresh link.",
+    );
+    return Response.redirect(url.toString(), 302);
   }
 
   const existing = await db

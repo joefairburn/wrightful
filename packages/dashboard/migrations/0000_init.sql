@@ -82,7 +82,7 @@ CREATE INDEX `teams_last_activity_at_idx` ON `teams` (`last_activity_at`);--> st
 CREATE TABLE `team_invites` (
 	`id` text PRIMARY KEY NOT NULL,
 	`team_id` text NOT NULL,
-	`token` text NOT NULL,
+	`token_hash` text NOT NULL,
 	`role` text NOT NULL,
 	`created_by` text NOT NULL,
 	`created_at` integer NOT NULL,
@@ -91,7 +91,7 @@ CREATE TABLE `team_invites` (
 	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `team_invites_token_idx` ON `team_invites` (`token`);--> statement-breakpoint
+CREATE UNIQUE INDEX `team_invites_token_hash_idx` ON `team_invites` (`token_hash`);--> statement-breakpoint
 CREATE INDEX `team_invites_team_idx` ON `team_invites` (`team_id`);--> statement-breakpoint
 CREATE TABLE `user` (
 	`id` text PRIMARY KEY NOT NULL,
