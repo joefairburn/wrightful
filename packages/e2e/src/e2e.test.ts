@@ -5,7 +5,6 @@
  * vitest.globalSetup.ts for the full set of keys.
  */
 
-import { execSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { existsSync } from "node:fs";
 
@@ -14,7 +13,6 @@ import { beforeAll, describe, expect, inject, it } from "vitest";
 const DASHBOARD_URL = inject("dashboardUrl");
 const API_KEY = inject("apiKey");
 const REPORT_PATH = inject("reportPath");
-const DASHBOARD_DIR = inject("dashboardDir");
 const SESSION_COOKIE = inject("sessionCookie");
 const TEAM_SLUG = inject("teamSlug");
 const PROJECT_SLUG = inject("projectSlug");
@@ -36,12 +34,6 @@ function signArtifactToken(artifactId: string, ttlSeconds = 60): string {
 }
 
 const PROJECT_URL = `${DASHBOARD_URL}/t/${TEAM_SLUG}/p/${PROJECT_SLUG}`;
-
-function sh(cmd: string, opts: { cwd?: string } = {}): string {
-  return execSync(cmd, { stdio: "pipe", ...opts })
-    .toString()
-    .trim();
-}
 
 function fetchAuthed(url: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
@@ -171,11 +163,11 @@ describe("Wrightful E2E", () => {
     // per test sometimes flakes the dev server connection (ECONNRESET).
     let runId: string;
     let testResultId: string;
-    beforeAll(() => {
+    beforeAll(async () => {
       // The reporter-driven playwright run in globalSetup streams real test
       // results into the dashboard; grab one so the artifact register+upload
       // tests below have a valid (runId, testResultId) pair to point at.
-      const seeded = readSeededTestResult();
+      const seeded = await readSeededTestResult();
       runId = seeded.runId;
       testResultId = seeded.testResultId;
     });
@@ -237,12 +229,9 @@ describe("Wrightful E2E", () => {
       );
       expect(upload.artifactId).toBeTruthy();
 
-      const countJson = sh(
-        `npx wrangler d1 execute wrightful --local --json --command "SELECT COUNT(*) AS n FROM artifacts WHERE test_result_id = '${testResultId}';"`,
-        { cwd: DASHBOARD_DIR },
-      );
-      const count = JSON.parse(countJson)[0]?.results?.[0]?.n;
-      expect(count).toBe(1);
+      // The subsequent PUT upload + signed download both look up the artifact
+      // row server-side, so their 204/200 responses already prove the register
+      // call persisted it — no separate DB count assertion needed.
 
       const putRes = await fetch(`${DASHBOARD_URL}${upload.uploadUrl}`, {
         method: "PUT",
@@ -302,19 +291,41 @@ describe("Wrightful E2E", () => {
   });
 });
 
-function readSeededTestResult(): { runId: string; testResultId: string } {
-  const rowJson = sh(
-    `npx wrangler d1 execute wrightful --local --json --command "SELECT tr.id AS test_result_id, tr.run_id AS run_id FROM test_results tr LIMIT 1;"`,
-    { cwd: DASHBOARD_DIR },
+async function readSeededTestResult(): Promise<{
+  runId: string;
+  testResultId: string;
+}> {
+  // Scrape a runId from the authenticated runs-list HTML (the same path the
+  // "renders the run detail page" test uses), then hit the authenticated
+  // test-preview API for that run and grab any test result it returns.
+  const indexHtml = await (await fetchAuthed(PROJECT_URL)).text();
+  const match = indexHtml.match(
+    new RegExp(`/t/${TEAM_SLUG}/p/${PROJECT_SLUG}/runs/([\\w]+)`),
   );
-  const rows = JSON.parse(rowJson)[0]?.results ?? [];
-  if (rows.length !== 1) {
+  if (!match) {
     throw new Error(
-      "Expected exactly one seeded test_result in D1 — did the reporter-driven playwright run seed data in globalSetup?",
+      "Expected at least one run link on the project page — did the reporter-driven playwright run seed data in globalSetup?",
     );
   }
-  return {
-    runId: rows[0].run_id as string,
-    testResultId: rows[0].test_result_id as string,
-  };
+  const runId = match[1];
+
+  const previewRes = await fetchAuthed(
+    `${DASHBOARD_URL}/api/t/${TEAM_SLUG}/p/${PROJECT_SLUG}/runs/${runId}/test-preview`,
+  );
+  if (!previewRes.ok) {
+    throw new Error(
+      `test-preview fetch failed (${previewRes.status}): ${await previewRes.text()}`,
+    );
+  }
+  const preview = (await previewRes.json()) as Record<string, { id: string }[]>;
+  const firstId = [
+    ...(preview.failed ?? []),
+    ...(preview.flaky ?? []),
+    ...(preview.passed ?? []),
+    ...(preview.skipped ?? []),
+  ][0]?.id;
+  if (!firstId) {
+    throw new Error("test-preview returned no test results for the seeded run");
+  }
+  return { runId, testResultId: firstId };
 }

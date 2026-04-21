@@ -15,7 +15,13 @@
 
 import { type ChildProcess, execSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -139,13 +145,26 @@ export async function setup(project: TestProject): Promise<void> {
   log("Step 1: Build reporter");
   run("pnpm build", { cwd: REPORTER_DIR });
 
+  log("Step 1b: Wipe tenant Durable Object state");
+  // Tenant-owned tables (runs, testResults, testTags, testAnnotations,
+  // testResultAttempts, artifacts) live inside each team's TenantDO, not
+  // D1 — see docs/worklog/2026-04-20-per-tenant-durable-objects.md. We
+  // blow away the on-disk miniflare DO state so repeat local runs start
+  // clean; CI runners are already clean so this is a no-op there.
+  for (const name of ["wrightful-TenantDO", "wrightful-SyncedStateServer"]) {
+    rmSync(resolve(DASHBOARD_DIR, ".wrangler/state/v3/do", name), {
+      recursive: true,
+      force: true,
+    });
+  }
+
   log("Step 2: Apply D1 migrations");
   run("pnpm db:migrate:local", { cwd: DASHBOARD_DIR });
 
-  log("Step 3: Clean existing data");
+  log("Step 3: Clean existing data (control D1 only)");
   // Order matters — drop FK-dependent rows first.
   run(
-    `npx wrangler d1 execute wrightful --local --command "DELETE FROM test_tags; DELETE FROM test_annotations; DELETE FROM artifacts; DELETE FROM test_results; DELETE FROM runs; DELETE FROM api_keys; DELETE FROM memberships; DELETE FROM session; DELETE FROM account; DELETE FROM verification; DELETE FROM user; DELETE FROM projects; DELETE FROM teams;"`,
+    `npx wrangler d1 execute wrightful --local --command "DELETE FROM api_keys; DELETE FROM memberships; DELETE FROM session; DELETE FROM account; DELETE FROM verification; DELETE FROM user; DELETE FROM projects; DELETE FROM teams;"`,
     { cwd: DASHBOARD_DIR },
   );
 
