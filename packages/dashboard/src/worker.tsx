@@ -61,6 +61,11 @@ import {
   setLastProjectHandler,
   setLastTeamHandler,
 } from "@/routes/api/user-state";
+import {
+  dismissSuggestionHandler,
+  joinTeamHandler,
+  undismissSuggestionHandler,
+} from "@/routes/api/team-suggestions";
 import { authHandler } from "@/routes/auth";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { loadSession, requireUser } from "@/routes/middleware";
@@ -130,6 +135,7 @@ export interface AppContext {
     id: string;
     email: string;
     name: string;
+    image: string | null;
   };
   session?: {
     id: string;
@@ -174,6 +180,12 @@ const app = defineApp([
   route("/api/user/last-project", {
     post: [loadSession, requireUser, setLastProjectHandler],
   }),
+  route("/api/user/team-suggestions/:teamId/dismiss", {
+    post: [loadSession, requireUser, dismissSuggestionHandler],
+  }),
+  route("/api/user/team-suggestions/:teamId/undismiss", {
+    post: [loadSession, requireUser, undismissSuggestionHandler],
+  }),
   route("/api/t/:teamSlug/p/:projectSlug/runs/:runId/test-preview", {
     get: [loadSession, requireUser, runTestPreviewHandler],
   }),
@@ -211,6 +223,9 @@ const app = defineApp([
     route("/invite/:token", {
       get: [requireUser, InvitePage],
       post: [requireUser, acceptInviteHandler],
+    }),
+    route("/t/:teamSlug/join", {
+      post: [requireUser, joinTeamHandler],
     }),
     ...layout(AppLayout, [
       // Settings — declared first so prefixes win over app routes.

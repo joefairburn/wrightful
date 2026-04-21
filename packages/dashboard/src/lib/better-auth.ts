@@ -3,6 +3,7 @@ import { kyselyAdapter } from "@better-auth/kysely-adapter";
 import { ulid } from "ulid";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
+import { refreshUserOrgs } from "@/lib/github-orgs";
 
 export function hasGithubOAuthConfigured(): boolean {
   return Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
@@ -30,7 +31,14 @@ function buildAuth() {
   // GitHub OAuth is optional. Self-hosters who just want email/password can
   // skip registering a GitHub OAuth app entirely.
   const githubCreds = getGithubOAuthCreds();
-  const socialProviders = githubCreds ? { github: githubCreds } : undefined;
+  const socialProviders = githubCreds
+    ? {
+        // `read:org` is required so we can list the user's GitHub
+        // organisations and surface teams that auto-grant access based
+        // on org membership.
+        github: { ...githubCreds, scope: ["read:org", "user:email"] },
+      }
+    : undefined;
 
   return betterAuth({
     baseURL: publicUrl,
@@ -50,6 +58,35 @@ function buildAuth() {
       requireEmailVerification: false,
     },
     socialProviders,
+    databaseHooks: {
+      account: {
+        // Pre-warm the user's GitHub-org cache on their first OAuth login
+        // (and on any re-auth that updates the token — e.g. scope upgrade).
+        // Awaited so `/` (team picker) renders with a populated suggestion
+        // list without us having to refresh on every page render. Failures
+        // are swallowed: the profile page still exposes a manual refresh.
+        create: {
+          after: async (account) => {
+            if (account.providerId !== "github") return;
+            try {
+              await refreshUserOrgs(account.userId);
+            } catch {
+              // Best effort — don't block sign-in on a GitHub API hiccup.
+            }
+          },
+        },
+        update: {
+          after: async (account) => {
+            if (account.providerId !== "github") return;
+            try {
+              await refreshUserOrgs(account.userId);
+            } catch {
+              // Best effort.
+            }
+          },
+        },
+      },
+    },
   });
 }
 

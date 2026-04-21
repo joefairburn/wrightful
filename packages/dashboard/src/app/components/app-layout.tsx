@@ -8,20 +8,22 @@ import {
   Plus,
   Settings,
   TriangleAlert,
-  User,
   UserRound,
 } from "lucide-react";
 import type { LayoutProps } from "rwsdk/router";
 import { requestInfo } from "rwsdk/worker";
 import { ProjectSwitcher } from "@/app/components/project-switcher";
 import { QueryProvider } from "@/app/components/query-provider";
+import { SidebarUserMenu } from "@/app/components/sidebar-user-menu";
 import { TeamSwitcher } from "@/app/components/team-switcher";
 import { NuqsRwsdkAdapter } from "@/lib/nuqs-rwsdk-adapter";
 import {
+  getSuggestedTeamsForUser,
   getTeamProjects,
   getUserTeams,
   resolveProjectBySlugs,
   resolveTeamBySlug,
+  type SuggestedTeam,
 } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 
@@ -34,9 +36,14 @@ function deriveActiveNav(pathname: string): NavId {
 
 type AppSidebarData = {
   teams: { slug: string; name: string }[];
-  activeTeam: { slug: string; name: string } | null;
+  activeTeam: {
+    slug: string;
+    name: string;
+    role: "owner" | "member";
+  } | null;
   projects: { slug: string; name: string }[];
   activeProject: { slug: string; name: string } | null;
+  suggestedTeams: SuggestedTeam[];
 };
 
 async function fetchAppSidebarData(
@@ -45,18 +52,27 @@ async function fetchAppSidebarData(
   projectSlug: string | null,
 ): Promise<AppSidebarData> {
   if (!userId) {
-    return { teams: [], activeTeam: null, projects: [], activeProject: null };
+    return {
+      teams: [],
+      activeTeam: null,
+      projects: [],
+      activeProject: null,
+      suggestedTeams: [],
+    };
   }
-  const teams = await getUserTeams(userId);
-  const activeTeam = teamSlug
-    ? await resolveTeamBySlug(userId, teamSlug)
-    : null;
+  const [teams, activeTeam, allSuggested] = await Promise.all([
+    getUserTeams(userId),
+    teamSlug ? resolveTeamBySlug(userId, teamSlug) : Promise.resolve(null),
+    getSuggestedTeamsForUser(userId),
+  ]);
   const projects = activeTeam ? await getTeamProjects(activeTeam.id) : [];
   const activeProject =
     teamSlug && projectSlug
       ? await resolveProjectBySlugs(userId, teamSlug, projectSlug)
       : null;
-  return { teams, activeTeam, projects, activeProject };
+  // Sidebar hides dismissed suggestions; the profile page shows all.
+  const suggestedTeams = allSuggested.filter((s) => !s.dismissed);
+  return { teams, activeTeam, projects, activeProject, suggestedTeams };
 }
 
 export async function AppLayout({ children }: LayoutProps) {
@@ -99,6 +115,7 @@ export async function AppLayout({ children }: LayoutProps) {
                 teams={app?.teams ?? []}
                 activeTeam={app?.activeTeam ?? null}
                 activeProject={app?.activeProject ?? null}
+                suggestedTeams={app?.suggestedTeams ?? []}
                 signedIn={!!userId}
               />
             )}
@@ -112,6 +129,7 @@ export async function AppLayout({ children }: LayoutProps) {
                   currentProjectSlug={app.activeProject.slug}
                   currentProjectName={app.activeProject.name}
                   projects={app.projects}
+                  isOwner={app.activeTeam.role === "owner"}
                 />
               ) : (
                 <span />
@@ -131,9 +149,13 @@ export async function AppLayout({ children }: LayoutProps) {
                 >
                   <CircleHelp size={18} />
                 </button>
-                <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center ml-1">
-                  <User size={14} className="text-muted-foreground" />
-                </div>
+                {ctx.user && (
+                  <SidebarUserMenu
+                    name={ctx.user.name}
+                    email={ctx.user.email}
+                    image={ctx.user.image}
+                  />
+                )}
               </div>
             </header>
 
@@ -152,6 +174,7 @@ interface AppSidebarContentsProps {
   teams: { slug: string; name: string }[];
   activeTeam: { slug: string; name: string } | null;
   activeProject: { slug: string; name: string } | null;
+  suggestedTeams: SuggestedTeam[];
   signedIn: boolean;
 }
 
@@ -160,6 +183,7 @@ function AppSidebarContents({
   teams,
   activeTeam,
   activeProject,
+  suggestedTeams,
   signedIn,
 }: AppSidebarContentsProps) {
   const activeNav = deriveActiveNav(pathname);
@@ -209,6 +233,11 @@ function AppSidebarContents({
             currentTeamSlug={activeTeam.slug}
             currentTeamName={activeTeam.name}
             teams={teams}
+            suggestedTeams={suggestedTeams.map((s) => ({
+              id: s.id,
+              slug: s.slug,
+              name: s.name,
+            }))}
           />
         </div>
       ) : (

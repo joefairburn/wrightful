@@ -20,6 +20,12 @@ export interface TeamsTable {
    * decide which tenant DOs to fan out to.
    */
   lastActivityAt: number | null;
+  /**
+   * GitHub organisation slug (lowercased). When set, any dashboard user
+   * who is a member of this GitHub org will see the team as "available to
+   * join" in their sidebar and profile page.
+   */
+  githubOrgSlug: string | null;
 }
 
 export interface ProjectsTable {
@@ -64,6 +70,23 @@ export interface UserStateTable {
   lastProjectId: string | null;
   /** Unix milliseconds */
   updatedAt: number;
+}
+
+export interface TeamSuggestionDismissalsTable {
+  userId: string;
+  teamId: string;
+  /** Unix seconds */
+  dismissedAt: number;
+}
+
+export interface UserGithubOrgsTable {
+  userId: string;
+  /** JSON array of lowercased GitHub org slugs. Empty array = we know they're in no orgs. */
+  orgSlugsJson: string;
+  /** Unix seconds the cache was last refreshed. */
+  refreshedAt: number;
+  /** 0/1: whether the access token used for the last refresh carried the `read:org` scope. */
+  scopeOk: number;
 }
 
 // ---------- API keys ----------
@@ -157,6 +180,8 @@ export interface ControlDB {
   projects: ProjectsTable;
   memberships: MembershipsTable;
   teamInvites: TeamInvitesTable;
+  teamSuggestionDismissals: TeamSuggestionDismissalsTable;
+  userGithubOrgs: UserGithubOrgsTable;
   userState: UserStateTable;
   apiKeys: ApiKeysTable;
   user: UserTable;

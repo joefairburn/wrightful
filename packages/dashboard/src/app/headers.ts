@@ -22,8 +22,12 @@ export const setCommonHeaders =
       ? `'self' 'unsafe-eval' 'nonce-${nonce}'`
       : `'self' 'nonce-${nonce}'`;
 
+    // `img-src` includes avatars.githubusercontent.com so Better Auth's
+    // GitHub-sourced user.image URLs render. `data:` covers any inline pngs
+    // (e.g. from a future icon library). Add other provider CDNs here as
+    // more OAuth providers are wired up.
     response.headers.set(
       "Content-Security-Policy",
-      `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'self'; object-src 'none';`,
+      `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; font-src 'self'; frame-ancestors 'self'; object-src 'none';`,
     );
   };

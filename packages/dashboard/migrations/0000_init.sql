@@ -74,11 +74,16 @@ CREATE TABLE `teams` (
 	-- completeRun). The watchdog in src/scheduled.ts reads this to skip
 	-- fan-out to teams with no recent activity, keeping the sweep cost
 	-- bounded as tenant count grows.
-	`last_activity_at` integer
+	`last_activity_at` integer,
+	-- Lowercased GitHub organisation slug. When set, any dashboard user who
+	-- is a member of this GitHub org will see the team as "available to
+	-- join" in their sidebar and /settings/profile.
+	`github_org_slug` text
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `teams_slug_idx` ON `teams` (`slug`);--> statement-breakpoint
 CREATE INDEX `teams_last_activity_at_idx` ON `teams` (`last_activity_at`);--> statement-breakpoint
+CREATE INDEX `teams_github_org_idx` ON `teams` (`github_org_slug`);--> statement-breakpoint
 CREATE TABLE `team_invites` (
 	`id` text PRIMARY KEY NOT NULL,
 	`team_id` text NOT NULL,
@@ -93,6 +98,23 @@ CREATE TABLE `team_invites` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `team_invites_token_hash_idx` ON `team_invites` (`token_hash`);--> statement-breakpoint
 CREATE INDEX `team_invites_team_idx` ON `team_invites` (`team_id`);--> statement-breakpoint
+CREATE TABLE `team_suggestion_dismissals` (
+	`user_id` text NOT NULL,
+	`team_id` text NOT NULL,
+	`dismissed_at` integer NOT NULL,
+	PRIMARY KEY (`user_id`, `team_id`),
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`team_id`) REFERENCES `teams`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `user_github_orgs` (
+	`user_id` text PRIMARY KEY NOT NULL,
+	`org_slugs_json` text NOT NULL,
+	`refreshed_at` integer NOT NULL,
+	`scope_ok` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `user` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,

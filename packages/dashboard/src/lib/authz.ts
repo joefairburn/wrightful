@@ -1,4 +1,5 @@
 import { getDb } from "@/db";
+import { getCachedUserOrgs } from "@/lib/github-orgs";
 
 export type TeamRole = "owner" | "member";
 
@@ -26,7 +27,13 @@ export async function getTeamRole(
 export async function resolveTeamBySlug(
   userId: string,
   teamSlug: string,
-): Promise<{ id: string; slug: string; name: string; role: TeamRole } | null> {
+): Promise<{
+  id: string;
+  slug: string;
+  name: string;
+  role: TeamRole;
+  githubOrgSlug: string | null;
+} | null> {
   const db = getDb();
   const row = await db
     .selectFrom("teams")
@@ -39,6 +46,7 @@ export async function resolveTeamBySlug(
       "teams.id as id",
       "teams.slug as slug",
       "teams.name as name",
+      "teams.githubOrgSlug as githubOrgSlug",
       "memberships.role as role",
     ])
     .where("teams.slug", "=", teamSlug)
@@ -69,6 +77,74 @@ export async function getUserTeams(
     .select(["teams.slug as slug", "teams.name as name"])
     .where("memberships.userId", "=", userId)
     .execute();
+}
+
+export interface SuggestedTeam {
+  id: string;
+  slug: string;
+  name: string;
+  githubOrgSlug: string;
+  dismissed: boolean;
+}
+
+/**
+ * Teams the user is NOT a member of, but whose `githubOrgSlug` matches one
+ * of the user's cached GitHub orgs. Dismissed suggestions are still returned
+ * with `dismissed: true` so the settings page can show them; the sidebar
+ * filters them out.
+ *
+ * Callers must refresh the org cache where freshness matters (sign-in hook,
+ * /settings/profile, /t/:teamSlug/join). This function reads the cache only.
+ */
+export async function getSuggestedTeamsForUser(
+  userId: string,
+): Promise<SuggestedTeam[]> {
+  const cached = await getCachedUserOrgs(userId);
+  if (!cached || cached.orgs.length === 0) return [];
+
+  const db = getDb();
+  const rows = await db
+    .selectFrom("teams")
+    .leftJoin("memberships", (join) =>
+      join
+        .onRef("memberships.teamId", "=", "teams.id")
+        .on("memberships.userId", "=", userId),
+    )
+    .leftJoin("teamSuggestionDismissals", (join) =>
+      join
+        .onRef("teamSuggestionDismissals.teamId", "=", "teams.id")
+        .on("teamSuggestionDismissals.userId", "=", userId),
+    )
+    .select([
+      "teams.id as id",
+      "teams.slug as slug",
+      "teams.name as name",
+      "teams.githubOrgSlug as githubOrgSlug",
+      "teamSuggestionDismissals.dismissedAt as dismissedAt",
+    ])
+    .where("teams.githubOrgSlug", "in", cached.orgs)
+    .where("memberships.id", "is", null)
+    .orderBy("teams.createdAt", "asc")
+    .execute();
+
+  return rows.map((r) => ({
+    id: r.id,
+    slug: r.slug,
+    name: r.name,
+    githubOrgSlug: r.githubOrgSlug ?? "",
+    dismissed: r.dismissedAt != null,
+  }));
+}
+
+export async function requireTeamOwner(
+  userId: string,
+  teamSlug: string,
+): Promise<{ id: string; slug: string; name: string }> {
+  const team = await resolveTeamBySlug(userId, teamSlug);
+  if (!team || team.role !== "owner") {
+    throw new Error("forbidden");
+  }
+  return { id: team.id, slug: team.slug, name: team.name };
 }
 
 export async function resolveProjectBySlugs(

@@ -26,6 +26,9 @@ interface ProjectSwitcherProps {
   currentProjectSlug: string;
   currentProjectName: string;
   projects: Project[];
+  /** Project settings (`.../keys`) are owner-gated. Hide the gear + "Create
+   *  project" footer for members so we don't ship them to a 404. */
+  isOwner: boolean;
 }
 
 export function ProjectSwitcher({
@@ -33,6 +36,7 @@ export function ProjectSwitcher({
   currentProjectSlug,
   currentProjectName,
   projects,
+  isOwner,
 }: ProjectSwitcherProps) {
   const current = projects.find((p) => p.slug === currentProjectSlug) ?? {
     slug: currentProjectSlug,
@@ -74,19 +78,21 @@ export function ProjectSwitcher({
               key={project.slug}
               value={project}
               action={
-                <a
-                  aria-label={`Project settings for ${project.name}`}
-                  className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  href={link("/settings/teams/:teamSlug/p/:projectSlug/keys", {
-                    teamSlug,
-                    projectSlug: project.slug,
-                  })}
-                  onClick={(e) => e.stopPropagation()}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  tabIndex={-1}
-                >
-                  <Settings size={14} />
-                </a>
+                isOwner ? (
+                  <a
+                    aria-label={`Project settings for ${project.name}`}
+                    className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                    href={link(
+                      "/settings/teams/:teamSlug/p/:projectSlug/keys",
+                      { teamSlug, projectSlug: project.slug },
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    tabIndex={-1}
+                  >
+                    <Settings size={14} />
+                  </a>
+                ) : undefined
               }
             >
               {project.name}
@@ -94,22 +100,24 @@ export function ProjectSwitcher({
           )}
         </NavComboboxList>
         <NavComboboxEmpty icon={<Boxes />} title="No projects found" />
-        <NavComboboxFooter>
-          <Button
-            className="w-full justify-start"
-            render={
-              <a
-                href={link("/settings/teams/:teamSlug/projects/new", {
-                  teamSlug,
-                })}
-              />
-            }
-            variant="ghost"
-          >
-            <Plus size={14} />
-            Create project
-          </Button>
-        </NavComboboxFooter>
+        {isOwner && (
+          <NavComboboxFooter>
+            <Button
+              className="w-full justify-start"
+              render={
+                <a
+                  href={link("/settings/teams/:teamSlug/projects/new", {
+                    teamSlug,
+                  })}
+                />
+              }
+              variant="ghost"
+            >
+              <Plus size={14} />
+              Create project
+            </Button>
+          </NavComboboxFooter>
+        )}
       </NavComboboxPopup>
     </NavCombobox>
   );
