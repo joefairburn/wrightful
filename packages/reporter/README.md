@@ -80,6 +80,35 @@ follows the `artifacts` option:
 Semantics match the CLI's `--artifacts` flag. Per-file failures are logged
 to stderr and do not block the run or other artifact uploads.
 
+## Data sent to the dashboard
+
+For each test, the reporter sends:
+
+- **Test identity**: file path (relative to Playwright's `rootDir`), title path,
+  project name.
+- **Outcome**: status, duration, retry count, and per-attempt status, error
+  message, and error stack.
+- **Tags and annotations** declared in your test code.
+- **Attachments** (when `artifacts` is `'failed'` or `'all'`): file bytes
+  uploaded via a presigned URL. Attachment paths are resolved through
+  `realpath` and rejected if they escape the project root, to guard against
+  symlink exfiltration via a hostile `playwright.config.ts`. Inline body
+  attachments (those without a `path`) are **not** uploaded.
+
+For each run, the reporter also sends CI metadata auto-detected from
+environment variables (GitHub Actions, GitLab CI, CircleCI, or generic
+`CI=true`): provider, build ID, branch, commit SHA and message, PR number,
+repo slug, and triggering actor. When no CI env is present these fields are
+sent as `null`.
+
+Error messages and stack traces can echo the values your tests interacted
+with (payloads, environment values, file paths). If your assertions can
+touch secrets, they'll be visible in the dashboard — scope API keys and
+project access accordingly.
+
+The reporter never reads or transmits `WRIGHTFUL_TOKEN` or any other
+environment variable content outside the fields listed above.
+
 ## Retried tests
 
 Retried tests are aggregated into one row at their final outcome — a

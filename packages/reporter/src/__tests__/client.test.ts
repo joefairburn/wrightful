@@ -1,0 +1,463 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthError, StreamClient } from "../client.js";
+import type { OpenRunPayload } from "../types.js";
+
+// Mock node:fs openAsBlob so uploadArtifact tests don't touch the filesystem.
+vi.mock("node:fs", async () => {
+  return {
+    openAsBlob: async (_path: string, opts?: { type?: string }) => {
+      return new Blob([new Uint8Array([1, 2, 3])], {
+        type: opts?.type ?? "application/octet-stream",
+      });
+    },
+  };
+});
+
+function jsonResponse(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...headers },
+  });
+}
+
+/**
+ * Register a no-op rejection handler on the promise before `runAllTimersAsync`
+ * drains the microtask queue. Prevents Node from briefly seeing the rejection
+ * as "unhandled" (which vitest surfaces as a test-run error). The original
+ * promise still carries its rejection for `expect(...).rejects` to assert on.
+ */
+function silence<T>(p: Promise<T>): Promise<T> {
+  p.catch(() => undefined);
+  return p;
+}
+
+function emptyResponse(
+  status: number,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(null, { status, headers });
+}
+
+// Minimal OpenRunPayload used wherever the exact contents don't matter.
+const runPayload: OpenRunPayload = {
+  idempotencyKey: "key-1",
+  run: {
+    ciProvider: null,
+    ciBuildId: null,
+    branch: null,
+    environment: null,
+    commitSha: null,
+    commitMessage: null,
+    prNumber: null,
+    repo: null,
+    actor: null,
+    reporterVersion: "0.0.0-dev",
+    playwrightVersion: "1.59.0",
+    expectedTotalTests: 0,
+    plannedTests: [],
+  },
+};
+
+describe("StreamClient", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  describe("openRun", () => {
+    it("posts to /api/runs with auth headers and returns runId", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(200, { runId: "run_1" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok-1");
+      const promise = client.openRun(runPayload);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result).toEqual({ runId: "run_1" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("http://dash.example/api/runs");
+      expect(init.method).toBe("POST");
+      expect(init.headers.Authorization).toBe("Bearer tok-1");
+      expect(init.headers["X-Wrightful-Version"]).toBe("3");
+      expect(init.headers["Content-Type"]).toBe("application/json");
+      expect(JSON.parse(init.body)).toEqual(runPayload);
+    });
+
+    it("throws when the 200 response is missing runId", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, {}));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(client.openRun(runPayload));
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toThrow(/openRun failed/);
+    });
+
+    it("retries on 500 and resolves when a retry succeeds", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(500, { error: "boom" }))
+        .mockResolvedValueOnce(jsonResponse(200, { runId: "run_2" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.openRun(runPayload);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.runId).toBe("run_2");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws AuthError on 401 without retry", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(401, { error: "nope" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(client.openRun(runPayload));
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toBeInstanceOf(AuthError);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("throws AuthError on 403 without retry", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(403, { error: "forbidden" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(client.openRun(runPayload));
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toBeInstanceOf(AuthError);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries on 429", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse(429, { error: "slow down" }, { "Retry-After": "1" }),
+        )
+        .mockResolvedValueOnce(jsonResponse(200, { runId: "run_3" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.openRun(runPayload);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.runId).toBe("run_3");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("gives up after maxRetries on persistent 5xx", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(jsonResponse(500, { error: "boom" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(client.openRun(runPayload));
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toThrow(/openRun failed \(500\)/);
+      // Default maxRetries=2 means 3 total attempts.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe("appendResults", () => {
+    it("returns the server's clientKey → testResultId mapping", async () => {
+      const mapping = [{ clientKey: "a", testResultId: "tr_1" }];
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(200, { results: mapping }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.appendResults("run_1", []);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result).toEqual(mapping);
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "http://dash.example/api/runs/run_1/results",
+      );
+    });
+
+    it("returns an empty array when the server omits results[]", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, {}));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.appendResults("run_1", []);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+      expect(result).toEqual([]);
+    });
+
+    it("throws (no retry) on non-auth 4xx", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse(400, { error: "validation failed" }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(client.appendResults("run_1", []));
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toThrow(/appendResults failed \(400\)/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("surfaces AuthError on 401", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(401, { error: "nope" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(client.appendResults("run_1", []));
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toBeInstanceOf(AuthError);
+    });
+  });
+
+  describe("completeRun", () => {
+    it("posts status and duration to /complete", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(emptyResponse(200));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.completeRun("run_1", "passed", 1234);
+      await vi.runAllTimersAsync();
+      await promise;
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("http://dash.example/api/runs/run_1/complete");
+      expect(JSON.parse(init.body)).toEqual({
+        status: "passed",
+        durationMs: 1234,
+      });
+    });
+
+    it("retries up to 6 total attempts by default (maxRetries=5)", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(jsonResponse(500, { error: "boom" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(client.completeRun("run_1", "failed", 0));
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toThrow(/completeRun failed/);
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+    });
+
+    it("respects a caller-supplied maxRetries=0 (single attempt)", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(jsonResponse(500, { error: "boom" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(
+        client.completeRun("run_1", "interrupted", 1000, {
+          maxRetries: 0,
+          timeoutMs: 500,
+        }),
+      );
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toThrow(/completeRun failed/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("registerArtifacts", () => {
+    it("posts to /api/artifacts/register and returns uploads[]", async () => {
+      const uploads = [
+        {
+          artifactId: "a_1",
+          uploadUrl: "https://r2.example/sig",
+          r2Key: "runs/r/t",
+        },
+      ];
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(200, { uploads }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.registerArtifacts("run_1", []);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result).toEqual(uploads);
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "http://dash.example/api/artifacts/register",
+      );
+    });
+  });
+
+  describe("uploadArtifact", () => {
+    it("omits the Authorization header for cross-origin (presigned) URLs", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(emptyResponse(200));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.uploadArtifact(
+        "https://r2.cloudflarestorage.com/bucket/key?sig=abc",
+        "/tmp/file.png",
+        "image/png",
+        3,
+      );
+      await vi.runAllTimersAsync();
+      await promise;
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("https://r2.cloudflarestorage.com/bucket/key?sig=abc");
+      expect(init.method).toBe("PUT");
+      expect(init.headers.Authorization).toBeUndefined();
+      expect(init.headers["X-Wrightful-Version"]).toBe("3");
+      expect(init.headers["Content-Length"]).toBe("3");
+    });
+
+    it("includes the Authorization header when uploading back to the dashboard host", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(emptyResponse(200));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.uploadArtifact(
+        "http://dash.example/api/artifacts/a_1/upload",
+        "/tmp/file.png",
+        "image/png",
+        3,
+      );
+      await vi.runAllTimersAsync();
+      await promise;
+
+      const init = fetchMock.mock.calls[0][1];
+      expect(init.headers.Authorization).toBe("Bearer tok");
+    });
+
+    it("resolves a relative uploadUrl against the dashboard baseUrl and keeps auth", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(emptyResponse(200));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.uploadArtifact(
+        "/api/artifacts/a_1/upload",
+        "/tmp/file.png",
+        "image/png",
+        3,
+      );
+      await vi.runAllTimersAsync();
+      await promise;
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("http://dash.example/api/artifacts/a_1/upload");
+      expect(init.headers.Authorization).toBe("Bearer tok");
+    });
+
+    it("retries on 5xx", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(emptyResponse(502))
+        .mockResolvedValueOnce(emptyResponse(200));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.uploadArtifact(
+        "https://r2.example/key",
+        "/tmp/file.png",
+        "image/png",
+        3,
+      );
+      await vi.runAllTimersAsync();
+      await promise;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws on 4xx without retry", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(emptyResponse(403));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(
+        client.uploadArtifact(
+          "https://r2.example/key",
+          "/tmp/file.png",
+          "image/png",
+          3,
+        ),
+      );
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toThrow(/artifact PUT failed: 403/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives up after maxRetries on persistent 5xx", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(emptyResponse(500));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(
+        client.uploadArtifact(
+          "https://r2.example/key",
+          "/tmp/file.png",
+          "image/png",
+          3,
+        ),
+      );
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toThrow(/artifact PUT failed: 500/);
+      // Default maxRetries=2 means 3 total attempts.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe("network errors", () => {
+    it("retries on a thrown network error", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError("fetch failed"))
+        .mockResolvedValueOnce(jsonResponse(200, { runId: "run_1" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = client.openRun(runPayload);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+      expect(result.runId).toBe("run_1");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("re-throws the network error after retries are exhausted", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValue(new TypeError("fetch failed"));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const promise = silence(client.openRun(runPayload));
+      await vi.runAllTimersAsync();
+      await expect(promise).rejects.toThrow(/fetch failed/);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+  });
+});

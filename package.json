@@ -14,9 +14,13 @@
     "setup:local": "pnpm --filter @wrightful/dashboard setup:local",
     "fixtures:generate": "pnpm --filter @wrightful/dashboard fixtures:generate",
     "ci:local": "npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm --filter @wrightful/reporter build && changeset publish",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@redwoodjs/agent-ci": "^0.10.7",
     "@typescript/native-preview": "7.0.0-dev.20260416.2",
     "husky": "^9.1.7",

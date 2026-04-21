@@ -1,55 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { TestCase, TestResult } from "@playwright/test/reporter";
 import { isTestDone, buildPayload, buildTestDescriptor } from "../index.js";
-
-// Minimal shims. The reporter functions only read a handful of fields, so
-// we construct just those rather than importing Playwright's full runtime.
-
-function makeTest(opts: {
-  id?: string;
-  title?: string;
-  file?: string;
-  retries?: number;
-  projectName?: string;
-  outcome: "expected" | "unexpected" | "flaky" | "skipped";
-  tags?: string[];
-  annotations?: Array<{ type: string; description?: string }>;
-}): TestCase {
-  return {
-    id: opts.id ?? "t1",
-    title: opts.title ?? "my test",
-    titlePath: () => [opts.title ?? "my test"],
-    location: { file: opts.file ?? "a.spec.ts", line: 1, column: 1 },
-    retries: opts.retries ?? 0,
-    tags: opts.tags ?? [],
-    annotations: opts.annotations ?? [],
-    outcome: () => opts.outcome,
-    parent: {
-      project: () => ({ name: opts.projectName ?? "chromium" }),
-    },
-  } as unknown as TestCase;
-}
-
-function makeResult(opts: {
-  status: TestResult["status"];
-  duration: number;
-  retry: number;
-  errorMessage?: string;
-  attachments?: TestResult["attachments"];
-  workerIndex?: number;
-}): TestResult {
-  return {
-    status: opts.status,
-    duration: opts.duration,
-    retry: opts.retry,
-    errors: opts.errorMessage
-      ? [{ message: opts.errorMessage, stack: "stack" }]
-      : [],
-    attachments: opts.attachments ?? [],
-    workerIndex: opts.workerIndex ?? 0,
-    startTime: new Date(),
-  } as unknown as TestResult;
-}
+import { makeTest, makeResult } from "./fixtures.js";
 
 describe("isTestDone", () => {
   it("treats a passed attempt as done", () => {

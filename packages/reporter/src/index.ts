@@ -26,7 +26,11 @@ import type {
   TestResultPayload,
 } from "./types.js";
 
-const REPORTER_VERSION = "0.1.0";
+// Replaced at build time by tsdown's `define` with the literal package.json
+// version. The `typeof` guard keeps Vitest + ts-node (which run source) happy.
+declare const __REPORTER_VERSION__: string;
+const REPORTER_VERSION =
+  typeof __REPORTER_VERSION__ === "string" ? __REPORTER_VERSION__ : "0.0.0-dev";
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_FLUSH_INTERVAL_MS = 500;
 const DEFAULT_ARTIFACT_MODE: ArtifactMode = "failed";
@@ -397,10 +401,17 @@ export default class WrightfulReporter implements Reporter {
     }
     this.pending.clear();
 
+    // enqueueDone tasks (pushed from onTestEnd) resolve asynchronously and
+    // their `batcher.enqueue` call fires only after collectArtifacts settles.
+    // Await them first so drain actually sees every finished test — otherwise
+    // tests whose `enqueueDone` was still in flight when drain ran would land
+    // in a new batch with no one left to flush it.
+    await Promise.all(this.artifactTasks);
     if (this.batcher) {
       await this.batcher.drain();
     }
-    // After drain, in-flight artifact uploads may still be pending. Wait.
+    // drain's flush callback fires artifact uploads, which push new promises
+    // onto artifactTasks. Await those too.
     await Promise.all(this.artifactTasks);
 
     const durationMs = Date.now() - this.startedAt;

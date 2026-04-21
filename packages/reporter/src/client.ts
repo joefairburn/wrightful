@@ -194,6 +194,11 @@ export class StreamClient {
    * Stream a local file to the presigned upload URL. Retries on 5xx/network
    * errors (each attempt capped at 120s — videos can take a moment). The
    * Blob is re-opened per attempt because a consumed stream can't be replayed.
+   *
+   * The Bearer token is attached only when the upload URL is on the same
+   * origin as the dashboard (i.e. the dashboard is proxying the upload).
+   * Presigned R2/S3 URLs carry their own signature and live on a different
+   * host; sending the Wrightful token to them would leak it to a third party.
    */
   async uploadArtifact(
     uploadUrl: string,
@@ -201,45 +206,54 @@ export class StreamClient {
     contentType: string,
     sizeBytes: number,
   ): Promise<void> {
-    const resolved = new URL(uploadUrl, this.baseUrl).toString();
-    const headers = {
-      Authorization: `Bearer ${this.token}`,
+    const resolvedUrl = new URL(uploadUrl, this.baseUrl);
+    const baseHost = new URL(this.baseUrl).host;
+    const resolved = resolvedUrl.toString();
+    const headers: Record<string, string> = {
       "X-Wrightful-Version": String(PROTOCOL_VERSION),
       "Content-Length": String(sizeBytes),
     };
+    if (resolvedUrl.host === baseHost) {
+      headers.Authorization = `Bearer ${this.token}`;
+    }
 
     const maxRetries = DEFAULT_MAX_RETRIES;
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      let response: Response;
       try {
         const body = await openAsBlob(localPath, { type: contentType });
-        const response = await fetch(resolved, {
+        response = await fetch(resolved, {
           method: "PUT",
           headers,
           body,
           signal: AbortSignal.timeout(ARTIFACT_PUT_TIMEOUT_MS),
         });
-        if (response.ok) return;
-        if (response.status < 500 && response.status !== 429) {
-          throw new Error(
-            `artifact PUT failed: ${response.status} ${response.statusText}`,
-          );
-        }
-        if (attempt === maxRetries) {
-          throw new Error(
-            `artifact PUT failed: ${response.status} ${response.statusText}`,
-          );
-        }
-        const retryAfter = response.headers.get("Retry-After");
-        const delay = retryAfter
-          ? parseInt(retryAfter, 10) * 1000
-          : Math.pow(2, attempt) * 500;
-        await sleep(delay);
       } catch (err) {
+        // Network errors (DNS, TCP reset, timeout abort) are the only things
+        // we retry on the exception path. Terminal HTTP errors below are
+        // thrown *outside* this try so they can't get caught and retried.
         lastError = err instanceof Error ? err : new Error(String(err));
         if (attempt === maxRetries) throw lastError;
         await sleep(Math.pow(2, attempt) * 500);
+        continue;
       }
+      if (response.ok) return;
+      if (response.status < 500 && response.status !== 429) {
+        throw new Error(
+          `artifact PUT failed: ${response.status} ${response.statusText}`,
+        );
+      }
+      if (attempt === maxRetries) {
+        throw new Error(
+          `artifact PUT failed: ${response.status} ${response.statusText}`,
+        );
+      }
+      const retryAfter = response.headers.get("Retry-After");
+      const delay = retryAfter
+        ? parseInt(retryAfter, 10) * 1000
+        : Math.pow(2, attempt) * 500;
+      await sleep(delay);
     }
     throw lastError ?? new Error("artifact PUT: retry exhausted");
   }
