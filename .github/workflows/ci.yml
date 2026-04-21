@@ -76,11 +76,6 @@ jobs:
       - name: Run dashboard tests
         run: pnpm --filter @wrightful/dashboard test
 
-      - name: Generate Drizzle migration
-        run: pnpm --filter @wrightful/dashboard db:generate
-        env:
-          CI: true
-
   # Playwright version canary: exercises the reporter against a live dashboard
   # shape (via the dogfood e2e suite). When Renovate bumps @playwright/test,
   # this job surfaces any format / reporter-API incompatibilities early.
