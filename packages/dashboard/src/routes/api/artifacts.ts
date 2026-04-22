@@ -129,7 +129,7 @@ export async function registerHandler({
 
   for (const a of payload.artifacts) {
     const artifactId = ulid();
-    const r2Key = `runs/${payload.runId}/${a.testResultId}/${artifactId}/${a.name}`;
+    const r2Key = `t/${scope.teamId}/p/${scope.projectId}/runs/${payload.runId}/${a.testResultId}/${artifactId}/${a.name}`;
     rows.push({
       id: artifactId,
       testResultId: a.testResultId,

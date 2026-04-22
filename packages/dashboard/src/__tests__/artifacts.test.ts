@@ -195,7 +195,7 @@ describe("registerHandler", () => {
     };
     expect(body.uploads).toHaveLength(1);
     expect(body.uploads[0].r2Key).toMatch(
-      /^runs\/run-1\/tr-1\/[0-9A-Z]+\/trace\.zip$/,
+      /^t\/team-1\/p\/proj-1\/runs\/run-1\/tr-1\/[0-9A-Z]+\/trace\.zip$/,
     );
     expect(body.uploads[0].uploadUrl).toBe(
       `/api/artifacts/${body.uploads[0].artifactId}/upload`,
