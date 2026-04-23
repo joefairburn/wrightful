@@ -1,5 +1,12 @@
 # Copy to `.dev.vars` and fill in. Wrangler loads this file for `wrangler dev`.
 
+# Required — public origin of the dashboard. Better Auth uses this for
+# sign-in / OAuth callback URLs, so it must match the origin your browser
+# hits. Locally this is http://localhost:5173. In production, set this as
+# a Worker environment variable in the Cloudflare dashboard to your actual
+# deployed URL (e.g. https://wrightful.yourcompany.com).
+WRIGHTFUL_PUBLIC_URL=http://localhost:5173
+
 # Required — signing secret for Better Auth sessions.
 # Generate with: openssl rand -base64 32
 BETTER_AUTH_SECRET=replace-me-with-32-plus-char-random-secret

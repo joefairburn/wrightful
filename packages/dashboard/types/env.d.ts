@@ -16,6 +16,14 @@ declare namespace Cloudflare {
   interface Env {
     // Widen vars (wrangler emits literal types from wrangler.jsonc values)
     WRIGHTFUL_MAX_ARTIFACT_BYTES: string;
+
+    // Per-deployment env vars — set via .dev.vars locally or as Worker
+    // environment variables in the Cloudflare dashboard in production.
+    // Not declared in wrangler.jsonc because the value differs for every
+    // self-hoster.
+
+    // Required: public origin of the dashboard. Used by Better Auth for
+    // OAuth callback URLs and artifact download token audiences.
     WRIGHTFUL_PUBLIC_URL: string;
 
     // Secrets — set via `wrangler secret put` (or .dev.vars locally).

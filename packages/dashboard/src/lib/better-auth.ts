@@ -24,7 +24,7 @@ function buildAuth() {
 
   if (!publicUrl || !secret) {
     throw new Error(
-      "Wrightful requires WRIGHTFUL_PUBLIC_URL and BETTER_AUTH_SECRET. Set them in wrangler.jsonc / .dev.vars. Generate BETTER_AUTH_SECRET with `openssl rand -base64 32`.",
+      "Wrightful requires WRIGHTFUL_PUBLIC_URL and BETTER_AUTH_SECRET. Locally, set them in packages/dashboard/.dev.vars. In production, set them as environment variables on your Worker (Cloudflare dashboard → Workers & Pages → your worker → Settings → Variables). Generate BETTER_AUTH_SECRET with `openssl rand -base64 32`.",
     );
   }
 
