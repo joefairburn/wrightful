@@ -32,7 +32,11 @@
   "r2_buckets": [
     {
       "binding": "R2",
-      "bucket_name": "wrightful-artifacts",
+      // No `bucket_name` on purpose — same auto-provisioning story as the
+      // D1 above. Cloudflare creates an R2 bucket prefixed with the Worker
+      // name on first deploy and keeps the binding linked thereafter, so
+      // self-hosters never need to edit this file. Code accesses artifacts
+      // through the `R2` binding, not by bucket name.
     },
   ],
   // Realtime fan-out for in-flight runs. `SyncedStateServer` is rwsdk's
