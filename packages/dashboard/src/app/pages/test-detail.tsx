@@ -369,13 +369,6 @@ export async function TestDetailPage() {
           >
             &larr; Back to run
           </a>
-          <span>·</span>
-          <a
-            href={`${base}/tests/${result.testId}`}
-            className="hover:text-foreground transition-colors"
-          >
-            View test history &rarr;
-          </a>
         </div>
         <div className="flex items-center gap-3 mb-1 flex-wrap">
           <StatusBadge status={result.status} />

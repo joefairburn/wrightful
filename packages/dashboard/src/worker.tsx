@@ -101,10 +101,10 @@ const artifactRateLimit = rateLimit(env.ARTIFACT_RATE_LIMITER, (request) => {
   );
   return match ? `artifact:${match[1]}` : `ip:${clientIp(request)}`;
 });
+import { FlakyTestsPage } from "@/app/pages/flaky-tests";
 import { RunsListPage } from "@/app/pages/runs-list";
 import { RunDetailPage } from "@/app/pages/run-detail";
 import { TestDetailPage } from "@/app/pages/test-detail";
-import { TestHistoryPage } from "@/app/pages/test-history";
 import { LoginPage } from "@/app/pages/login";
 import { InvitePage, acceptInviteHandler } from "@/app/pages/invite";
 import { TeamPickerPage } from "@/app/pages/team-picker";
@@ -263,6 +263,7 @@ const app = defineApp([
       route("/", [requireUser, TeamPickerPage]),
       route("/t/:teamSlug", [requireUser, ProjectPickerPage]),
       route("/t/:teamSlug/p/:projectSlug", [requireUser, RunsListPage]),
+      route("/t/:teamSlug/p/:projectSlug/flaky", [requireUser, FlakyTestsPage]),
       route("/t/:teamSlug/p/:projectSlug/runs/:id", [
         requireUser,
         RunDetailPage,
@@ -270,10 +271,6 @@ const app = defineApp([
       route("/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId", [
         requireUser,
         TestDetailPage,
-      ]),
-      route("/t/:teamSlug/p/:projectSlug/tests/:testId", [
-        requireUser,
-        TestHistoryPage,
       ]),
     ]),
   ]),

@@ -30,6 +30,7 @@ import { cn } from "@/lib/cn";
 type NavId = "runs" | "flaky" | "insights" | "tests";
 
 function deriveActiveNav(pathname: string): NavId {
+  if (/\/flaky(\/|$)/.test(pathname)) return "flaky";
   if (/\/tests\//.test(pathname)) return "tests";
   return "runs";
 }
@@ -202,11 +203,10 @@ function AppSidebarContents({
     ? [
         { href: base, label: "Runs", icon: CheckSquare, id: "runs" },
         {
-          href: "#",
+          href: `${base}/flaky`,
           label: "Flaky Tests",
           icon: TriangleAlert,
           id: "flaky",
-          disabled: true,
         },
         {
           href: "#",
