@@ -20,19 +20,23 @@
     {
       "binding": "DB",
       "database_name": "wrightful",
-      // Placeholder — overwritten with the provisioned D1 UUID by the
-      // "Deploy to Cloudflare" flow. Must be a non-empty string so miniflare
-      // can construct a bindings map for local dev / e2e (an empty string
-      // trips the `assert(databaseId)` check inside the explorer binding
-      // map construction).
-      "database_id": "LOCAL_PLACEHOLDER",
+      // No `database_id` on purpose. Wrangler 4.45+ auto-provisions a D1
+      // on first `wrangler dev` / `wrangler deploy` when the id is omitted,
+      // and the binding stays linked across future deploys — see
+      // https://developers.cloudflare.com/changelog/post/2025-10-24-automatic-resource-provisioning/.
+      // This keeps wrangler.jsonc identical across every self-hoster: no
+      // edits during setup, no merge conflicts on `git pull` / "Sync fork".
       "migrations_dir": "migrations",
     },
   ],
   "r2_buckets": [
     {
       "binding": "R2",
-      "bucket_name": "wrightful-artifacts",
+      // No `bucket_name` on purpose — same auto-provisioning story as the
+      // D1 above. Cloudflare creates an R2 bucket prefixed with the Worker
+      // name on first deploy and keeps the binding linked thereafter, so
+      // self-hosters never need to edit this file. Code accesses artifacts
+      // through the `R2` binding, not by bucket name.
     },
   ],
   // Realtime fan-out for in-flight runs. `SyncedStateServer` is rwsdk's
@@ -73,13 +77,16 @@
     // again (as Content-Length) in /api/artifacts/:id/upload. Default 50 MiB
     // (52428800 bytes). Override in production via wrangler vars.
     "WRIGHTFUL_MAX_ARTIFACT_BYTES": "52428800",
-    // Public origin of the dashboard, used by Better Auth for sign-in
-    // callbacks. Required. Locally this is "http://localhost:5173".
-    "WRIGHTFUL_PUBLIC_URL": "http://localhost:5173",
     // Minutes a run can sit at status='running' before the watchdog marks
     // it 'interrupted'. Default 30 — longer than any realistic single test
     // run, shorter than someone-checks-the-dashboard-the-next-morning.
     "WRIGHTFUL_RUN_STALE_MINUTES": "30",
+    // WRIGHTFUL_PUBLIC_URL is intentionally NOT declared here. It's the
+    // per-deployment origin Better Auth uses for OAuth callbacks, so it
+    // differs between every self-hoster. Set it in `.dev.vars` locally and
+    // as a Worker environment variable in the Cloudflare dashboard for
+    // production. Keeping it out of this committed file means self-hosters
+    // never need to edit wrangler.jsonc to change their public URL.
   },
   // Cloudflare-native rate limiters. `period` must be 10 or 60 seconds.
   // Namespace ids are per-account; keep them unique across our Workers.
