@@ -6,6 +6,10 @@ import {
   AttemptTabsBar,
   type AttemptTabItem,
 } from "@/app/components/attempt-tabs";
+import {
+  RunHistoryChart,
+  type RunHistoryPoint,
+} from "@/app/components/run-history-chart";
 import { StatusBadge } from "@/app/components/status-badge";
 import { Badge } from "@/app/components/ui/badge";
 import { TestErrorAlert } from "@/app/components/test-error-alert";
@@ -15,7 +19,7 @@ import { signArtifactToken } from "@/lib/artifact-tokens";
 import { cn } from "@/lib/cn";
 import { parseTitleSegments } from "@/lib/group-tests-by-file";
 import { param } from "@/lib/route-params";
-import { formatDuration } from "@/lib/time-format";
+import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 interface Artifact {
   id: string;
@@ -156,7 +160,7 @@ export async function TestDetailPage() {
     );
   }
 
-  const [tagRows, annotationRows, artifactRows, attemptRows] =
+  const [tagRows, annotationRows, artifactRows, attemptRows, historyRows] =
     await Promise.all([
       tenantDb
         .selectFrom("testTags")
@@ -193,6 +197,27 @@ export async function TestDetailPage() {
         ])
         .where("testResultId", "=", testResultId)
         .orderBy("attempt", "asc")
+        .execute(),
+      // Last 30 occurrences of this same test across runs — groups by
+      // `testResults.testId` (a deterministic hash of file + title + project)
+      // so the same spec follows a reviewer across branches and retries.
+      tenantDb
+        .selectFrom("testResults")
+        .innerJoin("runs", "runs.id", "testResults.runId")
+        .select([
+          "testResults.id as testResultId",
+          "testResults.runId as runId",
+          "testResults.status as status",
+          "testResults.durationMs as durationMs",
+          "testResults.createdAt as createdAt",
+          "runs.branch as branch",
+          "runs.commitSha as commitSha",
+        ])
+        .where("testResults.testId", "=", result.testId)
+        .where("runs.projectId", "=", project.id)
+        .where("runs.committed", "=", 1)
+        .orderBy("testResults.createdAt", "desc")
+        .limit(30)
         .execute(),
     ]);
 
@@ -289,6 +314,51 @@ export async function TestDetailPage() {
     result.file,
   )} --grep ${JSON.stringify(testTitle)}`;
 
+  const chronologicalHistory = [...historyRows].reverse();
+  const historyPoints: RunHistoryPoint[] = chronologicalHistory.map((h) => ({
+    id: h.testResultId,
+    durationMs: h.durationMs,
+    status: h.status,
+    current: h.testResultId === testResultId,
+    href:
+      h.testResultId === testResultId
+        ? undefined
+        : `${base}/runs/${h.runId}/tests/${h.testResultId}`,
+    hover:
+      h.testResultId === testResultId
+        ? undefined
+        : {
+            kind: "testResult" as const,
+            teamSlug: project.teamSlug,
+            projectSlug: project.slug,
+            runId: h.runId,
+            testResultId: h.testResultId,
+          },
+    label: [
+      h.status,
+      formatDuration(h.durationMs),
+      formatRelativeTime(h.createdAt),
+      h.branch,
+      h.commitSha ? h.commitSha.slice(0, 7) : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  }));
+  const historyStats = (() => {
+    const ran = chronologicalHistory.filter(
+      (h) => h.status !== "skipped",
+    ).length;
+    const failed = chronologicalHistory.filter(
+      (h) => h.status === "failed" || h.status === "timedout",
+    ).length;
+    const flakyCount = chronologicalHistory.filter(
+      (h) => h.status === "flaky",
+    ).length;
+    const passPct =
+      ran === 0 ? 100 : Math.round(((ran - failed - flakyCount) / ran) * 100);
+    return { ran, failed, flakyCount, passPct };
+  })();
+
   return (
     <div className="h-full flex flex-col">
       <div className="border-b border-border px-6 py-4 shrink-0">
@@ -337,6 +407,28 @@ export async function TestDetailPage() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="px-6 pt-4 pb-2 shrink-0">
+        <RunHistoryChart
+          points={historyPoints}
+          title={`Duration · last ${historyPoints.length} run${historyPoints.length === 1 ? "" : "s"} of this test`}
+          subtitle={result.file}
+          rightSlot={
+            historyPoints.length > 1 ? (
+              <>
+                <span>pass {historyStats.passPct}%</span>
+                <span style={{ color: "var(--color-destructive)" }}>
+                  × {historyStats.failed}
+                </span>
+                <span style={{ color: "var(--color-warning)" }}>
+                  ⚠ {historyStats.flakyCount}
+                </span>
+              </>
+            ) : null
+          }
+          emptyState="No prior runs recorded for this test yet."
+        />
       </div>
 
       {(() => {

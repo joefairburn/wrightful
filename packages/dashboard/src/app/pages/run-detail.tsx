@@ -1,6 +1,12 @@
 import { ArrowLeft, GitCommit, GitPullRequest } from "lucide-react";
 import type React from "react";
 import { requestInfo } from "rwsdk/worker";
+import { RunHistoryBranchFilter } from "@/app/components/run-history-branch-filter";
+import { ALL_BRANCHES } from "@/app/components/run-history-branch-filter.shared";
+import {
+  RunHistoryChart,
+  type RunHistoryPoint,
+} from "@/app/components/run-history-chart";
 import {
   RunProgressSummary,
   RunProgressTests,
@@ -66,10 +72,52 @@ export async function RunDetailPage() {
     return <NotFoundPage />;
   }
 
-  const progress = await composeRunProgress(project, runId);
+  // Last 30 runs, filtered by branch. The effective branch comes from
+  // `?branch` (so a reviewer can widen to all branches or jump to another
+  // branch's history) and defaults to the current run's branch. `committed = 1`
+  // hides the uncommitted rows we filter everywhere else.
+  const url = new URL(requestInfo.request.url);
+  const branchParam = url.searchParams.get("branch");
+  const defaultBranch = run.branch ?? ALL_BRANCHES;
+  const effectiveBranch = branchParam ?? defaultBranch;
+
+  let historyQuery = project.db
+    .selectFrom("runs")
+    .select([
+      "id",
+      "status",
+      "durationMs",
+      "createdAt",
+      "branch",
+      "commitSha",
+      "commitMessage",
+    ])
+    .where("projectId", "=", project.id)
+    .where("committed", "=", 1);
+  if (effectiveBranch !== ALL_BRANCHES) {
+    historyQuery = historyQuery.where("branch", "=", effectiveBranch);
+  }
+
+  const [progress, history, branchRows] = await Promise.all([
+    composeRunProgress(project, runId),
+    historyQuery.orderBy("createdAt", "desc").limit(30).execute(),
+    project.db
+      .selectFrom("runs")
+      .select("branch as value")
+      .distinct()
+      .where("projectId", "=", project.id)
+      .where("committed", "=", 1)
+      .where("branch", "is not", null)
+      .execute(),
+  ]);
   if (!progress) return <NotFoundPage />;
 
-  const origin = new URL(requestInfo.request.url).origin;
+  const branches = branchRows
+    .map((r) => r.value)
+    .filter((v): v is string => !!v)
+    .sort();
+
+  const origin = url.origin;
   const artifactActionsByTestId = await loadFailingArtifactActions(
     project.db,
     progress.tests.map((t) => ({
@@ -79,6 +127,56 @@ export async function RunDetailPage() {
     })),
     origin,
   );
+
+  const chronological = [...history].reverse();
+  // Preserve the active branch filter when clicking a historical bar so the
+  // reviewer stays in the same "view" as they scrub through runs. We only
+  // append the param when it was explicitly set in the URL — otherwise the
+  // default (current run's branch) should resolve fresh on the next page.
+  const hrefQuery = branchParam
+    ? `?branch=${encodeURIComponent(branchParam)}`
+    : "";
+  const historyPoints: RunHistoryPoint[] = chronological.map((h) => ({
+    id: h.id,
+    durationMs: h.durationMs,
+    status: h.status,
+    current: h.id === runId,
+    href: h.id === runId ? undefined : `${base}/runs/${h.id}${hrefQuery}`,
+    hover:
+      h.id === runId
+        ? undefined
+        : {
+            kind: "run" as const,
+            teamSlug: project.teamSlug,
+            projectSlug: project.slug,
+            runId: h.id,
+          },
+    label: [
+      h.status,
+      formatDuration(h.durationMs),
+      formatRelativeTime(h.createdAt),
+      h.commitSha ? h.commitSha.slice(0, 7) : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  }));
+  const currentInHistory = historyPoints.some((p) => p.current);
+  const historyStats = (() => {
+    const prior = chronological.filter((h) => h.id !== runId);
+    const priorDurations = prior.map((h) => h.durationMs);
+    const avg =
+      priorDurations.length > 0
+        ? priorDurations.reduce((s, n) => s + n, 0) / priorDurations.length
+        : 0;
+    const passed = chronological.filter((h) => h.status === "passed").length;
+    const failed = chronological.filter(
+      (h) => h.status === "failed" || h.status === "timedout",
+    ).length;
+    const flakyCount = chronological.filter((h) => h.status === "flaky").length;
+    const delta =
+      avg > 0 ? Math.round(((run.durationMs - avg) / avg) * 100) : 0;
+    return { avg, passed, failed, flakyCount, delta };
+  })();
 
   const shortId = run.id.slice(-7);
   const statusLabel = STATUS_LABEL[run.status] ?? run.status;
@@ -126,6 +224,58 @@ export async function RunDetailPage() {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto min-h-0">
+        {/* History chart */}
+        <div className="px-6 pt-5">
+          <RunHistoryChart
+            points={historyPoints}
+            title={`Duration · last ${historyPoints.length} run${historyPoints.length === 1 ? "" : "s"}`}
+            subtitle={
+              <RunHistoryBranchFilter
+                branches={branches}
+                defaultValue={defaultBranch}
+              />
+            }
+            rightSlot={
+              historyPoints.length > 1 ? (
+                <>
+                  <span style={{ color: "var(--color-success)" }}>
+                    ✓ {historyStats.passed}
+                  </span>
+                  <span style={{ color: "var(--color-destructive)" }}>
+                    × {historyStats.failed}
+                  </span>
+                  <span style={{ color: "var(--color-warning)" }}>
+                    ⚠ {historyStats.flakyCount}
+                  </span>
+                  <span className="text-muted-foreground/50">│</span>
+                  <span>
+                    avg {formatDuration(Math.round(historyStats.avg))}
+                  </span>
+                  {currentInHistory && (
+                    <span
+                      style={{
+                        color:
+                          historyStats.delta < 0
+                            ? "var(--color-success)"
+                            : historyStats.delta > 5
+                              ? "var(--color-destructive)"
+                              : undefined,
+                      }}
+                    >
+                      {historyStats.delta >= 0 ? "+" : ""}
+                      {historyStats.delta}% vs avg
+                    </span>
+                  )}
+                </>
+              ) : null
+            }
+            emptyState={
+              effectiveBranch === ALL_BRANCHES
+                ? "No run history yet."
+                : `No run history on ${effectiveBranch} yet.`
+            }
+          />
+        </div>
         {/* Bento header */}
         <div className="px-6 py-5 grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Summary card */}

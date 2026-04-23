@@ -56,6 +56,8 @@ SyncedStateServer.registerRoomHandler(async (roomId, reqInfo) => {
 import { registerHandler } from "@/routes/api/artifacts";
 import { artifactUploadHandler } from "@/routes/api/artifact-upload";
 import { artifactDownloadHandler } from "@/routes/api/artifact-download";
+import { runSummaryHandler } from "@/routes/api/run-summary";
+import { testResultSummaryHandler } from "@/routes/api/test-result-summary";
 import { runTestPreviewHandler } from "@/routes/api/run-test-preview";
 import {
   setLastProjectHandler,
@@ -189,6 +191,15 @@ const app = defineApp([
   route("/api/t/:teamSlug/p/:projectSlug/runs/:runId/test-preview", {
     get: [loadSession, requireUser, runTestPreviewHandler],
   }),
+  route("/api/t/:teamSlug/p/:projectSlug/runs/:runId/summary", {
+    get: [loadSession, requireUser, runSummaryHandler],
+  }),
+  route(
+    "/api/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId/summary",
+    {
+      get: [loadSession, requireUser, testResultSummaryHandler],
+    },
+  ),
 
   // Bearer-token API routes (used by the CLI). requireAuth runs before the
   // rate limiter so we can key by apiKey.id (stable, tenant-scoped) instead
