@@ -102,6 +102,10 @@ const artifactRateLimit = rateLimit(env.ARTIFACT_RATE_LIMITER, (request) => {
   return match ? `artifact:${match[1]}` : `ip:${clientIp(request)}`;
 });
 import { FlakyTestsPage } from "@/app/pages/flaky-tests";
+import { InsightsPage } from "@/app/pages/insights";
+import { RunDurationPage } from "@/app/pages/run-duration";
+import { SlowestTestsPage } from "@/app/pages/slowest-tests";
+import { SuiteSizePage } from "@/app/pages/suite-size";
 import { RunsListPage } from "@/app/pages/runs-list";
 import { RunDetailPage } from "@/app/pages/run-detail";
 import { TestDetailPage } from "@/app/pages/test-detail";
@@ -264,6 +268,22 @@ const app = defineApp([
       route("/t/:teamSlug", [requireUser, ProjectPickerPage]),
       route("/t/:teamSlug/p/:projectSlug", [requireUser, RunsListPage]),
       route("/t/:teamSlug/p/:projectSlug/flaky", [requireUser, FlakyTestsPage]),
+      route("/t/:teamSlug/p/:projectSlug/insights", [
+        requireUser,
+        InsightsPage,
+      ]),
+      route("/t/:teamSlug/p/:projectSlug/insights/suite-size", [
+        requireUser,
+        SuiteSizePage,
+      ]),
+      route("/t/:teamSlug/p/:projectSlug/insights/run-duration", [
+        requireUser,
+        RunDurationPage,
+      ]),
+      route("/t/:teamSlug/p/:projectSlug/insights/slowest-tests", [
+        requireUser,
+        SlowestTestsPage,
+      ]),
       route("/t/:teamSlug/p/:projectSlug/runs/:id", [
         requireUser,
         RunDetailPage,
