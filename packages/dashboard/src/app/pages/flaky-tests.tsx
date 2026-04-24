@@ -1,6 +1,7 @@
 import { type Kysely, sql } from "kysely";
 import { requestInfo } from "rwsdk/worker";
 import { FlakyTestRow } from "@/app/components/flaky-test-row";
+import { RunHistoryBranchFilter } from "@/app/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/app/components/run-history-branch-filter.shared";
 import type { TenantDatabase } from "@/tenant";
 import {
@@ -46,6 +47,7 @@ export async function FlakyTestsPage() {
   const range = parseRange(url.searchParams.get("range"));
   const branchParam = url.searchParams.get("branch");
   const branchAll = !branchParam || branchParam === ALL_BRANCHES;
+  const branchFilter = branchAll ? null : branchParam;
   // createdAt is stored as unix seconds (see packages/dashboard/src/lib/time-format.ts).
   const windowStart =
     Math.floor(Date.now() / 1000) - rangeToDays(range) * 24 * 60 * 60;
@@ -63,13 +65,11 @@ export async function FlakyTestsPage() {
     .where("runs.projectId", "=", project.id)
     .where("runs.committed", "=", 1)
     .where("testResults.createdAt", ">=", windowStart);
-  if (!branchAll) agg = agg.where("runs.branch", "=", branchParam);
+  if (branchFilter) agg = agg.where("runs.branch", "=", branchFilter);
 
   const aggregates = await agg
     .select([
       "testResults.testId as testId",
-      sql<string>`max(testResults.title)`.as("title"),
-      sql<string>`max(testResults.file)`.as("file"),
       // `total` excludes skipped runs so the displayed "flaky / total" only
       // counts runs where the test actually executed.
       sql<number>`sum(case when testResults.status != 'skipped' then 1 else 0 end)`.as(
@@ -90,14 +90,16 @@ export async function FlakyTestsPage() {
     )
     .execute();
 
-  const ranked = aggregates
+  const rankedAll = aggregates
     .map((r) => {
       const denom = r.flakyCount + r.passedCount;
       const pct = denom === 0 ? 0 : (r.flakyCount / denom) * 100;
       return { ...r, pct };
     })
-    .sort((a, b) => b.pct - a.pct || b.flakyCount - a.flakyCount)
-    .slice(0, TOP_N);
+    .sort((a, b) => b.pct - a.pct || b.flakyCount - a.flakyCount);
+  const totalFlakyTests = rankedAll.length;
+  const ranked = rankedAll.slice(0, TOP_N);
+  const truncated = totalFlakyTests > ranked.length;
 
   // Branch list for the filter UI (distinct committed branches on this
   // project). Mirrors the runs-list pattern.
@@ -114,21 +116,14 @@ export async function FlakyTestsPage() {
     .filter((v): v is string => !!v)
     .sort();
 
-  // Load sparkline points + recent failures per top testId in parallel.
+  // Sparkline data + latest title/file + recent failures. Two single-pass
+  // queries using `row_number()` partitioned by testId — the DO SQLite
+  // would serialize a TOP_N fan-out anyway, so collapsing to two queries
+  // is strictly better.
   const testIds = ranked.map((r) => r.testId);
   const [sparkByTest, failsByTest] = await Promise.all([
-    loadSparklines(
-      tenantDb,
-      project.id,
-      testIds,
-      branchAll ? null : branchParam,
-    ),
-    loadRecentFailures(
-      tenantDb,
-      project.id,
-      testIds,
-      branchAll ? null : branchParam,
-    ),
+    loadSparklinesAndMeta(tenantDb, project.id, testIds, branchFilter),
+    loadRecentFailures(tenantDb, project.id, testIds, branchFilter),
   ]);
 
   const rangeHref = (r: RangeKey): string => {
@@ -142,11 +137,18 @@ export async function FlakyTestsPage() {
       <div className="px-6 py-5 flex flex-col gap-4 border-b border-border shrink-0 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {ranked.length} Flaky Test{ranked.length === 1 ? "" : "s"}
+            {totalFlakyTests} Flaky Test{totalFlakyTests === 1 ? "" : "s"}
           </h1>
           <p className="text-xs text-muted-foreground mt-1 font-mono">
-            Tests exhibiting unstable behavior across recent CI runs.
+            Tests exhibiting unstable behavior across recent CI runs
+            {truncated ? ` — showing top ${ranked.length}` : ""}.
           </p>
+          <div className="mt-2">
+            <RunHistoryBranchFilter
+              branches={branches}
+              defaultValue={branchParam ?? ALL_BRANCHES}
+            />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded-md border border-border bg-background p-0.5">
@@ -216,6 +218,7 @@ export async function FlakyTestsPage() {
             </TableHeader>
             <TableBody>
               {ranked.map((row, i) => {
+                const meta = sparkByTest.get(row.testId);
                 const fails = failsByTest.get(row.testId) ?? [];
                 const latest = fails[0];
                 const latestHref = latest
@@ -226,12 +229,12 @@ export async function FlakyTestsPage() {
                     key={row.testId}
                     rank={i + 1}
                     testId={row.testId}
-                    title={row.title}
-                    file={row.file}
+                    title={meta?.title ?? row.testId}
+                    file={meta?.file ?? ""}
                     total={row.total}
                     flakyCount={row.flakyCount}
                     pct={row.pct}
-                    sparklinePoints={sparkByTest.get(row.testId) ?? []}
+                    sparklinePoints={meta?.sparkline ?? []}
                     recentFailures={fails}
                     projectBase={base}
                     historyHref={latestHref}
@@ -246,41 +249,69 @@ export async function FlakyTestsPage() {
   );
 }
 
-async function loadSparklines(
+interface TestMeta {
+  sparkline: { status: string }[];
+  title: string;
+  file: string;
+}
+
+// Fetches the last SPARKLINE_SIZE rows per testId in a single query. We use
+// the rn=1 row (latest by createdAt) as the authoritative title/file for
+// the ranking display — safer than `max(title)` which would pick a
+// lexicographic winner after a rename.
+async function loadSparklinesAndMeta(
   db: Kysely<TenantDatabase>,
   projectId: string,
   testIds: string[],
   branch: string | null,
-): Promise<Map<string, { status: string }[]>> {
-  const out = new Map<string, { status: string }[]>();
+): Promise<Map<string, TestMeta>> {
+  const out = new Map<string, TestMeta>();
   if (testIds.length === 0) return out;
 
-  await Promise.all(
-    testIds.map(async (testId) => {
-      let q = db
-        .selectFrom("testResults")
-        .innerJoin("runs", "runs.id", "testResults.runId")
-        .select([
-          "testResults.status as status",
-          "testResults.createdAt as createdAt",
-        ])
-        .where("runs.projectId", "=", projectId)
-        .where("runs.committed", "=", 1)
-        .where("testResults.testId", "=", testId);
-      if (branch) q = q.where("runs.branch", "=", branch);
-      const rows = await q
-        .orderBy("testResults.createdAt", "desc")
-        .limit(SPARKLINE_SIZE)
-        .execute();
-      out.set(
-        testId,
-        rows
-          .slice()
-          .reverse()
-          .map((r) => ({ status: r.status })),
-      );
-    }),
-  );
+  const branchClause = branch ? sql`AND runs."branch" = ${branch}` : sql``;
+  const { rows } = await sql<{
+    testId: string;
+    status: string;
+    title: string;
+    file: string;
+    rn: number;
+  }>`
+    SELECT "testId", "status", "title", "file", "rn"
+    FROM (
+      SELECT
+        "testResults"."testId" AS "testId",
+        "testResults"."status" AS "status",
+        "testResults"."title" AS "title",
+        "testResults"."file" AS "file",
+        row_number() OVER (
+          PARTITION BY "testResults"."testId"
+          ORDER BY "testResults"."createdAt" DESC
+        ) AS "rn"
+      FROM "testResults"
+      INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
+      WHERE "runs"."projectId" = ${projectId}
+        AND "runs"."committed" = 1
+        AND "testResults"."testId" IN (${sql.join(testIds)})
+        ${branchClause}
+    )
+    WHERE "rn" <= ${SPARKLINE_SIZE}
+    ORDER BY "testId", "rn" DESC
+  `.execute(db);
+
+  for (const r of rows) {
+    let entry = out.get(r.testId);
+    if (!entry) {
+      entry = { sparkline: [], title: r.title, file: r.file };
+      out.set(r.testId, entry);
+    }
+    // Rows arrive oldest → newest within a testId (rn DESC). Latest row
+    // (rn === 1) wins for the displayed title/file.
+    if (r.rn === 1) {
+      entry.title = r.title;
+      entry.file = r.file;
+    }
+    entry.sparkline.push({ status: r.status });
+  }
   return out;
 }
 
@@ -303,31 +334,52 @@ async function loadRecentFailures(
   const out = new Map<string, RecentFailureRow[]>();
   if (testIds.length === 0) return out;
 
-  await Promise.all(
-    testIds.map(async (testId) => {
-      let q = db
-        .selectFrom("testResults")
-        .innerJoin("runs", "runs.id", "testResults.runId")
-        .select([
-          "testResults.id as testResultId",
-          "testResults.runId as runId",
-          "testResults.createdAt as createdAt",
-          "testResults.errorMessage as errorMessage",
-          "testResults.errorStack as errorStack",
-          "runs.commitSha as commitSha",
-          "runs.branch as branch",
-        ])
-        .where("runs.projectId", "=", projectId)
-        .where("runs.committed", "=", 1)
-        .where("testResults.testId", "=", testId)
-        .where("testResults.status", "in", ["flaky", "failed", "timedout"]);
-      if (branch) q = q.where("runs.branch", "=", branch);
-      const rows = await q
-        .orderBy("testResults.createdAt", "desc")
-        .limit(RECENT_FAILURES)
-        .execute();
-      out.set(testId, rows);
-    }),
-  );
+  const branchClause = branch ? sql`AND runs."branch" = ${branch}` : sql``;
+  const { rows } = await sql<RecentFailureRow & { testId: string; rn: number }>`
+    SELECT
+      "testId", "testResultId", "runId", "commitSha", "branch",
+      "createdAt", "errorMessage", "errorStack"
+    FROM (
+      SELECT
+        "testResults"."testId" AS "testId",
+        "testResults"."id" AS "testResultId",
+        "testResults"."runId" AS "runId",
+        "testResults"."createdAt" AS "createdAt",
+        "testResults"."errorMessage" AS "errorMessage",
+        "testResults"."errorStack" AS "errorStack",
+        "runs"."commitSha" AS "commitSha",
+        "runs"."branch" AS "branch",
+        row_number() OVER (
+          PARTITION BY "testResults"."testId"
+          ORDER BY "testResults"."createdAt" DESC
+        ) AS "rn"
+      FROM "testResults"
+      INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
+      WHERE "runs"."projectId" = ${projectId}
+        AND "runs"."committed" = 1
+        AND "testResults"."testId" IN (${sql.join(testIds)})
+        AND "testResults"."status" IN ('flaky', 'failed', 'timedout')
+        ${branchClause}
+    )
+    WHERE "rn" <= ${RECENT_FAILURES}
+    ORDER BY "testId", "rn" ASC
+  `.execute(db);
+
+  for (const r of rows) {
+    let entry = out.get(r.testId);
+    if (!entry) {
+      entry = [];
+      out.set(r.testId, entry);
+    }
+    entry.push({
+      testResultId: r.testResultId,
+      runId: r.runId,
+      commitSha: r.commitSha,
+      branch: r.branch,
+      createdAt: r.createdAt,
+      errorMessage: r.errorMessage,
+      errorStack: r.errorStack,
+    });
+  }
   return out;
 }
