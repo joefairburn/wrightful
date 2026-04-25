@@ -56,6 +56,12 @@ pnpm dev                                        # dashboard on localhost
 
 # Seed an additional API key for local testing (optional):
 pnpm --filter @wrightful/dashboard db:seed-api-key e2e --team <team-slug> --project <project-slug> --local
+
+# Populate months of synthetic run history instead of the small Playwright
+# fixture set (exercises the history chart, flaky tests page, run-list
+# pagination). Implies --no-fixtures.
+pnpm setup:local --history                              # 3 months, seed=wrightful-seed-1
+pnpm setup:local --history --history-months 6           # 6 months
 ```
 
 See [`CLAUDE.md`](./CLAUDE.md) for the full command reference (tests, lint, typecheck, migrations) and [`docs/worklog/`](./docs/worklog/) for decision history.

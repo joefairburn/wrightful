@@ -21,6 +21,13 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
+// Gated on Vite's dev flag — the local seed script uses the createdAt /
+// completedAt overrides to backdate synthetic runs. Must stay off in prod
+// so a compromised API key can't fabricate historical rows.
+function backdatingAllowed(): boolean {
+  return Boolean(import.meta.env.VITE_IS_DEV_SERVER);
+}
+
 // Even though tenant DOs don't enforce D1's 100-param cap, we still chunk
 // multi-row INSERTs. It keeps statements readable, bounds memory for very
 // large appends, and matches the reporter's existing batching cadence.
@@ -28,7 +35,7 @@ const MAX_PARAMS_PER_STATEMENT = 99;
 const TEST_RESULTS_COLUMNS = 13;
 const TEST_TAGS_COLUMNS = 3;
 const TEST_ANNOTATIONS_COLUMNS = 4;
-const TEST_RESULT_ATTEMPTS_COLUMNS = 7;
+const TEST_RESULT_ATTEMPTS_COLUMNS = 8;
 
 function chunkByParams<T>(rows: T[], columnsPerRow: number): T[][] {
   const rowsPerStatement = Math.max(
@@ -341,6 +348,13 @@ export async function openRunHandler({
     return jsonResponse({ error: "Validation failed", details: message }, 400);
   }
 
+  if (payload.createdAt !== undefined && !backdatingAllowed()) {
+    return jsonResponse(
+      { error: "createdAt override is only allowed in local development" },
+      400,
+    );
+  }
+
   const scope = await tenantScopeForApiKey(ctx.apiKey);
   if (!scope) return jsonResponse({ error: "Unauthorized" }, 401);
 
@@ -363,7 +377,10 @@ export async function openRunHandler({
   }
 
   const runId = ulid();
-  const nowSeconds = Math.floor(Date.now() / 1000);
+  const nowSeconds =
+    payload.createdAt !== undefined
+      ? payload.createdAt
+      : Math.floor(Date.now() / 1000);
   const plannedTests = payload.run.plannedTests ?? [];
 
   const runRow = {
@@ -501,6 +518,13 @@ export async function completeRunHandler({
     return jsonResponse({ error: "Validation failed", details: message }, 400);
   }
 
+  if (payload.completedAt !== undefined && !backdatingAllowed()) {
+    return jsonResponse(
+      { error: "completedAt override is only allowed in local development" },
+      400,
+    );
+  }
+
   const scope = await tenantScopeForApiKey(ctx.apiKey);
   if (!scope) return jsonResponse({ error: "Unauthorized" }, 401);
 
@@ -514,13 +538,15 @@ export async function completeRunHandler({
   if (!owner) return jsonResponse({ error: "Run not found" }, 404);
 
   const nowSeconds = Math.floor(Date.now() / 1000);
+  const completedAt =
+    payload.completedAt !== undefined ? payload.completedAt : nowSeconds;
   await scope.batch([
     scope.db
       .updateTable("runs")
       .set({
         status: payload.status,
         durationMs: payload.durationMs,
-        completedAt: nowSeconds,
+        completedAt,
       })
       .where("id", "=", runId),
     aggregateRecomputeStatement(scope, runId),

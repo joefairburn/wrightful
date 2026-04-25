@@ -204,7 +204,21 @@ await stage(
 
 // ---------- Fixtures (optional) ----------
 
-const skipFixtures = process.argv.includes("--no-fixtures");
+// `--history` synthesizes months of test runs via the ingest API — much
+// more data than the 3 canned Playwright scenarios, at the cost of no real
+// artifacts. Implies `--no-fixtures`.
+const withHistory = process.argv.includes("--history");
+const historyMonths = (() => {
+  const i = process.argv.indexOf("--history-months");
+  const v = i >= 0 ? Number(process.argv[i + 1]) : 3;
+  return Number.isFinite(v) && v > 0 ? v : 3;
+})();
+const historySeed = (() => {
+  const i = process.argv.indexOf("--history-seed");
+  return i >= 0 ? String(process.argv[i + 1] ?? "") : "wrightful-seed-1";
+})();
+
+const skipFixtures = process.argv.includes("--no-fixtures") || withHistory;
 
 if (!skipFixtures) {
   if (!existsSync(seedConfigUrl)) {
@@ -357,6 +371,93 @@ if (!skipFixtures) {
     );
     process.exit(fixtures.status ?? 1);
   }
+}
+
+// ---------- Synthesized history (optional) ----------
+
+if (withHistory) {
+  if (!existsSync(seedConfigUrl)) {
+    console.error(
+      pc.red(
+        "\n.dev.vars.seed.json is missing — cannot seed history without the demo API key.",
+      ),
+    );
+    process.exit(1);
+  }
+  const seedConfig = JSON.parse(
+    readFileSync(fileURLToPath(seedConfigUrl), "utf8"),
+  );
+  const { ensureDashboardRunning } = await import("./lib/dev-server.mjs");
+  const { generateHistory } = await import("./seed/generator.mjs");
+
+  const { baseUrl: historyBaseUrl, spawned } = await ensureDashboardRunning(
+    seedConfig,
+    { labelWidth: LABEL_WIDTH },
+  );
+
+  console.log(
+    `\n${pc.bold(`generating ${historyMonths} months of history (seed=${historySeed})`)}`,
+  );
+  const { runs } = generateHistory({
+    months: historyMonths,
+    seed: historySeed,
+  });
+  console.log(
+    `${pc.dim("›")} ${"runs to ingest…".padEnd(LABEL_WIDTH)} ${pc.cyan(runs.length)}`,
+  );
+
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${seedConfig.apiKey}`,
+    "X-Wrightful-Version": "3",
+  };
+  const BATCH_SIZE = 50;
+  const postJson = async (path, body) => {
+    const res = await fetch(`${historyBaseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok)
+      throw new Error(`${path} → ${res.status}: ${await res.text()}`);
+    return res.json();
+  };
+
+  let completed = 0;
+  let failedCount = 0;
+  const startedAt = Date.now();
+  const stopSpin = startSpinner(stageLabel("ingesting runs…"));
+  for (const run of runs) {
+    try {
+      const opened = await postJson("/api/runs", run.openPayload);
+      const runId = opened.runId;
+      const results = run.resultsPayload.results;
+      for (let i = 0; i < results.length; i += BATCH_SIZE) {
+        await postJson(`/api/runs/${runId}/results`, {
+          results: results.slice(i, i + BATCH_SIZE),
+        });
+      }
+      await postJson(`/api/runs/${runId}/complete`, run.completePayload);
+      completed++;
+    } catch (err) {
+      failedCount++;
+      if (failedCount <= 3) {
+        process.stderr.write(`\n${pc.red("run failed")}: ${err.message}\n`);
+      }
+    }
+  }
+  stopSpin();
+  const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+  if (failedCount > 0) {
+    console.log(
+      `${pc.yellow(completed)} ok, ${pc.red(failedCount)} failed in ${elapsedSec}s`,
+    );
+  } else {
+    console.log(`${pc.green("done")} (${completed} runs in ${elapsedSec}s)`);
+  }
+
+  if (spawned && !spawned.killed) spawned.kill("SIGTERM");
+  if (failedCount > 0) process.exit(1);
 }
 
 console.log("");

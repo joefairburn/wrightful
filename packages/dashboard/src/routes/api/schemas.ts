@@ -67,9 +67,16 @@ const RunMetaCommon = {
 
 // ---------- v3 streaming endpoints ----------
 
+// Unix seconds. Optional and only honored in dev (see openRunHandler /
+// completeRunHandler); the handlers reject it in production. Used by the
+// local seed script to backdate synthetic runs across months of history so
+// the run list, history chart, and flaky trends have realistic shape.
+const BackdateSeconds = z.number().int().min(0).optional();
+
 export const OpenRunPayloadSchema = z.object({
   idempotencyKey: z.string().min(1),
   run: z.object(RunMetaCommon),
+  createdAt: BackdateSeconds,
 });
 export type OpenRunPayload = z.infer<typeof OpenRunPayloadSchema>;
 
@@ -81,6 +88,7 @@ export type AppendResultsPayload = z.infer<typeof AppendResultsPayloadSchema>;
 export const CompleteRunPayloadSchema = z.object({
   status: z.enum(["passed", "failed", "timedout", "interrupted"]),
   durationMs: z.number().int().min(0),
+  completedAt: BackdateSeconds,
 });
 export type CompleteRunPayload = z.infer<typeof CompleteRunPayloadSchema>;
 

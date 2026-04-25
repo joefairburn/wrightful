@@ -34,7 +34,11 @@ export function rateLimit(
   key: KeyFn,
 ): RouteMiddleware {
   return async ({ request, ctx }) => {
-    const resolved = key(request, ctx as Record<string, unknown>);
+    // Local dev is a single developer; the limit adds nothing here and trips
+    // legitimate workflows like `pnpm seed:history` that fire thousands of
+    // ingest requests in seconds.
+    if (import.meta.env.VITE_IS_DEV_SERVER) return;
+    const resolved = key(request, ctx as unknown as Record<string, unknown>);
     if (resolved === null) return; // key fn opted out — don't rate-limit this request
     const { success } = await binding.limit({ key: resolved });
     if (!success) {
