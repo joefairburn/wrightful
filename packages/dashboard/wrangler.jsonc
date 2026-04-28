@@ -7,6 +7,12 @@
   "assets": {
     "binding": "ASSETS",
   },
+  // Both required by the staged-deploy flow. `workers_dev` exposes
+  // `<worker>.<account>.workers.dev` for the production version; `preview_urls`
+  // exposes `<version-prefix>-<worker>.<account>.workers.dev` for unpromoted
+  // versions, which is what `staged-deploy.mjs` posts the migrate request to.
+  "workers_dev": true,
+  "preview_urls": true,
   "observability": {
     "enabled": true,
   },
