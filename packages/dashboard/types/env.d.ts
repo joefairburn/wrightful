@@ -30,6 +30,10 @@ declare namespace Cloudflare {
 
     // Required: signing secret for Better Auth sessions.
     BETTER_AUTH_SECRET: string;
+    // Required: bearer secret for POST /api/admin/migrate. Must match the
+    // value used by scripts/post-deploy-migrate.mjs (set as a CF Builds
+    // build env var so the deploy command can authenticate).
+    MIGRATE_SECRET: string;
     // Optional: enable GitHub OAuth by setting both.
     GITHUB_CLIENT_ID?: string;
     GITHUB_CLIENT_SECRET?: string;

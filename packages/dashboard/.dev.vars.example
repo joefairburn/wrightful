@@ -9,7 +9,13 @@ WRIGHTFUL_PUBLIC_URL=http://localhost:5173
 
 # Required — signing secret for Better Auth sessions.
 # Generate with: openssl rand -base64 32
-BETTER_AUTH_SECRET=replace-me-with-32-plus-char-random-secret
+BETTER_AUTH_SECRET=replace-me-with-better-auth-secret
+
+# Required — bearer secret for the post-deploy migration hook
+# (POST /api/admin/migrate). In production this must match the CF Builds
+# build env var. Locally it lets you run the migration script against the
+# dev server. Generate with: openssl rand -base64 32
+MIGRATE_SECRET=replace-me-with-migrate-secret
 
 # Optional — enable "Continue with GitHub" on the login page. Set both to
 # the values from your GitHub OAuth app (callback URL:

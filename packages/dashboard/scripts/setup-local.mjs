@@ -101,12 +101,15 @@ if (existsSync(envUrl)) {
   );
 } else {
   const template = readFileSync(exampleUrl, "utf8");
-  const secret = Buffer.from(
-    webcrypto.getRandomValues(new Uint8Array(32)),
-  ).toString("base64");
+  const randomSecret = () =>
+    Buffer.from(webcrypto.getRandomValues(new Uint8Array(32))).toString(
+      "base64",
+    );
   writeFileSync(
     envUrl,
-    template.replace("replace-me-with-32-plus-char-random-secret", secret),
+    template
+      .replace("replace-me-with-better-auth-secret", randomSecret())
+      .replace("replace-me-with-migrate-secret", randomSecret()),
   );
   console.log(
     `${pc.dim("›")} ${"creating .dev.vars…".padEnd(LABEL_WIDTH)} ${pc.green("done")}`,

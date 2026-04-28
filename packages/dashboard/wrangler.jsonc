@@ -26,6 +26,14 @@
       // https://developers.cloudflare.com/changelog/post/2025-10-24-automatic-resource-provisioning/.
       // This keeps wrangler.jsonc identical across every self-hoster: no
       // edits during setup, no merge conflicts on `git pull` / "Sync fork".
+      //
+      // We don't use `wrangler d1 migrations apply` against this DB in
+      // production — it can't resolve auto-provisioned bindings yet
+      // (cloudflare/workers-sdk#13632). Migrations run from inside the
+      // worker via `POST /api/admin/migrate`. The .sql files in
+      // `migrations/` stay the source of truth (used by `--local` for dev,
+      // and embedded into the worker bundle via Vite's `?raw` import for
+      // remote deploys).
       "migrations_dir": "migrations",
     },
   ],

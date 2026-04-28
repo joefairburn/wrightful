@@ -69,6 +69,7 @@ import {
   undismissSuggestionHandler,
 } from "@/routes/api/team-suggestions";
 import { authHandler } from "@/routes/auth";
+import { migrateHandler } from "@/routes/admin/migrate";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { loadSession, requireUser } from "@/routes/middleware";
 import { scheduledHandler } from "@/scheduled";
@@ -177,6 +178,11 @@ const app = defineApp([
   // Better Auth catch-all — must be declared before the bearer-token /api
   // prefix so the API-key middleware doesn't intercept sign-in requests.
   route("/api/auth/*", [authRateLimit, authHandler]),
+
+  // Post-deploy migration hook. Bearer-authed with MIGRATE_SECRET (a Worker
+  // secret + matching CF Builds env var). Declared before the `/api` bearer
+  // prefix so the API-key middleware doesn't intercept the request.
+  route("/api/admin/migrate", { post: migrateHandler }),
 
   // Dashboard session-backed user-state endpoints — must precede the bearer /api
   // prefix so they're gated on the Better Auth cookie, not an API key.
