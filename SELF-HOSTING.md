@@ -31,9 +31,10 @@ Build settings:
 
 `deploy:remote` is a staged deploy: it uploads the new Worker version without promoting it, applies D1 migrations against the new version's preview URL, and only then promotes the version to 100% traffic. If migrations fail, the previous version keeps serving — no broken deploy goes live. You never edit `wrangler.jsonc`. See step 4 for the full sequence.
 
-You'll also need this build env var set in the Cloudflare Builds settings (Settings → Variables → Build):
+You'll also need these build env vars set in the Cloudflare Builds settings (Settings → Variables → Build):
 
 - `MIGRATE_SECRET` — same value as the Worker secret of the same name (see step 3). The deploy script uses it to authenticate the post-upload migrate call.
+- `WORKERS_SUBDOMAIN` — your account's `*.workers.dev` subdomain (the part between the worker name and `.workers.dev` — e.g. if your preview URLs are `<id>-myworker.acme.workers.dev`, this is `acme`). Required when your CF Worker name doesn't match `wrangler.jsonc`'s `"name": "wrightful"`, which Cloudflare Workers Builds handles by overriding the name at deploy time and suppressing the per-version preview URL in wrangler's output. The deploy script uses this to reconstruct the URL.
 
 Cloudflare runs the build on every push to your fork's default branch.
 

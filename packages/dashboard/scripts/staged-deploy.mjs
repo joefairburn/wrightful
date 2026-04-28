@@ -80,10 +80,30 @@ if (!uploadEvent) {
 }
 
 const versionId = uploadEvent.version_id;
-const previewUrl = uploadEvent.preview_url;
-if (!versionId || !previewUrl) {
-  console.error("Upload event missing version_id or preview_url:", uploadEvent);
+const workerName = uploadEvent.worker_name;
+if (!versionId || !workerName) {
+  console.error("Upload event missing version_id or worker_name:", uploadEvent);
   process.exit(1);
+}
+
+// wrangler omits `preview_url` from the upload event when Cloudflare Workers
+// Builds overrides the worker name (`worker_name_overridden: true`) — i.e.
+// when the dashboard's Worker name doesn't match `wrangler.jsonc`'s `name`.
+// In that case, construct the URL ourselves the same way wrangler does
+// internally: `<first-8-of-version-id>-<worker>.<subdomain>.workers.dev`.
+let previewUrl = uploadEvent.preview_url;
+if (!previewUrl) {
+  const subdomain = process.env.WORKERS_SUBDOMAIN;
+  if (!subdomain) {
+    console.error(
+      "Upload event omitted preview_url (likely a worker-name override by " +
+        "Cloudflare Workers Builds). Set WORKERS_SUBDOMAIN to your account's " +
+        "`*.workers.dev` subdomain (the part between the worker name and " +
+        "`.workers.dev`, e.g. `fairbuj`) so we can construct the URL.",
+    );
+    process.exit(1);
+  }
+  previewUrl = `https://${versionId.slice(0, 8)}-${workerName}.${subdomain}.workers.dev`;
 }
 
 console.log(`Uploaded version ${versionId}`);
