@@ -3,8 +3,7 @@ import { requestInfo } from "rwsdk/worker";
 import { ulid } from "ulid";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { Button } from "@/app/components/ui/button";
-import { getDb } from "@/db";
-import { batchD1 } from "@/db/batch";
+import { getControlDb, batchControl } from "@/control";
 import { hashInviteToken } from "@/lib/invite-tokens";
 import { param } from "@/lib/route-params";
 import type { AppContext } from "@/worker";
@@ -17,7 +16,7 @@ export async function InvitePage() {
   const url = new URL(requestInfo.request.url);
   const error = url.searchParams.get("error");
 
-  const db = getDb();
+  const db = getControlDb();
   const tokenHash = await hashInviteToken(token);
   const invite = await db
     .selectFrom("teamInvites")
@@ -145,7 +144,7 @@ export async function acceptInviteHandler({
   const origin = new URL(request.url).origin;
   const here = `${origin}/invite/${token}`;
 
-  const db = getDb();
+  const db = getControlDb();
   const tokenHash = await hashInviteToken(token);
   const invite = await db
     .selectFrom("teamInvites")
@@ -184,7 +183,7 @@ export async function acceptInviteHandler({
   }
 
   try {
-    await batchD1([
+    await batchControl([
       db.insertInto("memberships").values({
         id: ulid(),
         userId: ctx.user.id,

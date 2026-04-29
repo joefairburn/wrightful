@@ -1,6 +1,6 @@
 import { type Compilable, type Kysely } from "kysely";
 import { type Database } from "rwsdk/db";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 import {
   batchTenant as _batchTenant,
   getTenantDb as _getTenantDb,
@@ -97,7 +97,7 @@ export async function tenantScopeForUser(
     })
   | null
 > {
-  const row = await getDb()
+  const row = await getControlDb()
     .selectFrom("projects")
     .innerJoin("teams", "teams.id", "projects.teamId")
     .innerJoin("memberships", (join) =>
@@ -142,7 +142,7 @@ export async function tenantScopeForApiKey(
   apiKey: { projectId: string } | null | undefined,
 ): Promise<TenantScope | null> {
   if (!apiKey) return null;
-  const row = await getDb()
+  const row = await getControlDb()
     .selectFrom("projects")
     .innerJoin("teams", "teams.id", "projects.teamId")
     .select([

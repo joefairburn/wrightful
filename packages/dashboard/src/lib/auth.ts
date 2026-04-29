@@ -1,6 +1,5 @@
 import type { Selectable } from "kysely";
-import { getDb } from "@/db";
-import type { ApiKeysTable } from "@/db/schema";
+import { getControlDb, type ControlDatabase } from "@/control";
 
 async function hashKey(key: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -19,7 +18,7 @@ function timingSafeEqualHex(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export type ApiKey = Selectable<ApiKeysTable>;
+export type ApiKey = Selectable<ControlDatabase["apiKeys"]>;
 
 export async function validateApiKey(
   authHeader: string | null,
@@ -33,7 +32,7 @@ export async function validateApiKey(
   const prefix = rawKey.slice(0, 8);
   const hash = await hashKey(rawKey);
 
-  const db = getDb();
+  const db = getControlDb();
   const candidates = await db
     .selectFrom("apiKeys")
     .selectAll()

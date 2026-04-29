@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 import { readIntVar } from "@/lib/env-parse";
 import { internalTenantStubForCron } from "@/tenant/internal";
 
@@ -37,7 +37,7 @@ export async function sweepStuckRuns(now = new Date()): Promise<number> {
   );
   const nowSeconds = Math.floor(now.getTime() / 1000);
 
-  const controlDb = getDb();
+  const controlDb = getControlDb();
   const activeTeams = await controlDb
     .selectFrom("teams")
     .select("id")

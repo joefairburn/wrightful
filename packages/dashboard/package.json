@@ -10,9 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf ./node_modules/.vite",
     "release": "rw-scripts ensure-deploy-env && npm run clean && npm run build && wrangler deploy",
-    "deploy": "npm run build && node scripts/staged-deploy.mjs",
-    "deploy:remote": "node scripts/staged-deploy.mjs",
-    "post-deploy-migrate": "node scripts/post-deploy-migrate.mjs",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:remote": "wrangler deploy",
     "generate": "rw-scripts ensure-env && wrangler types --include-runtime false",
     "check": "npm run generate && npm run types",
     "typecheck": "tsgo --noEmit",
@@ -21,8 +20,6 @@
     "test:watch": "vitest --project unit",
     "test:integration": "vitest run --project integration",
     "test:all": "vitest run",
-    "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:seed-api-key": "node scripts/seed-api-key.mjs",
     "db:seed-demo": "node scripts/seed-demo.mjs",
     "fixtures:generate": "node scripts/upload-fixtures.mjs",
     "setup:local": "node scripts/setup-local.mjs"
@@ -46,7 +43,6 @@
     "date-fns": "^4.1.0",
     "geist": "^1.7.0",
     "kysely": "^0.28.15",
-    "kysely-d1": "^0.3.0",
     "lucide-react": "^0.469.0",
     "nuqs": "^2.8.9",
     "react": "19.2.5",
@@ -78,9 +74,6 @@
   },
   "cloudflare": {
     "bindings": {
-      "DB": {
-        "description": "D1 database storing runs, test results, tags, annotations, and API keys."
-      },
       "R2": {
         "description": "R2 bucket storing uploaded artifacts (traces, screenshots, videos)."
       },

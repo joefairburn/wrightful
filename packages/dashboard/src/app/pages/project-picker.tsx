@@ -1,6 +1,6 @@
 import { requestInfo } from "rwsdk/worker";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 import { resolveTeamBySlug } from "@/lib/authz";
 import { param } from "@/lib/route-params";
 import type { AppContext } from "@/worker";
@@ -13,7 +13,7 @@ export async function ProjectPickerPage() {
   const team = await resolveTeamBySlug(ctx.user.id, teamSlug);
   if (!team) return <NotFoundPage />;
 
-  const db = getDb();
+  const db = getControlDb();
   const firstProject = await db
     .selectFrom("projects")
     .select("slug")

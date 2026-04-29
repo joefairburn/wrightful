@@ -559,8 +559,8 @@ export function RunProgressTests({
 /**
  * Summary-tiles island. Subscribes to the realtime progress channel via
  * `useSyncedState` and re-renders the four counts on every `setState` push.
- * Seeded with SSR-provided `initial` so the first render matches D1 without
- * waiting on the WebSocket.
+ * Seeded with SSR-provided `initial` so the first render matches the
+ * server-rendered state without waiting on the WebSocket.
  */
 export function RunSummaryIsland({
   initial,

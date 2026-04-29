@@ -7,7 +7,7 @@ A one-page orientation. For the narrative behind each decision, read the dated e
 ```
 Playwright CI ──@wrightful/reporter──▶ Worker (/api/runs/*)
                                         │
-                                        ├─ control D1 ──── auth + tenancy lookup
+                                        ├─ ControlDO RPC ─ auth + tenancy lookup
                                         │
                                         ├─ TenantDO RPC ── writes runs + derived rows
                                         │
@@ -16,19 +16,19 @@ Playwright CI ──@wrightful/reporter──▶ Worker (/api/runs/*)
 Browser ────────RSC pages──────────────▶ Worker (/t/:team/p/:project/…)
                                         │
                                         ├─ Better Auth session ── dashboard auth
-                                        ├─ control D1 ─────────── teams, projects, memberships
+                                        ├─ ControlDO RPC ───────── teams, projects, memberships
                                         ├─ TenantDO RPC ────────── reads runs + derived rows
                                         └─ SyncedStateServer DO ── realtime progress stream
 ```
 
 ## Storage split
 
-- **Control D1.** One database. Users, teams, projects, memberships, API keys, invites. Accessed via `getDb()` in `packages/dashboard/src/db/index.ts`, which returns a `Kysely<DB>`.
+- **ControlDO** (`class ControlDO`, binding `CONTROL`). Singleton SQLite-backed Durable Object addressed by name `"control"`. Users, teams, projects, memberships, API keys, invites, plus Better Auth's session/account/verification tables. Accessed via `getControlDb()` in `packages/dashboard/src/control/index.ts`, which returns a `Kysely<ControlDatabase>`. `batchControl()` (same module) compiles queries on the worker and runs them in a single `ctx.storage.transactionSync()` on the DO for atomic multi-statement writes.
 - **Tenant DO** (`class TenantDO`, binding `TENANT`). One instance per team, SQLite-backed. Holds `runs`, `testResults`, `testResultAttempts`, `testTags`, `testAnnotations`, `artifacts`. Reached only through `tenantScopeForUser` / `tenantScopeForApiKey` in `packages/dashboard/src/tenant/index.ts` — both run the auth check, then hand back a `TenantScope` with a `Kysely<TenantDatabase>` `db`, a branded `AuthorizedProjectId`, and a `batch()` for atomic multi-statement writes.
 - **R2.** Artifact bytes only. Upload via presigned PUT from the reporter; download via a signed token that carries the R2 key, so GETs don't touch the DB.
 - **SyncedStateServer DO** (binding `SYNCED_STATE_SERVER`). Broadcasts progress snapshots while a run is streaming. Ingest handlers call `stub.setState(progress, "progress")` after each DO write; run detail/list islands subscribe via rwsdk's `useSyncedState`.
 
-Tenant migrations live in `packages/dashboard/src/tenant/migrations.ts` and are applied on first access by rwsdk's Database DSL — no CLI step. Only the control D1 has a `wrangler d1 migrations` flow.
+Both DOs migrate themselves on first access via rwsdk's `SqliteDurableObject` — `ControlDO` uses `packages/dashboard/src/control/migrations.ts`, `TenantDO` uses `packages/dashboard/src/tenant/migrations.ts`. There is no CLI migration step; `wrangler deploy` is the entire deploy pipeline.
 
 ## Auth
 

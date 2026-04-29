@@ -1,63 +1,28 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { webcrypto } from "node:crypto";
-import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
 import { startSpinner } from "./lib/spinner.mjs";
+import { probeDashboard, startDevServerForSeed } from "./lib/dev-server.mjs";
 
-/**
- * Try to bind `port` on `host`. Resolves with the actual port (OS-assigned
- * when port=0), rejects on any listen error.
- *
- * @param {number} port
- * @param {string} [host]
- * @returns {Promise<number>}
- */
-function tryBind(port, host) {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.unref();
-    srv.once("error", reject);
-    const cb = () => {
-      const addr = srv.address();
-      const actual = typeof addr === "object" && addr !== null ? addr.port : 0;
-      srv.close(() => resolve(actual));
-    };
-    if (host) srv.listen(port, host, cb);
-    else srv.listen(port, cb);
-  });
-}
-
-/**
- * Try to bind `preferred` on both IPv4 and IPv6 loopback (because vite
- * resolves `localhost` differently per OS — macOS tends to prefer `::1`).
- * If either family is already taken, fall back to an OS-assigned free port.
- *
- * @param {number} preferred
- * @returns {Promise<number>}
- */
-async function pickPort(preferred) {
-  for (const host of ["127.0.0.1", "::1"]) {
-    try {
-      await tryBind(preferred, host);
-    } catch (err) {
-      if (err.code === "EADDRINUSE") {
-        return tryBind(0);
-      }
-      // IPv6 may be unavailable on some systems (EADDRNOTAVAIL) — not fatal,
-      // keep going with the preferred port.
-      if (err.code !== "EADDRNOTAVAIL") throw err;
-    }
-  }
-  return preferred;
-}
+// Local-dev bootstrap.
+//
+// Flow:
+//   1. Create `.dev.vars` if missing (with a random BETTER_AUTH_SECRET and
+//      ALLOW_OPEN_SIGNUP=1 enabled so the seed can call /api/auth/sign-up).
+//   2. Start `vite dev` and wait for the worker to respond. Miniflare
+//      provisions the Durable Objects; each DO migrates its schema lazily
+//      on first access via rwsdk's init pattern.
+//   3. Run `seed-demo.mjs` against the running server. It signs up via
+//      Better Auth's HTTP API, creates team + project, mints an API key.
+//   4. Optionally upload Playwright fixture data via the API key.
+//   5. Optionally synthesize months of run history.
 
 const dashboardDir = new URL("..", import.meta.url);
 const envUrl = new URL(".dev.vars", dashboardDir);
 const exampleUrl = new URL(".dev.vars.example", dashboardDir);
 const seedConfigUrl = new URL(".dev.vars.seed.json", dashboardDir);
-const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const LABEL_WIDTH = 34;
 const stageLabel = (label) => `${pc.dim("›")} ${label.padEnd(LABEL_WIDTH)} `;
@@ -95,115 +60,117 @@ async function stage(label, cmd, args, opts = {}) {
 
 // ---------- .dev.vars ----------
 
+/**
+ * Ensure `ALLOW_OPEN_SIGNUP=1` is set in the given .dev.vars text. The seed
+ * flow needs it; without it Better Auth returns 403 on /api/auth/sign-up.
+ *
+ * Returns the updated text and whether anything changed.
+ *
+ * @param {string} text
+ * @returns {{ text: string, changed: boolean }}
+ */
+function ensureOpenSignup(text) {
+  // Already enabled (uncommented).
+  if (/^\s*ALLOW_OPEN_SIGNUP=1/m.test(text)) {
+    return { text, changed: false };
+  }
+  // Commented-out variant — uncomment.
+  if (/^#\s*ALLOW_OPEN_SIGNUP=1/m.test(text)) {
+    return {
+      text: text.replace(/^#\s*ALLOW_OPEN_SIGNUP=1/m, "ALLOW_OPEN_SIGNUP=1"),
+      changed: true,
+    };
+  }
+  // Missing entirely — append.
+  const sep = text.endsWith("\n") ? "" : "\n";
+  return { text: `${text}${sep}ALLOW_OPEN_SIGNUP=1\n`, changed: true };
+}
+
 if (existsSync(envUrl)) {
-  console.log(
-    `${pc.dim("›")} ${"checking .dev.vars…".padEnd(LABEL_WIDTH)} ${pc.dim("already present")}`,
-  );
+  const current = readFileSync(envUrl, "utf8");
+  const { text: updated, changed } = ensureOpenSignup(current);
+  if (changed) {
+    writeFileSync(envUrl, updated);
+    console.log(
+      `${stageLabel("updating .dev.vars…")}${pc.yellow(
+        "added ALLOW_OPEN_SIGNUP=1",
+      )}`,
+    );
+  } else {
+    console.log(
+      `${stageLabel("checking .dev.vars…")}${pc.dim("already present")}`,
+    );
+  }
 } else {
   const template = readFileSync(exampleUrl, "utf8");
   const randomSecret = () =>
     Buffer.from(webcrypto.getRandomValues(new Uint8Array(32))).toString(
       "base64",
     );
-  writeFileSync(
-    envUrl,
-    template
-      .replace("replace-me-with-better-auth-secret", randomSecret())
-      .replace("replace-me-with-migrate-secret", randomSecret()),
+  const filled = template.replace(
+    "replace-me-with-better-auth-secret",
+    randomSecret(),
   );
-  console.log(
-    `${pc.dim("›")} ${"creating .dev.vars…".padEnd(LABEL_WIDTH)} ${pc.green("done")}`,
-  );
+  const { text: withSignup } = ensureOpenSignup(filled);
+  writeFileSync(envUrl, withSignup);
+  console.log(`${stageLabel("creating .dev.vars…")}${pc.green("done")}`);
 }
 
-// ---------- D1 migrations ----------
+// ---------- Dev server ----------
 
-// Pre-launch, we squash the initial migration rather than stacking new ones.
-// That means a dev's existing local D1 may have an older schema with no way
-// to catch up via `wrangler d1 migrations apply` (which treats 0000 as
-// already-applied). Detect that case by probing for canary objects and wipe
-// the local D1 state so the fresh migration runs cleanly. `.wrangler` also
-// holds KV/R2 emulator state — wiping is fine for local dev.
-const d1StateDir = new URL("../.wrangler/state/v3/d1", import.meta.url);
+// Always start the dev server fresh with live-streaming output. The
+// unauthenticated probe inside `startDevServerForSeed` works regardless
+// of whether a previous seed file exists or whether its API key is still
+// valid against the current ControlDO state.
+const force = process.argv.includes("--reseed");
+const hadSeed = existsSync(seedConfigUrl);
+const { baseUrl, spawned: spawnedServer } = await startDevServerForSeed({
+  labelWidth: LABEL_WIDTH,
+});
 
-function runProbe(command) {
-  return spawnSync(
-    "npx",
-    [
-      "wrangler",
-      "d1",
-      "execute",
-      "DB",
-      "--local",
-      "--json",
-      "--command",
-      command,
-    ],
-    {
-      cwd: fileURLToPath(dashboardDir),
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
-    },
+// ---------- Seed (or skip if existing seed key is still valid) ----------
+
+let needsSeed = !hadSeed || force;
+if (hadSeed && !force) {
+  // Verify the existing seed file still works against this dashboard.
+  // 400 = key valid, body invalid (expected). 401 = key rejected (stale —
+  // re-seed). Anything else = unclear, lean toward re-seeding to recover.
+  const seedConfig = JSON.parse(
+    readFileSync(fileURLToPath(seedConfigUrl), "utf8"),
   );
-}
-
-function wipeLocalD1() {
-  console.log(
-    `${pc.dim("›")} ${"schema out of date…".padEnd(LABEL_WIDTH)} ${pc.yellow("wiping local D1")}`,
-  );
-  rmSync(d1StateDir, { recursive: true, force: true });
-  const seedPath = fileURLToPath(seedConfigUrl);
-  if (existsSync(seedPath)) rmSync(seedPath);
-}
-
-if (existsSync(d1StateDir)) {
-  const colsProbe = runProbe(
-    "SELECT json_group_array(name) AS cols FROM pragma_table_info('runs');",
-  );
-  if (colsProbe.status === 0) {
-    // wrangler --json emits `"cols": "[\"id\",\"project_id\",...]"` — a
-    // JSON-in-JSON string. Simple substring checks on the escaped form are
-    // enough: `\"id\"` appears only when the runs table exists at all,
-    // `\"committed\"` only when the column is present.
-    const runsExists = colsProbe.stdout.includes('\\"id\\"');
-    const hasCommitted = colsProbe.stdout.includes('\\"committed\\"');
-    if (runsExists && !hasCommitted) {
-      wipeLocalD1();
-    } else if (runsExists) {
-      // runs is initialized — also check the committed_runs view exists.
-      // Older squashed 0000s created runs.committed but not the view; wrangler
-      // won't re-run 0000, so we'd end up with queries against a missing view.
-      const viewProbe = runProbe(
-        "SELECT name FROM sqlite_master WHERE type = 'view' AND name = 'committed_runs';",
-      );
-      if (
-        viewProbe.status === 0 &&
-        !viewProbe.stdout.includes("committed_runs")
-      ) {
-        wipeLocalD1();
-      }
-    }
+  const status = await probeDashboard(baseUrl, seedConfig.apiKey);
+  if (status === 400) {
+    console.log(`${stageLabel("existing seed key…")}${pc.dim("still valid")}`);
+    needsSeed = false;
+  } else if (status === 401) {
+    console.log(
+      `${stageLabel("existing seed key…")}${pc.yellow("stale — re-seeding")}`,
+    );
+    needsSeed = true;
+  } else {
+    console.log(
+      `${stageLabel("existing seed key…")}${pc.yellow(
+        `inconclusive (status=${status ?? "no response"}) — re-seeding`,
+      )}`,
+    );
+    needsSeed = true;
   }
 }
 
-await stage("applying D1 migrations…", "npx", [
-  "wrangler",
-  "d1",
-  "migrations",
-  "apply",
-  "DB",
-  "--local",
-]);
-
-// ---------- Demo user / team / project / api key ----------
-
-const hadSeed = existsSync(seedConfigUrl);
-await stage(
-  hadSeed ? "checking demo account…" : "seeding demo account…",
-  "node",
-  ["scripts/seed-demo.mjs"],
-  { env: { ...process.env, WRIGHTFUL_QUIET: "1" } },
-);
+if (needsSeed) {
+  await stage(
+    hadSeed ? "re-seeding demo account…" : "seeding demo account…",
+    "node",
+    ["scripts/seed-demo.mjs"],
+    {
+      env: {
+        ...process.env,
+        WRIGHTFUL_QUIET: "1",
+        WRIGHTFUL_BASE_URL: baseUrl,
+      },
+    },
+  );
+}
 
 // ---------- Fixtures (optional) ----------
 
@@ -227,129 +194,15 @@ if (!skipFixtures) {
   if (!existsSync(seedConfigUrl)) {
     console.error(
       pc.red(
-        "\n.dev.vars.seed.json is missing but the demo user already exists in D1.",
+        "\n.dev.vars.seed.json is missing — seed step must have failed. Re-run `pnpm setup:local`.",
       ),
     );
-    console.error(
-      pc.dim(
-        "The plaintext API key can't be recovered from D1. Wipe local D1 and re-run:",
-      ),
-    );
-    console.error(
-      pc.dim("  rm -rf packages/dashboard/.wrangler && pnpm setup:local"),
-    );
+    if (spawnedServer && !spawnedServer.killed) spawnedServer.kill("SIGTERM");
     process.exit(1);
   }
   const seedConfig = JSON.parse(
     readFileSync(fileURLToPath(seedConfigUrl), "utf8"),
   );
-
-  let baseUrl = seedConfig.url;
-
-  async function probe(url) {
-    try {
-      // Hit the streaming ingest endpoint with an auth header + empty body.
-      // 400 = server up, auth accepted, body invalid (expected).
-      // 401 = auth rejected (bad API key).
-      const res = await fetch(`${url}/api/runs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${seedConfig.apiKey}`,
-          "X-Wrightful-Version": "3",
-        },
-        body: "{}",
-      });
-      return res.status;
-    } catch {
-      return null;
-    }
-  }
-
-  const initialProbe = await probe(baseUrl);
-  const alreadyUp = initialProbe === 400;
-
-  let devServer = null;
-  let devServerExited = false;
-  if (!alreadyUp) {
-    // If 5173 is held by anything else (sibling workspace's dev server, a
-    // stray process, etc.), fall back to a free port. Fixture upload hits
-    // /api/runs with a Bearer key, so the URL mismatch vs Better Auth's
-    // pinned WRIGHTFUL_PUBLIC_URL doesn't matter for this window.
-    const port = await pickPort(5173);
-    if (port !== 5173) {
-      baseUrl = `http://localhost:${port}`;
-      console.log(
-        `${pc.dim("›")} ${"port 5173 busy…".padEnd(LABEL_WIDTH)} ${pc.dim(`using ${port} for fixture upload`)}`,
-      );
-    }
-
-    const stopDevSpinner = startSpinner(stageLabel("starting dev server…"));
-    // `pnpm exec` resolves `vite` from the dashboard package's bin directory
-    // reliably across pnpm workspace setups. Raw `npx vite` can misfire when
-    // the shim isn't on the caller's PATH.
-    devServer = spawn(
-      "pnpm",
-      [
-        "--filter",
-        "@wrightful/dashboard",
-        "exec",
-        "vite",
-        "dev",
-        "--port",
-        String(port),
-      ],
-      { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    let devOutput = "";
-    devServer.stdout?.on("data", (d) => (devOutput += d.toString()));
-    devServer.stderr?.on("data", (d) => (devOutput += d.toString()));
-    devServer.on("exit", () => {
-      devServerExited = true;
-    });
-    const killDev = () => {
-      if (devServer && !devServer.killed) devServer.kill("SIGTERM");
-    };
-    process.on("exit", killDev);
-    process.on("SIGINT", () => {
-      killDev();
-      process.exit(130);
-    });
-    process.on("SIGTERM", () => {
-      killDev();
-      process.exit(143);
-    });
-
-    const deadline = Date.now() + 90_000;
-    let ready = false;
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 1000));
-      if (devServerExited) {
-        stopDevSpinner();
-        console.log(pc.red("failed"));
-        console.error(pc.red("\ndev server exited during startup — aborting"));
-        if (devOutput) process.stderr.write(`${devOutput}\n`);
-        process.exit(1);
-      }
-      if ((await probe(baseUrl)) === 400) {
-        ready = true;
-        break;
-      }
-    }
-    stopDevSpinner();
-    if (!ready) {
-      console.log(pc.red("failed"));
-      console.error(
-        pc.red("\ndev server did not become ready within 90s — aborting"),
-      );
-      process.exit(1);
-    }
-    console.log(pc.green("ready"));
-  } else {
-    console.log(
-      `${pc.dim("›")} ${"dev server…".padEnd(LABEL_WIDTH)} ${pc.dim("already running")}`,
-    );
-  }
 
   console.log(`\n${pc.bold("generating example test data")}`);
   const fixturesArgs = ["scripts/upload-fixtures.mjs"];
@@ -361,12 +214,12 @@ if (!skipFixtures) {
       ...process.env,
       WRIGHTFUL_QUIET: "1",
       WRIGHTFUL_URL: baseUrl,
+      WRIGHTFUL_TOKEN: seedConfig.apiKey,
     },
   });
 
-  if (devServer && !devServer.killed) devServer.kill("SIGTERM");
-
   if (fixtures.status !== 0) {
+    if (spawnedServer && !spawnedServer.killed) spawnedServer.kill("SIGTERM");
     console.error(
       pc.red(
         "\nfixture generation failed — demo user still seeded. Retry with `pnpm fixtures:generate`.",
@@ -385,18 +238,13 @@ if (withHistory) {
         "\n.dev.vars.seed.json is missing — cannot seed history without the demo API key.",
       ),
     );
+    if (spawnedServer && !spawnedServer.killed) spawnedServer.kill("SIGTERM");
     process.exit(1);
   }
   const seedConfig = JSON.parse(
     readFileSync(fileURLToPath(seedConfigUrl), "utf8"),
   );
-  const { ensureDashboardRunning } = await import("./lib/dev-server.mjs");
   const { generateHistory } = await import("./seed/generator.mjs");
-
-  const { baseUrl: historyBaseUrl, spawned } = await ensureDashboardRunning(
-    seedConfig,
-    { labelWidth: LABEL_WIDTH },
-  );
 
   console.log(
     `\n${pc.bold(`generating ${historyMonths} months of history (seed=${historySeed})`)}`,
@@ -405,9 +253,7 @@ if (withHistory) {
     months: historyMonths,
     seed: historySeed,
   });
-  console.log(
-    `${pc.dim("›")} ${"runs to ingest…".padEnd(LABEL_WIDTH)} ${pc.cyan(runs.length)}`,
-  );
+  console.log(`${stageLabel("runs to ingest…")}${pc.cyan(runs.length)}`);
 
   const headers = {
     "Content-Type": "application/json",
@@ -416,7 +262,7 @@ if (withHistory) {
   };
   const BATCH_SIZE = 50;
   const postJson = async (path, body) => {
-    const res = await fetch(`${historyBaseUrl}${path}`, {
+    const res = await fetch(`${baseUrl}${path}`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -459,12 +305,18 @@ if (withHistory) {
     console.log(`${pc.green("done")} (${completed} runs in ${elapsedSec}s)`);
   }
 
-  if (spawned && !spawned.killed) spawned.kill("SIGTERM");
-  if (failedCount > 0) process.exit(1);
+  if (failedCount > 0) {
+    if (spawnedServer && !spawnedServer.killed) spawnedServer.kill("SIGTERM");
+    process.exit(1);
+  }
 }
+
+// ---------- Wrap up ----------
+
+if (spawnedServer && !spawnedServer.killed) spawnedServer.kill("SIGTERM");
 
 console.log("");
 console.log(pc.green("✓ setup complete"));
-console.log(`  ${pc.dim("dashboard:")} http://localhost:5173`);
+console.log(`  ${pc.dim("dashboard:")} ${baseUrl}`);
 console.log(`  ${pc.dim("sign in:  ")} demo@wrightful.local / demo1234`);
 console.log(`  ${pc.dim("run:      ")} ${pc.cyan("pnpm dev")}`);

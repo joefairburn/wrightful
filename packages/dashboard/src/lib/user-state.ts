@@ -1,4 +1,4 @@
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 
 export type DefaultLanding =
   | { kind: "project"; teamSlug: string; projectSlug: string }
@@ -12,7 +12,7 @@ export type DefaultLanding =
 export async function resolveDefaultLanding(
   userId: string,
 ): Promise<DefaultLanding | null> {
-  const db = getDb();
+  const db = getControlDb();
 
   // Stored state — only trust values the user still has access to.
   const stored = await db
@@ -108,7 +108,7 @@ export async function setLastTeam(
   userId: string,
   teamId: string,
 ): Promise<void> {
-  const db = getDb();
+  const db = getControlDb();
   const now = Date.now();
   await db
     .insertInto("userState")
@@ -132,7 +132,7 @@ export async function setLastProject(
   teamId: string,
   projectId: string,
 ): Promise<void> {
-  const db = getDb();
+  const db = getControlDb();
   const now = Date.now();
   await db
     .insertInto("userState")

@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { kyselyAdapter } from "@better-auth/kysely-adapter";
 import { ulid } from "ulid";
 import { env } from "cloudflare:workers";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 import { refreshUserOrgs } from "@/lib/github-orgs";
 
 export function hasGithubOAuthConfigured(): boolean {
@@ -44,9 +44,9 @@ function buildAuth() {
     baseURL: publicUrl,
     secret,
     // kyselyAdapter uses Better Auth's default camelCase field names
-    // (`userId`, `emailVerified`, …). Our Kysely instance installs
-    // CamelCasePlugin, so those map to the existing snake_case columns.
-    database: kyselyAdapter(getDb(), { type: "sqlite" }),
+    // (`userId`, `emailVerified`, …). The ControlDO migrations create
+    // tables with camelCase columns verbatim — no plugin layer required.
+    database: kyselyAdapter(getControlDb(), { type: "sqlite" }),
     advanced: {
       // Keep Wrightful's ULID convention for user/session/account/verification ids.
       database: { generateId: () => ulid() },

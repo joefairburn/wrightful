@@ -159,8 +159,8 @@ describe("Wrightful E2E", () => {
   });
 
   describe("Artifacts register + upload + download", () => {
-    // Read once and share across the suite — re-running `wrangler d1 execute`
-    // per test sometimes flakes the dev server connection (ECONNRESET).
+    // Read once and share across the suite — re-running the seed lookup per
+    // test sometimes flakes the dev server connection (ECONNRESET).
     let runId: string;
     let testResultId: string;
     beforeAll(async () => {

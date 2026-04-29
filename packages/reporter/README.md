@@ -33,14 +33,14 @@ export default defineConfig({
 
 Options:
 
-| option            | default               | notes                                                             |
-| ----------------- | --------------------- | ----------------------------------------------------------------- |
-| `url`             | `WRIGHTFUL_URL` env   | Dashboard base URL                                                |
-| `token`           | `WRIGHTFUL_TOKEN` env | Bearer API key — project-scoped; seed via `db:seed-api-key`       |
-| `batchSize`       | `20`                  | Max results per flush                                             |
-| `flushIntervalMs` | `500`                 | Max ms to wait between flushes                                    |
-| `environment`     | —                     | Environment tag for the run                                       |
-| `artifacts`       | `'failed'`            | Which tests' attachments to upload: `'all' \| 'failed' \| 'none'` |
+| option            | default               | notes                                                                |
+| ----------------- | --------------------- | -------------------------------------------------------------------- |
+| `url`             | `WRIGHTFUL_URL` env   | Dashboard base URL                                                   |
+| `token`           | `WRIGHTFUL_TOKEN` env | Bearer API key — project-scoped; mint from the dashboard's keys page |
+| `batchSize`       | `20`                  | Max results per flush                                                |
+| `flushIntervalMs` | `500`                 | Max ms to wait between flushes                                       |
+| `environment`     | —                     | Environment tag for the run                                          |
+| `artifacts`       | `'failed'`            | Which tests' attachments to upload: `'all' \| 'failed' \| 'none'`    |
 
 ## Protocol
 

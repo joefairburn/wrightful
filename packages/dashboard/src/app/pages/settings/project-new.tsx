@@ -6,7 +6,7 @@ import { Button } from "@/app/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/app/components/ui/field";
 import { Input } from "@/app/components/ui/input";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 import { resolveTeamBySlug } from "@/lib/authz";
 import { readField } from "@/lib/form";
 import { param } from "@/lib/route-params";
@@ -156,7 +156,7 @@ export async function createProjectHandler({
     );
   }
 
-  const db = getDb();
+  const db = getControlDb();
   const takenSlugs = new Set(
     (
       await db

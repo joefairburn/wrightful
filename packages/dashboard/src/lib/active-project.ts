@@ -14,9 +14,9 @@ import { type TenantScope, tenantScopeForUser } from "@/tenant";
 export type ActiveProject = TenantScope & {
   /** Alias of `projectSlug` — preserved for call-site legibility. */
   readonly slug: string;
-  /** Display name of the project (from control-D1 `projects.name`). */
+  /** Display name of the project (from ControlDO `projects.name`). */
   readonly name: string;
-  /** Display name of the team (from control-D1 `teams.name`). */
+  /** Display name of the team (from ControlDO `teams.name`). */
   readonly teamName: string;
   /**
    * Historical alias of `projectId`. Plain string (same underlying value)

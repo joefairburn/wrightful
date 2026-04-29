@@ -1,6 +1,6 @@
 import { type Compilable, sql } from "kysely";
 import { ulid } from "ulid";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 import { type TenantScope, tenantScopeForApiKey } from "@/tenant";
 import {
   OpenRunPayloadSchema,
@@ -28,9 +28,9 @@ function backdatingAllowed(): boolean {
   return Boolean(import.meta.env.VITE_IS_DEV_SERVER);
 }
 
-// Even though tenant DOs don't enforce D1's 100-param cap, we still chunk
-// multi-row INSERTs. It keeps statements readable, bounds memory for very
-// large appends, and matches the reporter's existing batching cadence.
+// Chunk multi-row INSERTs at a conservative parameter count: keeps
+// statements readable, bounds memory for very large appends, and matches
+// the reporter's existing batching cadence.
 const MAX_PARAMS_PER_STATEMENT = 99;
 const TEST_RESULTS_COLUMNS = 13;
 const TEST_TAGS_COLUMNS = 3;
@@ -311,7 +311,7 @@ function aggregateRecomputeStatement(
  * picks it up on the next cron tick if anything got stuck).
  */
 function bumpTeamActivity(teamId: string, nowSeconds: number): void {
-  getDb()
+  getControlDb()
     .updateTable("teams")
     .set({ lastActivityAt: nowSeconds })
     .where("id", "=", teamId)

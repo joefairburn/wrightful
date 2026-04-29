@@ -6,17 +6,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { dbRef, mockBatchD1 } = vi.hoisted(() => ({
+const { dbRef, mockBatchControl } = vi.hoisted(() => ({
   dbRef: { current: null as unknown },
-  mockBatchD1: vi.fn().mockResolvedValue(undefined),
+  mockBatchControl: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
 vi.mock("rwsdk/worker", () => ({
   requestInfo: { request: new Request("https://example.com/") },
 }));
-vi.mock("@/db", () => ({ getDb: () => dbRef.current }));
-vi.mock("@/db/batch", () => ({ batchD1: mockBatchD1 }));
+vi.mock("@/control", () => ({
+  getControlDb: () => dbRef.current,
+  batchControl: mockBatchControl,
+}));
 vi.mock("ulid", () => ({ ulid: () => "membership-01" }));
 
 import {
@@ -48,7 +50,7 @@ describe("acceptInviteHandler", () => {
     const t = makeTestDb();
     dbRef.current = t.db;
     driver = t.driver;
-    mockBatchD1.mockClear();
+    mockBatchControl.mockClear();
   });
 
   it("looks up the invite by hash, not by plaintext", async () => {
@@ -69,8 +71,8 @@ describe("acceptInviteHandler", () => {
 
     const expectedHash = await hashInviteToken(TOKEN);
     const first = driver.queries[0];
-    expect(first.sql).toMatch(/from "team_invites"/i);
-    expect(first.sql).toMatch(/"token_hash"\s*=\s*\?/);
+    expect(first.sql).toMatch(/from "teamInvites"/i);
+    expect(first.sql).toMatch(/"tokenHash"\s*=\s*\?/);
     expect(first.sql).not.toMatch(/"token"\s*=\s*\?/);
     expect(first.parameters).toContain(expectedHash);
     expect(first.parameters).not.toContain(TOKEN);
@@ -93,14 +95,14 @@ describe("acceptInviteHandler", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("https://example.com/t/acme");
-    expect(mockBatchD1).toHaveBeenCalledTimes(1);
-    const batched = mockBatchD1.mock.calls[0]?.[0] as Array<{
+    expect(mockBatchControl).toHaveBeenCalledTimes(1);
+    const batched = mockBatchControl.mock.calls[0]?.[0] as Array<{
       compile: () => { sql: string; parameters: readonly unknown[] };
     }>;
     expect(batched).toHaveLength(2);
     const sqls = batched.map((q) => q.compile().sql);
     expect(sqls[0]).toMatch(/insert into "memberships"/i);
-    expect(sqls[1]).toMatch(/delete from "team_invites"/i);
+    expect(sqls[1]).toMatch(/delete from "teamInvites"/i);
   });
 
   it("redirects with ?error= when the invite is missing or expired", async () => {
@@ -112,7 +114,7 @@ describe("acceptInviteHandler", () => {
     const location = res.headers.get("Location") ?? "";
     expect(location).toMatch(/\/invite\//);
     expect(location).toMatch(/[?&]error=/);
-    expect(mockBatchD1).not.toHaveBeenCalled();
+    expect(mockBatchControl).not.toHaveBeenCalled();
   });
 
   it("does not burn the invite when the user is already a member", async () => {
@@ -132,7 +134,7 @@ describe("acceptInviteHandler", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("https://example.com/t/acme");
-    expect(mockBatchD1).not.toHaveBeenCalled();
+    expect(mockBatchControl).not.toHaveBeenCalled();
   });
 
   it("returns 401 when there is no authenticated user", async () => {

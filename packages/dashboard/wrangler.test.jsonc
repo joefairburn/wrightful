@@ -8,14 +8,6 @@
   // production config has (rate limiters, cron triggers, observability,
   // public asset binding) is intentionally omitted — keeps the miniflare
   // instance small and test startup fast.
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "wrightful-test",
-      "database_id": "LOCAL_PLACEHOLDER",
-      "migrations_dir": "migrations",
-    },
-  ],
   "r2_buckets": [
     {
       "binding": "R2",
@@ -32,6 +24,10 @@
         "name": "TENANT",
         "class_name": "TenantDO",
       },
+      {
+        "name": "CONTROL",
+        "class_name": "ControlDO",
+      },
     ],
   },
   "migrations": [
@@ -42,6 +38,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["TenantDO"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["ControlDO"],
     },
   ],
   "vars": {

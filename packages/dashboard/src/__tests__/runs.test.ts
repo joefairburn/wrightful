@@ -9,7 +9,7 @@ const { tenantDbRef, batchCalls } = vi.hoisted(() => ({
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
-vi.mock("@/db", () => ({ getDb: vi.fn() }));
+vi.mock("@/control", () => ({ getControlDb: vi.fn() }));
 vi.mock("@/tenant", () => ({
   // Resolve the scope for API-key flows. Tests push their scripted
   // tenantDb into `tenantDbRef` before the handler runs.
@@ -40,9 +40,9 @@ import {
   appendResultsHandler,
   completeRunHandler,
 } from "../routes/api/runs";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 
-const mockedGetDb = vi.mocked(getDb);
+const mockedGetDb = vi.mocked(getControlDb);
 
 const AUTH_CTX = {
   apiKey: { id: "key-1", label: "test", projectId: "proj-1" },

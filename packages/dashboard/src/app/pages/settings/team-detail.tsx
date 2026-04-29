@@ -25,8 +25,7 @@ import {
   TableRow,
 } from "@/app/components/ui/table";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getDb } from "@/db";
-import { batchD1 } from "@/db/batch";
+import { getControlDb, batchControl } from "@/control";
 import { resolveTeamBySlug } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 import { readField } from "@/lib/form";
@@ -118,7 +117,7 @@ export async function SettingsTeamDetailPage() {
   const githubOrgSaved = url.searchParams.get("githubOrgSaved");
   const newInviteId = url.searchParams.get("newInvite");
 
-  const db = getDb();
+  const db = getControlDb();
   const [memberRows, projectRows, inviteRows] = await Promise.all([
     db
       .selectFrom("memberships")
@@ -697,7 +696,7 @@ export async function teamDetailHandler({
     }
 
     if (slug !== team.slug) {
-      const db = getDb();
+      const db = getControlDb();
       const clash = await db
         .selectFrom("teams")
         .select("id")
@@ -715,7 +714,7 @@ export async function teamDetailHandler({
     }
 
     try {
-      await getDb()
+      await getControlDb()
         .updateTable("teams")
         .set({ name, slug })
         .where("id", "=", team.id)
@@ -736,7 +735,7 @@ export async function teamDetailHandler({
     const normalized = raw.toLowerCase();
     if (normalized === "") {
       try {
-        await getDb()
+        await getControlDb()
           .updateTable("teams")
           .set({ githubOrgSlug: null })
           .where("id", "=", team.id)
@@ -778,7 +777,7 @@ export async function teamDetailHandler({
     }
 
     try {
-      await getDb()
+      await getControlDb()
         .updateTable("teams")
         .set({ githubOrgSlug: normalized })
         .where("id", "=", team.id)
@@ -799,7 +798,7 @@ export async function teamDetailHandler({
     const inviteId = ulid();
     const nowSeconds = Math.floor(Date.now() / 1000);
     try {
-      await getDb()
+      await getControlDb()
         .insertInto("teamInvites")
         .values({
           id: inviteId,
@@ -844,7 +843,7 @@ export async function teamDetailHandler({
       return Response.redirect(here, 302);
     }
     try {
-      await getDb()
+      await getControlDb()
         .deleteFrom("teamInvites")
         .where("id", "=", inviteId)
         .where("teamId", "=", team.id)
@@ -869,7 +868,7 @@ export async function teamDetailHandler({
       );
     }
 
-    const db = getDb();
+    const db = getControlDb();
     const projects = await db
       .selectFrom("projects")
       .select("id")
@@ -899,7 +898,7 @@ export async function teamDetailHandler({
     );
 
     try {
-      await batchD1(ops);
+      await batchControl(ops);
     } catch {
       return redirectWithParam(
         here,

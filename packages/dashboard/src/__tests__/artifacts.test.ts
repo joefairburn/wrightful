@@ -8,7 +8,7 @@ const { mockEnv, tenantDbRef } = vi.hoisted(() => ({
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
-vi.mock("@/db", () => ({ getDb: vi.fn() }));
+vi.mock("@/control", () => ({ getControlDb: vi.fn() }));
 vi.mock("@/tenant", () => ({
   tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) => {
     if (!apiKey || !tenantDbRef.current) return null;
@@ -30,9 +30,9 @@ import {
   type ScriptedDriver,
 } from "./helpers/test-db";
 import { registerHandler } from "../routes/api/artifacts";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 
-const mockedGetDb = vi.mocked(getDb);
+const mockedGetDb = vi.mocked(getControlDb);
 
 function makeRequest(body: unknown): Request {
   return new Request("https://example.com/api/artifacts/register", {

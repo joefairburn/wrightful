@@ -90,7 +90,7 @@ export interface FailingTestInput {
  *
  * Takes a pre-authorized `TenantScope` (or anything with a `db` handle
  * for the tenant DB, e.g. `ActiveProject`). The artifacts table lives in
- * the team's DO, never the control D1.
+ * the team's `TenantDO`, never the `ControlDO`.
  */
 export async function loadFailingArtifactActions(
   tenantDb: Pick<TenantScope, "db">["db"],

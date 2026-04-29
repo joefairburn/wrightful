@@ -12,7 +12,7 @@ const { dbRef } = vi.hoisted(() => ({
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
-vi.mock("@/db", () => ({ getDb: () => dbRef.current }));
+vi.mock("@/control", () => ({ getControlDb: () => dbRef.current }));
 vi.mock("ulid", () => ({ ulid: () => "membership-01" }));
 
 import { fetchUserOrgsFromGithub, hasReadOrgScope } from "../lib/github-orgs";
@@ -175,7 +175,7 @@ describe("joinTeamHandler", () => {
     const sqls = driver.queries.map((q) => q.sql);
     expect(sqls.some((s) => /insert into "memberships"/i.test(s))).toBe(true);
     expect(
-      sqls.some((s) => /delete from "team_suggestion_dismissals"/i.test(s)),
+      sqls.some((s) => /delete from "teamSuggestionDismissals"/i.test(s)),
     ).toBe(true);
   });
 

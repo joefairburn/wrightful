@@ -18,7 +18,7 @@ const { mockEnv, tenantStubs } = vi.hoisted(() => {
 });
 
 vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
-vi.mock("@/db", () => ({ getDb: vi.fn() }));
+vi.mock("@/control", () => ({ getControlDb: vi.fn() }));
 // Prevent the transitive `rwsdk/db` import (which ESM-fails in Node) from
 // loading. Tests exercise the fan-out by scripting stubs into
 // `tenantStubs` and overriding the internal accessor.
@@ -32,9 +32,9 @@ import {
   type ScriptedDriver,
 } from "./helpers/test-db";
 import { sweepStuckRuns } from "../scheduled";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 
-const mockedGetDb = vi.mocked(getDb);
+const mockedGetDb = vi.mocked(getControlDb);
 
 let controlDriver: ScriptedDriver;
 
@@ -105,7 +105,7 @@ describe("sweepStuckRuns", () => {
 
     // Control-DB query must filter teams against a 5-minute cutoff.
     const teamsQuery = controlDriver.queries[0];
-    expect(teamsQuery.sql).toMatch(/"last_activity_at"\s*>=\s*\?/);
+    expect(teamsQuery.sql).toMatch(/"lastActivityAt"\s*>=\s*\?/);
     const expectedCutoff = Math.floor(now.getTime() / 1000) - 5 * 60;
     expect(teamsQuery.parameters).toContain(expectedCutoff);
     expect(tenantStubs.get("team-a")!.sweepStuckRuns).toHaveBeenCalledWith(

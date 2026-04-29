@@ -3,7 +3,7 @@ import { requestInfo } from "rwsdk/worker";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { NotFoundPage } from "@/app/pages/not-found";
 import { LoginGithubButton } from "@/app/pages/login-github-button";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 import { getSuggestedTeamsForUser } from "@/lib/authz";
 import { hasReadOrgScope, refreshUserOrgs } from "@/lib/github-orgs";
 import type { AppContext } from "@/worker";
@@ -17,7 +17,7 @@ export async function SettingsProfilePage() {
   // rely on the cache alone for speed; this endpoint is the fresh source.
   const refresh = await refreshUserOrgs(ctx.user.id);
 
-  const db = getDb();
+  const db = getControlDb();
   const githubAccount = await db
     .selectFrom("account")
     .select(["scope"])

@@ -1,4 +1,4 @@
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 
 export type GithubOrgsFetchResult =
   | { kind: "ok"; orgs: string[] }
@@ -47,7 +47,7 @@ export async function fetchUserOrgsFromGithub(
 export async function getCachedUserOrgs(
   userId: string,
 ): Promise<CachedOrgs | null> {
-  const db = getDb();
+  const db = getControlDb();
   const row = await db
     .selectFrom("userGithubOrgs")
     .select(["orgSlugsJson", "refreshedAt", "scopeOk"])
@@ -72,7 +72,7 @@ export interface RefreshOutcome {
 }
 
 export async function refreshUserOrgs(userId: string): Promise<RefreshOutcome> {
-  const db = getDb();
+  const db = getControlDb();
   const account = await db
     .selectFrom("account")
     .select(["accessToken", "scope"])
@@ -118,7 +118,7 @@ async function upsertCache(
   userId: string,
   values: { orgSlugsJson: string; refreshedAt: number; scopeOk: 0 | 1 },
 ): Promise<void> {
-  const db = getDb();
+  const db = getControlDb();
   await db
     .insertInto("userGithubOrgs")
     .values({ userId, ...values })

@@ -21,8 +21,7 @@ import {
   TableRow,
 } from "@/app/components/ui/table";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getDb } from "@/db";
-import { batchD1 } from "@/db/batch";
+import { getControlDb, batchControl } from "@/control";
 import { resolveProjectBySlugs } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 import { readField } from "@/lib/form";
@@ -101,7 +100,7 @@ export async function SettingsProjectKeysPage() {
     );
   }
 
-  const db = getDb();
+  const db = getControlDb();
   const rows = await db
     .selectFrom("apiKeys")
     .selectAll()
@@ -422,7 +421,7 @@ export async function projectKeysHandler({
   const origin = new URL(request.url).origin;
   const here = `${origin}/settings/teams/${project.teamSlug}/p/${project.slug}/keys`;
 
-  const db = getDb();
+  const db = getControlDb();
 
   if (action === "create") {
     const label = readField(form, "label").trim();
@@ -527,7 +526,7 @@ export async function projectKeysHandler({
     }
 
     try {
-      await batchD1([
+      await batchControl([
         db.deleteFrom("apiKeys").where("projectId", "=", project.id),
         db
           .updateTable("userState")

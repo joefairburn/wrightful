@@ -3,10 +3,13 @@
  *
  * Runs once before any test worker starts, and the corresponding teardown runs
  * once after all tests complete (even if setup or a test threw). Sets up the
- * full sandbox: build the CLI, migrate the local D1, clean + seed a test user
- * + team + project + API key, swap in fake R2 creds and a local Better Auth
- * secret in .dev.vars, spawn the dashboard dev server, and run the Playwright
- * demo suite to produce a realistic JSON report for the CLI-upload test.
+ * full sandbox: build the CLI, wipe stale local DO state, swap in fake R2
+ * creds and a local Better Auth secret in .dev.vars, spawn the dashboard dev
+ * server, sign up a test user + create team + project + API key over HTTP
+ * (ControlDO bindings only exist inside the worker, so seeding goes through
+ * the running dashboard the same way `scripts/seed-demo.mjs` does), then run
+ * the Playwright demo suite to produce a realistic JSON report for the
+ * CLI-upload test.
  *
  * Values needed by tests (dashboard URL, API key, session cookie, slugs, file
  * paths) are passed via project.provide() and read with inject(). Teardown
@@ -14,7 +17,6 @@
  */
 
 import { type ChildProcess, execSync, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   existsSync,
   renameSync,
@@ -39,22 +41,19 @@ const DEV_VARS_BACKUP_PATH = resolve(DASHBOARD_DIR, ".dev.vars.e2e-backup");
 
 const PORT = 5188;
 const DASHBOARD_URL = `http://localhost:${PORT}`;
-const API_KEY = "wrf_e2e_test_key_00000000";
-const API_KEY_PREFIX = API_KEY.slice(0, 8);
-const API_KEY_HASH = createHash("sha256").update(API_KEY).digest("hex");
 const BETTER_AUTH_SECRET =
   "e2e-local-only-not-a-secret-openssl-rand-base64-32ch";
 
-const TEAM_ID = "01E2ETEAM0000000000000000T";
-const PROJECT_ID = "01E2EPROJ0000000000000000P";
-const MEMBERSHIP_ID = "01E2EMEMB0000000000000000M";
-const API_KEY_ID = "01E2EKEY000000000000000000";
+const TEAM_NAME = "E2E";
 const TEAM_SLUG = "e2e";
+const PROJECT_NAME = "Demo";
 const PROJECT_SLUG = "demo";
 
 const TEST_EMAIL = "e2e@wrightful.test";
 const TEST_PASSWORD = "e2e-e2e-e2e-password";
 const TEST_NAME = "E2E Tester";
+
+const REVEAL_COOKIE = "wrightful_reveal_key";
 
 // Fake secrets + vars scoped to the e2e dev server. BETTER_AUTH_SECRET is a
 // fixed local value. WRIGHTFUL_PUBLIC_URL overrides the wrangler.jsonc var so
@@ -80,7 +79,10 @@ function log(msg: string): void {
   console.log(`[e2e] ${msg}`);
 }
 
-function run(cmd: string, opts: { cwd?: string } = {}): string {
+function run(
+  cmd: string,
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+): string {
   return execSync(cmd, { stdio: "pipe", ...opts })
     .toString()
     .trim();
@@ -99,20 +101,59 @@ async function waitForServer(url: string, maxAttempts = 40): Promise<void> {
   throw new Error(`Server at ${url} did not start within ${maxAttempts}s`);
 }
 
-type SignUpResult = { userId: string; sessionCookie: string };
+/** Get cookie name=value pairs from a response, suitable for a Cookie header. */
+function readSetCookies(res: Response): string[] {
+  return res.headers.getSetCookie().map((raw) => raw.split(";")[0]);
+}
+
+type RequestOpts = {
+  cookies?: string[];
+  json?: unknown;
+  form?: Record<string, string>;
+};
+
+/**
+ * HTTP helper: never follows redirects (we read Location + Set-Cookie from
+ * 302s ourselves), always sends Origin (Better Auth's CSRF guard 403s
+ * `MISSING_OR_NULL_ORIGIN` otherwise).
+ */
+async function request(
+  method: string,
+  path: string,
+  opts: RequestOpts = {},
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    Origin: DASHBOARD_URL,
+  };
+  if (opts.cookies && opts.cookies.length > 0) {
+    headers.Cookie = opts.cookies.join("; ");
+  }
+  let body: string | undefined;
+  if (opts.json !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(opts.json);
+  } else if (opts.form) {
+    headers["Content-Type"] = "application/x-www-form-urlencoded";
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(opts.form)) {
+      params.set(k, v);
+    }
+    body = params.toString();
+  }
+  return fetch(`${DASHBOARD_URL}${path}`, {
+    method,
+    headers,
+    body,
+    redirect: "manual",
+  });
+}
+
+type SignUpResult = { userId: string; sessionCookies: string[] };
 
 async function signUpTestUser(): Promise<SignUpResult> {
-  const res = await fetch(`${DASHBOARD_URL}/api/auth/sign-up/email`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Origin: DASHBOARD_URL,
-    },
-    body: JSON.stringify({
-      email: TEST_EMAIL,
-      password: TEST_PASSWORD,
-      name: TEST_NAME,
-    }),
+  const res = await request("POST", "/api/auth/sign-up/email", {
+    json: { email: TEST_EMAIL, password: TEST_PASSWORD, name: TEST_NAME },
   });
   if (!res.ok) {
     const body = await res.text();
@@ -130,45 +171,117 @@ async function signUpTestUser(): Promise<SignUpResult> {
   ) {
     throw new Error("Sign-up response missing user.id");
   }
-  const userId = body.user.id;
-  const setCookie = res.headers.get("set-cookie");
-  if (!setCookie) {
+  const sessionCookies = readSetCookies(res);
+  if (sessionCookies.length === 0) {
     throw new Error("Sign-up did not return a session cookie");
   }
-  // The Set-Cookie header may contain multiple attributes separated by `;`.
-  // Just take the name=value pair for reuse in a `Cookie:` request header.
-  const sessionCookie = setCookie.split(";")[0];
-  return { userId, sessionCookie };
+  return { userId: body.user.id, sessionCookies };
+}
+
+async function createTeam(sessionCookies: string[]): Promise<void> {
+  const res = await request("POST", "/settings/teams/new", {
+    cookies: sessionCookies,
+    form: { name: TEAM_NAME },
+  });
+  if (res.status !== 302) {
+    throw new Error(
+      `team creation returned ${res.status}: ${(await res.text()) || "(empty body)"}`,
+    );
+  }
+  const location = res.headers.get("location") ?? "";
+  const match = location.match(/\/settings\/teams\/([^/?#]+)/);
+  if (!match) {
+    throw new Error(`team creation redirected to unexpected URL: ${location}`);
+  }
+  if (match[1] !== TEAM_SLUG) {
+    throw new Error(
+      `expected team slug "${TEAM_SLUG}" but got "${match[1]}" — DO state probably wasn't wiped`,
+    );
+  }
+}
+
+async function createProject(sessionCookies: string[]): Promise<void> {
+  const res = await request(
+    "POST",
+    `/settings/teams/${TEAM_SLUG}/projects/new`,
+    {
+      cookies: sessionCookies,
+      form: { name: PROJECT_NAME },
+    },
+  );
+  if (res.status !== 302) {
+    throw new Error(
+      `project creation returned ${res.status}: ${(await res.text()) || "(empty body)"}`,
+    );
+  }
+  // project-new redirects to /settings/teams/<TEAM_SLUG> on success and to
+  // /settings/teams/<TEAM_SLUG>/projects/new?error=… on validation
+  // failure. Both are 302s, so check the Location to tell them apart.
+  const location = res.headers.get("location") ?? "";
+  const expectedSuccessPath = `/settings/teams/${TEAM_SLUG}`;
+  let locationPath = location;
+  try {
+    locationPath = new URL(location, DASHBOARD_URL).pathname;
+  } catch {
+    /* fall through with raw value */
+  }
+  if (locationPath !== expectedSuccessPath) {
+    throw new Error(
+      `project creation redirected to unexpected URL: ${location}`,
+    );
+  }
+}
+
+async function mintApiKey(sessionCookies: string[]): Promise<string> {
+  const res = await request(
+    "POST",
+    `/settings/teams/${TEAM_SLUG}/p/${PROJECT_SLUG}/keys`,
+    {
+      cookies: sessionCookies,
+      form: { action: "create", label: "e2e-test" },
+    },
+  );
+  if (res.status !== 302) {
+    throw new Error(
+      `api key creation returned ${res.status}: ${(await res.text()) || "(empty body)"}`,
+    );
+  }
+  for (const raw of res.headers.getSetCookie()) {
+    const head = raw.split(";")[0];
+    const eq = head.indexOf("=");
+    if (eq < 0) continue;
+    if (head.slice(0, eq) === REVEAL_COOKIE) {
+      const value = head.slice(eq + 1);
+      if (value) return decodeURIComponent(value);
+    }
+  }
+  throw new Error(
+    "key creation succeeded but reveal cookie was missing — cannot recover the plaintext key.",
+  );
 }
 
 export async function setup(project: TestProject): Promise<void> {
   log("Step 1: Build reporter");
   run("pnpm build", { cwd: REPORTER_DIR });
 
-  log("Step 1b: Wipe tenant Durable Object state");
-  // Tenant-owned tables (runs, testResults, testTags, testAnnotations,
-  // testResultAttempts, artifacts) live inside each team's TenantDO, not
-  // D1 — see docs/worklog/2026-04-20-per-tenant-durable-objects.md. We
-  // blow away the on-disk miniflare DO state so repeat local runs start
-  // clean; CI runners are already clean so this is a no-op there.
-  for (const name of ["wrightful-TenantDO", "wrightful-SyncedStateServer"]) {
+  log("Step 2: Wipe Durable Object state");
+  // All persistent state lives in Durable Objects: auth/tenancy in
+  // ControlDO, runs/results/artifacts in TenantDO, realtime progress in
+  // SyncedStateServer. Each DO migrates itself lazily on first request, so
+  // wiping the on-disk miniflare state is enough to start clean; CI runners
+  // are already clean so this is a no-op there.
+  for (const name of [
+    "wrightful-ControlDO",
+    "wrightful-TenantDO",
+    "wrightful-SyncedStateServer",
+  ]) {
     rmSync(resolve(DASHBOARD_DIR, ".wrangler/state/v3/do", name), {
       recursive: true,
       force: true,
     });
   }
 
-  log("Step 2: Apply D1 migrations");
-  run("pnpm db:migrate:local", { cwd: DASHBOARD_DIR });
-
-  log("Step 3: Clean existing data (control D1 only)");
-  // Order matters — drop FK-dependent rows first.
-  run(
-    `npx wrangler d1 execute wrightful --local --command "DELETE FROM api_keys; DELETE FROM memberships; DELETE FROM session; DELETE FROM account; DELETE FROM verification; DELETE FROM user; DELETE FROM projects; DELETE FROM teams;"`,
-    { cwd: DASHBOARD_DIR },
-  );
-
-  log("Step 4: Write fake R2 creds + BETTER_AUTH_SECRET to .dev.vars");
+  log("Step 3: Write fake R2 creds + BETTER_AUTH_SECRET to .dev.vars");
   if (existsSync(DEV_VARS_BACKUP_PATH)) {
     throw new Error(
       `Refusing to start: ${DEV_VARS_BACKUP_PATH} already exists. A previous e2e run likely crashed before teardown. Inspect it and restore/remove manually.`,
@@ -181,7 +294,7 @@ export async function setup(project: TestProject): Promise<void> {
   devVarsBackedUp = true;
   writeFileSync(DEV_VARS_PATH, DEV_VARS, "utf8");
 
-  log("Step 5: Start dashboard dev server");
+  log("Step 4: Start dashboard dev server");
   devServer = spawn("npx", ["vite", "dev", "--port", String(PORT)], {
     cwd: DASHBOARD_DIR,
     stdio: "pipe",
@@ -200,20 +313,22 @@ export async function setup(project: TestProject): Promise<void> {
   }
   log("  Dashboard ready.");
 
-  log("Step 6: Create test user via Better Auth + seed team/project/key");
-  const { userId, sessionCookie } = await signUpTestUser();
-  const seedSql = [
-    `INSERT INTO teams (id, slug, name, created_at) VALUES ('${TEAM_ID}', '${TEAM_SLUG}', 'E2E', unixepoch());`,
-    `INSERT INTO projects (id, team_id, slug, name, created_at) VALUES ('${PROJECT_ID}', '${TEAM_ID}', '${PROJECT_SLUG}', 'Demo', unixepoch());`,
-    `INSERT INTO memberships (id, user_id, team_id, role, created_at) VALUES ('${MEMBERSHIP_ID}', '${userId}', '${TEAM_ID}', 'owner', unixepoch());`,
-    `INSERT INTO api_keys (id, project_id, label, key_hash, key_prefix, created_at) VALUES ('${API_KEY_ID}', '${PROJECT_ID}', 'e2e-test', '${API_KEY_HASH}', '${API_KEY_PREFIX}', unixepoch());`,
-  ].join(" ");
-  run(`npx wrangler d1 execute wrightful --local --command "${seedSql}"`, {
-    cwd: DASHBOARD_DIR,
-  });
+  log("Step 5: Sign up test user + create team/project/key over HTTP");
+  // ControlDO bindings only exist inside the worker, so seeding goes through
+  // the running dashboard the same way `scripts/seed-demo.mjs` does:
+  //   1. POST /api/auth/sign-up/email           → user + session cookie
+  //   2. POST /settings/teams/new               → team (slug from name)
+  //   3. POST /settings/teams/:slug/projects/new
+  //   4. POST /settings/teams/:slug/p/:slug/keys with action=create
+  //      → reveals plaintext key in `wrightful_reveal_key` Set-Cookie
+  const { sessionCookies } = await signUpTestUser();
+  const sessionCookie = sessionCookies[0];
+  await createTeam(sessionCookies);
+  await createProject(sessionCookies);
+  const apiKey = await mintApiKey(sessionCookies);
 
   log(
-    "Step 7: Run Playwright with the reporter — streams a real run into the dashboard",
+    "Step 6: Run Playwright with the reporter — streams a real run into the dashboard",
   );
   if (existsSync(REPORT_PATH)) unlinkSync(REPORT_PATH);
   try {
@@ -224,7 +339,7 @@ export async function setup(project: TestProject): Promise<void> {
       env: {
         ...process.env,
         WRIGHTFUL_URL: DASHBOARD_URL,
-        WRIGHTFUL_TOKEN: API_KEY,
+        WRIGHTFUL_TOKEN: apiKey,
       },
     });
   } catch {
@@ -235,7 +350,7 @@ export async function setup(project: TestProject): Promise<void> {
   }
 
   project.provide("dashboardUrl", DASHBOARD_URL);
-  project.provide("apiKey", API_KEY);
+  project.provide("apiKey", apiKey);
   project.provide("reportPath", REPORT_PATH);
   project.provide("dashboardDir", DASHBOARD_DIR);
   project.provide("sessionCookie", sessionCookie);

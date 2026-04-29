@@ -64,7 +64,7 @@ async function ensureDashboardRunning() {
   if (initial === 400) return;
   if (initial === 401) {
     console.error(
-      "dashboard rejected the demo API key. Wipe D1 and re-run `pnpm setup:local`.",
+      "dashboard rejected the demo API key. Delete `.dev.vars.seed.json` and `.wrangler/state/v3/do/wrightful-ControlDO/` then re-run `pnpm setup:local`.",
     );
     process.exit(1);
   }
@@ -100,7 +100,7 @@ async function ensureDashboardRunning() {
     }
     if (status === 401) {
       console.error(
-        "dashboard rejected the demo API key. Wipe D1 and re-run `pnpm setup:local`.",
+        "dashboard rejected the demo API key. Delete `.dev.vars.seed.json` and `.wrangler/state/v3/do/wrightful-ControlDO/` then re-run `pnpm setup:local`.",
       );
       process.exit(1);
     }

@@ -3,22 +3,16 @@
 A Playwright test reporting dashboard. Ships as two pieces:
 
 - **`@wrightful/reporter`** — Playwright reporter that streams results and artifacts to the dashboard live as each test completes.
-- **`@wrightful/dashboard`** — a Cloudflare Worker (Vite + React 19 RSC on RedwoodSDK, Kysely on D1, Durable Objects for per-team test data, R2 for artifacts) that ingests results and serves the UI.
+- **`@wrightful/dashboard`** — a Cloudflare Worker (Vite + React 19 RSC on RedwoodSDK, Kysely over Durable Objects: a singleton `ControlDO` for auth/tenancy and one `TenantDO` per team for test data; R2 for artifacts) that ingests results and serves the UI.
 
 ## Deploy your own dashboard
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/joefairburn/wrightful/tree/main/packages/dashboard)
 
-One click provisions a D1 database, an R2 bucket, and the Worker bindings from `packages/dashboard/wrangler.jsonc`, then runs `deploy` — which applies D1 migrations before publishing the worker, so the schema is ready on first load. Artifact uploads and downloads use the native R2 binding, so no S3 credentials are needed. A few manual steps remain:
+One click provisions an R2 bucket and the Durable Object classes (`ControlDO`, `TenantDO`, `SyncedStateServer`) from `packages/dashboard/wrangler.jsonc`, then runs `deploy`. Each DO migrates itself lazily on first access — no separate migrate step. Artifact uploads and downloads use the native R2 binding, so no S3 credentials are needed. A few manual steps remain:
 
-1. **Sign up** in the deployed dashboard and **create a team + project** via `/admin/teams/new` and `/admin/t/<team-slug>/projects/new`.
-2. **Seed an initial API key**, scoped to that project.
-
-   ```bash
-   pnpm --filter @wrightful/dashboard db:seed-api-key "my-laptop" --team <team-slug> --project <project-slug>
-   ```
-
-   Save the printed key — the server only stores its SHA-256 hash.
+1. **Sign up** in the deployed dashboard and **create a team + project** via `/settings/teams/new` and `/settings/teams/<team-slug>/projects/new`.
+2. **Mint an API key** from the project's keys page (`/settings/teams/<team-slug>/p/<project-slug>/keys`). The plaintext key is shown once on creation; the server only stores its SHA-256 hash.
 
 ## Wire up the reporter
 
@@ -51,11 +45,11 @@ Results appear in the dashboard live as tests complete. Shards converge on a sin
 
 ```bash
 pnpm install
-pnpm setup:local                                # .dev.vars + D1 migrations + demo data
+pnpm setup:local                                # .dev.vars + demo team/project/API key (over HTTP)
 pnpm dev                                        # dashboard on localhost
 
-# Seed an additional API key for local testing (optional):
-pnpm --filter @wrightful/dashboard db:seed-api-key e2e --team <team-slug> --project <project-slug> --local
+# Need additional API keys for local testing? Mint them from the dashboard
+# at http://localhost:5173/settings/teams/<team-slug>/p/<project-slug>/keys.
 
 # Populate months of synthetic run history instead of the small Playwright
 # fixture set (exercises the history chart, flaky tests page, run-list
@@ -64,4 +58,4 @@ pnpm setup:local --history                              # 3 months, seed=wrightf
 pnpm setup:local --history --history-months 6           # 6 months
 ```
 
-See [`CLAUDE.md`](./CLAUDE.md) for the full command reference (tests, lint, typecheck, migrations) and [`docs/worklog/`](./docs/worklog/) for decision history.
+See [`CLAUDE.md`](./CLAUDE.md) for the full command reference (tests, lint, typecheck) and [`docs/worklog/`](./docs/worklog/) for decision history.

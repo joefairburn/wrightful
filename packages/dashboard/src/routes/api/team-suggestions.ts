@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 import { refreshUserOrgs } from "@/lib/github-orgs";
 import type { AppContext } from "@/worker";
 
@@ -20,7 +20,7 @@ export async function joinTeamHandler({ request, ctx, params }: HandlerArgs) {
 
   const teamSlug = params.teamSlug;
   const origin = new URL(request.url).origin;
-  const db = getDb();
+  const db = getControlDb();
 
   const team = await db
     .selectFrom("teams")
@@ -87,7 +87,7 @@ export async function dismissSuggestionHandler({
   const teamId = params.teamId;
   if (!teamId) return new Response("Bad request", { status: 400 });
 
-  const db = getDb();
+  const db = getControlDb();
   const now = Math.floor(Date.now() / 1000);
   await db
     .insertInto("teamSuggestionDismissals")
@@ -109,7 +109,7 @@ export async function undismissSuggestionHandler({
   const teamId = params.teamId;
   if (!teamId) return new Response("Bad request", { status: 400 });
 
-  const db = getDb();
+  const db = getControlDb();
   await db
     .deleteFrom("teamSuggestionDismissals")
     .where("userId", "=", ctx.user.id)

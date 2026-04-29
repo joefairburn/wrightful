@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import { ulid } from "ulid";
 import {
@@ -13,7 +13,7 @@ import {
 } from "@/routes/api/progress";
 import { tenantScopeForApiKey } from "@/tenant";
 import { getTenantDb } from "@/tenant/internal";
-import { ensureControlSchema, seedTeamAndProject } from "./helpers/tenant";
+import { seedTeamAndProject } from "./helpers/tenant";
 // Workers RPC always wraps stub method calls in Promises at runtime.
 // Typed separately here so `await stub.getState(...)` satisfies oxlint's
 // await-thenable rule (the real SyncedStateServer class declares getState
@@ -30,14 +30,11 @@ interface TestEnvWithRealtime {
 const testEnvRt = env as unknown as TestEnvWithRealtime;
 
 /**
- * End-to-end ingest flow against real D1 + real tenant DO. No mocks.
- * Mirrors what a reporter does: opens a run, appends results in a batch,
- * marks it complete. Asserts the resulting aggregates + test list match.
+ * End-to-end ingest flow against the real ControlDO + real tenant DO. No
+ * mocks. Mirrors what a reporter does: opens a run, appends results in a
+ * batch, marks it complete. Asserts the resulting aggregates + test list
+ * match.
  */
-
-beforeAll(async () => {
-  await ensureControlSchema();
-});
 
 function jsonRequest(url: string, body: unknown): Request {
   return new Request(`https://example.com${url}`, {

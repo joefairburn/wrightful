@@ -58,7 +58,7 @@
       }
     }
   ],
-  "ignorePatterns": ["dist", "coverage", ".wrangler", "*.d.ts", "drizzle"],
+  "ignorePatterns": ["dist", "coverage", ".wrangler", "*.d.ts"],
   "options": {
     "typeAware": true
   }

@@ -28,6 +28,7 @@ export class SyncedStateServer extends DurableObject {
 }
 
 export { TenantDO } from "@/tenant/tenant-do";
+export { ControlDO } from "@/control/control-do";
 
 // Workers require a default export with at least a `fetch` handler.
 // Integration tests call the DO / control-DB layer directly, so this is a

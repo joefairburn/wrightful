@@ -74,7 +74,7 @@ describe("parseRunsFilters", () => {
     expect(parse("q=%20%20login%20%20").q).toBe("login");
   });
 
-  it("caps list filters at 50 values to stay under D1's 100-param limit", () => {
+  it("caps list filters at 50 values to stay well under SQLite's parameter limit", () => {
     const branches = Array.from({ length: 120 }, (_, i) => `b${i}`).join(",");
     const f = parse(`branch=${branches}`);
     expect(f.branch).toHaveLength(50);

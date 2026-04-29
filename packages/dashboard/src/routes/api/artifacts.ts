@@ -10,8 +10,7 @@ import type { AppContext } from "@/worker";
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 52_428_800; // 50 MiB
 
-// SQLite inside a DO doesn't enforce D1's 100-param cap, but we keep the
-// statement size bounded so a single huge reporter batch doesn't blow up
+// Bound statement size so a single huge reporter batch doesn't blow up
 // memory in the RPC round-trip. 9 columns × 11 rows = 99 params.
 const MAX_PARAMS_PER_STATEMENT = 99;
 const ARTIFACT_COLUMNS = 9;

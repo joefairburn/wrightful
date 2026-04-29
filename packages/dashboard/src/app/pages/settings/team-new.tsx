@@ -5,8 +5,7 @@ import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { Button } from "@/app/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/app/components/ui/field";
 import { Input } from "@/app/components/ui/input";
-import { getDb } from "@/db";
-import { batchD1 } from "@/db/batch";
+import { getControlDb, batchControl } from "@/control";
 import { readField } from "@/lib/form";
 import type { AppContext } from "@/worker";
 
@@ -125,7 +124,7 @@ export async function createTeamHandler({
     );
   }
 
-  const db = getDb();
+  const db = getControlDb();
   const existingRows = await db
     .selectFrom("teams")
     .select("slug")
@@ -139,7 +138,7 @@ export async function createTeamHandler({
   const teamId = ulid();
   const nowSeconds = Math.floor(Date.now() / 1000);
   try {
-    await batchD1([
+    await batchControl([
       db.insertInto("teams").values({
         id: teamId,
         slug,

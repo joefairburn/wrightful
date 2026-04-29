@@ -1,4 +1,4 @@
-import { getDb } from "@/db";
+import { getControlDb } from "@/control";
 import { getCachedUserOrgs } from "@/lib/github-orgs";
 
 export type TeamRole = "owner" | "member";
@@ -8,7 +8,7 @@ export async function getTeamRole(
   userId: string,
   teamId: string,
 ): Promise<TeamRole | null> {
-  const db = getDb();
+  const db = getControlDb();
   const row = await db
     .selectFrom("memberships")
     .select("role")
@@ -34,7 +34,7 @@ export async function resolveTeamBySlug(
   role: TeamRole;
   githubOrgSlug: string | null;
 } | null> {
-  const db = getDb();
+  const db = getControlDb();
   const row = await db
     .selectFrom("teams")
     .innerJoin("memberships", (join) =>
@@ -59,7 +59,7 @@ export async function resolveTeamBySlug(
 export async function getTeamProjects(
   teamId: string,
 ): Promise<{ slug: string; name: string }[]> {
-  const db = getDb();
+  const db = getControlDb();
   return db
     .selectFrom("projects")
     .select(["slug", "name"])
@@ -70,7 +70,7 @@ export async function getTeamProjects(
 export async function getUserTeams(
   userId: string,
 ): Promise<{ slug: string; name: string }[]> {
-  const db = getDb();
+  const db = getControlDb();
   return db
     .selectFrom("teams")
     .innerJoin("memberships", "memberships.teamId", "teams.id")
@@ -102,7 +102,7 @@ export async function getSuggestedTeamsForUser(
   const cached = await getCachedUserOrgs(userId);
   if (!cached || cached.orgs.length === 0) return [];
 
-  const db = getDb();
+  const db = getControlDb();
   const rows = await db
     .selectFrom("teams")
     .leftJoin("memberships", (join) =>
@@ -159,7 +159,7 @@ export async function resolveProjectBySlugs(
   teamSlug: string;
   role: TeamRole;
 } | null> {
-  const db = getDb();
+  const db = getControlDb();
   const row = await db
     .selectFrom("projects")
     .innerJoin("teams", "teams.id", "projects.teamId")
