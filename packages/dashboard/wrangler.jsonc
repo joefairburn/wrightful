@@ -119,13 +119,13 @@
       "simple": { "limit": 300, "period": 60 },
     },
   ],
-  // Give large artifact uploads room to stream through the Worker — CPU time
-  // is only charged for active compute (streaming body → R2.put is I/O-bound)
-  // but the default 30 s cap can trip on slow clients. Paid plan only; Free
-  // plans ignore this setting.
-  "limits": {
-    "cpu_ms": 300000,
-  },
+  // Note: a `"limits": { "cpu_ms": ... }` block here would extend the default
+  // 30 s CPU cap (useful for large artifact uploads on slow clients), but
+  // Cloudflare rejects the setting outright on the Free plan (API error
+  // 100328) rather than silently ignoring it. Streaming body → R2.put is
+  // I/O-bound so the default cap is usually fine; self-hosters on the Paid
+  // plan who hit the cap can add their own limits block.
+  //
   // Secrets (set via `wrangler secret put`, or placed in `.dev.vars` locally):
   //   BETTER_AUTH_SECRET     — Required. ≥32-char signing secret. Generate with
   //                            `openssl rand -base64 32`. Also used to sign
