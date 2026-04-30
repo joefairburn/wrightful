@@ -254,10 +254,10 @@ function AppSidebarContents({
               key={item.id}
               href={item.disabled ? undefined : item.href}
               className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors border-l-2",
+                "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
                 active
-                  ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-semibold"
-                  : "border-transparent text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                  ? "bg-sidebar-accent text-sidebar-foreground font-semibold"
+                  : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
                 item.disabled &&
                   "opacity-40 cursor-not-allowed pointer-events-none",
               )}
@@ -273,7 +273,7 @@ function AppSidebarContents({
         <div className="flex flex-col gap-0.5 px-2 pb-5 shrink-0">
           <a
             href="/settings"
-            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm border-l-2 border-transparent text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
+            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
           >
             <Settings size={16} />
             Settings
@@ -315,10 +315,10 @@ function SettingsSidebarContents({
           <a
             href="/settings/profile"
             className={cn(
-              "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors border-l-2",
+              "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
               profileActive
-                ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-semibold"
-                : "border-transparent text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                ? "bg-sidebar-accent text-sidebar-foreground font-semibold"
+                : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
             )}
           >
             <UserRound size={16} />
@@ -344,10 +344,10 @@ function SettingsSidebarContents({
                   key={team.slug}
                   href={href}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors border-l-2 min-w-0",
+                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors min-w-0",
                     active
-                      ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-semibold"
-                      : "border-transparent text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                      ? "bg-sidebar-accent text-sidebar-foreground font-semibold"
+                      : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
                   )}
                 >
                   <span className="flex size-5 shrink-0 items-center justify-center rounded-sm border border-sidebar-border bg-sidebar-accent font-mono font-semibold text-[10px] text-sidebar-foreground/70 uppercase">
@@ -361,10 +361,10 @@ function SettingsSidebarContents({
           <a
             href="/settings/teams/new"
             className={cn(
-              "mt-1 flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors border-l-2",
+              "mt-1 flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
               pathname === "/settings/teams/new"
-                ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-semibold"
-                : "border-transparent text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                ? "bg-sidebar-accent text-sidebar-foreground font-semibold"
+                : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground",
             )}
           >
             <Plus size={16} />

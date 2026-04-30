@@ -58,6 +58,17 @@ function buildAuth() {
       requireEmailVerification: false,
     },
     socialProviders,
+    session: {
+      // Sign the resolved session into a short-lived cookie alongside the
+      // session ID. Subsequent requests verify the signature in-memory and
+      // skip the ControlDO `sessions` lookup until the cache ages out.
+      // Tradeoff: a sign-out / revoke from another device only takes effect
+      // on this device when the cookie expires (max 5 min).
+      cookieCache: {
+        enabled: true,
+        maxAge: 5 * 60,
+      },
+    },
     databaseHooks: {
       account: {
         // Pre-warm the user's GitHub-org cache on their first OAuth login

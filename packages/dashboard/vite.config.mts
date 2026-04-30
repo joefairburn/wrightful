@@ -12,17 +12,6 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
-  environments: {
-    ssr: {
-      optimizeDeps: {
-        // Pre-bundle rwsdk's client entry for useSyncedState so it isn't
-        // discovered mid-boot. Otherwise the ssr env re-optimizes on first
-        // start and the cloudflare worker runner can't recover ("There is a
-        // new version of the pre-bundle..."), killing `setup:local`.
-        include: ["rwsdk/use-synced-state/client"],
-      },
-    },
-  },
   plugins: [
     cloudflare({
       viteEnvironment: { name: "worker" },
