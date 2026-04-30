@@ -18,10 +18,10 @@ declare namespace Cloudflare {
     WRIGHTFUL_MAX_ARTIFACT_BYTES: string;
 
     // Required: public origin of the dashboard. Used by Better Auth for
-    // OAuth callback URLs and artifact download token audiences. Declared
-    // as an empty placeholder in wrangler.jsonc so self-hosters see it in
-    // the Cloudflare dashboard's Variables tab; deploy scripts use
-    // `--keep-vars` so the dashboard-set value survives.
+    // OAuth callback URLs and artifact download token audiences. Set in
+    // Workers & Pages → Settings → Variables; intentionally NOT declared
+    // in wrangler.jsonc so `--keep-vars` can preserve the dashboard value
+    // across deploys. Locally, set in `.dev.vars`.
     WRIGHTFUL_PUBLIC_URL: string;
 
     // Secrets — set via `wrangler secret put` (or .dev.vars locally).
