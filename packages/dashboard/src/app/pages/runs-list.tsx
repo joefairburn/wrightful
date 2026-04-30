@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { GitBranch, GitCommit, GitPullRequest } from "lucide-react";
 import { requestInfo } from "rwsdk/worker";
 import {
@@ -6,11 +7,7 @@ import {
 } from "@/app/components/runs-filter-bar";
 import { RunRowProgressIsland } from "@/app/components/run-progress";
 import { RunTestsPopover } from "@/app/components/run-tests-popover";
-import {
-  composeRunProgress,
-  runRoomId,
-  type RunProgress,
-} from "@/routes/api/progress";
+import { composeRunProgressBatch, runRoomId } from "@/routes/api/progress";
 import {
   Empty,
   EmptyContent,
@@ -27,6 +24,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/app/components/ui/pagination";
+import { Skeleton } from "@/app/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -36,7 +34,7 @@ import {
   TableRow,
 } from "@/app/components/ui/table";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getActiveProject } from "@/lib/active-project";
+import { type ActiveProject, getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
 import {
@@ -44,6 +42,7 @@ import {
   DEFAULT_PAGE_SIZE,
   hasAnyFilter,
   parseRunsFilters,
+  type RunsFilters,
   toSearchParams,
 } from "@/lib/runs-filters";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
@@ -58,6 +57,12 @@ const STATUS_DOT: Record<string, string> = {
   running: "bg-primary animate-pulse shadow-[0_0_6px_var(--color-primary)]",
 };
 
+const EMPTY_FILTER_OPTIONS = {
+  branches: [] as string[],
+  actors: [] as string[],
+  environments: [] as string[],
+};
+
 export async function RunsListPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
@@ -65,27 +70,104 @@ export async function RunsListPage() {
   const url = new URL(requestInfo.request.url);
   const filters = parseRunsFilters(url.searchParams);
   const filtersActive = hasAnyFilter(filters);
+  const base = `/t/${project.teamSlug}/p/${project.slug}`;
 
-  const totalsRow = await project.db
+  // Kick off the totals query eagerly; both the header badge and the table
+  // section await it inside their own Suspense boundaries, so the query runs
+  // once and feeds both regions as they stream in.
+  const totalRunsPromise = countTotalRuns(project, filters);
+
+  return (
+    <>
+      {/* Page header — count badge streams in independently */}
+      <div className="px-6 py-4 flex items-center justify-between border-b border-border shrink-0 gap-4">
+        <div className="flex items-center gap-3 shrink-0">
+          <h2 className="text-base font-semibold tracking-tight">All Runs</h2>
+          <Suspense fallback={<TotalRunsBadgeFallback />}>
+            <TotalRunsBadge
+              promise={totalRunsPromise}
+              filtersActive={filtersActive}
+            />
+          </Suspense>
+        </div>
+        <RunsSearchInput filters={filters} pathname={base} />
+      </div>
+
+      {/* Filter bar — dropdown options stream in */}
+      <div className="px-6 py-3 border-b border-border shrink-0">
+        <Suspense
+          fallback={
+            <RunsFilterBar
+              filters={filters}
+              options={EMPTY_FILTER_OPTIONS}
+              pathname={base}
+            />
+          }
+        >
+          <FilterBarLoader
+            project={project}
+            filters={filters}
+            pathname={base}
+          />
+        </Suspense>
+      </div>
+
+      {/* Table area + footer — runs + pagination stream in together */}
+      <Suspense fallback={<RunsTableFallback />}>
+        <RunsTableSection
+          project={project}
+          filters={filters}
+          url={url}
+          base={base}
+          totalRunsPromise={totalRunsPromise}
+        />
+      </Suspense>
+    </>
+  );
+}
+
+function countTotalRuns(
+  project: ActiveProject,
+  filters: RunsFilters,
+): Promise<number> {
+  return project.db
     .selectFrom("runs")
     .select((eb) => eb.fn.countAll<number>().as("value"))
     .where((eb) => buildRunsWhere(eb, project.id, filters))
-    .executeTakeFirst();
-  const totalRuns = totalsRow?.value ?? 0;
+    .executeTakeFirst()
+    .then((row) => row?.value ?? 0);
+}
 
-  const totalPages = Math.max(1, Math.ceil(totalRuns / DEFAULT_PAGE_SIZE));
-  const currentPage = Math.min(filters.page, totalPages);
-  const offset = (currentPage - 1) * DEFAULT_PAGE_SIZE;
+async function TotalRunsBadge({
+  promise,
+  filtersActive,
+}: {
+  promise: Promise<number>;
+  filtersActive: boolean;
+}): Promise<React.ReactElement> {
+  const totalRuns = await promise;
+  return (
+    <span className="px-2 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-xs border border-border/50">
+      {totalRuns}
+      {filtersActive ? " match" : " total"}
+    </span>
+  );
+}
 
-  const [allRuns, branchRows, actorRows, envRows] = await Promise.all([
-    project.db
-      .selectFrom("runs")
-      .selectAll()
-      .where((eb) => buildRunsWhere(eb, project.id, filters))
-      .orderBy("createdAt", "desc")
-      .limit(DEFAULT_PAGE_SIZE)
-      .offset(offset)
-      .execute(),
+function TotalRunsBadgeFallback(): React.ReactElement {
+  return <Skeleton className="h-[18px] w-14" />;
+}
+
+async function FilterBarLoader({
+  project,
+  filters,
+  pathname,
+}: {
+  project: ActiveProject;
+  filters: RunsFilters;
+  pathname: string;
+}): Promise<React.ReactElement> {
+  const [branchRows, actorRows, envRows] = await Promise.all([
     project.db
       .selectFrom("runs")
       .select("branch as value")
@@ -112,19 +194,6 @@ export async function RunsListPage() {
       .execute(),
   ]);
 
-  const fromRow = totalRuns === 0 ? 0 : offset + 1;
-  const toRow = offset + allRuns.length;
-
-  const pageHref = (page: number): string => {
-    // Reserialize from the parsed filters so rwsdk-internal params (e.g.
-    // `__rsc`) added during an RSC navigation don't leak into subsequent
-    // links — preserving `__rsc` turns the next click into a raw-RSC fetch.
-    const qs = toSearchParams({ ...filters, page }).toString();
-    return qs ? `${url.pathname}?${qs}` : url.pathname;
-  };
-
-  const pageWindow = buildPageWindow(currentPage, totalPages);
-
   const options = {
     branches: branchRows
       .map((r) => r.value)
@@ -140,39 +209,121 @@ export async function RunsListPage() {
       .sort(),
   };
 
+  return (
+    <RunsFilterBar filters={filters} options={options} pathname={pathname} />
+  );
+}
+
+function RunsTableFallback(): React.ReactElement {
+  return (
+    <>
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-muted/30 backdrop-blur-sm">
+            <TableRow className="border-b border-border hover:bg-transparent dark:hover:bg-transparent">
+              <TableHead className="w-8 px-4" />
+              <TableHead className="px-4 font-mono text-[11px] uppercase tracking-wider">
+                Commit
+              </TableHead>
+              <TableHead className="w-28 px-4 font-mono text-[11px] uppercase tracking-wider">
+                Env
+              </TableHead>
+              <TableHead className="w-52 px-4 font-mono text-[11px] uppercase tracking-wider">
+                Tests
+              </TableHead>
+              <TableHead className="w-24 px-4 font-mono text-[11px] uppercase tracking-wider text-right">
+                Duration
+              </TableHead>
+              <TableHead className="w-28 px-4 font-mono text-[11px] uppercase tracking-wider text-right">
+                Started
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <TableRow key={`skel-${i}`} className="border-b border-border/50">
+                <TableCell className="px-4 py-3 text-center">
+                  <Skeleton className="size-2.5 rounded-full mx-auto" />
+                </TableCell>
+                <TableCell className="px-4 py-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Skeleton className="h-3 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
+                  </div>
+                </TableCell>
+                <TableCell className="px-4 py-3">
+                  <Skeleton className="h-4 w-16" />
+                </TableCell>
+                <TableCell className="px-4 py-3">
+                  <Skeleton className="h-5 w-32" />
+                </TableCell>
+                <TableCell className="px-4 py-3 text-right">
+                  <Skeleton className="h-3 w-12 ml-auto" />
+                </TableCell>
+                <TableCell className="px-4 py-3 text-right">
+                  <Skeleton className="h-3 w-14 ml-auto" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="px-6 py-3 border-t border-border flex justify-between items-center gap-4 text-xs text-muted-foreground font-mono bg-background shrink-0">
+        <Skeleton className="h-3 w-32" />
+      </div>
+    </>
+  );
+}
+
+async function RunsTableSection({
+  project,
+  filters,
+  url,
+  base,
+  totalRunsPromise,
+}: {
+  project: ActiveProject;
+  filters: RunsFilters;
+  url: URL;
+  base: string;
+  totalRunsPromise: Promise<number>;
+}): Promise<React.ReactElement> {
+  const totalRuns = await totalRunsPromise;
+  const totalPages = Math.max(1, Math.ceil(totalRuns / DEFAULT_PAGE_SIZE));
+  const currentPage = Math.min(filters.page, totalPages);
+  const offset = (currentPage - 1) * DEFAULT_PAGE_SIZE;
+
+  const allRuns = await project.db
+    .selectFrom("runs")
+    .selectAll()
+    .where((eb) => buildRunsWhere(eb, project.id, filters))
+    .orderBy("createdAt", "desc")
+    .limit(DEFAULT_PAGE_SIZE)
+    .offset(offset)
+    .execute();
+
   // Seed RunProgress for each running row so the island has accurate SSR
   // state before its WS connects. Historical runs skip this compose.
-  const runningProgress = new Map<string, RunProgress>();
-  await Promise.all(
-    allRuns
-      .filter((r) => r.status === "running")
-      .map(async (r) => {
-        const p = await composeRunProgress(project, r.id);
-        if (p) runningProgress.set(r.id, p);
-      }),
+  const runningProgress = await composeRunProgressBatch(
+    project,
+    allRuns.filter((r) => r.status === "running"),
   );
 
-  const base = `/t/${project.teamSlug}/p/${project.slug}`;
+  const fromRow = totalRuns === 0 ? 0 : offset + 1;
+  const toRow = offset + allRuns.length;
+
+  const pageHref = (page: number): string => {
+    // Reserialize from the parsed filters so rwsdk-internal params (e.g.
+    // `__rsc`) added during an RSC navigation don't leak into subsequent
+    // links — preserving `__rsc` turns the next click into a raw-RSC fetch.
+    const qs = toSearchParams({ ...filters, page }).toString();
+    return qs ? `${url.pathname}?${qs}` : url.pathname;
+  };
+
+  const pageWindow = buildPageWindow(currentPage, totalPages);
 
   return (
     <>
-      {/* Page header */}
-      <div className="px-6 py-4 flex items-center justify-between border-b border-border shrink-0 gap-4">
-        <div className="flex items-center gap-3 shrink-0">
-          <h2 className="text-base font-semibold tracking-tight">All Runs</h2>
-          <span className="px-2 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-xs border border-border/50">
-            {totalRuns}
-            {filtersActive ? " match" : " total"}
-          </span>
-        </div>
-        <RunsSearchInput filters={filters} pathname={base} />
-      </div>
-
-      {/* Filter bar */}
-      <div className="px-6 py-3 border-b border-border shrink-0">
-        <RunsFilterBar filters={filters} options={options} pathname={base} />
-      </div>
-
       {/* Table area */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {allRuns.length === 0 ? (

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { ArrowLeft, GitCommit, GitPullRequest } from "lucide-react";
 import type React from "react";
 import { requestInfo } from "rwsdk/worker";
@@ -13,12 +14,17 @@ import {
   RunSummaryIsland,
   RunTestsIsland,
 } from "@/app/components/run-progress";
+import { Skeleton } from "@/app/components/ui/skeleton";
 import { NotFoundPage } from "@/app/pages/not-found";
-import { getActiveProject } from "@/lib/active-project";
+import { type ActiveProject, getActiveProject } from "@/lib/active-project";
 import { cn } from "@/lib/cn";
 import { prUrl } from "@/lib/pr-url";
 import { param } from "@/lib/route-params";
-import { composeRunProgress, runRoomId } from "@/routes/api/progress";
+import {
+  composeRunProgressBatch,
+  type RunProgress,
+  runRoomId,
+} from "@/routes/api/progress";
 import { loadFailingArtifactActions } from "@/lib/test-artifact-actions";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
@@ -42,6 +48,21 @@ const STATUS_LABEL: Record<string, string> = {
   running: "Running",
 };
 
+interface HistoryRow {
+  id: string;
+  status: string;
+  durationMs: number;
+  createdAt: number;
+  branch: string | null;
+  commitSha: string | null;
+  commitMessage: string | null;
+}
+
+type RunRow = Awaited<ReturnType<typeof loadRun>>;
+type ArtifactActionsByTestId = Awaited<
+  ReturnType<typeof loadFailingArtifactActions>
+>;
+
 function EnvRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex justify-between items-center text-sm">
@@ -57,127 +78,15 @@ export async function RunDetailPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
-  const run = await project.db
-    .selectFrom("runs")
-    .selectAll()
-    .where("id", "=", runId)
-    .where("projectId", "=", project.id)
-    .where("committed", "=", 1)
-    .limit(1)
-    .executeTakeFirst();
+  const run = await loadRun(project, runId);
+  if (!run) return <NotFoundPage />;
 
-  const base = `/t/${project.teamSlug}/p/${project.slug}`;
-
-  if (!run) {
-    return <NotFoundPage />;
-  }
-
-  // Last 30 runs, filtered by branch. The effective branch comes from
-  // `?branch` (so a reviewer can widen to all branches or jump to another
-  // branch's history) and defaults to the current run's branch. `committed = 1`
-  // hides the uncommitted rows we filter everywhere else.
   const url = new URL(requestInfo.request.url);
   const branchParam = url.searchParams.get("branch");
   const defaultBranch = run.branch ?? ALL_BRANCHES;
   const effectiveBranch = branchParam ?? defaultBranch;
-
-  let historyQuery = project.db
-    .selectFrom("runs")
-    .select([
-      "id",
-      "status",
-      "durationMs",
-      "createdAt",
-      "branch",
-      "commitSha",
-      "commitMessage",
-    ])
-    .where("projectId", "=", project.id)
-    .where("committed", "=", 1);
-  if (effectiveBranch !== ALL_BRANCHES) {
-    historyQuery = historyQuery.where("branch", "=", effectiveBranch);
-  }
-
-  const [progress, history, branchRows] = await Promise.all([
-    composeRunProgress(project, runId),
-    historyQuery.orderBy("createdAt", "desc").limit(30).execute(),
-    project.db
-      .selectFrom("runs")
-      .select("branch as value")
-      .distinct()
-      .where("projectId", "=", project.id)
-      .where("committed", "=", 1)
-      .where("branch", "is not", null)
-      .execute(),
-  ]);
-  if (!progress) return <NotFoundPage />;
-
-  const branches = branchRows
-    .map((r) => r.value)
-    .filter((v): v is string => !!v)
-    .sort();
-
+  const base = `/t/${project.teamSlug}/p/${project.slug}`;
   const origin = url.origin;
-  const artifactActionsByTestId = await loadFailingArtifactActions(
-    project.db,
-    progress.tests.map((t) => ({
-      id: t.id,
-      status: t.status,
-      retryCount: t.retryCount,
-    })),
-    origin,
-  );
-
-  const chronological = [...history].reverse();
-  // Preserve the active branch filter when clicking a historical bar so the
-  // reviewer stays in the same "view" as they scrub through runs. We only
-  // append the param when it was explicitly set in the URL — otherwise the
-  // default (current run's branch) should resolve fresh on the next page.
-  const hrefQuery = branchParam
-    ? `?branch=${encodeURIComponent(branchParam)}`
-    : "";
-  const historyPoints: RunHistoryPoint[] = chronological.map((h) => ({
-    id: h.id,
-    durationMs: h.durationMs,
-    status: h.status,
-    current: h.id === runId,
-    href: h.id === runId ? undefined : `${base}/runs/${h.id}${hrefQuery}`,
-    hover:
-      h.id === runId
-        ? undefined
-        : {
-            kind: "run" as const,
-            teamSlug: project.teamSlug,
-            projectSlug: project.slug,
-            runId: h.id,
-          },
-    label: [
-      h.status,
-      formatDuration(h.durationMs),
-      formatRelativeTime(h.createdAt),
-      h.commitSha ? h.commitSha.slice(0, 7) : null,
-    ]
-      .filter(Boolean)
-      .join(" · "),
-  }));
-  const currentInHistory = historyPoints.some((p) => p.current);
-  const historyStats = (() => {
-    const prior = chronological.filter((h) => h.id !== runId);
-    const priorDurations = prior.map((h) => h.durationMs);
-    const avg =
-      priorDurations.length > 0
-        ? priorDurations.reduce((s, n) => s + n, 0) / priorDurations.length
-        : 0;
-    const passed = chronological.filter((h) => h.status === "passed").length;
-    const failed = chronological.filter(
-      (h) => h.status === "failed" || h.status === "timedout",
-    ).length;
-    const flakyCount = chronological.filter((h) => h.status === "flaky").length;
-    const delta =
-      avg > 0 ? Math.round(((run.durationMs - avg) / avg) * 100) : 0;
-    return { avg, passed, failed, flakyCount, delta };
-  })();
-
   const shortId = run.id.slice(-7);
   const statusLabel = STATUS_LABEL[run.status] ?? run.status;
   const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
@@ -188,9 +97,37 @@ export async function RunDetailPage() {
   });
   const isRunning = run.status === "running";
 
+  // Kick off async work in parallel; each Suspense awaits its own subset.
+  // composeRunProgressBatch with [run] avoids the redundant run-row fetch
+  // that composeRunProgress would do internally.
+  const progressPromise: Promise<RunProgress> = composeRunProgressBatch(
+    project,
+    [run],
+  ).then((map) => {
+    const p = map.get(runId);
+    if (!p) {
+      throw new Error(`composeRunProgressBatch returned no entry for ${runId}`);
+    }
+    return p;
+  });
+  const historyPromise = loadRunHistory(project, effectiveBranch);
+  const branchesPromise = loadBranches(project);
+  const artifactActionsPromise: Promise<ArtifactActionsByTestId> =
+    progressPromise.then((progress) =>
+      loadFailingArtifactActions(
+        project.db,
+        progress.tests.map((t) => ({
+          id: t.id,
+          status: t.status,
+          retryCount: t.retryCount,
+        })),
+        origin,
+      ),
+    );
+
   return (
     <>
-      {/* Page header */}
+      {/* Page header — fully derived from `run` */}
       <div className="px-6 py-4 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-4 min-w-0">
           <a
@@ -226,60 +163,27 @@ export async function RunDetailPage() {
       <div className="flex-1 overflow-y-auto min-h-0">
         {/* History chart */}
         <div className="px-6 pt-5">
-          <RunHistoryChart
-            points={historyPoints}
-            title={`Duration · last ${historyPoints.length} run${historyPoints.length === 1 ? "" : "s"}`}
-            subtitle={
-              <RunHistoryBranchFilter
-                branches={branches}
-                defaultValue={defaultBranch}
-              />
-            }
-            rightSlot={
-              historyPoints.length > 1 ? (
-                <>
-                  <span style={{ color: "var(--color-success)" }}>
-                    ✓ {historyStats.passed}
-                  </span>
-                  <span style={{ color: "var(--color-destructive)" }}>
-                    × {historyStats.failed}
-                  </span>
-                  <span style={{ color: "var(--color-warning)" }}>
-                    ⚠ {historyStats.flakyCount}
-                  </span>
-                  <span className="text-muted-foreground/50">│</span>
-                  <span>
-                    avg {formatDuration(Math.round(historyStats.avg))}
-                  </span>
-                  {currentInHistory && (
-                    <span
-                      style={{
-                        color:
-                          historyStats.delta < 0
-                            ? "var(--color-success)"
-                            : historyStats.delta > 5
-                              ? "var(--color-destructive)"
-                              : undefined,
-                      }}
-                    >
-                      {historyStats.delta >= 0 ? "+" : ""}
-                      {historyStats.delta}% vs avg
-                    </span>
-                  )}
-                </>
-              ) : null
-            }
-            emptyState={
-              effectiveBranch === ALL_BRANCHES
-                ? "No run history yet."
-                : `No run history on ${effectiveBranch} yet.`
-            }
-          />
+          <Suspense fallback={<RunHistoryChartFallback />}>
+            <RunHistorySection
+              historyPromise={historyPromise}
+              branchesPromise={branchesPromise}
+              run={run}
+              base={base}
+              teamSlug={project.teamSlug}
+              projectSlug={project.slug}
+              branchParam={branchParam}
+              defaultBranch={defaultBranch}
+              effectiveBranch={effectiveBranch}
+              runId={runId}
+            />
+          </Suspense>
         </div>
+
         {/* Bento header */}
         <div className="px-6 py-5 grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Summary card */}
           <div className="lg:col-span-2 rounded-lg bg-card border border-border p-5 flex flex-col gap-5">
+            {/* Badges row — sync from run */}
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-2 flex-wrap min-w-0">
                 {run.branch ? (
@@ -328,11 +232,14 @@ export async function RunDetailPage() {
               </div>
             </div>
 
-            {isRunning ? (
-              <RunSummaryIsland initial={progress} roomId={roomId} />
-            ) : (
-              <RunProgressSummary progress={progress} />
-            )}
+            {/* Progress display — streams in */}
+            <Suspense fallback={<RunProgressSummaryFallback />}>
+              <RunProgressInSummary
+                progressPromise={progressPromise}
+                isRunning={isRunning}
+                roomId={roomId}
+              />
+            </Suspense>
           </div>
 
           {/* Build card */}
@@ -391,22 +298,283 @@ export async function RunDetailPage() {
 
         {/* Test results */}
         <div className="px-6 pb-6">
-          {isRunning ? (
-            <RunTestsIsland
-              initial={progress}
+          <Suspense fallback={<RunTestsFallback />}>
+            <RunTestsSection
+              progressPromise={progressPromise}
+              artifactActionsPromise={artifactActionsPromise}
+              isRunning={isRunning}
               roomId={roomId}
-              runBase={`${base}/runs/${run.id}`}
-              artifactActionsByTestId={artifactActionsByTestId}
+              runBase={`${base}/runs/${runId}`}
             />
-          ) : (
-            <RunProgressTests
-              progress={progress}
-              runBase={`${base}/runs/${run.id}`}
-              artifactActionsByTestId={artifactActionsByTestId}
-            />
-          )}
+          </Suspense>
         </div>
       </div>
     </>
+  );
+}
+
+async function loadRun(project: ActiveProject, runId: string) {
+  return await project.db
+    .selectFrom("runs")
+    .selectAll()
+    .where("id", "=", runId)
+    .where("projectId", "=", project.id)
+    .where("committed", "=", 1)
+    .limit(1)
+    .executeTakeFirst();
+}
+
+async function loadRunHistory(
+  project: ActiveProject,
+  effectiveBranch: string,
+): Promise<HistoryRow[]> {
+  let q = project.db
+    .selectFrom("runs")
+    .select([
+      "id",
+      "status",
+      "durationMs",
+      "createdAt",
+      "branch",
+      "commitSha",
+      "commitMessage",
+    ])
+    .where("projectId", "=", project.id)
+    .where("committed", "=", 1);
+  if (effectiveBranch !== ALL_BRANCHES) {
+    q = q.where("branch", "=", effectiveBranch);
+  }
+  return q.orderBy("createdAt", "desc").limit(30).execute();
+}
+
+async function loadBranches(project: ActiveProject): Promise<string[]> {
+  const rows = await project.db
+    .selectFrom("runs")
+    .select("branch as value")
+    .distinct()
+    .where("projectId", "=", project.id)
+    .where("committed", "=", 1)
+    .where("branch", "is not", null)
+    .execute();
+  return rows
+    .map((r) => r.value)
+    .filter((v): v is string => !!v)
+    .sort();
+}
+
+async function RunHistorySection({
+  historyPromise,
+  branchesPromise,
+  run,
+  base,
+  teamSlug,
+  projectSlug,
+  branchParam,
+  defaultBranch,
+  effectiveBranch,
+  runId,
+}: {
+  historyPromise: Promise<HistoryRow[]>;
+  branchesPromise: Promise<string[]>;
+  run: NonNullable<RunRow>;
+  base: string;
+  teamSlug: string;
+  projectSlug: string;
+  branchParam: string | null;
+  defaultBranch: string;
+  effectiveBranch: string;
+  runId: string;
+}): Promise<React.ReactElement> {
+  const [history, branches] = await Promise.all([
+    historyPromise,
+    branchesPromise,
+  ]);
+  const chronological = [...history].reverse();
+  // Preserve the active branch filter when clicking a historical bar so the
+  // reviewer stays in the same view as they scrub through runs. We only
+  // append the param when it was explicitly set in the URL — otherwise the
+  // default (current run's branch) should resolve fresh on the next page.
+  const hrefQuery = branchParam
+    ? `?branch=${encodeURIComponent(branchParam)}`
+    : "";
+  const historyPoints: RunHistoryPoint[] = chronological.map((h) => ({
+    id: h.id,
+    durationMs: h.durationMs,
+    status: h.status,
+    current: h.id === runId,
+    href: h.id === runId ? undefined : `${base}/runs/${h.id}${hrefQuery}`,
+    hover:
+      h.id === runId
+        ? undefined
+        : {
+            kind: "run" as const,
+            teamSlug,
+            projectSlug,
+            runId: h.id,
+          },
+    label: [
+      h.status,
+      formatDuration(h.durationMs),
+      formatRelativeTime(h.createdAt),
+      h.commitSha ? h.commitSha.slice(0, 7) : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  }));
+  const currentInHistory = historyPoints.some((p) => p.current);
+  const prior = chronological.filter((h) => h.id !== runId);
+  const priorDurations = prior.map((h) => h.durationMs);
+  const avg =
+    priorDurations.length > 0
+      ? priorDurations.reduce((s, n) => s + n, 0) / priorDurations.length
+      : 0;
+  const passed = chronological.filter((h) => h.status === "passed").length;
+  const failed = chronological.filter(
+    (h) => h.status === "failed" || h.status === "timedout",
+  ).length;
+  const flakyCount = chronological.filter((h) => h.status === "flaky").length;
+  const delta = avg > 0 ? Math.round(((run.durationMs - avg) / avg) * 100) : 0;
+
+  return (
+    <RunHistoryChart
+      points={historyPoints}
+      title={`Duration · last ${historyPoints.length} run${historyPoints.length === 1 ? "" : "s"}`}
+      subtitle={
+        <RunHistoryBranchFilter
+          branches={branches}
+          defaultValue={defaultBranch}
+        />
+      }
+      rightSlot={
+        historyPoints.length > 1 ? (
+          <>
+            <span style={{ color: "var(--color-success)" }}>✓ {passed}</span>
+            <span style={{ color: "var(--color-destructive)" }}>
+              × {failed}
+            </span>
+            <span style={{ color: "var(--color-warning)" }}>
+              ⚠ {flakyCount}
+            </span>
+            <span className="text-muted-foreground/50">│</span>
+            <span>avg {formatDuration(Math.round(avg))}</span>
+            {currentInHistory && (
+              <span
+                style={{
+                  color:
+                    delta < 0
+                      ? "var(--color-success)"
+                      : delta > 5
+                        ? "var(--color-destructive)"
+                        : undefined,
+                }}
+              >
+                {delta >= 0 ? "+" : ""}
+                {delta}% vs avg
+              </span>
+            )}
+          </>
+        ) : null
+      }
+      emptyState={
+        effectiveBranch === ALL_BRANCHES
+          ? "No run history yet."
+          : `No run history on ${effectiveBranch} yet.`
+      }
+    />
+  );
+}
+
+function RunHistoryChartFallback(): React.ReactElement {
+  return (
+    <div className="rounded-lg border border-border bg-card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <Skeleton className="h-4 w-44" />
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-3 w-32" />
+        </div>
+      </div>
+      <Skeleton className="h-24 w-full" />
+    </div>
+  );
+}
+
+async function RunProgressInSummary({
+  progressPromise,
+  isRunning,
+  roomId,
+}: {
+  progressPromise: Promise<RunProgress>;
+  isRunning: boolean;
+  roomId: string;
+}): Promise<React.ReactElement> {
+  const progress = await progressPromise;
+  return isRunning ? (
+    <RunSummaryIsland initial={progress} roomId={roomId} />
+  ) : (
+    <RunProgressSummary progress={progress} />
+  );
+}
+
+function RunProgressSummaryFallback(): React.ReactElement {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-4 w-16" />
+      </div>
+      <Skeleton className="h-2 w-full rounded-full" />
+    </div>
+  );
+}
+
+async function RunTestsSection({
+  progressPromise,
+  artifactActionsPromise,
+  isRunning,
+  roomId,
+  runBase,
+}: {
+  progressPromise: Promise<RunProgress>;
+  artifactActionsPromise: Promise<ArtifactActionsByTestId>;
+  isRunning: boolean;
+  roomId: string;
+  runBase: string;
+}): Promise<React.ReactElement> {
+  const [progress, artifactActionsByTestId] = await Promise.all([
+    progressPromise,
+    artifactActionsPromise,
+  ]);
+  return isRunning ? (
+    <RunTestsIsland
+      initial={progress}
+      roomId={roomId}
+      runBase={runBase}
+      artifactActionsByTestId={artifactActionsByTestId}
+    />
+  ) : (
+    <RunProgressTests
+      progress={progress}
+      runBase={runBase}
+      artifactActionsByTestId={artifactActionsByTestId}
+    />
+  );
+}
+
+function RunTestsFallback(): React.ReactElement {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={`skel-${i}`}
+          className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-3"
+        >
+          <Skeleton className="size-2.5 rounded-full" />
+          <Skeleton className="h-3 flex-1" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+      ))}
+    </div>
   );
 }

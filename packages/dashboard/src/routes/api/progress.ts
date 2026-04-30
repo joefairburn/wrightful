@@ -87,44 +87,35 @@ function normalizeTestStatus(status: string): RunProgressTestStatus {
   }
 }
 
-/**
- * Compose the full progress snapshot for a run from the team's tenant DO.
- * Takes a `TenantScope` so the caller is forced to have been authorized
- * already — there's no raw-teamId entry point.
- *
- * Called from the ingest handlers to build the payload that's then
- * broadcast via `setState` on the realtime DO, and from SSR on the run
- * detail / list pages to seed the initial island state.
- */
-export async function composeRunProgress(
-  scope: TenantScope,
-  runId: string,
-): Promise<RunProgress | null> {
-  const run = await scope.db
-    .selectFrom("runs")
-    .selectAll()
-    .where("id", "=", runId)
-    .limit(1)
-    .executeTakeFirst();
-  if (!run) return null;
+/** Subset of `runs` columns needed to compose a progress snapshot. */
+interface RunRowForProgress {
+  id: string;
+  status: string;
+  passed: number;
+  failed: number;
+  flaky: number;
+  skipped: number;
+  expectedTotalTests: number | null;
+}
 
-  const rows = await scope.db
-    .selectFrom("testResults")
-    .select([
-      "id",
-      "testId",
-      "title",
-      "file",
-      "projectName",
-      "status",
-      "durationMs",
-      "retryCount",
-      "errorMessage",
-      "errorStack",
-    ])
-    .where("runId", "=", runId)
-    .execute();
+/** Subset of `testResults` columns needed to compose a progress snapshot. */
+interface TestResultRowForProgress {
+  id: string;
+  testId: string;
+  title: string;
+  file: string;
+  projectName: string | null;
+  status: string;
+  durationMs: number;
+  retryCount: number;
+  errorMessage: string | null;
+  errorStack: string | null;
+}
 
+function buildRunProgress(
+  run: RunRowForProgress,
+  rows: readonly TestResultRowForProgress[],
+): RunProgress {
   const tests: RunProgressTest[] = rows.map((r) => ({
     id: r.id,
     testId: r.testId,
@@ -156,6 +147,97 @@ export async function composeRunProgress(
     tests,
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * Compose the full progress snapshot for a run from the team's tenant DO.
+ * Takes a `TenantScope` so the caller is forced to have been authorized
+ * already — there's no raw-teamId entry point.
+ *
+ * Called from the ingest handlers to build the payload that's then
+ * broadcast via `setState` on the realtime DO, and from SSR on the run
+ * detail page to seed the initial island state. The runs-list page uses
+ * `composeRunProgressBatch` instead to avoid an N+1 of DO round-trips.
+ */
+export async function composeRunProgress(
+  scope: TenantScope,
+  runId: string,
+): Promise<RunProgress | null> {
+  const run = await scope.db
+    .selectFrom("runs")
+    .selectAll()
+    .where("id", "=", runId)
+    .limit(1)
+    .executeTakeFirst();
+  if (!run) return null;
+
+  const rows = await scope.db
+    .selectFrom("testResults")
+    .select([
+      "id",
+      "testId",
+      "title",
+      "file",
+      "projectName",
+      "status",
+      "durationMs",
+      "retryCount",
+      "errorMessage",
+      "errorStack",
+    ])
+    .where("runId", "=", runId)
+    .execute();
+
+  return buildRunProgress(run, rows);
+}
+
+/**
+ * Batched variant of `composeRunProgress` for SSR paths that already hold
+ * the run rows (e.g. the runs-list page after its main query). Issues a
+ * single `WHERE runId IN (...)` against testResults instead of one query
+ * per run, collapsing 2N sequential DO hops into a single hop with no
+ * run-row refetch.
+ */
+export async function composeRunProgressBatch(
+  scope: TenantScope,
+  runs: readonly RunRowForProgress[],
+): Promise<Map<string, RunProgress>> {
+  const result = new Map<string, RunProgress>();
+  if (runs.length === 0) return result;
+
+  const runIds = runs.map((r) => r.id);
+  const rows = await scope.db
+    .selectFrom("testResults")
+    .select([
+      "id",
+      "runId",
+      "testId",
+      "title",
+      "file",
+      "projectName",
+      "status",
+      "durationMs",
+      "retryCount",
+      "errorMessage",
+      "errorStack",
+    ])
+    .where("runId", "in", runIds)
+    .execute();
+
+  const grouped = new Map<string, TestResultRowForProgress[]>();
+  for (const row of rows) {
+    let bucket = grouped.get(row.runId);
+    if (!bucket) {
+      bucket = [];
+      grouped.set(row.runId, bucket);
+    }
+    bucket.push(row);
+  }
+
+  for (const run of runs) {
+    result.set(run.id, buildRunProgress(run, grouped.get(run.id) ?? []));
+  }
+  return result;
 }
 
 /**
