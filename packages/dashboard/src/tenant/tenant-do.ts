@@ -11,6 +11,15 @@ import { tenantMigrations } from "./migrations";
 export class TenantDO extends SqliteDurableObject {
   migrations = tenantMigrations;
 
+  // Mirror of `ControlDO`: disable rwsdk's default `ParseJSONResultsPlugin`
+  // so any JSON-shaped string column comes back as a raw string. Callers do
+  // their own `JSON.parse` and would otherwise be handed an already-parsed
+  // value, breaking `JSON.parse(obj)` with `"[object Object]" is not valid
+  // JSON`.
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env, tenantMigrations, "__migrations", []);
+  }
+
   /**
    * Execute a sequence of pre-compiled SQL statements atomically inside
    * this DO's SQLite instance. Neither `DOWorkerDialect` (worker side) nor

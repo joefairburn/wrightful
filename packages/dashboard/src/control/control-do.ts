@@ -16,6 +16,15 @@ import { controlMigrations } from "./migrations";
 export class ControlDO extends SqliteDurableObject {
   migrations = controlMigrations;
 
+  // Disable rwsdk's default `ParseJSONResultsPlugin`. Better Auth stores its
+  // OAuth `verification.value` as a JSON string and calls `JSON.parse()` on
+  // read; auto-parsing on the DO side would hand it back an object, and
+  // `JSON.parse(obj)` then throws `SyntaxError: "[object Object]" is not
+  // valid JSON` on every GitHub callback.
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env, controlMigrations, "__migrations", []);
+  }
+
   /**
    * Execute a sequence of pre-compiled SQL statements atomically inside the
    * ControlDO's SQLite instance. Mirror of `TenantDO.batchExecute`. Used by
