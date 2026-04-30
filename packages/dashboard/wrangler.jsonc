@@ -85,12 +85,13 @@
     // safe default). Local dev's .dev.vars sets it to `1` so the seed can
     // sign up the demo user; self-hosters override via the dashboard.
     "ALLOW_OPEN_SIGNUP": "0",
-    // WRIGHTFUL_PUBLIC_URL is intentionally NOT declared here. It's the
-    // per-deployment origin Better Auth uses for OAuth callbacks, so it
-    // differs between every self-hoster. Set it in `.dev.vars` locally and
-    // as a Worker environment variable in the Cloudflare dashboard for
-    // production. Keeping it out of this committed file means self-hosters
-    // never need to edit wrangler.jsonc to change their public URL.
+    // Per-deployment origin Better Auth uses for OAuth callbacks. Declared
+    // here as an empty placeholder so it shows up in the Cloudflare dashboard
+    // (Workers & Pages → Variables) for self-hosters to fill in — they edit
+    // an existing entry instead of having to know to create one. The deploy
+    // scripts use `wrangler deploy --keep-vars` so the dashboard-set value
+    // survives subsequent deploys. Locally, `.dev.vars` overrides this.
+    "WRIGHTFUL_PUBLIC_URL": "",
   },
   // Cloudflare-native rate limiters. `period` must be 10 or 60 seconds.
   // Namespace ids are per-account; keep them unique across our Workers.
