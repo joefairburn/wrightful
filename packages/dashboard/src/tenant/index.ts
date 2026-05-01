@@ -56,9 +56,29 @@ export interface TenantScope {
   batch(queries: readonly Compilable[]): Promise<void>;
 }
 
+/**
+ * Build a `TenantScope` from already-authorised team/project ids.
+ *
+ * Only call this from a code path that has *just* verified the signed-in
+ * user's membership of the owning team — the brand minted here is exactly
+ * as trustworthy as that prior check. The `loadActiveProject` middleware
+ * (`src/routes/middleware.ts`) is the canonical caller: it runs the
+ * `memberships ⋈ teams ⋈ projects` lookup once per request and stashes the
+ * result on `ctx`, then `getActiveProject()` reads `ctx.activeProject` and
+ * mints the scope here without re-querying.
+ */
+export function tenantScopeFromIds(
+  teamId: string,
+  teamSlug: string,
+  projectId: string,
+  projectSlug: string,
+): TenantScope {
+  return buildScope(teamId, teamSlug, projectId, projectSlug);
+}
+
 // Internal factory. Only called from the two auth-checking helpers below
-// and from `active-project.ts` (which re-runs the same checks for the
-// session-based flow, then enriches the scope with display fields).
+// and from `tenantScopeFromIds` (which is itself called by middleware that
+// has just verified membership).
 function buildScope(
   teamId: string,
   teamSlug: string,

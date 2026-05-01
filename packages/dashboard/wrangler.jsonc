@@ -10,6 +10,12 @@
   "observability": {
     "enabled": true,
   },
+  // Pin worker invocations to a colo close to the Durable Objects they
+  // talk to. Every dashboard request fans out to ControlDO + TenantDO
+  // before it can render, so a cross-region RTT lands on each subrequest;
+  // smart placement collapses that to single-colo round-trips. Generic
+  // config (no per-deployment secrets), safe for self-hosters.
+  "placement": { "mode": "smart" },
   // Cron Triggers. The watchdog sweeps runs stuck at status='running' (e.g.
   // CI killed mid-suite, reporter's completeRun failed) and marks them
   // 'interrupted' once they're older than WRIGHTFUL_RUN_STALE_MINUTES.

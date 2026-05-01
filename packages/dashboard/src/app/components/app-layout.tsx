@@ -21,10 +21,9 @@ import { TeamSwitcher } from "@/app/components/team-switcher";
 import { NuqsRwsdkAdapter } from "@/lib/nuqs-rwsdk-adapter";
 import {
   getSuggestedTeamsForUser,
-  getTeamProjects,
   getUserTeams,
-  resolveProjectBySlugs,
-  resolveTeamBySlug,
+  type ResolvedActiveProject,
+  type ResolvedActiveTeam,
   type SuggestedTeam,
 } from "@/lib/authz";
 import { cn } from "@/lib/cn";
@@ -40,20 +39,22 @@ function deriveActiveNav(pathname: string): NavId {
 
 type AppSidebarData = {
   teams: { slug: string; name: string }[];
-  activeTeam: {
-    slug: string;
-    name: string;
-    role: "owner" | "member";
-  } | null;
+  activeTeam: ResolvedActiveTeam | null;
   projects: { slug: string; name: string }[];
-  activeProject: { slug: string; name: string } | null;
+  activeProject: ResolvedActiveProject | null;
   suggestedTeams: SuggestedTeam[];
 };
 
+interface PreloadedTenant {
+  userTeams: { slug: string; name: string }[];
+  activeTeam: ResolvedActiveTeam | null;
+  teamProjects: { slug: string; name: string }[];
+  activeProject: ResolvedActiveProject | null;
+}
+
 async function fetchAppSidebarData(
   userId: string | null,
-  teamSlug: string | null,
-  projectSlug: string | null,
+  preloaded: PreloadedTenant,
 ): Promise<AppSidebarData> {
   if (!userId) {
     return {
@@ -64,19 +65,19 @@ async function fetchAppSidebarData(
       suggestedTeams: [],
     };
   }
-  const [teams, activeTeam, allSuggested] = await Promise.all([
-    getUserTeams(userId),
-    teamSlug ? resolveTeamBySlug(userId, teamSlug) : Promise.resolve(null),
-    getSuggestedTeamsForUser(userId),
-  ]);
-  const projects = activeTeam ? await getTeamProjects(activeTeam.id) : [];
-  const activeProject =
-    teamSlug && projectSlug
-      ? await resolveProjectBySlugs(userId, teamSlug, projectSlug)
-      : null;
-  // Sidebar hides dismissed suggestions; the profile page shows all.
+  // Team/project resolution comes from `loadActiveProject` middleware via
+  // ctx — one ControlDO RPC, already done. The only fan-out left is the
+  // GitHub-org-driven team suggestions, which depend on a separate cache
+  // and aren't on the membership hot path.
+  const allSuggested = await getSuggestedTeamsForUser(userId);
   const suggestedTeams = allSuggested.filter((s) => !s.dismissed);
-  return { teams, activeTeam, projects, activeProject, suggestedTeams };
+  return {
+    teams: preloaded.userTeams,
+    activeTeam: preloaded.activeTeam,
+    projects: preloaded.teamProjects,
+    activeProject: preloaded.activeProject,
+    suggestedTeams,
+  };
 }
 
 export function AppLayout({ children }: LayoutProps): React.ReactElement {
@@ -91,18 +92,19 @@ export function AppLayout({ children }: LayoutProps): React.ReactElement {
     ? "settings"
     : "app";
 
-  const params = requestInfo.params as Record<string, unknown>;
-  const teamSlug = typeof params.teamSlug === "string" ? params.teamSlug : null;
-  const projectSlug =
-    typeof params.projectSlug === "string" ? params.projectSlug : null;
-
   const userId = ctx.user?.id ?? null;
 
   // Kick off async data without awaiting; loaders await inside Suspense.
   // Same `appPromise` flows to sidebar + ProjectSwitcher so the underlying
   // ControlDO queries run once.
+  const preloaded: PreloadedTenant = {
+    userTeams: ctx.userTeams ?? [],
+    activeTeam: ctx.activeTeam ?? null,
+    teamProjects: ctx.teamProjects ?? [],
+    activeProject: ctx.activeProject ?? null,
+  };
   const appPromise: Promise<AppSidebarData> | null =
-    mode === "app" ? fetchAppSidebarData(userId, teamSlug, projectSlug) : null;
+    mode === "app" ? fetchAppSidebarData(userId, preloaded) : null;
   const settingsTeamsPromise =
     mode === "settings" && userId
       ? getUserTeams(userId)

@@ -16,7 +16,11 @@ import {
   completeRunHandler,
 } from "@/routes/api/runs";
 import { getAuth } from "@/lib/better-auth";
-import { resolveProjectBySlugs } from "@/lib/authz";
+import {
+  resolveProjectBySlugs,
+  type ResolvedActiveProject,
+  type ResolvedActiveTeam,
+} from "@/lib/authz";
 
 // Realtime fan-out: re-export the rwsdk DO class so Cloudflare can find it
 // via the binding declared in wrangler.jsonc.
@@ -75,7 +79,11 @@ import {
 } from "@/routes/api/team-suggestions";
 import { authHandler } from "@/routes/auth";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
-import { loadSession, requireUser } from "@/routes/middleware";
+import {
+  loadActiveProject,
+  loadSession,
+  requireUser,
+} from "@/routes/middleware";
 import { scheduledHandler } from "@/scheduled";
 
 // Native Cloudflare rate limiters — configured in wrangler.jsonc#ratelimits.
@@ -152,6 +160,16 @@ export interface AppContext {
     id: string;
     expiresAt: Date;
   };
+  /**
+   * Tenant resolution populated by `loadActiveProject` middleware on
+   * `/t/:teamSlug/...` routes. Single ControlDO RPC for all four fields —
+   * downstream code (`getActiveProject`, `fetchAppSidebarData`) reads
+   * straight from ctx with no further DB calls.
+   */
+  userTeams?: { slug: string; name: string }[];
+  activeTeam?: ResolvedActiveTeam | null;
+  teamProjects?: { slug: string; name: string }[];
+  activeProject?: ResolvedActiveProject | null;
 }
 
 declare module "rwsdk/worker" {
@@ -238,6 +256,10 @@ const app = defineApp([
   // without the sidebar; everything else shares the global shell.
   render(Document, [
     loadSession,
+    // Resolves team + project + sibling-projects + user's team list in one
+    // ControlDO RPC for any /t/:teamSlug/... request, populating ctx so
+    // pages and the sidebar don't each issue their own lookups.
+    loadActiveProject,
     route("/login", LoginPage),
     route("/signup", LoginPage),
     route("/invite/:token", {

@@ -1,5 +1,6 @@
 import { requestInfo } from "rwsdk/worker";
-import { type TenantScope, tenantScopeForUser } from "@/tenant";
+import type { ResolvedActiveProject } from "@/lib/authz";
+import { type TenantScope, tenantScopeFromIds } from "@/tenant";
 
 /**
  * The project scoping an RSC page render. Combines authorization (the
@@ -27,31 +28,28 @@ export type ActiveProject = TenantScope & {
 };
 
 /**
- * Resolve the project that scopes the current RSC page render from
- * `:teamSlug` / `:projectSlug` route params, gated on the signed-in
- * user's membership of the owning team.
+ * Resolve the project that scopes the current RSC page render. Reads from
+ * `ctx.activeProject`, which the `loadActiveProject` middleware populated
+ * upstream via a single ControlDO RPC. Membership has already been verified
+ * — that's the contract of the middleware — so we just mint the tenant
+ * scope without re-querying.
  *
  * Returns null when the user isn't authorised to view the project (caller
  * should render a 404 shell — we intentionally don't distinguish "no such
  * project" from "you can't see this project" to avoid leaking existence).
  */
 export async function getActiveProject(): Promise<ActiveProject | null> {
-  const params = requestInfo.params as Record<string, unknown>;
-  const teamSlug = typeof params.teamSlug === "string" ? params.teamSlug : null;
-  const projectSlug =
-    typeof params.projectSlug === "string" ? params.projectSlug : null;
-  if (!teamSlug || !projectSlug) return null;
-
-  const ctx = requestInfo.ctx as { user?: { id: string } };
-  const userId = ctx.user?.id;
-  if (!userId) return null;
-
-  const scope = await tenantScopeForUser(userId, teamSlug, projectSlug);
-  if (!scope) return null;
-
+  const ctx = requestInfo.ctx as {
+    activeProject?: ResolvedActiveProject | null;
+  };
+  const ap = ctx.activeProject;
+  if (!ap) return null;
+  const scope = tenantScopeFromIds(ap.teamId, ap.teamSlug, ap.id, ap.slug);
   return {
     ...scope,
     id: scope.projectId,
     slug: scope.projectSlug,
+    name: ap.name,
+    teamName: ap.teamName,
   };
 }

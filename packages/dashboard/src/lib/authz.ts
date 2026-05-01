@@ -147,6 +147,132 @@ export async function requireTeamOwner(
   return { id: team.id, slug: team.slug, name: team.name };
 }
 
+export interface ResolvedActiveTeam {
+  id: string;
+  slug: string;
+  name: string;
+  role: TeamRole;
+  githubOrgSlug: string | null;
+}
+
+export interface ResolvedActiveProject {
+  id: string;
+  teamId: string;
+  slug: string;
+  name: string;
+  teamSlug: string;
+  teamName: string;
+  role: TeamRole;
+}
+
+export interface TenantBundle {
+  /** All teams the user is a member of (slug + name only — sidebar list). */
+  userTeams: { slug: string; name: string }[];
+  /** The team matching `:teamSlug`, or null if the user isn't a member. */
+  activeTeam: ResolvedActiveTeam | null;
+  /** Sibling projects of the active team (empty when activeTeam is null). */
+  teamProjects: { slug: string; name: string }[];
+  /** The project matching `:projectSlug` within `:teamSlug`, or null. */
+  activeProject: ResolvedActiveProject | null;
+}
+
+/**
+ * Resolve every piece of team/project data the dashboard needs for a
+ * `/t/:teamSlug[/p/:projectSlug]/...` request in a single ControlDO RPC.
+ *
+ * Replaces the four sequential lookups that `fetchAppSidebarData` used to
+ * fan out (`getUserTeams` + `resolveTeamBySlug` + `getTeamProjects` +
+ * `resolveProjectBySlugs`) plus the duplicate `tenantScopeForUser` lookup
+ * the page handler used to make. The single underlying SQL is a
+ * `memberships ⋈ teams ⟕ projects` join filtered by `userId`; we then
+ * derive each output bucket in JS from the same row set.
+ *
+ * Returns a fully-populated bundle. `activeTeam` is null when the user
+ * isn't a member of `teamSlug` (or it doesn't exist); `activeProject` is
+ * null when the project doesn't exist within an authorised team. Callers
+ * (middleware) should not 404 here — the page is allowed to render the
+ * team/project picker for the no-active-team case.
+ */
+export async function resolveTenantBundleForUser(
+  userId: string,
+  teamSlug: string | null,
+  projectSlug: string | null,
+): Promise<TenantBundle> {
+  const db = getControlDb();
+  const rows = await db
+    .selectFrom("memberships")
+    .innerJoin("teams", "teams.id", "memberships.teamId")
+    .leftJoin("projects", "projects.teamId", "teams.id")
+    .select([
+      "teams.id as teamId",
+      "teams.slug as teamSlug",
+      "teams.name as teamName",
+      "teams.githubOrgSlug as githubOrgSlug",
+      "memberships.role as role",
+      "projects.id as projectId",
+      "projects.slug as projectSlug",
+      "projects.name as projectName",
+    ])
+    .where("memberships.userId", "=", userId)
+    .execute();
+
+  const userTeamsBySlug = new Map<string, { slug: string; name: string }>();
+  let activeTeam: ResolvedActiveTeam | null = null;
+  let activeProject: ResolvedActiveProject | null = null;
+  const teamProjectsBySlug = new Map<string, { slug: string; name: string }>();
+
+  for (const r of rows) {
+    if (!userTeamsBySlug.has(r.teamSlug)) {
+      userTeamsBySlug.set(r.teamSlug, { slug: r.teamSlug, name: r.teamName });
+    }
+    if (teamSlug && r.teamSlug === teamSlug) {
+      if (!activeTeam) {
+        activeTeam = {
+          id: r.teamId,
+          slug: r.teamSlug,
+          name: r.teamName,
+          role: r.role as TeamRole,
+          githubOrgSlug: r.githubOrgSlug,
+        };
+      }
+      if (
+        r.projectSlug &&
+        r.projectName &&
+        !teamProjectsBySlug.has(r.projectSlug)
+      ) {
+        teamProjectsBySlug.set(r.projectSlug, {
+          slug: r.projectSlug,
+          name: r.projectName,
+        });
+      }
+      if (
+        projectSlug &&
+        r.projectSlug === projectSlug &&
+        r.projectId &&
+        r.projectName &&
+        !activeProject
+      ) {
+        activeProject = {
+          id: r.projectId,
+          teamId: r.teamId,
+          slug: r.projectSlug,
+          name: r.projectName,
+          teamSlug: r.teamSlug,
+          teamName: r.teamName,
+          role: r.role as TeamRole,
+        };
+      }
+    }
+  }
+
+  return {
+    userTeams: [...userTeamsBySlug.values()],
+    activeTeam,
+    teamProjects: [...teamProjectsBySlug.values()],
+    activeProject,
+  };
+}
+
 export async function resolveProjectBySlugs(
   userId: string,
   teamSlug: string,
