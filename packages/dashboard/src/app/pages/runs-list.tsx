@@ -63,7 +63,11 @@ const EMPTY_FILTER_OPTIONS = {
   environments: [] as string[],
 };
 
-export async function RunsListPage() {
+export async function RunsListPage(): Promise<React.ReactElement> {
+  // Membership gate has to resolve before we start streaming: a missing
+  // project must surface as a clean 404, and `requestInfo.response.status`
+  // is frozen once headers have been flushed. The TenantDO queries below
+  // (totals, filter options, runs page) still stream behind Suspense.
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 

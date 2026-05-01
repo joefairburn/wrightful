@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import {
   ArrowLeft,
   BarChart2,
@@ -15,6 +16,7 @@ import { requestInfo } from "rwsdk/worker";
 import { ProjectSwitcher } from "@/app/components/project-switcher";
 import { QueryProvider } from "@/app/components/query-provider";
 import { SidebarUserMenu } from "@/app/components/sidebar-user-menu";
+import { Skeleton } from "@/app/components/ui/skeleton";
 import { TeamSwitcher } from "@/app/components/team-switcher";
 import { NuqsRwsdkAdapter } from "@/lib/nuqs-rwsdk-adapter";
 import {
@@ -77,7 +79,10 @@ async function fetchAppSidebarData(
   return { teams, activeTeam, projects, activeProject, suggestedTeams };
 }
 
-export async function AppLayout({ children }: LayoutProps) {
+export function AppLayout({ children }: LayoutProps): React.ReactElement {
+  // Sync layout shell — nothing in the chrome awaits a DO. The sidebar and
+  // ProjectSwitcher each have their own Suspense boundary so the page's
+  // {children} can render in parallel with sidebar data fetching.
   const { ctx, request } = requestInfo;
   const url = new URL(request.url);
   const pathname = url.pathname;
@@ -93,13 +98,15 @@ export async function AppLayout({ children }: LayoutProps) {
 
   const userId = ctx.user?.id ?? null;
 
-  const app =
-    mode === "app"
-      ? await fetchAppSidebarData(userId, teamSlug, projectSlug)
-      : null;
-
-  const settingsTeams =
-    mode === "settings" && userId ? await getUserTeams(userId) : [];
+  // Kick off async data without awaiting; loaders await inside Suspense.
+  // Same `appPromise` flows to sidebar + ProjectSwitcher so the underlying
+  // ControlDO queries run once.
+  const appPromise: Promise<AppSidebarData> | null =
+    mode === "app" ? fetchAppSidebarData(userId, teamSlug, projectSlug) : null;
+  const settingsTeamsPromise =
+    mode === "settings" && userId
+      ? getUserTeams(userId)
+      : Promise.resolve([] as { slug: string; name: string }[]);
 
   return (
     <NuqsRwsdkAdapter serverSearch={serverSearch}>
@@ -107,32 +114,31 @@ export async function AppLayout({ children }: LayoutProps) {
         <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans">
           <nav className="fixed left-0 top-0 h-full w-64 flex flex-col border-r border-sidebar-border bg-sidebar z-50">
             {mode === "settings" ? (
-              <SettingsSidebarContents
-                pathname={pathname}
-                teams={settingsTeams}
-              />
+              <Suspense fallback={<SettingsSidebarSkeleton />}>
+                <SettingsSidebarLoader
+                  pathname={pathname}
+                  teamsPromise={settingsTeamsPromise}
+                />
+              </Suspense>
             ) : (
-              <AppSidebarContents
-                pathname={pathname}
-                teams={app?.teams ?? []}
-                activeTeam={app?.activeTeam ?? null}
-                activeProject={app?.activeProject ?? null}
-                suggestedTeams={app?.suggestedTeams ?? []}
-                signedIn={!!userId}
-              />
+              <Suspense fallback={<AppSidebarSkeleton signedIn={!!userId} />}>
+                <AppSidebarLoader
+                  pathname={pathname}
+                  appPromise={appPromise as Promise<AppSidebarData>}
+                  signedIn={!!userId}
+                />
+              </Suspense>
             )}
           </nav>
 
           <main className="flex-1 ml-64 flex flex-col min-w-0 overflow-hidden">
             <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-border bg-background sticky top-0 z-40">
-              {mode === "app" && app?.activeTeam && app.activeProject ? (
-                <ProjectSwitcher
-                  teamSlug={app.activeTeam.slug}
-                  currentProjectSlug={app.activeProject.slug}
-                  currentProjectName={app.activeProject.name}
-                  projects={app.projects}
-                  isOwner={app.activeTeam.role === "owner"}
-                />
+              {mode === "app" ? (
+                <Suspense fallback={<ProjectSwitcherSkeleton />}>
+                  <ProjectSwitcherLoader
+                    appPromise={appPromise as Promise<AppSidebarData>}
+                  />
+                </Suspense>
               ) : (
                 <span />
               )}
@@ -169,6 +175,103 @@ export async function AppLayout({ children }: LayoutProps) {
       </QueryProvider>
     </NuqsRwsdkAdapter>
   );
+}
+
+async function AppSidebarLoader({
+  pathname,
+  appPromise,
+  signedIn,
+}: {
+  pathname: string;
+  appPromise: Promise<AppSidebarData>;
+  signedIn: boolean;
+}): Promise<React.ReactElement> {
+  const app = await appPromise;
+  return (
+    <AppSidebarContents
+      pathname={pathname}
+      teams={app.teams}
+      activeTeam={app.activeTeam}
+      activeProject={app.activeProject}
+      suggestedTeams={app.suggestedTeams}
+      signedIn={signedIn}
+    />
+  );
+}
+
+async function SettingsSidebarLoader({
+  pathname,
+  teamsPromise,
+}: {
+  pathname: string;
+  teamsPromise: Promise<{ slug: string; name: string }[]>;
+}): Promise<React.ReactElement> {
+  const teams = await teamsPromise;
+  return <SettingsSidebarContents pathname={pathname} teams={teams} />;
+}
+
+async function ProjectSwitcherLoader({
+  appPromise,
+}: {
+  appPromise: Promise<AppSidebarData>;
+}): Promise<React.ReactElement> {
+  const app = await appPromise;
+  if (!app.activeTeam || !app.activeProject) return <span />;
+  return (
+    <ProjectSwitcher
+      teamSlug={app.activeTeam.slug}
+      currentProjectSlug={app.activeProject.slug}
+      currentProjectName={app.activeProject.name}
+      projects={app.projects}
+      isOwner={app.activeTeam.role === "owner"}
+    />
+  );
+}
+
+function AppSidebarSkeleton({
+  signedIn,
+}: {
+  signedIn: boolean;
+}): React.ReactElement {
+  return (
+    <>
+      <div className="h-14 px-2 shrink-0 flex items-center border-b border-sidebar-border">
+        <Skeleton className="h-8 w-full" />
+      </div>
+      <div className="flex-1 flex flex-col gap-1 px-2 pt-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={`nav-${i}`} className="h-9 w-full" />
+        ))}
+      </div>
+      {signedIn ? (
+        <div className="flex flex-col gap-0.5 px-2 pb-5 shrink-0">
+          <Skeleton className="h-9 w-full" />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function SettingsSidebarSkeleton(): React.ReactElement {
+  return (
+    <>
+      <div className="h-14 px-2 shrink-0 flex items-center border-b border-sidebar-border">
+        <Skeleton className="h-8 w-32" />
+      </div>
+      <div className="flex-1 flex flex-col gap-3 px-2 pt-4">
+        <Skeleton className="h-3 w-16 mx-3" />
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-3 w-20 mx-3 mt-2" />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={`team-${i}`} className="h-9 w-full" />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function ProjectSwitcherSkeleton(): React.ReactElement {
+  return <Skeleton className="h-8 w-48" />;
 }
 
 interface AppSidebarContentsProps {

@@ -57,7 +57,12 @@ interface AggregatesData {
   truncated: boolean;
 }
 
-export async function FlakyTestsPage() {
+export async function FlakyTestsPage(): Promise<React.ReactElement> {
+  // Membership gate has to resolve before we start streaming the shell:
+  // a missing project must surface as a clean 404, and once the document
+  // headers have been flushed `requestInfo.response.status` is frozen.
+  // Heavy queries (aggregates, branches) still stream behind their own
+  // Suspense boundaries below.
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
@@ -67,7 +72,6 @@ export async function FlakyTestsPage() {
   const branchAll = !branchParam || branchParam === ALL_BRANCHES;
   const branchFilter = branchAll ? null : branchParam;
 
-  // Kick off both queries in parallel; consumers await whichever they need.
   const aggregatesPromise = loadAggregates(project, range, branchFilter);
   const branchesPromise = loadBranches(project);
 

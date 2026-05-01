@@ -72,7 +72,13 @@ function EnvRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export async function RunDetailPage() {
+export async function RunDetailPage(): Promise<React.ReactElement> {
+  // Membership + run-existence gates have to resolve before we start
+  // streaming the shell: a missing project or runId must surface as a clean
+  // 404, and once the document headers have been flushed
+  // `requestInfo.response.status` is frozen. The heavy queries below
+  // (history, branches, progress, artifact actions) still stream behind
+  // their own Suspense boundaries.
   const runId = param("id");
 
   const project = await getActiveProject();
@@ -313,7 +319,7 @@ export async function RunDetailPage() {
   );
 }
 
-async function loadRun(project: ActiveProject, runId: string) {
+export async function loadRun(project: ActiveProject, runId: string) {
   return await project.db
     .selectFrom("runs")
     .selectAll()

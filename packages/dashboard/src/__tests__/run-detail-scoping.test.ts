@@ -1,33 +1,31 @@
 /**
  * Regression test for the tenant-scoping invariant documented in CLAUDE.md:
- * `RunDetailPage` must scope its `runs` lookup by `projectId` so a user
- * cannot load a run belonging to another project by guessing / replaying
- * a runId. Without the projectId filter this test fails loudly.
+ * the `runs` lookup on the run-detail page must filter by both `runId` and
+ * `projectId` so a user cannot load a run belonging to another project by
+ * guessing / replaying a runId. Without the projectId filter this test
+ * fails loudly.
  *
- * Post-M3 + scope-capability, the page reads from the team's tenant DO
- * via `project.db`. `getActiveProject()` is mocked to return a scope over
- * a scripted Kysely — if the page forgot the `projectId` predicate, the
- * first compiled query wouldn't contain it.
+ * This tests `loadRun` directly — it's the helper that runs the
+ * tenant-scoped query. The page-level orchestration around it (Suspense
+ * loaders, streaming) is intentionally not exercised here; this test only
+ * cares about the SQL contract.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { dbRef, mockGetActiveProject, mockParam } = vi.hoisted(() => ({
-  dbRef: { current: null as unknown },
-  mockGetActiveProject: vi.fn(),
-  mockParam: vi.fn(),
-}));
-
+// Mocks below short-circuit imports that would otherwise pull in
+// rwsdk/worker's react-server-only entry (which throws outside RSC).
+// The page module is imported only for `loadRun`; the rest stays inert.
 vi.mock("cloudflare:workers", () => ({ env: {} }));
 vi.mock("rwsdk/worker", () => ({
-  requestInfo: { request: new Request("http://localhost") },
+  requestInfo: { request: new Request("http://localhost"), params: {} },
 }));
 vi.mock("@/app/pages/not-found", () => ({ NotFoundPage: () => null }));
 vi.mock("@/lib/active-project", () => ({
-  getActiveProject: mockGetActiveProject,
+  getActiveProject: vi.fn(),
 }));
-vi.mock("@/lib/route-params", () => ({ param: mockParam }));
+vi.mock("@/lib/route-params", () => ({ param: vi.fn() }));
 vi.mock("@/routes/api/progress", () => ({
-  composeRunProgress: vi.fn().mockResolvedValue(null),
+  composeRunProgressBatch: vi.fn().mockResolvedValue(new Map()),
   runRoomId: vi.fn(),
 }));
 vi.mock("@/lib/test-artifact-actions", () => ({
@@ -39,35 +37,35 @@ import {
   selectResult,
   type ScriptedDriver,
 } from "./helpers/test-db";
-import { RunDetailPage } from "../app/pages/run-detail";
+import type { ActiveProject } from "@/lib/active-project";
+import { loadRun } from "../app/pages/run-detail";
 
 let driver: ScriptedDriver;
+let project: ActiveProject;
 
-describe("RunDetailPage tenant scoping", () => {
+describe("loadRun tenant scoping", () => {
   beforeEach(() => {
     const t = makeTenantTestDb();
-    dbRef.current = t.db;
     driver = t.driver;
-    mockParam.mockReturnValue("run-cross-project");
-    mockGetActiveProject.mockResolvedValue({
+    project = {
       id: "project-current",
-      projectId: "project-current",
+      projectId: "project-current" as ActiveProject["projectId"],
       projectSlug: "web",
-      teamId: "team-current",
+      teamId: "team-current" as ActiveProject["teamId"],
       teamSlug: "acme",
       teamName: "Acme",
       slug: "web",
       name: "Web",
       db: t.db,
       batch: async () => {},
-    });
+    };
   });
 
   it("scopes the runs lookup by both runId and projectId", async () => {
     driver.results.push(selectResult([]));
-    await RunDetailPage();
+    await loadRun(project, "run-cross-project");
 
-    expect(driver.queries.length).toBeGreaterThanOrEqual(1);
+    expect(driver.queries.length).toBe(1);
     const first = driver.queries[0];
     expect(first.sql).toMatch(/from "runs"/i);
     expect(first.sql).toMatch(/"id"\s*=\s*\?/);
@@ -78,9 +76,9 @@ describe("RunDetailPage tenant scoping", () => {
     );
   });
 
-  it("404s without a second query when runs returns empty", async () => {
+  it("returns undefined when no row matches", async () => {
     driver.results.push(selectResult([]));
-    await RunDetailPage();
-    expect(driver.queries.length).toBe(1);
+    const result = await loadRun(project, "run-cross-project");
+    expect(result).toBeUndefined();
   });
 });

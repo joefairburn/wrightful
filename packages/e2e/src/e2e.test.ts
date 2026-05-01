@@ -22,15 +22,28 @@ const BETTER_AUTH_SECRET = inject("betterAuthSecret");
 // Artifact downloads are gated by a short-lived HMAC token the dashboard mints
 // server-side on authenticated pages; the e2e suite holds the same secret, so
 // we can forge a valid token rather than scrape one out of the rendered HTML.
-function signArtifactToken(artifactId: string, ttlSeconds = 60): string {
-  const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const sig = createHmac("sha256", BETTER_AUTH_SECRET)
-    .update(`${artifactId}.${expiresAt}`)
-    .digest("base64")
+// Token format: `${base64url(JSON({r2Key, contentType, exp}))}.${base64url(HMAC(body))}`.
+function base64url(input: Buffer): string {
+  return input
+    .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
-  return `${expiresAt}.${sig}`;
+}
+
+function signArtifactToken(
+  r2Key: string,
+  contentType: string,
+  ttlSeconds = 60,
+): string {
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const body = base64url(
+    Buffer.from(JSON.stringify({ r2Key, contentType, exp })),
+  );
+  const sig = base64url(
+    createHmac("sha256", BETTER_AUTH_SECRET).update(body).digest(),
+  );
+  return `${body}.${sig}`;
 }
 
 const PROJECT_URL = `${DASHBOARD_URL}/t/${TEAM_SLUG}/p/${PROJECT_SLUG}`;
@@ -55,11 +68,14 @@ describe("Wrightful E2E", () => {
       expect(res.headers.get("location")).toContain("/login");
     });
 
-    it("returns 200 with 'No test runs yet' on the scoped project page", async () => {
+    it("returns 200 with the scoped project page for an authed user", async () => {
+      // globalSetup streams a Playwright run into this project before the
+      // suite starts, so the page is no longer empty — assert on the stable
+      // page chrome instead of the empty-state copy.
       const res = await fetchAuthed(PROJECT_URL);
       const html = await res.text();
       expect(res.status).toBe(200);
-      expect(html).toContain("No test runs yet");
+      expect(html).toContain("All Runs");
     });
   });
 
@@ -225,7 +241,9 @@ describe("Wrightful E2E", () => {
       const upload = registerBody.uploads![0];
       expect(upload.uploadUrl).toMatch(/^\/api\/artifacts\/[^/]+\/upload$/);
       expect(upload.r2Key).toMatch(
-        new RegExp(`^runs/${runId}/${testResultId}/.+/trace\\.zip$`),
+        new RegExp(
+          `^t/[^/]+/p/[^/]+/runs/${runId}/${testResultId}/.+/trace\\.zip$`,
+        ),
       );
       expect(upload.artifactId).toBeTruthy();
 
@@ -247,7 +265,8 @@ describe("Wrightful E2E", () => {
 
       const artifactId = upload.artifactId;
       if (!artifactId) throw new Error("register response missing artifactId");
-      const token = signArtifactToken(artifactId);
+      if (!upload.r2Key) throw new Error("register response missing r2Key");
+      const token = signArtifactToken(upload.r2Key, "application/zip");
       const downloadRes = await fetch(
         `${DASHBOARD_URL}/api/artifacts/${artifactId}/download?t=${token}`,
       );
