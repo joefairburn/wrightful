@@ -24,7 +24,6 @@ import {
   getUserTeams,
   type ResolvedActiveProject,
   type ResolvedActiveTeam,
-  type SuggestedTeam,
 } from "@/lib/authz";
 import { cn } from "@/lib/cn";
 
@@ -42,7 +41,6 @@ type AppSidebarData = {
   activeTeam: ResolvedActiveTeam | null;
   projects: { slug: string; name: string }[];
   activeProject: ResolvedActiveProject | null;
-  suggestedTeams: SuggestedTeam[];
 };
 
 interface PreloadedTenant {
@@ -52,6 +50,13 @@ interface PreloadedTenant {
   activeProject: ResolvedActiveProject | null;
 }
 
+// Sidebar data resolves entirely from ctx (populated by `loadActiveProject`
+// middleware in one ControlDO RPC) — no DO calls happen here. Team
+// suggestions used to be fetched in this function too, costing two more
+// ControlDO RPCs on every render; they now stream in via their own
+// Suspense boundary inside `AppSidebarContents`, so the rest of the
+// sidebar paints as soon as ctx data is ready. Function stays async to
+// fit the existing Suspense flow downstream.
 async function fetchAppSidebarData(
   userId: string | null,
   preloaded: PreloadedTenant,
@@ -62,21 +67,13 @@ async function fetchAppSidebarData(
       activeTeam: null,
       projects: [],
       activeProject: null,
-      suggestedTeams: [],
     };
   }
-  // Team/project resolution comes from `loadActiveProject` middleware via
-  // ctx — one ControlDO RPC, already done. The only fan-out left is the
-  // GitHub-org-driven team suggestions, which depend on a separate cache
-  // and aren't on the membership hot path.
-  const allSuggested = await getSuggestedTeamsForUser(userId);
-  const suggestedTeams = allSuggested.filter((s) => !s.dismissed);
   return {
     teams: preloaded.userTeams,
     activeTeam: preloaded.activeTeam,
     projects: preloaded.teamProjects,
     activeProject: preloaded.activeProject,
-    suggestedTeams,
   };
 }
 
@@ -128,6 +125,7 @@ export function AppLayout({ children }: LayoutProps): React.ReactElement {
                   pathname={pathname}
                   appPromise={appPromise as Promise<AppSidebarData>}
                   signedIn={!!userId}
+                  userId={userId}
                 />
               </Suspense>
             )}
@@ -183,10 +181,12 @@ async function AppSidebarLoader({
   pathname,
   appPromise,
   signedIn,
+  userId,
 }: {
   pathname: string;
   appPromise: Promise<AppSidebarData>;
   signedIn: boolean;
+  userId: string | null;
 }): Promise<React.ReactElement> {
   const app = await appPromise;
   return (
@@ -195,8 +195,41 @@ async function AppSidebarLoader({
       teams={app.teams}
       activeTeam={app.activeTeam}
       activeProject={app.activeProject}
-      suggestedTeams={app.suggestedTeams}
       signedIn={signedIn}
+      userId={userId}
+    />
+  );
+}
+
+/**
+ * Streams the team-switcher's "Suggested" section in via its own Suspense
+ * boundary. The fallback is the same `<TeamSwitcher>` with no suggestions —
+ * the trigger button + joined teams are visible immediately; suggestions
+ * fill in when the GitHub-org-driven query completes (~180ms).
+ *
+ * RSC-server-component: reads from ControlDO directly. No client fetch.
+ */
+async function TeamSwitcherWithSuggestions({
+  currentTeamSlug,
+  currentTeamName,
+  teams,
+  userId,
+}: {
+  currentTeamSlug: string;
+  currentTeamName: string;
+  teams: { slug: string; name: string }[];
+  userId: string;
+}): Promise<React.ReactElement> {
+  const all = await getSuggestedTeamsForUser(userId);
+  const suggestedTeams = all
+    .filter((s) => !s.dismissed)
+    .map((s) => ({ id: s.id, slug: s.slug, name: s.name }));
+  return (
+    <TeamSwitcher
+      currentTeamSlug={currentTeamSlug}
+      currentTeamName={currentTeamName}
+      teams={teams}
+      suggestedTeams={suggestedTeams}
     />
   );
 }
@@ -281,8 +314,8 @@ interface AppSidebarContentsProps {
   teams: { slug: string; name: string }[];
   activeTeam: { slug: string; name: string } | null;
   activeProject: { slug: string; name: string } | null;
-  suggestedTeams: SuggestedTeam[];
   signedIn: boolean;
+  userId: string | null;
 }
 
 function AppSidebarContents({
@@ -290,8 +323,8 @@ function AppSidebarContents({
   teams,
   activeTeam,
   activeProject,
-  suggestedTeams,
   signedIn,
+  userId,
 }: AppSidebarContentsProps) {
   const activeNav = deriveActiveNav(pathname);
   const base =
@@ -334,16 +367,30 @@ function AppSidebarContents({
     <>
       {activeTeam ? (
         <div className="h-14 px-2 shrink-0 flex items-center border-b border-sidebar-border">
-          <TeamSwitcher
-            currentTeamSlug={activeTeam.slug}
-            currentTeamName={activeTeam.name}
-            teams={teams}
-            suggestedTeams={suggestedTeams.map((s) => ({
-              id: s.id,
-              slug: s.slug,
-              name: s.name,
-            }))}
-          />
+          {userId ? (
+            <Suspense
+              fallback={
+                <TeamSwitcher
+                  currentTeamSlug={activeTeam.slug}
+                  currentTeamName={activeTeam.name}
+                  teams={teams}
+                />
+              }
+            >
+              <TeamSwitcherWithSuggestions
+                currentTeamSlug={activeTeam.slug}
+                currentTeamName={activeTeam.name}
+                teams={teams}
+                userId={userId}
+              />
+            </Suspense>
+          ) : (
+            <TeamSwitcher
+              currentTeamSlug={activeTeam.slug}
+              currentTeamName={activeTeam.name}
+              teams={teams}
+            />
+          )}
         </div>
       ) : (
         <div className="h-14 px-4 shrink-0 flex items-center text-sm font-semibold tracking-tight border-b border-sidebar-border">
