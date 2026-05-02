@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { render, route, prefix, layout } from "rwsdk/router";
+import { render, route, prefix, layout, except } from "rwsdk/router";
 import { defineApp } from "rwsdk/worker";
 import {
   SyncedStateServer,
@@ -8,6 +8,7 @@ import {
 
 import { AppLayout } from "@/app/components/app-layout";
 import { Document } from "@/app/document";
+import { ErrorPage } from "@/app/components/error-page";
 import { setCommonHeaders } from "@/app/headers";
 import { requireAuth, negotiateVersion } from "@/routes/api/middleware";
 import {
@@ -255,6 +256,13 @@ const app = defineApp([
   // Dashboard pages. /login and /signup sit outside AppLayout so they render
   // without the sidebar; everything else shares the global shell.
   render(Document, [
+    // Catch unhandled errors from page routes/middleware/RSC and render a
+    // themed 500 page instead of leaking a stack trace. Searched backwards
+    // from the error site, so this only fires for the page tree below.
+    except((error) => {
+      console.error("[wrightful] uncaught page error", error);
+      return <ErrorPage error={error} />;
+    }),
     loadSession,
     // Resolves team + project + sibling-projects + user's team list in one
     // ControlDO RPC for any /t/:teamSlug/... request, populating ctx so
@@ -270,55 +278,50 @@ const app = defineApp([
       post: [requireUser, joinTeamHandler],
     }),
     ...layout(AppLayout, [
+      // Every route in this layout requires an authenticated session — hoist
+      // the check once instead of repeating it on each route entry.
+      requireUser,
+
       // Settings — declared first so prefixes win over app routes.
       route("/settings", settingsRootRedirect),
-      route("/settings/profile", [requireUser, SettingsProfilePage]),
+      route("/settings/profile", SettingsProfilePage),
       route("/settings/teams/new", {
-        get: [requireUser, SettingsTeamNewPage],
-        post: [requireUser, createTeamHandler],
+        get: SettingsTeamNewPage,
+        post: createTeamHandler,
       }),
       route("/settings/teams/:teamSlug", {
-        get: [requireUser, SettingsTeamDetailPage],
-        post: [requireUser, teamDetailHandler],
+        get: SettingsTeamDetailPage,
+        post: teamDetailHandler,
       }),
       route("/settings/teams/:teamSlug/projects/new", {
-        get: [requireUser, SettingsProjectNewPage],
-        post: [requireUser, createProjectHandler],
+        get: SettingsProjectNewPage,
+        post: createProjectHandler,
       }),
       route("/settings/teams/:teamSlug/p/:projectSlug/keys", {
-        get: [requireUser, SettingsProjectKeysPage],
-        post: [requireUser, projectKeysHandler],
+        get: SettingsProjectKeysPage,
+        post: projectKeysHandler,
       }),
 
       // Main app
-      route("/", [requireUser, TeamPickerPage]),
-      route("/t/:teamSlug", [requireUser, ProjectPickerPage]),
-      route("/t/:teamSlug/p/:projectSlug", [requireUser, RunsListPage]),
-      route("/t/:teamSlug/p/:projectSlug/flaky", [requireUser, FlakyTestsPage]),
-      route("/t/:teamSlug/p/:projectSlug/insights", [
-        requireUser,
-        InsightsPage,
-      ]),
-      route("/t/:teamSlug/p/:projectSlug/insights/suite-size", [
-        requireUser,
-        SuiteSizePage,
-      ]),
-      route("/t/:teamSlug/p/:projectSlug/insights/run-duration", [
-        requireUser,
+      route("/", TeamPickerPage),
+      route("/t/:teamSlug", ProjectPickerPage),
+      route("/t/:teamSlug/p/:projectSlug", RunsListPage),
+      route("/t/:teamSlug/p/:projectSlug/flaky", FlakyTestsPage),
+      route("/t/:teamSlug/p/:projectSlug/insights", InsightsPage),
+      route("/t/:teamSlug/p/:projectSlug/insights/suite-size", SuiteSizePage),
+      route(
+        "/t/:teamSlug/p/:projectSlug/insights/run-duration",
         RunDurationPage,
-      ]),
-      route("/t/:teamSlug/p/:projectSlug/insights/slowest-tests", [
-        requireUser,
+      ),
+      route(
+        "/t/:teamSlug/p/:projectSlug/insights/slowest-tests",
         SlowestTestsPage,
-      ]),
-      route("/t/:teamSlug/p/:projectSlug/runs/:id", [
-        requireUser,
-        RunDetailPage,
-      ]),
-      route("/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId", [
-        requireUser,
+      ),
+      route("/t/:teamSlug/p/:projectSlug/runs/:id", RunDetailPage),
+      route(
+        "/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId",
         TestDetailPage,
-      ]),
+      ),
     ]),
   ]),
 ]);

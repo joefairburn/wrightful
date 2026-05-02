@@ -11,6 +11,7 @@ export const setCommonHeaders =
     }
 
     response.headers.set("X-Content-Type-Options", "nosniff");
+    response.headers.set("X-Frame-Options", "DENY");
     response.headers.set("Referrer-Policy", "no-referrer");
     response.headers.set(
       "Permissions-Policy",
@@ -28,6 +29,6 @@ export const setCommonHeaders =
     // more OAuth providers are wired up.
     response.headers.set(
       "Content-Security-Policy",
-      `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; font-src 'self'; frame-ancestors 'self'; object-src 'none';`,
+      `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; font-src 'self'; frame-ancestors 'none'; object-src 'none';`,
     );
   };
