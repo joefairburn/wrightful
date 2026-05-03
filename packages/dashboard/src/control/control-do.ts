@@ -23,6 +23,15 @@ export class ControlDO extends SqliteDurableObject {
   // valid JSON` on every GitHub callback.
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, controlMigrations, "__migrations", []);
+    // Run migrations atomically before any RPC is admitted. Without this,
+    // rwsdk's `SqliteDurableObject.initialize()` races: concurrent RPCs all
+    // read `this.initialized = false` past the in-memory check, then each
+    // independently runs the migrator (~88 ms wall on ControlDO). Cloudflare
+    // observability showed this consistently — every concurrent cold-start
+    // RPC paid the full migration cost. `blockConcurrencyWhile` queues all
+    // incoming RPCs until the passed promise resolves, so the migrator runs
+    // exactly once per DO instance.
+    void ctx.blockConcurrencyWhile(() => this.initialize());
   }
 
   /**

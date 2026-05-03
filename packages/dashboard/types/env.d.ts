@@ -39,5 +39,12 @@ declare namespace Cloudflare {
     AUTH_RATE_LIMITER: RateLimit;
     API_RATE_LIMITER: RateLimit;
     ARTIFACT_RATE_LIMITER: RateLimit;
+
+    // KV namespace used as Better Auth's `secondaryStorage` for sessions.
+    // Auto-provisioned by Cloudflare on first `wrangler deploy` via the
+    // binding-without-id pattern in wrangler.jsonc. Optional in the type
+    // because tests (vitest) don't have an env binding and our better-auth
+    // factory checks for it before wiring secondaryStorage.
+    AUTH_KV?: KVNamespace;
   }
 }

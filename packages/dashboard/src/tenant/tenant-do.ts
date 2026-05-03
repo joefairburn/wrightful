@@ -18,6 +18,11 @@ export class TenantDO extends SqliteDurableObject {
   // JSON`.
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, tenantMigrations, "__migrations", []);
+    // See ControlDO for the full rationale. Concurrent RPCs landing on a
+    // freshly-evicted DO would each independently run the migrator without
+    // this guard; `blockConcurrencyWhile` makes init exactly-once per
+    // instance.
+    void ctx.blockConcurrencyWhile(() => this.initialize());
   }
 
   /**

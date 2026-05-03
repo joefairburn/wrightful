@@ -32,6 +32,17 @@
       // bucket name.
     },
   ],
+  "kv_namespaces": [
+    {
+      "binding": "AUTH_KV",
+      // No `id` on purpose — Cloudflare auto-provisions on first
+      // `wrangler deploy` and writes the id back, same pattern as the R2
+      // bucket above. Used as Better Auth's `secondaryStorage`: sessions
+      // live here instead of the singleton ControlDO so the cookie-cache-
+      // miss path is a KV read instead of a DO RPC. See
+      // src/lib/better-auth.ts.
+    },
+  ],
   // Realtime fan-out for in-flight runs. `SyncedStateServer` is rwsdk's
   // stock DO class (`rwsdk/use-synced-state/worker`) — we re-export it from
   // src/worker.tsx so Cloudflare can find it. Ingest handlers call
@@ -54,9 +65,10 @@
         "class_name": "TenantDO",
       },
       // Singleton SQLite-backed Durable Object holding all auth/tenancy
-      // data: users, sessions, accounts, verifications, teams, projects,
-      // memberships, api keys, invites, userOrganizations. Addressed by
-      // name "control" — see `src/control/`.
+      // data: users, accounts, verifications, teams, projects,
+      // memberships, api keys, invites, userOrganizations. Sessions live
+      // in KV (`AUTH_KV` binding above) when configured — Better Auth's
+      // stateless mode. Addressed by name "control" — see `src/control/`.
       {
         "name": "CONTROL",
         "class_name": "ControlDO",

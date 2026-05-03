@@ -14,13 +14,13 @@
 
 import { env } from "cloudflare:workers";
 import { type Compilable } from "kysely";
-import { createDb } from "rwsdk/db";
+import { createDoDb } from "@/lib/db/create-do-db";
 import type { TenantDatabase } from "./index";
 import type { TenantDO } from "./tenant-do";
 
 /** Raw worker-side Kysely handle. No auth. Use a `TenantScope` if possible. */
 export function getTenantDb(teamId: string) {
-  return createDb<TenantDatabase>(env.TENANT, teamId);
+  return createDoDb<TenantDatabase>(env.TENANT, teamId);
 }
 
 /** Raw atomic batch. No auth. Use a `TenantScope` if possible. */

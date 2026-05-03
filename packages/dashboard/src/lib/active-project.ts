@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { requestInfo } from "rwsdk/worker";
 import type { ResolvedActiveProject } from "@/lib/authz";
 import { type TenantScope, tenantScopeFromIds } from "@/tenant";
@@ -34,22 +35,30 @@ export type ActiveProject = TenantScope & {
  * — that's the contract of the middleware — so we just mint the tenant
  * scope without re-querying.
  *
+ * Wrapped in React's `cache()` so multiple components in the same render
+ * (e.g. layout + page + breadcrumbs) get the same `ActiveProject` instance.
+ * No DO call is made either way — ctx is already populated — but the
+ * stable reference makes downstream `===` checks and React reconciliation
+ * keys cleaner.
+ *
  * Returns null when the user isn't authorised to view the project (caller
  * should render a 404 shell — we intentionally don't distinguish "no such
  * project" from "you can't see this project" to avoid leaking existence).
  */
-export async function getActiveProject(): Promise<ActiveProject | null> {
-  const ctx = requestInfo.ctx as {
-    activeProject?: ResolvedActiveProject | null;
-  };
-  const ap = ctx.activeProject;
-  if (!ap) return null;
-  const scope = tenantScopeFromIds(ap.teamId, ap.teamSlug, ap.id, ap.slug);
-  return {
-    ...scope,
-    id: scope.projectId,
-    slug: scope.projectSlug,
-    name: ap.name,
-    teamName: ap.teamName,
-  };
-}
+export const getActiveProject = cache(
+  async (): Promise<ActiveProject | null> => {
+    const ctx = requestInfo.ctx as {
+      activeProject?: ResolvedActiveProject | null;
+    };
+    const ap = ctx.activeProject;
+    if (!ap) return null;
+    const scope = tenantScopeFromIds(ap.teamId, ap.teamSlug, ap.id, ap.slug);
+    return {
+      ...scope,
+      id: scope.projectId,
+      slug: scope.projectSlug,
+      name: ap.name,
+      teamName: ap.teamName,
+    };
+  },
+);

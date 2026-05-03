@@ -3,7 +3,7 @@
 
 import { env } from "cloudflare:workers";
 import { type Compilable } from "kysely";
-import { createDb } from "rwsdk/db";
+import { createDoDb } from "@/lib/db/create-do-db";
 import type { ControlDatabase } from "./index";
 
 /**
@@ -16,11 +16,13 @@ const CONTROL_NAME = "control";
  * Worker-side Kysely handle backed by the singleton ControlDO. Returns a
  * `Kysely<ControlDatabase>` whose schema is inferred from the migration DSL.
  *
- * No CamelCasePlugin: identifiers are camelCase in both TS and the emitted
- * SQL, matching the tenant DO convention.
+ * Uses our `createDoDb` (not rwsdk's `createDb`) so we don't fire a redundant
+ * `stub.initialize()` RPC per query — see `src/lib/db/create-do-db.ts`. The
+ * DO still runs migrations on cold start via `blockConcurrencyWhile` in its
+ * constructor.
  */
 export function getControlDb() {
-  return createDb<ControlDatabase>(env.CONTROL, CONTROL_NAME);
+  return createDoDb<ControlDatabase>(env.CONTROL, CONTROL_NAME);
 }
 
 /**
