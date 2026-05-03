@@ -26,6 +26,7 @@ import {
   type ResolvedActiveTeam,
 } from "@/lib/authz";
 import { cn } from "@/lib/cn";
+import { resolveDefaultLanding } from "@/lib/user-state";
 
 type NavId = "runs" | "flaky" | "insights" | "tests";
 
@@ -117,6 +118,7 @@ export function AppLayout({ children }: LayoutProps): React.ReactElement {
                 <SettingsSidebarLoader
                   pathname={pathname}
                   teamsPromise={settingsTeamsPromise}
+                  userId={userId}
                 />
               </Suspense>
             ) : (
@@ -237,12 +239,31 @@ async function TeamSwitcherWithSuggestions({
 async function SettingsSidebarLoader({
   pathname,
   teamsPromise,
+  userId,
 }: {
   pathname: string;
   teamsPromise: Promise<{ slug: string; name: string }[]>;
+  userId: string | null;
 }): Promise<React.ReactElement> {
-  const teams = await teamsPromise;
-  return <SettingsSidebarContents pathname={pathname} teams={teams} />;
+  const [teams, landing] = await Promise.all([
+    teamsPromise,
+    userId ? resolveDefaultLanding(userId) : Promise.resolve(null),
+  ]);
+  // Skip the `/` redirect when we know where the user would land — keeps the
+  // "Back to app" click on rwsdk's RSC navigation path. Falls back to `/`
+  // only when the user has no teams (rare; the team picker handles that).
+  const backToAppHref = landing
+    ? landing.kind === "project"
+      ? `/t/${landing.teamSlug}/p/${landing.projectSlug}`
+      : `/t/${landing.teamSlug}`
+    : "/";
+  return (
+    <SettingsSidebarContents
+      pathname={pathname}
+      teams={teams}
+      backToAppHref={backToAppHref}
+    />
+  );
 }
 
 async function ProjectSwitcherLoader({
@@ -424,7 +445,7 @@ function AppSidebarContents({
       {signedIn ? (
         <div className="flex flex-col gap-0.5 px-2 pb-5 shrink-0">
           <a
-            href="/settings"
+            href="/settings/profile"
             className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
           >
             <Settings size={16} />
@@ -439,11 +460,13 @@ function AppSidebarContents({
 interface SettingsSidebarContentsProps {
   pathname: string;
   teams: { slug: string; name: string }[];
+  backToAppHref: string;
 }
 
 function SettingsSidebarContents({
   pathname,
   teams,
+  backToAppHref,
 }: SettingsSidebarContentsProps) {
   const profileActive = pathname.startsWith("/settings/profile");
 
@@ -451,7 +474,7 @@ function SettingsSidebarContents({
     <>
       <div className="h-14 px-2 shrink-0 flex items-center border-b border-sidebar-border">
         <a
-          href="/"
+          href={backToAppHref}
           className="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
         >
           <ArrowLeft size={14} />
