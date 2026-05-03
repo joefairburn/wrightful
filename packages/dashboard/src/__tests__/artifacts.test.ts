@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Compilable } from "kysely";
 
-const { mockEnv, tenantDbRef } = vi.hoisted(() => ({
+const { mockEnv, tenantDbRef, batchCalls } = vi.hoisted(() => ({
   mockEnv: {
     WRIGHTFUL_MAX_ARTIFACT_BYTES: "52428800",
   } as Record<string, unknown> & { WRIGHTFUL_MAX_ARTIFACT_BYTES: string },
   tenantDbRef: { current: null as unknown },
+  batchCalls: [] as Array<{ teamId: string; queries: Compilable[] }>,
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
@@ -18,17 +20,14 @@ vi.mock("@/tenant", () => ({
       projectId: apiKey.projectId,
       projectSlug: "p",
       db: tenantDbRef.current,
-      batch: async () => {},
+      batch: async (queries: Compilable[]) => {
+        batchCalls.push({ teamId: "team-1", queries: [...queries] });
+      },
     };
   }),
 }));
 
-import {
-  makeTenantTestDb,
-  makeTestDb,
-  selectResult,
-  type ScriptedDriver,
-} from "./helpers/test-db";
+import { makeTenantTestDb, makeTestDb, selectResult } from "./helpers/test-db";
 import { registerHandler } from "../routes/api/artifacts";
 import { getControlDb } from "@/control";
 
@@ -46,25 +45,21 @@ const AUTH_CTX = {
   apiKey: { id: "key-1", label: "test", projectId: "proj-1" },
 };
 
-let tenantDriver: ScriptedDriver;
-
 /**
  * registerHandler runs in order (via the scoped tenant db):
  *   1. tenant: runs ownership (committed = 1)
  *   2. tenant: testResults id-in-chunk membership
- *   3. tenant: artifacts INSERT
+ *   3. tenant: artifacts INSERT (via scope.batch — captured in batchCalls)
  */
 function setupDb(opts: { runOwned?: boolean; validTestResultIds?: string[] }) {
   const runOwned = opts.runOwned ?? true;
   const validTestResultIds = opts.validTestResultIds ?? [];
   const control = makeTestDb();
   const tenant = makeTenantTestDb();
-  tenantDriver = tenant.driver;
   tenant.driver.results.push(selectResult(runOwned ? [{ id: "run-1" }] : []));
   tenant.driver.results.push(
     selectResult(validTestResultIds.map((id) => ({ id }))),
   );
-  tenant.driver.results.push(selectResult([]));
   mockedGetDb.mockReturnValue(control.db);
   tenantDbRef.current = tenant.db;
 }
@@ -76,6 +71,7 @@ describe("registerHandler", () => {
       WRIGHTFUL_MAX_ARTIFACT_BYTES: "52428800",
     });
     tenantDbRef.current = null;
+    batchCalls.length = 0;
   });
 
   it("401s when no API key is on the context", async () => {
@@ -201,9 +197,11 @@ describe("registerHandler", () => {
       `/api/artifacts/${body.uploads[0].artifactId}/upload`,
     );
 
-    const insertQ = tenantDriver.queries.find((q) =>
-      /^insert\s+into\s+"artifacts"/i.test(q.sql),
-    );
+    expect(batchCalls).toHaveLength(1);
+    expect(batchCalls[0].teamId).toBe("team-1");
+    const insertQ = batchCalls[0].queries
+      .map((q) => q.compile())
+      .find((c) => /^insert\s+into\s+"artifacts"/i.test(c.sql));
     expect(insertQ).toBeDefined();
     expect(insertQ!.parameters).toContain("tr-1");
     expect(insertQ!.parameters).toContain(2);

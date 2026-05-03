@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { resolveProjectBySlugs, resolveTeamBySlug } from "@/lib/authz";
+import { resolveTenantBundleForUser } from "@/lib/authz";
 import { setLastProject, setLastTeam } from "@/lib/user-state";
 import type { AppContext } from "@/worker";
 
@@ -24,10 +24,14 @@ export async function setLastTeamHandler({ request, ctx }: HandlerArgs) {
     return new Response("Invalid body", { status: 400 });
   }
 
-  const team = await resolveTeamBySlug(ctx.user.id, parsed.data.teamSlug);
-  if (!team) return new Response("Not found", { status: 404 });
+  const bundle = await resolveTenantBundleForUser(
+    ctx.user.id,
+    parsed.data.teamSlug,
+    null,
+  );
+  if (!bundle.activeTeam) return new Response("Not found", { status: 404 });
 
-  await setLastTeam(ctx.user.id, team.id);
+  await setLastTeam(ctx.user.id, bundle.activeTeam.id);
   return new Response(null, { status: 204 });
 }
 
@@ -41,13 +45,17 @@ export async function setLastProjectHandler({ request, ctx }: HandlerArgs) {
     return new Response("Invalid body", { status: 400 });
   }
 
-  const project = await resolveProjectBySlugs(
+  const bundle = await resolveTenantBundleForUser(
     ctx.user.id,
     parsed.data.teamSlug,
     parsed.data.projectSlug,
   );
-  if (!project) return new Response("Not found", { status: 404 });
+  if (!bundle.activeProject) return new Response("Not found", { status: 404 });
 
-  await setLastProject(ctx.user.id, project.teamId, project.id);
+  await setLastProject(
+    ctx.user.id,
+    bundle.activeProject.teamId,
+    bundle.activeProject.id,
+  );
   return new Response(null, { status: 204 });
 }

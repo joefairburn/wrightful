@@ -18,8 +18,10 @@ import { type Migrations } from "rwsdk/db";
  * used the view now filter on `runs.committed = 1` at the call site, or
  * skip the predicate entirely when they're already guarding on status.
  *
- * Pre-launch policy: on schema change, edit `0000_init` in place and
- * redeploy; don't stack numbered migrations.
+ * Migration policy (post-launch): `0000_init` is frozen — production DOs
+ * have it applied. Schema changes go in new numbered migrations
+ * (`0001_*`, `0002_*`, …) which run additively on existing tenant DOs.
+ * Never edit a migration that has already been applied in any environment.
  */
 export const tenantMigrations = {
   "0000_init": {
@@ -217,6 +219,42 @@ export const tenantMigrations = {
       await db.schema.dropTable("testTags").ifExists().execute();
       await db.schema.dropTable("testResults").ifExists().execute();
       await db.schema.dropTable("runs").ifExists().execute();
+    },
+  },
+
+  /**
+   * Composite indexes leading with `projectId` to back the runs-list filter
+   * dropdowns (`SELECT DISTINCT branch / actor / environment WHERE projectId = ?`
+   * in `runs-list.tsx:FilterBarLoader`). Without these, the planner falls
+   * back to a project-scoped scan plus per-row column read; with them,
+   * SQLite skip-scans distinct values from a covering index.
+   */
+  "0001_runs_filter_indexes": {
+    async up(db) {
+      await db.schema
+        .createIndex("runs_project_branch_idx")
+        .on("runs")
+        .columns(["projectId", "branch"])
+        .execute();
+      await db.schema
+        .createIndex("runs_project_actor_idx")
+        .on("runs")
+        .columns(["projectId", "actor"])
+        .execute();
+      await db.schema
+        .createIndex("runs_project_environment_idx")
+        .on("runs")
+        .columns(["projectId", "environment"])
+        .execute();
+    },
+
+    async down(db) {
+      await db.schema
+        .dropIndex("runs_project_environment_idx")
+        .ifExists()
+        .execute();
+      await db.schema.dropIndex("runs_project_actor_idx").ifExists().execute();
+      await db.schema.dropIndex("runs_project_branch_idx").ifExists().execute();
     },
   },
 } satisfies Migrations;

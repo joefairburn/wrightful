@@ -13,8 +13,10 @@ import { type Migrations } from "rwsdk/db";
  * kyselyAdapter uses camelCase TS-side field names (`userId`, `emailVerified`,
  * …), which now match the SQL column names verbatim.
  *
- * Pre-launch policy (matches tenant): on schema change, edit `0000_init` in
- * place and redeploy; don't stack numbered migrations.
+ * Migration policy (post-launch, matches tenant): `0000_init` is frozen —
+ * production has it applied. Schema changes go in new numbered migrations
+ * (`0001_*`, `0002_*`, …) which run additively on the singleton ControlDO.
+ * Never edit a migration that has already been applied in any environment.
  */
 
 const nowMs = sql<number>`(cast(unixepoch('subsecond') * 1000 as integer))`;

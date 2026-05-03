@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { type Compilable } from "kysely";
 import { ulid } from "ulid";
 import { tenantScopeForApiKey } from "@/tenant";
 import {
@@ -150,12 +151,15 @@ export async function registerHandler({
   // Eager insert — row existence == artifact was promised. A failed PUT
   // leaves an orphan row whose download endpoint will 404; that's
   // acceptable for v1.
+  const statements: Compilable[] = [];
   for (let i = 0; i < rows.length; i += ARTIFACT_ROWS_PER_STATEMENT) {
-    await scope.db
-      .insertInto("artifacts")
-      .values(rows.slice(i, i + ARTIFACT_ROWS_PER_STATEMENT))
-      .execute();
+    statements.push(
+      scope.db
+        .insertInto("artifacts")
+        .values(rows.slice(i, i + ARTIFACT_ROWS_PER_STATEMENT)),
+    );
   }
+  await scope.batch(statements);
 
   return jsonResponse({ uploads }, 201);
 }
