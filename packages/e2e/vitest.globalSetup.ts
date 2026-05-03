@@ -88,7 +88,7 @@ function run(
     .trim();
 }
 
-async function waitForServer(url: string, maxAttempts = 40): Promise<void> {
+async function waitForServer(url: string, maxAttempts = 90): Promise<void> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const res = await fetch(url, { redirect: "manual" });
