@@ -25,8 +25,14 @@ vi.mock("@/lib/active-project", () => ({
 }));
 vi.mock("@/lib/route-params", () => ({ param: vi.fn() }));
 vi.mock("@/routes/api/progress", () => ({
-  composeRunProgressBatch: vi.fn().mockResolvedValue(new Map()),
+  buildRunSummary: vi.fn().mockReturnValue({}),
   runRoomId: vi.fn(),
+  TESTS_TAIL_SIZE: 50,
+}));
+vi.mock("@/routes/api/run-results", () => ({
+  loadRunResultsPage: vi
+    .fn()
+    .mockResolvedValue({ results: [], nextCursor: null }),
 }));
 vi.mock("@/lib/test-artifact-actions", () => ({
   loadFailingArtifactActions: vi.fn().mockResolvedValue({}),

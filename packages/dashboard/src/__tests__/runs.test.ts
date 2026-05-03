@@ -87,8 +87,8 @@ describe("openRunHandler", () => {
 
   it("creates a run when no idempotency match exists", async () => {
     tenantDriver.results.push(selectResult([])); // idempotency
-    tenantDriver.results.push(selectResult([])); // composeRunProgress runs
-    tenantDriver.results.push(selectResult([])); // composeRunProgress tests
+    tenantDriver.results.push(selectResult([])); // broadcastRunUpdate: composeRunSummary runs row
+    tenantDriver.results.push(selectResult([])); // broadcastRunUpdate: composeRunTestsTail testResults
 
     const res = await openRunHandler({
       request: makeRequest("/api/runs", {
@@ -199,8 +199,8 @@ describe("appendResultsHandler", () => {
   it("batches inserts + aggregate recompute and returns mapping", async () => {
     tenantDriver.results.push(selectResult([{ id: "run-1" }]));
     tenantDriver.results.push(selectResult([])); // resolveTestResultIds
-    tenantDriver.results.push(selectResult([])); // composeRunProgress runs
-    tenantDriver.results.push(selectResult([])); // composeRunProgress tests
+    tenantDriver.results.push(selectResult([])); // broadcastRunUpdate: composeRunSummary runs row
+    tenantDriver.results.push(selectResult([])); // broadcastRunUpdate: composeRunTestsTail testResults
 
     const res = await appendResultsHandler({
       request: makeRequest("/api/runs/run-1/results", {
@@ -289,8 +289,8 @@ describe("completeRunHandler", () => {
 
   it("updates status + completedAt and recomputes aggregates", async () => {
     tenantDriver.results.push(selectResult([{ id: "run-1" }]));
-    tenantDriver.results.push(selectResult([])); // composeRunProgress runs
-    tenantDriver.results.push(selectResult([])); // composeRunProgress tests
+    tenantDriver.results.push(selectResult([])); // broadcastRunUpdate: composeRunSummary runs row
+    tenantDriver.results.push(selectResult([])); // broadcastRunUpdate: composeRunTestsTail testResults
 
     const res = await completeRunHandler({
       request: makeRequest("/api/runs/run-1/complete", {

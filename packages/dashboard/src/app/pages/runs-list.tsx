@@ -7,7 +7,7 @@ import {
 } from "@/app/components/runs-filter-bar";
 import { RunRowProgressIsland } from "@/app/components/run-progress";
 import { RunTestsPopover } from "@/app/components/run-tests-popover";
-import { composeRunProgressBatch, runRoomId } from "@/routes/api/progress";
+import { composeRunSummaryBatch, runRoomId } from "@/routes/api/progress";
 import {
   Empty,
   EmptyContent,
@@ -306,10 +306,11 @@ async function RunsTableSection({
     .offset(offset)
     .execute();
 
-  // Seed RunProgress for each running row so the island has accurate SSR
-  // state before its WS connects. Historical runs skip this compose.
-  const runningProgress = await composeRunProgressBatch(
-    project,
+  // Seed a RunSummary for each running row so the island has accurate SSR
+  // state before its WS connects. Pure transform from rows we already have
+  // — no extra DO hop. Historical runs render counters directly from the
+  // run row.
+  const runningSummaries = composeRunSummaryBatch(
     allRuns.filter((r) => r.status === "running"),
   );
 
@@ -506,9 +507,9 @@ async function RunsTableSection({
                     {/* Test counts */}
                     <TableCell className="px-4 py-3">
                       {run.status === "running" &&
-                      runningProgress.has(run.id) ? (
+                      runningSummaries.has(run.id) ? (
                         <RunRowProgressIsland
-                          initial={runningProgress.get(run.id)!}
+                          initial={runningSummaries.get(run.id)!}
                           roomId={runRoomId({
                             teamSlug: project.teamSlug,
                             projectSlug: project.slug,

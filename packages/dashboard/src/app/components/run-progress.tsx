@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { useSyncedState } from "rwsdk/use-synced-state/client";
 import {
@@ -35,9 +35,10 @@ import {
   type FileGroup,
 } from "@/lib/group-tests-by-file";
 import type {
-  RunProgress,
   RunProgressTest,
   RunProgressTestStatus,
+  RunSummary,
+  RunTestsTail,
 } from "@/routes/api/progress";
 
 const RESULT_STATUS_ORDER: Record<string, number> = {
@@ -372,14 +373,14 @@ function FileGroupHeader({ group }: { group: FileGroup }) {
  * Summary tiles grid (Total / Passed / Failed / Flaky). Pure; safe on the
  * server and inside a client island.
  */
-export function RunProgressSummary({ progress }: { progress: RunProgress }) {
-  const { counts, expectedTotal } = progress;
+export function RunProgressSummary({ summary }: { summary: RunSummary }) {
+  const { counts, expectedTotal } = summary;
   const [filter, setFilter] = useStatusFilter();
-  const totalKnown = progress.totalDone + counts.queued;
+  const totalKnown = summary.totalDone + counts.queued;
   const totalValue =
-    progress.status === "running" && expectedTotal != null ? (
+    summary.status === "running" && expectedTotal != null ? (
       <span>
-        {progress.totalDone}
+        {summary.totalDone}
         <span className="text-muted-foreground">
           {" / "}
           {expectedTotal}
@@ -429,6 +430,114 @@ export function RunProgressSummary({ progress }: { progress: RunProgress }) {
   );
 }
 
+async function fetchAllPages(
+  resultsEndpoint: string,
+  startCursor: string | null,
+  signal: AbortSignal,
+): Promise<RunProgressTest[] | null> {
+  const collected: RunProgressTest[] = [];
+  let cursor: string | null = startCursor;
+  // Always run at least once so the entry case (cursor=null, fetch first
+  // page) works for the reconciliation path. The seed path skips this
+  // helper entirely when there's no nextCursor.
+  while (true) {
+    if (signal.aborted) return null;
+    const url = new URL(resultsEndpoint, window.location.origin);
+    url.searchParams.set("limit", "500");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const res = await fetch(url.toString(), { signal }).catch(() => null);
+    if (!res || !res.ok) return null;
+    const data = (await res.json()) as {
+      results: RunProgressTest[];
+      nextCursor: string | null;
+    };
+    collected.push(...data.results);
+    if (!data.nextCursor) break;
+    cursor = data.nextCursor;
+  }
+  return collected;
+}
+
+/**
+ * Owns the locally-paged test list. Two effects feed the same `paged`
+ * state:
+ *
+ *   1. **Seed-and-extend** (mount): start with SSR-provided
+ *      `initialTests`, auto-paginate forward through `initialNextCursor`
+ *      until `nextCursor` is null. One pass; never re-runs unless the
+ *      cursor itself changes.
+ *   2. **Reconcile** (`reconcileTrigger` bumps): on running→terminal
+ *      transition the caller bumps a counter; this effect refetches the
+ *      full set from cursor=null and replaces `paged`. Closes the gap
+ *      where rows outside the live tail window had UPDATEs that never
+ *      reached the synced-state subscriber.
+ */
+function usePaginatedTests(
+  initialTests: RunProgressTest[],
+  initialNextCursor: string | null,
+  resultsEndpoint: string | null,
+  reconcileTrigger: number,
+): RunProgressTest[] {
+  const [paged, setPaged] = useState<RunProgressTest[]>(initialTests);
+  const seededFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!initialNextCursor || !resultsEndpoint) return;
+    const fetchKey = `${resultsEndpoint}|${initialNextCursor}`;
+    if (seededFor.current === fetchKey) return;
+    seededFor.current = fetchKey;
+
+    const controller = new AbortController();
+    void (async () => {
+      const tail = await fetchAllPages(
+        resultsEndpoint,
+        initialNextCursor,
+        controller.signal,
+      );
+      if (!tail || controller.signal.aborted) return;
+      setPaged([...initialTests, ...tail]);
+    })();
+
+    return () => controller.abort();
+    // initialTests intentionally omitted from deps — refetch only when
+    // the cursor itself changes (e.g. SSR re-seeded for a new run).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialNextCursor, resultsEndpoint]);
+
+  useEffect(() => {
+    // Skip the no-op initial render (trigger starts at 0). Only run on
+    // an actual bump.
+    if (reconcileTrigger === 0) return;
+    if (!resultsEndpoint) return;
+
+    const controller = new AbortController();
+    void (async () => {
+      const all = await fetchAllPages(resultsEndpoint, null, controller.signal);
+      if (!all || controller.signal.aborted) return;
+      setPaged(all);
+    })();
+
+    return () => controller.abort();
+  }, [reconcileTrigger, resultsEndpoint]);
+
+  return paged;
+}
+
+/**
+ * Merge the live tail (newest TESTS_TAIL_SIZE rows) on top of the paged
+ * REST list. Tail wins on id collision so retries / status flips
+ * override the static REST snapshot.
+ */
+function mergeTailOverPaged(
+  paged: RunProgressTest[],
+  tailTests: RunProgressTest[],
+): RunProgressTest[] {
+  if (tailTests.length === 0) return paged;
+  const tailIds = new Set(tailTests.map((t) => t.id));
+  const remainder = paged.filter((t) => !tailIds.has(t.id));
+  return [...tailTests, ...remainder];
+}
+
 /**
  * Test list card. Groups tests by their `file` (Cypress-style) and renders
  * each group as a collapsible section with per-file counts, duration, and
@@ -436,20 +545,27 @@ export function RunProgressSummary({ progress }: { progress: RunProgress }) {
  * server and inside a client island.
  */
 export function RunProgressTests({
-  progress,
+  tests,
+  totalTests,
   runBase,
   expandErrors = true,
   artifactActionsByTestId,
 }: {
-  progress: RunProgress;
+  tests: RunProgressTest[];
+  /**
+   * Run-level test count (`runs.totalTests`). May exceed `tests.length`
+   * during paginated load — used in the header so the user sees the
+   * authoritative count regardless of progress.
+   */
+  totalTests: number;
   runBase: string;
   expandErrors?: boolean;
   artifactActionsByTestId?: Record<string, ArtifactAction[]>;
 }) {
   const [filter, setFilter] = useStatusFilter();
   const filteredTests = useMemo(
-    () => progress.tests.filter((t) => matchesFilter(t.status, filter)),
-    [progress.tests, filter],
+    () => tests.filter((t) => matchesFilter(t.status, filter)),
+    [tests, filter],
   );
   const groups = useMemo(() => {
     const sorted = [...filteredTests].sort(
@@ -459,7 +575,7 @@ export function RunProgressTests({
     );
     return groupTestsByFile(sorted);
   }, [filteredTests]);
-  const totalTests = progress.tests.length;
+  const headerTotal = Math.max(totalTests, tests.length);
   const visibleTests = filteredTests.length;
   const defaultOpen = useMemo(() => groups.map((g) => g.file), [groups]);
   return (
@@ -483,14 +599,14 @@ export function RunProgressTests({
         <span className="font-mono text-[11px] text-muted-foreground">
           {filter === null ? (
             <>
-              {totalTests} {totalTests === 1 ? "test" : "tests"}
+              {headerTotal} {headerTotal === 1 ? "test" : "tests"}
               {groups.length > 0
                 ? ` · ${groups.length} ${groups.length === 1 ? "file" : "files"}`
                 : ""}
             </>
           ) : (
             <>
-              {visibleTests} of {totalTests}
+              {visibleTests} of {headerTotal}
               {groups.length > 0
                 ? ` · ${groups.length} ${groups.length === 1 ? "file" : "files"}`
                 : ""}
@@ -498,7 +614,7 @@ export function RunProgressTests({
           )}
         </span>
       </div>
-      {totalTests === 0 ? (
+      {headerTotal === 0 ? (
         <div className="px-5 py-10 text-center text-sm text-muted-foreground">
           No test results recorded for this run.
         </div>
@@ -557,44 +673,89 @@ export function RunProgressTests({
 }
 
 /**
- * Summary-tiles island. Subscribes to the realtime progress channel via
- * `useSyncedState` and re-renders the four counts on every `setState` push.
- * Seeded with SSR-provided `initial` so the first render matches the
- * server-rendered state without waiting on the WebSocket.
+ * Summary-tiles island. Subscribes to the realtime `"summary"` key only,
+ * so the four counts re-render on every counter update without being
+ * coupled to the test-list payload.
  */
 export function RunSummaryIsland({
   initial,
   roomId,
 }: {
-  initial: RunProgress;
+  initial: RunSummary;
   roomId: string;
 }) {
-  const [progress] = useSyncedState<RunProgress>(initial, "progress", roomId);
-  return <RunProgressSummary progress={progress} />;
+  const [summary] = useSyncedState<RunSummary>(initial, "summary", roomId);
+  return <RunProgressSummary summary={summary} />;
 }
 
 /**
- * Test-list island. Separate from the summary island so each can live in
- * its natural layout slot (summary inside the bento card, test list
- * full-width below). Both islands subscribe to the same
- * `"progress"` key in the same room → one WebSocket, two hook
- * subscriptions, identical updates delivered to both.
+ * Test-list island. Subscribes to two synced-state keys in the same room:
+ * `"tests-tail"` for live row updates (newest TESTS_TAIL_SIZE rows),
+ * `"summary"` for the authoritative `totalTests` shown in the header.
+ * Auto-paginates forward through the cursor-paginated REST endpoint to
+ * fill in older rows beyond the tail window.
+ *
+ * On running→terminal transition the island bumps `reconcileTrigger`,
+ * which makes `usePaginatedTests` refetch the full set from the tenant
+ * DB. This catches any rows whose status UPDATE landed outside the live
+ * tail window during ingest (createdAt-DESC ordering means older rows
+ * scroll off as new ones arrive); the tenant DB is canonical, so a
+ * post-completion re-read reconciles whatever the live channel missed.
  */
 export function RunTestsIsland({
-  initial,
+  initialTail,
+  initialSummary,
+  initialTests,
+  initialNextCursor,
   roomId,
   runBase,
+  resultsEndpoint,
   artifactActionsByTestId,
 }: {
-  initial: RunProgress;
+  initialTail: RunTestsTail;
+  initialSummary: RunSummary;
+  initialTests: RunProgressTest[];
+  initialNextCursor: string | null;
   roomId: string;
   runBase: string;
+  resultsEndpoint: string;
   artifactActionsByTestId?: Record<string, ArtifactAction[]>;
 }) {
-  const [progress] = useSyncedState<RunProgress>(initial, "progress", roomId);
+  const [tail] = useSyncedState<RunTestsTail>(
+    initialTail,
+    "tests-tail",
+    roomId,
+  );
+  const [summary] = useSyncedState<RunSummary>(
+    initialSummary,
+    "summary",
+    roomId,
+  );
+
+  // Fire a single reconcile when the run flips out of "running".
+  const wasRunningRef = useRef(initialSummary.status === "running");
+  const [reconcileTrigger, setReconcileTrigger] = useState(0);
+  useEffect(() => {
+    if (wasRunningRef.current && summary.status !== "running") {
+      setReconcileTrigger((t) => t + 1);
+    }
+    wasRunningRef.current = summary.status === "running";
+  }, [summary.status]);
+
+  const paged = usePaginatedTests(
+    initialTests,
+    initialNextCursor,
+    resultsEndpoint,
+    reconcileTrigger,
+  );
+  const tests = useMemo(
+    () => mergeTailOverPaged(paged, tail.tests),
+    [paged, tail.tests],
+  );
   return (
     <RunProgressTests
-      progress={progress}
+      tests={tests}
+      totalTests={summary.totalTests}
       runBase={runBase}
       artifactActionsByTestId={artifactActionsByTestId}
     />
@@ -602,7 +763,7 @@ export function RunTestsIsland({
 }
 
 export interface RunRowProgressIslandProps {
-  initial: RunProgress;
+  initial: RunSummary;
   roomId: string;
   teamSlug: string;
   projectSlug: string;
@@ -624,19 +785,19 @@ export function RunRowProgressIsland({
   runId,
   runHref,
 }: RunRowProgressIslandProps) {
-  const [progress] = useSyncedState<RunProgress>(initial, "progress", roomId);
+  const [summary] = useSyncedState<RunSummary>(initial, "summary", roomId);
   const showProgressPill =
-    progress.status === "running" && progress.expectedTotal != null;
+    summary.status === "running" && summary.expectedTotal != null;
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       {showProgressPill ? (
         <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-primary/40 bg-primary/10 font-mono text-[11px] tabular-nums text-primary">
-          {progress.totalDone}/{progress.expectedTotal}
+          {summary.totalDone}/{summary.expectedTotal}
         </span>
       ) : null}
       <RunTestsPopover
         variant="passed"
-        count={progress.counts.passed}
+        count={summary.counts.passed}
         teamSlug={teamSlug}
         projectSlug={projectSlug}
         runId={runId}
@@ -644,7 +805,7 @@ export function RunRowProgressIsland({
       />
       <RunTestsPopover
         variant="failed"
-        count={progress.counts.failed}
+        count={summary.counts.failed}
         teamSlug={teamSlug}
         projectSlug={projectSlug}
         runId={runId}
@@ -652,7 +813,7 @@ export function RunRowProgressIsland({
       />
       <RunTestsPopover
         variant="flaky"
-        count={progress.counts.flaky}
+        count={summary.counts.flaky}
         teamSlug={teamSlug}
         projectSlug={projectSlug}
         runId={runId}
@@ -660,7 +821,7 @@ export function RunRowProgressIsland({
       />
       <RunTestsPopover
         variant="skipped"
-        count={progress.counts.skipped}
+        count={summary.counts.skipped}
         teamSlug={teamSlug}
         projectSlug={projectSlug}
         runId={runId}

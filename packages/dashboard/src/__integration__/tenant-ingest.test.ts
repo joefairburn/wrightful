@@ -7,9 +7,11 @@ import {
   openRunHandler,
 } from "@/routes/api/runs";
 import {
-  composeRunProgress,
+  composeRunSummary,
+  composeRunTestsTail,
   runRoomId,
-  type RunProgress,
+  type RunSummary,
+  type RunTestsTail,
 } from "@/routes/api/progress";
 import { tenantScopeForApiKey } from "@/tenant";
 import { getTenantDb } from "@/tenant/internal";
@@ -44,7 +46,7 @@ function jsonRequest(url: string, body: unknown): Request {
   });
 }
 
-describe("streaming ingest → composeRunProgress", () => {
+describe("streaming ingest → composeRunSummary + composeRunTestsTail", () => {
   it("persists a full run across open / append / complete and reads back aggregates", async () => {
     const { projectId, teamId } = await seedTeamAndProject();
     const authCtx = {
@@ -163,28 +165,32 @@ describe("streaming ingest → composeRunProgress", () => {
     });
     expect(complete.status).toBe(200);
 
-    // 4. Read back via composeRunProgress — the same path RSC pages use
-    //    for SSR seed state and for broadcast fan-out.
+    // 4. Read back via composeRunSummary + composeRunTestsTail — the same
+    //    paths RSC pages and broadcast fan-out use.
     const scope = await tenantScopeForApiKey(authCtx.apiKey);
     expect(scope).not.toBeNull();
-    const progress = await composeRunProgress(scope!, runId);
-    expect(progress).not.toBeNull();
-    expect(progress!.status).toBe("failed");
-    expect(progress!.counts).toMatchObject({
+    const summary = await composeRunSummary(scope!, runId);
+    expect(summary).not.toBeNull();
+    expect(summary!.status).toBe("failed");
+    expect(summary!.counts).toMatchObject({
       passed: 1,
       failed: 1,
       flaky: 0,
       skipped: 0,
     });
-    expect(progress!.tests).toHaveLength(2);
-    const byTestId = new Map(progress!.tests.map((t) => [t.testId, t]));
+    expect(summary!.totalTests).toBe(2);
+
+    const tail = await composeRunTestsTail(scope!, runId);
+    expect(tail.tests).toHaveLength(2);
+    const byTestId = new Map(tail.tests.map((t) => [t.testId, t]));
     expect(byTestId.get("a.spec.ts|passing")?.status).toBe("passed");
     expect(byTestId.get("a.spec.ts|failing")?.status).toBe("failed");
     expect(byTestId.get("a.spec.ts|failing")?.errorMessage).toBe("still oops");
 
-    // 5. Verify broadcastRunProgress reached the realtime DO. The ingest
-    //    handlers call broadcastRunProgress after every write; after
-    //    completeRun the "progress" key should hold the terminal state.
+    // 5. Verify broadcastRunUpdate reached the realtime DO. The ingest
+    //    handlers call broadcastRunUpdate after every write; after
+    //    completeRun the `"summary"` and `"tests-tail"` keys should hold
+    //    the terminal state.
     const ns = testEnvRt.SYNCED_STATE_SERVER;
     const roomId = runRoomId({
       teamSlug: scope!.teamSlug,
@@ -192,13 +198,18 @@ describe("streaming ingest → composeRunProgress", () => {
       runId,
     });
     const realtimeStub = ns.get(ns.idFromName(roomId));
-    const broadcastedState = (await realtimeStub.getState("progress")) as
-      | RunProgress
+    const broadcastedSummary = (await realtimeStub.getState("summary")) as
+      | RunSummary
       | undefined;
-    expect(broadcastedState).not.toBeNull();
-    expect(broadcastedState?.status).toBe("failed");
-    expect(broadcastedState?.counts.passed).toBe(1);
-    expect(broadcastedState?.counts.failed).toBe(1);
+    expect(broadcastedSummary).not.toBeUndefined();
+    expect(broadcastedSummary?.status).toBe("failed");
+    expect(broadcastedSummary?.counts.passed).toBe(1);
+    expect(broadcastedSummary?.counts.failed).toBe(1);
+    const broadcastedTail = (await realtimeStub.getState("tests-tail")) as
+      | RunTestsTail
+      | undefined;
+    expect(broadcastedTail).not.toBeUndefined();
+    expect(broadcastedTail?.tests).toHaveLength(2);
 
     // 6. Spot-check persisted side-effects beyond the progress composite:
     //    tags + annotations + attempts were written correctly.

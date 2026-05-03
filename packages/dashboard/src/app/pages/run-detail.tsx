@@ -21,10 +21,16 @@ import { cn } from "@/lib/cn";
 import { prUrl } from "@/lib/pr-url";
 import { param } from "@/lib/route-params";
 import {
-  composeRunProgressBatch,
-  type RunProgress,
+  buildRunSummary,
+  type RunProgressTest,
+  type RunSummary,
   runRoomId,
+  TESTS_TAIL_SIZE,
 } from "@/routes/api/progress";
+import {
+  loadRunResultsPage,
+  type RunResultsResponse,
+} from "@/routes/api/run-results";
 import { loadFailingArtifactActions } from "@/lib/test-artifact-actions";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
@@ -103,26 +109,28 @@ export async function RunDetailPage(): Promise<React.ReactElement> {
   });
   const isRunning = run.status === "running";
 
-  // Kick off async work in parallel; each Suspense awaits its own subset.
-  // composeRunProgressBatch with [run] avoids the redundant run-row fetch
-  // that composeRunProgress would do internally.
-  const progressPromise: Promise<RunProgress> = composeRunProgressBatch(
+  // Summary is a pure derivation off the already-loaded run row; no DO
+  // hop. The tests-list seed is a real query — first page of the
+  // cursor-paginated REST endpoint, the same code path the client uses
+  // for back-pagination — so SSR + REST stay byte-for-byte aligned.
+  const summary = buildRunSummary(run);
+  const testsSeedPromise: Promise<RunResultsResponse> = loadRunResultsPage(
     project,
-    [run],
-  ).then((map) => {
-    const p = map.get(runId);
-    if (!p) {
-      throw new Error(`composeRunProgressBatch returned no entry for ${runId}`);
+    runId,
+    { cursor: null, limit: 200, status: null },
+  ).then((seed) => {
+    if (!seed) {
+      throw new Error(`loadRunResultsPage returned no entry for ${runId}`);
     }
-    return p;
+    return seed;
   });
   const historyPromise = loadRunHistory(project, effectiveBranch);
   const branchesPromise = loadBranches(project);
   const artifactActionsPromise: Promise<ArtifactActionsByTestId> =
-    progressPromise.then((progress) =>
+    testsSeedPromise.then((seed) =>
       loadFailingArtifactActions(
         project.db,
-        progress.tests.map((t) => ({
+        seed.results.map((t) => ({
           id: t.id,
           status: t.status,
           retryCount: t.retryCount,
@@ -238,14 +246,15 @@ export async function RunDetailPage(): Promise<React.ReactElement> {
               </div>
             </div>
 
-            {/* Progress display — streams in */}
-            <Suspense fallback={<RunProgressSummaryFallback />}>
-              <RunProgressInSummary
-                progressPromise={progressPromise}
-                isRunning={isRunning}
-                roomId={roomId}
-              />
-            </Suspense>
+            {/* Progress display — summary is derived synchronously from
+                the already-loaded run row, so no Suspense boundary
+                needed. Live updates flow through the synced-state
+                "summary" key when the run is still active. */}
+            <RunProgressInSummary
+              summary={summary}
+              isRunning={isRunning}
+              roomId={roomId}
+            />
           </div>
 
           {/* Build card */}
@@ -306,11 +315,13 @@ export async function RunDetailPage(): Promise<React.ReactElement> {
         <div className="px-6 pb-6">
           <Suspense fallback={<RunTestsFallback />}>
             <RunTestsSection
-              progressPromise={progressPromise}
+              testsSeedPromise={testsSeedPromise}
               artifactActionsPromise={artifactActionsPromise}
+              summary={summary}
               isRunning={isRunning}
               roomId={roomId}
               runBase={`${base}/runs/${runId}`}
+              resultsEndpoint={`/api${base}/runs/${runId}/results`}
             />
           </Suspense>
         </div>
@@ -504,64 +515,68 @@ function RunHistoryChartFallback(): React.ReactElement {
   );
 }
 
-async function RunProgressInSummary({
-  progressPromise,
+function RunProgressInSummary({
+  summary,
   isRunning,
   roomId,
 }: {
-  progressPromise: Promise<RunProgress>;
+  summary: RunSummary;
   isRunning: boolean;
   roomId: string;
-}): Promise<React.ReactElement> {
-  const progress = await progressPromise;
+}): React.ReactElement {
   return isRunning ? (
-    <RunSummaryIsland initial={progress} roomId={roomId} />
+    <RunSummaryIsland initial={summary} roomId={roomId} />
   ) : (
-    <RunProgressSummary progress={progress} />
-  );
-}
-
-function RunProgressSummaryFallback(): React.ReactElement {
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <Skeleton className="h-4 w-16" />
-        <Skeleton className="h-4 w-16" />
-        <Skeleton className="h-4 w-16" />
-        <Skeleton className="h-4 w-16" />
-      </div>
-      <Skeleton className="h-2 w-full rounded-full" />
-    </div>
+    <RunProgressSummary summary={summary} />
   );
 }
 
 async function RunTestsSection({
-  progressPromise,
+  testsSeedPromise,
   artifactActionsPromise,
+  summary,
   isRunning,
   roomId,
   runBase,
+  resultsEndpoint,
 }: {
-  progressPromise: Promise<RunProgress>;
+  testsSeedPromise: Promise<RunResultsResponse>;
   artifactActionsPromise: Promise<ArtifactActionsByTestId>;
+  summary: RunSummary;
   isRunning: boolean;
   roomId: string;
   runBase: string;
+  resultsEndpoint: string;
 }): Promise<React.ReactElement> {
-  const [progress, artifactActionsByTestId] = await Promise.all([
-    progressPromise,
+  const [seed, artifactActionsByTestId] = await Promise.all([
+    testsSeedPromise,
     artifactActionsPromise,
   ]);
-  return isRunning ? (
-    <RunTestsIsland
-      initial={progress}
-      roomId={roomId}
-      runBase={runBase}
-      artifactActionsByTestId={artifactActionsByTestId}
-    />
-  ) : (
+  if (isRunning) {
+    // The tests-tail synced-state key carries newest TESTS_TAIL_SIZE rows;
+    // seed it from the same SSR result so the island renders identical
+    // bytes either side of the WS handshake.
+    const initialTail = {
+      tests: seed.results.slice(0, TESTS_TAIL_SIZE),
+      updatedAt: Date.now(),
+    };
+    return (
+      <RunTestsIsland
+        initialTail={initialTail}
+        initialSummary={summary}
+        initialTests={seed.results}
+        initialNextCursor={seed.nextCursor}
+        roomId={roomId}
+        runBase={runBase}
+        resultsEndpoint={resultsEndpoint}
+        artifactActionsByTestId={artifactActionsByTestId}
+      />
+    );
+  }
+  return (
     <RunProgressTests
-      progress={progress}
+      tests={seed.results}
+      totalTests={summary.totalTests}
       runBase={runBase}
       artifactActionsByTestId={artifactActionsByTestId}
     />

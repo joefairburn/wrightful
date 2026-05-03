@@ -7,7 +7,7 @@
 // test build pipeline doesn't pick up through Vite's import-analysis phase.
 // The stub below is sufficient for integration tests: it stores state in
 // memory and exposes the same `setState`/`getState` RPC surface that
-// `broadcastRunProgress` calls and the test assertions read back.
+// `broadcastRunUpdate` calls and the test assertions read back.
 import { DurableObject } from "cloudflare:workers";
 
 export class SyncedStateServer extends DurableObject {

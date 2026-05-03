@@ -31,7 +31,12 @@ export interface RunProgressTest {
   errorStack: string | null;
 }
 
-export interface RunProgress {
+/**
+ * Headline counters + run-level state for one run. Pushed to subscribers
+ * of the `"summary"` synced-state key. ~150 B on the wire so re-broadcasts
+ * are essentially free.
+ */
+export interface RunSummary {
   status: RunProgressStatus;
   totalDone: number;
   expectedTotal: number | null;
@@ -42,9 +47,30 @@ export interface RunProgress {
     skipped: number;
     queued: number;
   };
+  totalTests: number;
+  updatedAt: number;
+}
+
+/**
+ * Newest-first window of test result rows. Pushed to subscribers of the
+ * `"tests-tail"` synced-state key. Clients merge tail rows into a
+ * REST-loaded base list by `RunProgressTest.id` (tail wins) — the tail
+ * is purely the live-edit window over a list the client already has.
+ */
+export interface RunTestsTail {
   tests: RunProgressTest[];
   updatedAt: number;
 }
+
+/**
+ * Cap on the number of testResults rows included in a tail broadcast.
+ * Sized so the wire payload stays comfortably under ~10 KB while
+ * covering the typical mid-run "what just happened" window. Larger
+ * runs are loaded in full via the cursor-paginated REST endpoint at
+ * `/api/.../runs/:runId/results`; the tail is purely live updates on
+ * top of that base list.
+ */
+export const TESTS_TAIL_SIZE = 50;
 
 /**
  * Canonical roomId for the realtime DO backing a run's progress. The shape
@@ -87,19 +113,19 @@ function normalizeTestStatus(status: string): RunProgressTestStatus {
   }
 }
 
-/** Subset of `runs` columns needed to compose a progress snapshot. */
-interface RunRowForProgress {
+/** Subset of `runs` columns needed to derive a `RunSummary`. */
+export interface RunRowForSummary {
   id: string;
   status: string;
   passed: number;
   failed: number;
   flaky: number;
   skipped: number;
+  totalTests: number;
   expectedTotalTests: number | null;
 }
 
-/** Subset of `testResults` columns needed to compose a progress snapshot. */
-interface TestResultRowForProgress {
+interface TestResultRowForTail {
   id: string;
   testId: string;
   title: string;
@@ -112,27 +138,15 @@ interface TestResultRowForProgress {
   errorStack: string | null;
 }
 
-function buildRunProgress(
-  run: RunRowForProgress,
-  rows: readonly TestResultRowForProgress[],
-): RunProgress {
-  const tests: RunProgressTest[] = rows.map((r) => ({
-    id: r.id,
-    testId: r.testId,
-    title: r.title,
-    file: r.file,
-    projectName: r.projectName,
-    status: normalizeTestStatus(r.status),
-    durationMs: r.durationMs,
-    retryCount: r.retryCount,
-    errorMessage: r.errorMessage,
-    errorStack: r.errorStack,
-  }));
-
-  let queued = 0;
-  for (const t of tests) if (t.status === "queued") queued += 1;
+/**
+ * Pure derivation of `RunSummary` from a `runs` row. Exposed so callers
+ * that already loaded the row (page SSR) can build a seed without an
+ * extra DO hop. `queued` is derived from `totalTests - completed` so
+ * it stays accurate independent of the tail.
+ */
+export function buildRunSummary(run: RunRowForSummary): RunSummary {
   const totalDone = run.passed + run.failed + run.flaky + run.skipped;
-
+  const queued = Math.max(0, run.totalTests - totalDone);
   return {
     status: normalizeRunStatus(run.status),
     totalDone,
@@ -144,25 +158,40 @@ function buildRunProgress(
       skipped: run.skipped,
       queued,
     },
-    tests,
+    totalTests: run.totalTests,
+    updatedAt: Date.now(),
+  };
+}
+
+function buildRunTestsTail(
+  rows: readonly TestResultRowForTail[],
+): RunTestsTail {
+  return {
+    tests: rows.map((r) => ({
+      id: r.id,
+      testId: r.testId,
+      title: r.title,
+      file: r.file,
+      projectName: r.projectName,
+      status: normalizeTestStatus(r.status),
+      durationMs: r.durationMs,
+      retryCount: r.retryCount,
+      errorMessage: r.errorMessage,
+      errorStack: r.errorStack,
+    })),
     updatedAt: Date.now(),
   };
 }
 
 /**
- * Compose the full progress snapshot for a run from the team's tenant DO.
- * Takes a `TenantScope` so the caller is forced to have been authorized
- * already — there's no raw-teamId entry point.
- *
- * Called from the ingest handlers to build the payload that's then
- * broadcast via `setState` on the realtime DO, and from SSR on the run
- * detail page to seed the initial island state. The runs-list page uses
- * `composeRunProgressBatch` instead to avoid an N+1 of DO round-trips.
+ * Compose a `RunSummary` from the team's tenant DO. One run-row read; no
+ * testResults scan. Used by `broadcastRunUpdate` and any caller that
+ * doesn't already hold the row.
  */
-export async function composeRunProgress(
+export async function composeRunSummary(
   scope: TenantScope,
   runId: string,
-): Promise<RunProgress | null> {
+): Promise<RunSummary | null> {
   const run = await scope.db
     .selectFrom("runs")
     .selectAll()
@@ -170,7 +199,29 @@ export async function composeRunProgress(
     .limit(1)
     .executeTakeFirst();
   if (!run) return null;
+  return buildRunSummary(run);
+}
 
+/**
+ * Pure batch transform over already-loaded run rows (e.g. the runs-list
+ * page's main query). No DB read — every aggregate is on the row.
+ */
+export function composeRunSummaryBatch(
+  runs: readonly RunRowForSummary[],
+): Map<string, RunSummary> {
+  const out = new Map<string, RunSummary>();
+  for (const run of runs) out.set(run.id, buildRunSummary(run));
+  return out;
+}
+
+/**
+ * Compose the live tests-tail (newest TESTS_TAIL_SIZE rows) for a run.
+ * One testResults read; no run-row read.
+ */
+export async function composeRunTestsTail(
+  scope: TenantScope,
+  runId: string,
+): Promise<RunTestsTail> {
   const rows = await scope.db
     .selectFrom("testResults")
     .select([
@@ -186,76 +237,34 @@ export async function composeRunProgress(
       "errorStack",
     ])
     .where("runId", "=", runId)
+    .orderBy("createdAt", "desc")
+    .orderBy("id", "desc")
+    .limit(TESTS_TAIL_SIZE)
     .execute();
-
-  return buildRunProgress(run, rows);
+  return buildRunTestsTail(rows);
 }
 
 /**
- * Batched variant of `composeRunProgress` for SSR paths that already hold
- * the run rows (e.g. the runs-list page after its main query). Issues a
- * single `WHERE runId IN (...)` against testResults instead of one query
- * per run, collapsing 2N sequential DO hops into a single hop with no
- * run-row refetch.
- */
-export async function composeRunProgressBatch(
-  scope: TenantScope,
-  runs: readonly RunRowForProgress[],
-): Promise<Map<string, RunProgress>> {
-  const result = new Map<string, RunProgress>();
-  if (runs.length === 0) return result;
-
-  const runIds = runs.map((r) => r.id);
-  const rows = await scope.db
-    .selectFrom("testResults")
-    .select([
-      "id",
-      "runId",
-      "testId",
-      "title",
-      "file",
-      "projectName",
-      "status",
-      "durationMs",
-      "retryCount",
-      "errorMessage",
-      "errorStack",
-    ])
-    .where("runId", "in", runIds)
-    .execute();
-
-  const grouped = new Map<string, TestResultRowForProgress[]>();
-  for (const row of rows) {
-    let bucket = grouped.get(row.runId);
-    if (!bucket) {
-      bucket = [];
-      grouped.set(row.runId, bucket);
-    }
-    bucket.push(row);
-  }
-
-  for (const run of runs) {
-    result.set(run.id, buildRunProgress(run, grouped.get(run.id) ?? []));
-  }
-  return result;
-}
-
-/**
- * Compose the latest progress from the tenant DO and broadcast it via
- * `setState` on the realtime DO. Clients subscribed via
- * `useSyncedState("progress", roomId)` receive the new value instantly.
+ * Compose summary + tail in parallel and broadcast each via `setState`
+ * on its own synced-state key. Subscribers to `"summary"` see counter
+ * updates only; subscribers to `"tests-tail"` see the latest test rows
+ * only. Both keys share one realtime room so a single WebSocket serves
+ * both islands.
  *
- * Best-effort: any error here is logged but never propagated — the tenant
- * DO is the source of truth; the realtime layer is a delivery channel.
- * Ingest writes must not fail because a DO stub is unreachable.
+ * Best-effort: any error here is logged but never propagated — the
+ * tenant DO is the source of truth; the realtime layer is a delivery
+ * channel. Ingest writes must not fail because a DO stub is unreachable.
  */
-export async function broadcastRunProgress(
+export async function broadcastRunUpdate(
   scope: TenantScope,
   runId: string,
 ): Promise<void> {
   try {
-    const progress = await composeRunProgress(scope, runId);
-    if (!progress) return;
+    const [summary, tail] = await Promise.all([
+      composeRunSummary(scope, runId),
+      composeRunTestsTail(scope, runId),
+    ]);
+    if (!summary) return;
     const ns = env.SYNCED_STATE_SERVER;
     const stub = ns.get(
       ns.idFromName(
@@ -266,9 +275,12 @@ export async function broadcastRunProgress(
         }),
       ),
     );
-    await stub.setState(progress, "progress");
+    await Promise.all([
+      stub.setState(summary, "summary"),
+      stub.setState(tail, "tests-tail"),
+    ]);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`broadcastRunProgress(${runId}) failed: ${message}`);
+    console.warn(`broadcastRunUpdate(${runId}) failed: ${message}`);
   }
 }

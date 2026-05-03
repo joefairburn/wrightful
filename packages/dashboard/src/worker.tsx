@@ -67,6 +67,7 @@ import { registerHandler } from "@/routes/api/artifacts";
 import { artifactUploadHandler } from "@/routes/api/artifact-upload";
 import { artifactDownloadHandler } from "@/routes/api/artifact-download";
 import { runSummaryHandler } from "@/routes/api/run-summary";
+import { runResultsHandler } from "@/routes/api/run-results";
 import { testResultSummaryHandler } from "@/routes/api/test-result-summary";
 import { runTestPreviewHandler } from "@/routes/api/run-test-preview";
 import {
@@ -221,6 +222,9 @@ const app = defineApp([
   }),
   route("/api/t/:teamSlug/p/:projectSlug/runs/:runId/summary", {
     get: [loadSession, requireUser, runSummaryHandler],
+  }),
+  route("/api/t/:teamSlug/p/:projectSlug/runs/:runId/results", {
+    get: [loadSession, requireUser, runResultsHandler],
   }),
   route(
     "/api/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId/summary",

@@ -11,7 +11,7 @@ import {
   type OpenRunPayload,
   type TestResultInput,
 } from "./schemas";
-import { broadcastRunProgress } from "./progress";
+import { broadcastRunUpdate } from "./progress";
 import type { AppContext } from "@/worker";
 
 function jsonResponse(body: unknown, status: number) {
@@ -65,24 +65,27 @@ async function resolveTestResultIds(
 ): Promise<{
   existingIds: Map<string, string>;
   assignedIds: Map<string, string>;
+  prevStatusByTestId: Map<string, string>;
 }> {
   const existingIds = new Map<string, string>();
+  const prevStatusByTestId = new Map<string, string>();
   if (testIds.length > 0) {
     const rows = await scope.db
       .selectFrom("testResults")
-      .select(["id", "testId"])
+      .select(["id", "testId", "status"])
       .where("runId", "=", runId)
       .where("testId", "in", testIds)
       .execute();
     for (const row of rows) {
       existingIds.set(row.testId, row.id);
+      prevStatusByTestId.set(row.testId, row.status);
     }
   }
   const assignedIds = new Map<string, string>();
   for (const testId of testIds) {
     assignedIds.set(testId, existingIds.get(testId) ?? ulid());
   }
-  return { existingIds, assignedIds };
+  return { existingIds, assignedIds, prevStatusByTestId };
 }
 
 /**
@@ -285,7 +288,8 @@ function buildQueuePrefillStatements(
 
 /**
  * Build a single UPDATE that recomputes run aggregates from testResults.
- * Derives counts in one statement — avoids a round-trip to SELECT first.
+ * Used in `completeRunHandler` as a reconciliation pass to absorb any
+ * drift from the incremental updates done on each /results batch.
  * Identifiers are camelCase (the tenant DO doesn't run CamelCasePlugin).
  */
 function aggregateRecomputeStatement(
@@ -300,6 +304,99 @@ function aggregateRecomputeStatement(
       failed: sql<number>`(SELECT COUNT(*) FROM "testResults" WHERE "runId" = ${runId} AND "status" IN ('failed', 'timedout'))`,
       flaky: sql<number>`(SELECT COUNT(*) FROM "testResults" WHERE "runId" = ${runId} AND "status" = 'flaky')`,
       skipped: sql<number>`(SELECT COUNT(*) FROM "testResults" WHERE "runId" = ${runId} AND "status" = 'skipped')`,
+    })
+    .where("id", "=", runId);
+}
+
+interface AggregateDelta {
+  totalTests: number;
+  passed: number;
+  failed: number;
+  flaky: number;
+  skipped: number;
+}
+
+/**
+ * Map a testResults.status string onto the runs aggregate column it
+ * contributes to. Mirrors the buckets in `aggregateRecomputeStatement` —
+ * `failed` and `timedout` both feed the `failed` column; `queued` rows
+ * count toward `totalTests` but no per-status bucket.
+ */
+function statusBucket(status: string): keyof AggregateDelta | null {
+  switch (status) {
+    case "passed":
+      return "passed";
+    case "failed":
+    case "timedout":
+      return "failed";
+    case "flaky":
+      return "flaky";
+    case "skipped":
+      return "skipped";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Compute aggregate-column deltas for a /results batch given each row's
+ * previous status (or none if it's a fresh insert). Avoids the 5-subquery
+ * recompute that scans the whole testResults set on every batch.
+ *
+ * Transitions:
+ *   - insert (no prev row):       totalTests +1; +1 to next bucket if non-null
+ *   - update from queued → final: 0 totalTests; +1 to next bucket
+ *   - update from non-queued:     -1 prev bucket, +1 next bucket (no-op if same)
+ */
+export function computeAggregateDelta(
+  results: ReadonlyArray<{ testId: string; status: string }>,
+  prevStatusByTestId: ReadonlyMap<string, string>,
+): AggregateDelta {
+  const delta: AggregateDelta = {
+    totalTests: 0,
+    passed: 0,
+    failed: 0,
+    flaky: 0,
+    skipped: 0,
+  };
+  for (const r of results) {
+    const prev = prevStatusByTestId.get(r.testId);
+    const nextBucket = statusBucket(r.status);
+    if (prev === undefined) {
+      delta.totalTests += 1;
+      if (nextBucket) delta[nextBucket] += 1;
+      continue;
+    }
+    const prevBucket = statusBucket(prev);
+    if (prevBucket === nextBucket) continue;
+    if (prevBucket) delta[prevBucket] -= 1;
+    if (nextBucket) delta[nextBucket] += 1;
+  }
+  return delta;
+}
+
+function aggregateDeltaStatement(
+  scope: TenantScope,
+  runId: string,
+  delta: AggregateDelta,
+): Compilable | null {
+  if (
+    delta.totalTests === 0 &&
+    delta.passed === 0 &&
+    delta.failed === 0 &&
+    delta.flaky === 0 &&
+    delta.skipped === 0
+  ) {
+    return null;
+  }
+  return scope.db
+    .updateTable("runs")
+    .set({
+      totalTests: sql<number>`"totalTests" + ${delta.totalTests}`,
+      passed: sql<number>`"passed" + ${delta.passed}`,
+      failed: sql<number>`"failed" + ${delta.failed}`,
+      flaky: sql<number>`"flaky" + ${delta.flaky}`,
+      skipped: sql<number>`"skipped" + ${delta.skipped}`,
     })
     .where("id", "=", runId);
 }
@@ -417,7 +514,7 @@ export async function openRunHandler({
   ];
   await scope.batch(openStatements);
   bumpTeamActivity(scope.teamId, nowSeconds);
-  await broadcastRunProgress(scope, runId);
+  await broadcastRunUpdate(scope, runId);
 
   return jsonResponse({ runId, runUrl: runUrl(scope, runId) }, 201);
 }
@@ -466,11 +563,8 @@ export async function appendResultsHandler({
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   const testIds = payload.results.map((r) => r.testId);
-  const { existingIds, assignedIds } = await resolveTestResultIds(
-    scope,
-    runId,
-    testIds,
-  );
+  const { existingIds, assignedIds, prevStatusByTestId } =
+    await resolveTestResultIds(scope, runId, testIds);
   const { statements, mapping } = buildResultInsertStatements(
     scope,
     runId,
@@ -479,11 +573,16 @@ export async function appendResultsHandler({
     existingIds,
     assignedIds,
   );
-  statements.push(aggregateRecomputeStatement(scope, runId));
+  const deltaStmt = aggregateDeltaStatement(
+    scope,
+    runId,
+    computeAggregateDelta(payload.results, prevStatusByTestId),
+  );
+  if (deltaStmt) statements.push(deltaStmt);
   await scope.batch(statements);
   bumpTeamActivity(scope.teamId, nowSeconds);
 
-  await broadcastRunProgress(scope, runId);
+  await broadcastRunUpdate(scope, runId);
 
   return jsonResponse({ results: mapping }, 200);
 }
@@ -553,7 +652,7 @@ export async function completeRunHandler({
   ]);
   bumpTeamActivity(scope.teamId, nowSeconds);
 
-  await broadcastRunProgress(scope, runId);
+  await broadcastRunUpdate(scope, runId);
 
   return jsonResponse({ runId, status: payload.status }, 200);
 }
