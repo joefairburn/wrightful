@@ -33,6 +33,18 @@ export default defineConfig({
     alias: {
       "@/": new URL("./src/", import.meta.url).pathname,
     },
+    coverage: {
+      provider: "v8",
+      reporter: ["text-summary", "lcov", "html"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/__tests__/**",
+        "src/**/__integration__/**",
+        "src/**/*.d.ts",
+        "src/client.tsx",
+        "src/worker.tsx",
+      ],
+    },
     projects: [
       {
         extends: true,

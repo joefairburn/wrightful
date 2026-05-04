@@ -51,8 +51,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run reporter tests
-        run: pnpm --filter @wrightful/reporter test
+      - name: Run reporter tests with coverage
+        run: pnpm --filter @wrightful/reporter test:coverage
+
+      - name: Upload reporter coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reporter
+          path: packages/reporter/coverage
+          if-no-files-found: ignore
 
       - name: Build reporter
         run: pnpm --filter @wrightful/reporter build
@@ -73,8 +81,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run dashboard tests
-        run: pnpm --filter @wrightful/dashboard test
+      - name: Run dashboard tests with coverage
+        run: pnpm --filter @wrightful/dashboard test:coverage
+
+      - name: Upload dashboard coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-dashboard
+          path: packages/dashboard/coverage
+          if-no-files-found: ignore
 
   # Playwright version canary: exercises the reporter against a live dashboard
   # shape (via the dogfood e2e suite). When Renovate bumps @playwright/test,

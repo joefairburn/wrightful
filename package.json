@@ -5,6 +5,7 @@
     "dev": "pnpm --filter @wrightful/dashboard dev",
     "build": "pnpm --filter @wrightful/dashboard build && pnpm --filter @wrightful/reporter build",
     "test": "pnpm --filter @wrightful/dashboard test && pnpm --filter @wrightful/reporter test",
+    "test:coverage": "pnpm --filter @wrightful/dashboard test:coverage && pnpm --filter @wrightful/reporter test:coverage",
     "test:e2e": "pnpm --filter @wrightful/e2e test",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",

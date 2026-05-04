@@ -43,12 +43,14 @@
     "dev": "tsdown --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "@types/node": "^25.6.0",
     "@typescript/native-preview": "7.0.0-dev.20260416.2",
+    "@vitest/coverage-v8": "4.1.4",
     "tsdown": "^0.21.9",
     "typescript": "~6.0.2",
     "vitest": "^4.1.4",
