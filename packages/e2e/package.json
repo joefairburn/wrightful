@@ -11,6 +11,7 @@
     "test:upload": "node scripts/test-upload.js"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@playwright/test": "^1.59.1",
     "@wrightful/reporter": "workspace:*",
     "vitest": "^4.1.4"

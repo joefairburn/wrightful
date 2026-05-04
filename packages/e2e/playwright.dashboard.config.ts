@@ -28,6 +28,13 @@ export default defineConfig({
   reporter: process.env.CI ? [["github"], ["list"]] : [["list"]],
   globalSetup: resolve(__dirname, "tests-dashboard/global-setup.ts"),
   globalTeardown: resolve(__dirname, "tests-dashboard/global-teardown.ts"),
+  expect: {
+    // Sub-pixel rendering noise + tiny font hinting drift between local
+    // and CI runners means a strict pixel-perfect diff is too brittle.
+    // 1% tolerance catches genuine layout regressions (bar shifts, text
+    // wraps, missing element) without flaking on cosmetic noise.
+    toHaveScreenshot: { maxDiffPixelRatio: 0.01 },
+  },
   use: {
     baseURL: "http://localhost:5189",
     storageState: "./tests-dashboard/.auth/storageState.json",
