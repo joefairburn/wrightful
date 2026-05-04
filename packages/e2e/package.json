@@ -6,6 +6,7 @@
   "scripts": {
     "test": "vitest run",
     "test:playwright": "npx playwright test",
+    "test:dashboard": "npx playwright test --config=playwright.dashboard.config.ts",
     "test:load": "bash scripts/run-load-test.sh",
     "test:upload": "node scripts/test-upload.js"
   },
