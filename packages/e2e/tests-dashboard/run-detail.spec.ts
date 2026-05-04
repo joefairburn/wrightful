@@ -33,6 +33,7 @@ test.describe("Run detail", () => {
     const phantomId = "01HZZZZZZZZZZZZZZZZZZZZZZZ";
     const res = await page.goto(runDetailPage.pathFor(phantomId));
     expect(res).not.toBeNull();
-    await expect(page.getByTestId("test-row-link")).toHaveCount(0);
+    // Phantom run → no test list rendered → no test-list at all.
+    await expect(runDetailPage.testRowLinks).toHaveCount(0);
   });
 });

@@ -22,9 +22,10 @@ export class RunsListPage {
 
     this.heading = page.getByRole("heading", { name: /all runs/i });
     this.emptyState = page.getByText(/no test runs/i);
-    // The run anchors carry a stable testid so layout/styling churn
-    // doesn't break locators.
-    this.runLinks = page.getByTestId("run-row-link");
+    // Each run anchor wraps an `<span class="sr-only">View run …</span>`
+    // for screen readers; that's the link's accessible name. Anchoring
+    // on role+name leans on real a11y instead of a test-only attribute.
+    this.runLinks = page.getByRole("link", { name: /^View run/i });
     this.userMenuTrigger = page.getByLabel(/account menu for/i);
     this.logoutButton = page.getByRole("button", { name: /log out/i });
   }

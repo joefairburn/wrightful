@@ -3,9 +3,10 @@ import { type Locator, type Page, expect } from "@playwright/test";
 /**
  * Page object for `/t/:teamSlug/p/:projectSlug/runs/:runId`.
  *
- * Test-row anchors carry `data-testid="test-row-link"`; the back-link to
- * the project page is recovered by URL-suffix because the back-link is
- * generic chrome that doesn't (yet) have its own testid.
+ * Test-row anchors are recovered via the labelled list (`<ul
+ * aria-label="Tests in foo.spec.ts">`) — leans on real a11y instead
+ * of a test-only attribute. The back-link is recovered by URL suffix
+ * since it's generic chrome.
  */
 export class RunDetailPage {
   readonly page: Page;
@@ -19,7 +20,11 @@ export class RunDetailPage {
     this.page = page;
     this.teamSlug = teamSlug;
     this.projectSlug = projectSlug;
-    this.testRowLinks = page.getByTestId("test-row-link");
+    // Scope to the labelled test lists so we don't pick up unrelated
+    // anchors elsewhere on the page.
+    this.testRowLinks = page
+      .getByRole("list", { name: /^Tests in / })
+      .getByRole("link");
     this.attemptsHeading = page.getByRole("heading", {
       name: /attempts & errors/i,
     });

@@ -81,7 +81,8 @@ test.describe("UI isolation (User A's browser session)", () => {
       `/t/${SECOND_USER.teamSlug}/p/${SECOND_USER.projectSlug}/runs/${teamBRunId}`,
     );
     expect(res?.status()).toBe(404);
-    await expect(page.getByTestId("test-row-link")).toHaveCount(0);
+    // NotFoundPage shell renders no labelled test list.
+    await expect(page.getByRole("list", { name: /^Tests in / })).toHaveCount(0);
   });
 
   test("team B's settings page is not visible to User A", async ({ page }) => {

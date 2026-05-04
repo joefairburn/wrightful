@@ -220,7 +220,6 @@ function TestRow({
       {href ? (
         <a
           href={href}
-          data-testid="test-row-link"
           className="flex items-center gap-4 pr-5 py-3 hover:bg-muted/30 transition-colors group"
           style={{ paddingLeft }}
         >
@@ -578,7 +577,7 @@ export function RunProgressTests({
               >
                 <FileGroupHeader group={group} />
                 <AccordionPanel className="pt-0 pb-0">
-                  <ul>
+                  <ul aria-label={`Tests in ${group.file}`}>
                     {rows.map((row) =>
                       row.kind === "describe" ? (
                         <DescribeHeaderRow
