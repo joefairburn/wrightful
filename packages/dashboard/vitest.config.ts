@@ -51,6 +51,27 @@ export default defineConfig({
         test: {
           name: "unit",
           include: ["src/__tests__/**/*.test.{ts,tsx}"],
+          exclude: ["src/__tests__/components/**"],
+        },
+      },
+      {
+        // Client-side component tests run in jsdom against React's *client*
+        // export conditions — not workerd / react-server like the rest of
+        // the unit project. Standalone (no extends) so we can fully
+        // override the root resolve.conditions, which would otherwise
+        // pick the react-server build of React.
+        resolve: {
+          alias: {
+            "@/": new URL("./src/", import.meta.url).pathname,
+          },
+          conditions: ["browser", "module", "import", "default"],
+        },
+        test: {
+          globals: true,
+          name: "components",
+          environment: "jsdom",
+          include: ["src/__tests__/components/**/*.test.{ts,tsx}"],
+          setupFiles: ["src/__tests__/components/setup.ts"],
         },
       },
       {
