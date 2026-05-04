@@ -55,11 +55,13 @@ export default defineConfig({
         },
       },
       {
-        // Client-side component tests run in jsdom against React's *client*
-        // export conditions — not workerd / react-server like the rest of
-        // the unit project. Standalone (no extends) so we can fully
-        // override the root resolve.conditions, which would otherwise
-        // pick the react-server build of React.
+        // Client-side component tests run in happy-dom against React's
+        // *client* export conditions — not workerd / react-server like
+        // the rest of the unit project. Standalone (no extends) so we
+        // can fully override the root resolve.conditions, which would
+        // otherwise pick the react-server build of React. happy-dom is
+        // ~2-3x faster than jsdom; the suite uses RTL + userEvent +
+        // jest-dom matchers, all of which are happy-dom compatible.
         resolve: {
           alias: {
             "@/": new URL("./src/", import.meta.url).pathname,
@@ -69,7 +71,7 @@ export default defineConfig({
         test: {
           globals: true,
           name: "components",
-          environment: "jsdom",
+          environment: "happy-dom",
           include: ["src/__tests__/components/**/*.test.{ts,tsx}"],
           setupFiles: ["src/__tests__/components/setup.ts"],
         },
