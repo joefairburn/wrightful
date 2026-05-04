@@ -145,6 +145,13 @@ jobs:
         run: pnpm --filter @wrightful/e2e exec playwright install --with-deps chromium
 
       - name: Run dashboard UI e2e tests
+        # `vars.VISUAL_BASELINE_OK` (repo variable) flips visual.spec from
+        # skipped to enforced. Inert until a maintainer commits Linux PNG
+        # baselines (run `--update-snapshots` once on a Linux runner via
+        # workflow_dispatch / `act`, commit the PNGs, then set the var to
+        # "1" in repo settings). Until then, visual.spec self-skips.
+        env:
+          WRIGHTFUL_VISUAL_BASELINE_OK: ${{ vars.VISUAL_BASELINE_OK }}
         run: pnpm --filter @wrightful/e2e test:dashboard
 
       - name: Upload Playwright report on failure

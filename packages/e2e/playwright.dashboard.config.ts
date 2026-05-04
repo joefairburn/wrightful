@@ -30,7 +30,13 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: 1,
+  // File-level parallelism only (`fullyParallel: false`). Specs are
+  // parallel-safe at the file boundary because resources are timestamped
+  // (api-key labels, signup emails, runIds, filter queries) and project
+  // DOs serialize their own writes. logout.spec mints its own session row
+  // so signing out doesn't invalidate the shared `storageState.json`
+  // session that every other worker holds.
+  workers: process.env.CI ? 3 : undefined,
   reporter: isMinimalReporter
     ? [["line"], ["html", { open: "never" }]]
     : [["list"]],
