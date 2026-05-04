@@ -12,7 +12,7 @@
 import type { APIRequestContext } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
-import { seedSecondUser, type SecondUserFixture } from "./helpers/second-user";
+import { seedSecondUser } from "./helpers/second-user";
 
 const SECOND_USER = {
   email: "second@wrightful.test",
@@ -24,7 +24,9 @@ const SECOND_USER = {
   projectName: "Second Proj",
 };
 
-let secondUser: SecondUserFixture | undefined;
+// Only the seeded runId crosses test boundaries — User A needs a real
+// team-B runId to attempt forbidden access. The second user / API key
+// itself is consumed inside `beforeAll`.
 let teamBRunId: string | undefined;
 
 test.beforeAll(async ({ playwright, ctx }) => {
@@ -32,7 +34,7 @@ test.beforeAll(async ({ playwright, ctx }) => {
     baseURL: ctx.url,
   });
   try {
-    secondUser = await seedSecondUser(request, ctx.url, SECOND_USER);
+    const secondUser = await seedSecondUser(request, ctx.url, SECOND_USER);
 
     const openRunRes = await request.post("/api/runs", {
       headers: {

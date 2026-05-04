@@ -126,13 +126,13 @@ test.describe("Realtime UI updates (SyncedStateServer)", () => {
         { testId: "f-1", title: "f1", status: "failed" },
       ]);
 
-      // The summary tile labelled "Failed" should reflect the new state.
-      // Anchor on the visible label and require a non-zero digit nearby.
-      const failedTile = runDetailPage.page
-        .getByText(/^Failed$/)
-        .locator("xpath=ancestor::*[self::div or self::section][1]")
-        .filter({ hasText: /[1-9]/ });
-      await expect(failedTile.first()).toBeVisible({ timeout: 5_000 });
+      // The Failed summary tile is a `<button>` whose accessible name
+      // joins its label and value: "Failed 1". Once a failure streams
+      // in, the name picks up a non-zero digit.
+      const failedTile = runDetailPage.page.getByRole("button", {
+        name: /^Failed/,
+      });
+      await expect(failedTile).toContainText(/[1-9]/, { timeout: 5_000 });
     } finally {
       await request.dispose();
     }

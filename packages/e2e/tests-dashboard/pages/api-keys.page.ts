@@ -43,14 +43,15 @@ export class ApiKeysPage {
   async mint(label: string): Promise<string> {
     await this.labelInput.fill(label);
     await this.mintButton.click();
-    await expect(this.revealAlert).toBeVisible();
-    // Plaintext lives in a <pre> *inside* the success alert; scope the
-    // selector so an unrelated <pre> elsewhere on the page can't shadow it.
-    const alertContainer = this.revealAlert.locator(
-      "xpath=ancestor::*[@data-slot='alert' or contains(@class,'rounded')][1]",
-    );
-    const plaintext = await alertContainer.locator("pre").first().innerText();
-    return plaintext;
+    // The success Alert renders as a `role="status"` live region; scope
+    // the plaintext lookup to that container so an unrelated <pre>
+    // elsewhere on the page can't shadow it. Filter by title text in
+    // case any other status region happens to be live.
+    const successAlert = this.page
+      .getByRole("status")
+      .filter({ hasText: /copy your new key now/i });
+    await expect(successAlert).toBeVisible();
+    return successAlert.locator("pre").innerText();
   }
 
   rowFor(label: string): Locator {

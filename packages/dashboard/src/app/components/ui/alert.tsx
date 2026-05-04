@@ -25,14 +25,22 @@ const alertVariants = cva(
 export function Alert({
   className,
   variant,
+  role,
   ...props
 }: React.ComponentProps<"div"> &
   VariantProps<typeof alertVariants>): React.ReactElement {
+  // `role="alert"` is an assertive live region — appropriate for errors
+  // and warnings (the user must be made aware now). `role="status"` is
+  // polite — the right fit for success / info messages where the
+  // announcement is informational, not interruptive. Callers can override
+  // by passing `role` explicitly.
+  const inferredRole =
+    role ?? (variant === "error" || variant === "warning" ? "alert" : "status");
   return (
     <div
       className={cn(alertVariants({ variant }), className)}
       data-slot="alert"
-      role="alert"
+      role={inferredRole}
       {...props}
     />
   );

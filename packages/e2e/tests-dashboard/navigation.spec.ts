@@ -25,7 +25,11 @@ test.describe("Authed navigation", () => {
     runsListPage,
   }) => {
     const res = await page.goto(`/t/${runsListPage.teamSlug}/p/does-not-exist`);
-    expect(res).not.toBeNull();
+    expect(res?.status()).toBe(404);
+    // NotFoundPage renders, not the runs-list page chrome.
+    await expect(
+      page.getByRole("heading", { name: /not found/i }),
+    ).toBeVisible();
     await expect(runsListPage.heading).not.toBeVisible();
   });
 });
