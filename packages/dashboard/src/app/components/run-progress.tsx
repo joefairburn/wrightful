@@ -630,6 +630,58 @@ export function RunSummaryIsland({
   return <RunProgressSummary summary={summary} />;
 }
 
+const PILL_STATUS_DOT: Record<string, string> = {
+  passed: "bg-success shadow-[0_0_6px_var(--color-success)]",
+  failed: "bg-destructive shadow-[0_0_6px_var(--color-destructive)]",
+  timedout: "bg-destructive shadow-[0_0_6px_var(--color-destructive)]",
+  flaky: "bg-warning",
+  interrupted: "bg-warning",
+  skipped: "bg-muted-foreground/30",
+  running: "bg-primary animate-pulse shadow-[0_0_6px_var(--color-primary)]",
+};
+
+const PILL_STATUS_LABEL: Record<string, string> = {
+  passed: "Passed",
+  failed: "Failed",
+  timedout: "Timed out",
+  flaky: "Flaky",
+  interrupted: "Interrupted",
+  skipped: "Skipped",
+  running: "Running",
+};
+
+/**
+ * Run-status pill that subscribes to the realtime `"summary"` key so the
+ * header dot+label flip from "Running" to the terminal status as soon as
+ * `completeRunHandler` broadcasts. Without this, the pill is frozen at
+ * the SSR-time value and only refreshes on a full page reload.
+ *
+ * Mounted only for runs that are `running` at SSR time — terminal runs
+ * keep the cheaper static pill in the page so we don't open a WebSocket
+ * for a payload that will never change.
+ */
+export function RunStatusPillIsland({
+  initial,
+  roomId,
+}: {
+  initial: RunSummary;
+  roomId: string;
+}) {
+  const [summary] = useSyncedState<RunSummary>(initial, "summary", roomId);
+  const status = summary.status;
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-[11px] uppercase tracking-wider border border-border/50">
+      <span
+        className={cn(
+          "inline-block w-2 h-2 rounded-full",
+          PILL_STATUS_DOT[status] ?? "bg-muted-foreground/30",
+        )}
+      />
+      {PILL_STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
 /**
  * Test-list island. Maintains a single `Map<testResultId, RunProgressTest>`
  * accumulator as the source of truth for what's displayed:
@@ -745,6 +797,34 @@ export function RunTestsIsland({
       totalTests={summary.totalTests}
       runBase={runBase}
       artifactActionsByTestId={artifactActionsByTestId}
+    />
+  );
+}
+
+/**
+ * Live status dot for the runs-list table row. Mounted only for rows
+ * whose run is `running` at SSR time so the dot flips to the terminal
+ * color (and loses the pulse animation) as soon as the summary push
+ * lands. Static for terminal rows — they're frozen so a WebSocket
+ * subscription would be wasted.
+ */
+export function RunRowStatusDotIsland({
+  initial,
+  roomId,
+  className,
+}: {
+  initial: RunSummary;
+  roomId: string;
+  className?: string;
+}) {
+  const [summary] = useSyncedState<RunSummary>(initial, "summary", roomId);
+  return (
+    <span
+      className={cn(
+        "inline-block rounded-full",
+        PILL_STATUS_DOT[summary.status] ?? "bg-muted-foreground/30",
+        className,
+      )}
     />
   );
 }
