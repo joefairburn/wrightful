@@ -6,6 +6,7 @@
   "scripts": {
     "test": "vitest run",
     "test:playwright": "npx playwright test",
+    "test:load": "bash scripts/run-load-test.sh",
     "test:upload": "node scripts/test-upload.js"
   },
   "devDependencies": {
