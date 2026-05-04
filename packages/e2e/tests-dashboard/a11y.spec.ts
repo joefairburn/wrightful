@@ -3,26 +3,23 @@
  *
  * Policy: fail only on serious + critical impact violations. minor /
  * moderate are surfaced in the test report but don't block CI — they
- * tend to be advisory (e.g. low-contrast on muted-foreground text in
- * dark mode) and the cost of suppressing each one outweighs the value
- * of merge-blocking on them.
+ * tend to be advisory and the cost of suppressing each one outweighs
+ * the value of merge-blocking on them.
  *
- * If a real serious/critical violation lands, the right fix is in the
- * affected component; do NOT suppress here unless there's a documented
- * reason and a TODO with a tracking link.
+ * If a real serious/critical violation lands, fix the underlying
+ * component; do NOT suppress here unless documented with a TODO.
  */
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
-import { readFixture } from "./helpers/fixture";
+import { expect, test } from "./fixtures";
 
-const fixture = readFixture();
-
-// TODO(a11y/color-contrast): The dashboard's muted-foreground tokens (used
-// in row metadata, breadcrumb labels, table headers) fail WCAG AA contrast
-// at 4.5:1 in some surfaces. Tracked separately — a fix needs design-token
-// rebalancing across light + dark modes. Keep all OTHER serious/critical
-// rules active here; this is the only blanket suppression.
+// TODO(a11y/color-contrast): The dashboard's muted-foreground tokens
+// (used in row metadata, breadcrumb labels, table headers) fail WCAG
+// AA contrast at 4.5:1 in some surfaces. Tracked separately — fix
+// requires design-token rebalancing across light + dark modes. Keep
+// all OTHER serious/critical rules active here; this is the only
+// blanket suppression.
 const SUPPRESSED_RULES = ["color-contrast"];
 
 async function scanSerious(page: Page, label: string): Promise<void> {
@@ -50,8 +47,6 @@ async function scanSerious(page: Page, label: string): Promise<void> {
 }
 
 test.describe("Accessibility (axe-core, serious/critical only)", () => {
-  // Login is the first page anonymous users see — accessibility regressions
-  // here block sign-in entirely. Drop storageState to render the form.
   test.describe("login (anonymous)", () => {
     test.use({ storageState: { cookies: [], origins: [] } });
 
@@ -62,27 +57,20 @@ test.describe("Accessibility (axe-core, serious/critical only)", () => {
   });
 
   test("runs-list page has no serious/critical violations", async ({
-    page,
+    runsListPage,
   }) => {
-    await page.goto(`/t/${fixture.teamSlug}/p/${fixture.projectSlug}`);
-    await expect(
-      page.getByRole("heading", { name: /all runs/i }),
-    ).toBeVisible();
-    await scanSerious(page, `/t/${fixture.teamSlug}/p/${fixture.projectSlug}`);
+    await runsListPage.goto();
+    await runsListPage.expectLoaded();
+    await scanSerious(runsListPage.page, runsListPage.path);
   });
 
   test("run-detail page has no serious/critical violations", async ({
-    page,
+    runsListPage,
+    runDetailPage,
   }) => {
-    await page.goto(`/t/${fixture.teamSlug}/p/${fixture.projectSlug}`);
-    const firstRun = page
-      .locator(
-        `a[href*="/t/${fixture.teamSlug}/p/${fixture.projectSlug}/runs/"]`,
-      )
-      .first();
-    const href = await firstRun.getAttribute("href");
-    if (!href) throw new Error("no seeded run on the project page");
-    await page.goto(href);
-    await scanSerious(page, `run-detail`);
+    await runsListPage.goto();
+    const runId = await runsListPage.firstRunId();
+    await runDetailPage.goto(runId);
+    await scanSerious(runDetailPage.page, "run-detail");
   });
 });

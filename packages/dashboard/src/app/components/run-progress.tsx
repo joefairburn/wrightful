@@ -220,6 +220,7 @@ function TestRow({
       {href ? (
         <a
           href={href}
+          data-testid="test-row-link"
           className="flex items-center gap-4 pr-5 py-3 hover:bg-muted/30 transition-colors group"
           style={{ paddingLeft }}
         >

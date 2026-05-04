@@ -2,22 +2,15 @@
  * Realtime UI updates via the SyncedStateServer DO.
  *
  * Flow:
- *   1. Open a fresh run via the public API (POST /api/runs).
+ *   1. Open a fresh run via the public API.
  *   2. Navigate the browser to that run's detail page (auth'd).
- *   3. Append results via API (POST /api/runs/:id/results).
+ *   3. Append results via API.
  *   4. Assert the page DOM reflects the new state without reload —
  *      summary counters tick up, test row appears in the live list.
- *
- * The dashboard's `broadcastRunUpdate` (packages/dashboard/src/routes/api/progress.ts)
- * fires from every ingest write; this spec exercises the end-to-end
- * push path: ingest handler → SyncedStateServer DO setState → client
- * island re-render.
  */
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import type { APIRequestContext } from "@playwright/test";
 
-import { readFixture } from "./helpers/fixture";
-
-const fixture = readFixture();
+import { expect, test } from "./fixtures";
 
 interface OpenRunResponse {
   runId: string;
@@ -93,28 +86,21 @@ async function appendResults(
 
 test.describe("Realtime UI updates (SyncedStateServer)", () => {
   test("a passing test appended via API appears live in the run detail page", async ({
-    page,
     playwright,
+    runDetailPage,
+    ctx,
   }) => {
-    const request = await playwright.request.newContext({
-      baseURL: fixture.url,
-    });
-
+    const request = await playwright.request.newContext({ baseURL: ctx.url });
     try {
-      const runId = await openRun(request, fixture.apiKey);
+      const runId = await openRun(request, ctx.apiKey);
+      await runDetailPage.goto(runId);
 
-      await page.goto(
-        `/t/${fixture.teamSlug}/p/${fixture.projectSlug}/runs/${runId}`,
-      );
-      // The page is open; nothing has streamed yet. Append a test result.
       const uniqueTitle = `live-test-${Date.now()}`;
-      await appendResults(request, fixture.apiKey, runId, [
+      await appendResults(request, ctx.apiKey, runId, [
         { testId: "live-1", title: uniqueTitle, status: "passed" },
       ]);
 
-      // The synced-state push lands within one round-trip; give it 5s
-      // upper bound for browser→DO→client reconciliation.
-      await expect(page.getByText(uniqueTitle)).toBeVisible({
+      await expect(runDetailPage.page.getByText(uniqueTitle)).toBeVisible({
         timeout: 5_000,
       });
     } finally {
@@ -123,36 +109,28 @@ test.describe("Realtime UI updates (SyncedStateServer)", () => {
   });
 
   test("summary counters update live as results stream in", async ({
-    page,
     playwright,
+    runDetailPage,
+    ctx,
   }) => {
-    const request = await playwright.request.newContext({
-      baseURL: fixture.url,
-    });
-
+    const request = await playwright.request.newContext({ baseURL: ctx.url });
     try {
-      const runId = await openRun(request, fixture.apiKey);
-      await page.goto(
-        `/t/${fixture.teamSlug}/p/${fixture.projectSlug}/runs/${runId}`,
-      );
+      const runId = await openRun(request, ctx.apiKey);
+      await runDetailPage.goto(runId);
 
-      // Append three passing + one failing in two batches and assert
-      // the failed counter ticks past zero. We don't pin an exact
-      // number — just that a non-zero failed count appears, which
-      // proves the summary subscription is live.
-      await appendResults(request, fixture.apiKey, runId, [
+      await appendResults(request, ctx.apiKey, runId, [
         { testId: "p-1", title: "p1", status: "passed" },
         { testId: "p-2", title: "p2", status: "passed" },
       ]);
-      await appendResults(request, fixture.apiKey, runId, [
+      await appendResults(request, ctx.apiKey, runId, [
         { testId: "f-1", title: "f1", status: "failed" },
       ]);
 
       // The summary tile labelled "Failed" should reflect the new state.
-      // Use a regex that matches "1" near the word "Failed" — exact DOM
-      // structure varies, so anchor on the visible label.
-      const failedTile = page
-        .locator(":has-text('Failed')")
+      // Anchor on the visible label and require a non-zero digit nearby.
+      const failedTile = runDetailPage.page
+        .getByText(/^Failed$/)
+        .locator("xpath=ancestor::*[self::div or self::section][1]")
         .filter({ hasText: /[1-9]/ });
       await expect(failedTile.first()).toBeVisible({ timeout: 5_000 });
     } finally {

@@ -396,6 +396,7 @@ async function RunsTableSection({
                     <TableCell className="px-4 py-3 text-center">
                       <a
                         href={href}
+                        data-testid="run-row-link"
                         className="flex items-center justify-center rounded-sm after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-offset-0"
                       >
                         <span className="sr-only">

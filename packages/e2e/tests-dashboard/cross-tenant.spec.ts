@@ -7,20 +7,12 @@
  *
  *  1. UI: User A's session can't see team B's pages — NotFoundPage
  *     renders (HTTP 404 + "Not found" heading), no team-B data leaks.
- *  2. API: User A's API key can't ingest into a run owned by project B
- *     (predicate enforced by `tenantScopeForApiKey` brand + the
- *     projectId WHERE on every read/write).
- *
- * The second user's API key is used in-test to mint a real run in
- * project B — the runId is needed for the API-side assertion (User A
- * trying to register an artifact against it).
+ *  2. API: User A's API key can't ingest into a run owned by project B.
  */
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import type { APIRequestContext } from "@playwright/test";
 
-import { readFixture } from "./helpers/fixture";
+import { expect, test } from "./fixtures";
 import { seedSecondUser, type SecondUserFixture } from "./helpers/second-user";
-
-const fixture = readFixture();
 
 const SECOND_USER = {
   email: "second@wrightful.test",
@@ -35,15 +27,13 @@ const SECOND_USER = {
 let secondUser: SecondUserFixture | undefined;
 let teamBRunId: string | undefined;
 
-test.beforeAll(async ({ playwright }) => {
+test.beforeAll(async ({ playwright, ctx }) => {
   const request: APIRequestContext = await playwright.request.newContext({
-    baseURL: fixture.url,
+    baseURL: ctx.url,
   });
   try {
-    secondUser = await seedSecondUser(request, fixture.url, SECOND_USER);
+    secondUser = await seedSecondUser(request, ctx.url, SECOND_USER);
 
-    // Mint a real run in team B / project B using B's API key, so we
-    // have a runId for the API-side cross-tenant assertion below.
     const openRunRes = await request.post("/api/runs", {
       headers: {
         "Content-Type": "application/json",
@@ -78,7 +68,6 @@ test.describe("UI isolation (User A's browser session)", () => {
     await expect(
       page.getByRole("heading", { name: /not found/i }),
     ).toBeVisible();
-    // Strong "no leak" check: the All Runs page chrome must NOT appear.
     await expect(
       page.getByRole("heading", { name: /all runs/i }),
     ).not.toBeVisible();
@@ -92,17 +81,11 @@ test.describe("UI isolation (User A's browser session)", () => {
       `/t/${SECOND_USER.teamSlug}/p/${SECOND_USER.projectSlug}/runs/${teamBRunId}`,
     );
     expect(res?.status()).toBe(404);
-    // None of team B's test rows should leak through to User A's view.
-    await expect(
-      page.locator(`a[href*="/runs/${teamBRunId}/tests/"]`),
-    ).toHaveCount(0);
+    await expect(page.getByTestId("test-row-link")).toHaveCount(0);
   });
 
   test("team B's settings page is not visible to User A", async ({ page }) => {
     const res = await page.goto(`/settings/teams/${SECOND_USER.teamSlug}`);
-    // Either the dashboard renders NotFoundPage (404) or redirects away —
-    // both are acceptable; the failure mode is "User A sees team B's
-    // settings", which is what we're guarding against.
     expect(res?.status()).not.toBe(200);
   });
 });
@@ -110,16 +93,15 @@ test.describe("UI isolation (User A's browser session)", () => {
 test.describe("API isolation (User A's API key)", () => {
   test("User A's API key can't append results to a team B run", async ({
     playwright,
+    ctx,
   }) => {
     if (!teamBRunId) throw new Error("teamBRunId not seeded");
-    const request = await playwright.request.newContext({
-      baseURL: fixture.url,
-    });
+    const request = await playwright.request.newContext({ baseURL: ctx.url });
     try {
       const res = await request.post(`/api/runs/${teamBRunId}/results`, {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${fixture.apiKey}`, // User A's key
+          Authorization: `Bearer ${ctx.apiKey}`, // User A's key
           "X-Wrightful-Version": "3",
         },
         data: {
@@ -147,7 +129,6 @@ test.describe("API isolation (User A's API key)", () => {
           ],
         },
       });
-      // 404 is the documented response for "run id not in this project".
       expect(res.status()).toBe(404);
     } finally {
       await request.dispose();
@@ -156,16 +137,15 @@ test.describe("API isolation (User A's API key)", () => {
 
   test("User A's API key can't register artifacts against a team B run", async ({
     playwright,
+    ctx,
   }) => {
     if (!teamBRunId) throw new Error("teamBRunId not seeded");
-    const request = await playwright.request.newContext({
-      baseURL: fixture.url,
-    });
+    const request = await playwright.request.newContext({ baseURL: ctx.url });
     try {
       const res = await request.post("/api/artifacts/register", {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${fixture.apiKey}`,
+          Authorization: `Bearer ${ctx.apiKey}`,
           "X-Wrightful-Version": "3",
         },
         data: {

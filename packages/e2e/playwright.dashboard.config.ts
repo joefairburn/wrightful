@@ -19,13 +19,21 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * Run locally:    pnpm --filter @wrightful/e2e test:dashboard
  * Headed/debug:   pnpm --filter @wrightful/e2e test:dashboard --headed
  */
+// `line` reporter when running under CI or a CLI agent (Claude Code etc.) —
+// the default reporter floods stdout with thousands of lines and chews
+// through context budgets. Local interactive runs still get `list`.
+const isMinimalReporter = process.env.CI || process.env.CLAUDE;
+
 export default defineConfig({
   testDir: "./tests-dashboard",
   testMatch: /.*\.spec\.ts/,
   fullyParallel: false,
+  forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  reporter: process.env.CI ? [["github"], ["list"]] : [["list"]],
+  reporter: isMinimalReporter
+    ? [["line"], ["html", { open: "never" }]]
+    : [["list"]],
   globalSetup: resolve(__dirname, "tests-dashboard/global-setup.ts"),
   globalTeardown: resolve(__dirname, "tests-dashboard/global-teardown.ts"),
   expect: {

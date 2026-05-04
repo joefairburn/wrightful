@@ -1,0 +1,78 @@
+import { type Locator, type Page, expect } from "@playwright/test";
+
+/**
+ * Page object for `/t/:teamSlug/p/:projectSlug` (the project's runs list).
+ * Encapsulates the run-row link contract and the empty-state copy.
+ */
+export class RunsListPage {
+  readonly page: Page;
+  readonly teamSlug: string;
+  readonly projectSlug: string;
+
+  readonly heading: Locator;
+  readonly emptyState: Locator;
+  readonly runLinks: Locator;
+  readonly userMenuTrigger: Locator;
+  readonly logoutButton: Locator;
+
+  constructor(page: Page, teamSlug: string, projectSlug: string) {
+    this.page = page;
+    this.teamSlug = teamSlug;
+    this.projectSlug = projectSlug;
+
+    this.heading = page.getByRole("heading", { name: /all runs/i });
+    this.emptyState = page.getByText(/no test runs/i);
+    // The run anchors carry a stable testid so layout/styling churn
+    // doesn't break locators.
+    this.runLinks = page.getByTestId("run-row-link");
+    this.userMenuTrigger = page.getByLabel(/account menu for/i);
+    this.logoutButton = page.getByRole("button", { name: /log out/i });
+  }
+
+  get path(): string {
+    return `/t/${this.teamSlug}/p/${this.projectSlug}`;
+  }
+
+  async goto(query?: string): Promise<void> {
+    await this.page.goto(query ? `${this.path}?${query}` : this.path);
+  }
+
+  async expectLoaded(): Promise<void> {
+    await expect(this.heading).toBeVisible();
+  }
+
+  /** Returns the runId of the first row, or throws if none exist. */
+  async firstRunId(): Promise<string> {
+    const link = this.runLinks.first();
+    const href = await link.getAttribute("href");
+    if (!href) throw new Error("no run-row-link href on the project page");
+    const match = href.match(/\/runs\/([\w]+)/);
+    if (!match) throw new Error(`could not parse runId from "${href}"`);
+    return match[1];
+  }
+
+  async clickFirstRun(): Promise<string> {
+    const id = await this.firstRunId();
+    await this.runLinks.first().click();
+    return id;
+  }
+
+  async openUserMenu(): Promise<void> {
+    // The popover trigger is a client island; until React hydrates, the
+    // click is a no-op. Re-click with a poll until the menu actually
+    // opens. (`networkidle` would be a worse fix — the dashboard has
+    // long-lived synced-state subscriptions that keep the network busy.)
+    await expect(async () => {
+      await this.userMenuTrigger.click();
+      await expect(this.logoutButton).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
+  }
+
+  async logout(): Promise<void> {
+    await this.openUserMenu();
+    await this.logoutButton.click();
+    await this.page.waitForURL((url) => url.pathname === "/login", {
+      timeout: 10_000,
+    });
+  }
+}
