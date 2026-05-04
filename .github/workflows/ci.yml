@@ -51,8 +51,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run reporter tests
-        run: pnpm --filter @wrightful/reporter test
+      - name: Run reporter tests with coverage
+        run: pnpm --filter @wrightful/reporter test:coverage
+
+      - name: Upload reporter coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reporter
+          path: packages/reporter/coverage
+          if-no-files-found: ignore
 
       - name: Build reporter
         run: pnpm --filter @wrightful/reporter build
@@ -73,8 +81,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run dashboard tests
-        run: pnpm --filter @wrightful/dashboard test
+      - name: Run dashboard tests with coverage
+        run: pnpm --filter @wrightful/dashboard test:coverage
+
+      - name: Upload dashboard coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-dashboard
+          path: packages/dashboard/coverage
+          if-no-files-found: ignore
 
   # Playwright version canary: exercises the reporter against a live dashboard
   # shape (via the dogfood e2e suite). When Renovate bumps @playwright/test,
@@ -104,3 +120,44 @@ jobs:
 
       - name: Run E2E tests
         run: pnpm test:e2e
+
+  # Browser-driven UI smoke against a locally booted dashboard. Catches
+  # cross-cutting regressions (auth → navigation → run-detail) that the
+  # API-level e2e and component RTL tests can't see.
+  test-e2e-ui:
+    name: E2E UI Tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: [test-reporter, test-dashboard]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @wrightful/e2e exec playwright install --with-deps chromium
+
+      - name: Run dashboard UI e2e tests
+        # `vars.VISUAL_BASELINE_OK` (repo variable) flips visual.spec from
+        # skipped to enforced. Inert until a maintainer commits Linux PNG
+        # baselines (run `--update-snapshots` once on a Linux runner via
+        # workflow_dispatch / `act`, commit the PNGs, then set the var to
+        # "1" in repo settings). Until then, visual.spec self-skips.
+        env:
+          WRIGHTFUL_VISUAL_BASELINE_OK: ${{ vars.VISUAL_BASELINE_OK }}
+        run: pnpm --filter @wrightful/e2e test:dashboard
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-dashboard
+          path: packages/e2e/playwright-report
+          if-no-files-found: ignore

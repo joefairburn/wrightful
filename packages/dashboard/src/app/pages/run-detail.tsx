@@ -11,6 +11,7 @@ import {
 import {
   RunProgressSummary,
   RunProgressTests,
+  RunStatusPillIsland,
   RunSummaryIsland,
   RunTestsIsland,
 } from "@/app/components/run-progress";
@@ -24,7 +25,6 @@ import {
   buildRunSummary,
   type RunSummary,
   runRoomId,
-  TESTS_TAIL_SIZE,
 } from "@/routes/api/progress";
 import {
   loadRunResultsPage,
@@ -155,15 +155,19 @@ export async function RunDetailPage(): Promise<React.ReactElement> {
             <h2 className="text-base font-semibold tracking-tight truncate">
               Run #{shortId}
             </h2>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-[11px] uppercase tracking-wider border border-border/50">
-              <span
-                className={cn(
-                  "inline-block w-2 h-2 rounded-full",
-                  STATUS_DOT[run.status] ?? "bg-muted-foreground/30",
-                )}
-              />
-              {statusLabel}
-            </span>
+            {isRunning ? (
+              <RunStatusPillIsland initial={summary} roomId={roomId} />
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-[11px] uppercase tracking-wider border border-border/50">
+                <span
+                  className={cn(
+                    "inline-block w-2 h-2 rounded-full",
+                    STATUS_DOT[run.status] ?? "bg-muted-foreground/30",
+                  )}
+                />
+                {statusLabel}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-4 font-mono text-xs text-muted-foreground shrink-0">
@@ -552,16 +556,8 @@ async function RunTestsSection({
     artifactActionsPromise,
   ]);
   if (isRunning) {
-    // The tests-tail synced-state key carries newest TESTS_TAIL_SIZE rows;
-    // seed it from the same SSR result so the island renders identical
-    // bytes either side of the WS handshake.
-    const initialTail = {
-      tests: seed.results.slice(0, TESTS_TAIL_SIZE),
-      updatedAt: Date.now(),
-    };
     return (
       <RunTestsIsland
-        initialTail={initialTail}
         initialSummary={summary}
         initialTests={seed.results}
         initialNextCursor={seed.nextCursor}

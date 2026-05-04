@@ -459,83 +459,25 @@ async function fetchAllPages(
 }
 
 /**
- * Owns the locally-paged test list. Two effects feed the same `paged`
- * state:
- *
- *   1. **Seed-and-extend** (mount): start with SSR-provided
- *      `initialTests`, auto-paginate forward through `initialNextCursor`
- *      until `nextCursor` is null. One pass; never re-runs unless the
- *      cursor itself changes.
- *   2. **Reconcile** (`reconcileTrigger` bumps): on running→terminal
- *      transition the caller bumps a counter; this effect refetches the
- *      full set from cursor=null and replaces `paged`. Closes the gap
- *      where rows outside the live tail window had UPDATEs that never
- *      reached the synced-state subscriber.
+ * Merge an array of test rows into a Map keyed by `RunProgressTest.id`,
+ * latest-wins. Returns a new Map (preserves React state-update semantics).
  */
-function usePaginatedTests(
-  initialTests: RunProgressTest[],
-  initialNextCursor: string | null,
-  resultsEndpoint: string | null,
-  reconcileTrigger: number,
-): RunProgressTest[] {
-  const [paged, setPaged] = useState<RunProgressTest[]>(initialTests);
-  const seededFor = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!initialNextCursor || !resultsEndpoint) return;
-    const fetchKey = `${resultsEndpoint}|${initialNextCursor}`;
-    if (seededFor.current === fetchKey) return;
-    seededFor.current = fetchKey;
-
-    const controller = new AbortController();
-    void (async () => {
-      const tail = await fetchAllPages(
-        resultsEndpoint,
-        initialNextCursor,
-        controller.signal,
-      );
-      if (!tail || controller.signal.aborted) return;
-      setPaged([...initialTests, ...tail]);
-    })();
-
-    return () => controller.abort();
-    // initialTests intentionally omitted from deps — refetch only when
-    // the cursor itself changes (e.g. SSR re-seeded for a new run).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialNextCursor, resultsEndpoint]);
-
-  useEffect(() => {
-    // Skip the no-op initial render (trigger starts at 0). Only run on
-    // an actual bump.
-    if (reconcileTrigger === 0) return;
-    if (!resultsEndpoint) return;
-
-    const controller = new AbortController();
-    void (async () => {
-      const all = await fetchAllPages(resultsEndpoint, null, controller.signal);
-      if (!all || controller.signal.aborted) return;
-      setPaged(all);
-    })();
-
-    return () => controller.abort();
-  }, [reconcileTrigger, resultsEndpoint]);
-
-  return paged;
+function mergeIntoMap(
+  base: Map<string, RunProgressTest>,
+  rows: readonly RunProgressTest[],
+): Map<string, RunProgressTest> {
+  if (rows.length === 0) return base;
+  const next = new Map(base);
+  for (const r of rows) next.set(r.id, r);
+  return next;
 }
 
-/**
- * Merge the live tail (newest TESTS_TAIL_SIZE rows) on top of the paged
- * REST list. Tail wins on id collision so retries / status flips
- * override the static REST snapshot.
- */
-function mergeTailOverPaged(
-  paged: RunProgressTest[],
-  tailTests: RunProgressTest[],
-): RunProgressTest[] {
-  if (tailTests.length === 0) return paged;
-  const tailIds = new Set(tailTests.map((t) => t.id));
-  const remainder = paged.filter((t) => !tailIds.has(t.id));
-  return [...tailTests, ...remainder];
+function buildMap(
+  rows: readonly RunProgressTest[],
+): Map<string, RunProgressTest> {
+  const m = new Map<string, RunProgressTest>();
+  for (const r of rows) m.set(r.id, r);
+  return m;
 }
 
 /**
@@ -635,7 +577,7 @@ export function RunProgressTests({
               >
                 <FileGroupHeader group={group} />
                 <AccordionPanel className="pt-0 pb-0">
-                  <ul>
+                  <ul aria-label={`Tests in ${group.file}`}>
                     {rows.map((row) =>
                       row.kind === "describe" ? (
                         <DescribeHeaderRow
@@ -688,22 +630,81 @@ export function RunSummaryIsland({
   return <RunProgressSummary summary={summary} />;
 }
 
+const PILL_STATUS_DOT: Record<string, string> = {
+  passed: "bg-success shadow-[0_0_6px_var(--color-success)]",
+  failed: "bg-destructive shadow-[0_0_6px_var(--color-destructive)]",
+  timedout: "bg-destructive shadow-[0_0_6px_var(--color-destructive)]",
+  flaky: "bg-warning",
+  interrupted: "bg-warning",
+  skipped: "bg-muted-foreground/30",
+  running: "bg-primary animate-pulse shadow-[0_0_6px_var(--color-primary)]",
+};
+
+const PILL_STATUS_LABEL: Record<string, string> = {
+  passed: "Passed",
+  failed: "Failed",
+  timedout: "Timed out",
+  flaky: "Flaky",
+  interrupted: "Interrupted",
+  skipped: "Skipped",
+  running: "Running",
+};
+
 /**
- * Test-list island. Subscribes to two synced-state keys in the same room:
- * `"tests-tail"` for live row updates (newest TESTS_TAIL_SIZE rows),
- * `"summary"` for the authoritative `totalTests` shown in the header.
- * Auto-paginates forward through the cursor-paginated REST endpoint to
- * fill in older rows beyond the tail window.
+ * Run-status pill that subscribes to the realtime `"summary"` key so the
+ * header dot+label flip from "Running" to the terminal status as soon as
+ * `completeRunHandler` broadcasts. Without this, the pill is frozen at
+ * the SSR-time value and only refreshes on a full page reload.
  *
- * On running→terminal transition the island bumps `reconcileTrigger`,
- * which makes `usePaginatedTests` refetch the full set from the tenant
- * DB. This catches any rows whose status UPDATE landed outside the live
- * tail window during ingest (createdAt-DESC ordering means older rows
- * scroll off as new ones arrive); the tenant DB is canonical, so a
- * post-completion re-read reconciles whatever the live channel missed.
+ * Mounted only for runs that are `running` at SSR time — terminal runs
+ * keep the cheaper static pill in the page so we don't open a WebSocket
+ * for a payload that will never change.
+ */
+export function RunStatusPillIsland({
+  initial,
+  roomId,
+}: {
+  initial: RunSummary;
+  roomId: string;
+}) {
+  const [summary] = useSyncedState<RunSummary>(initial, "summary", roomId);
+  const status = summary.status;
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-[11px] uppercase tracking-wider border border-border/50">
+      <span
+        className={cn(
+          "inline-block w-2 h-2 rounded-full",
+          PILL_STATUS_DOT[status] ?? "bg-muted-foreground/30",
+        )}
+      />
+      {PILL_STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
+/**
+ * Test-list island. Maintains a single `Map<testResultId, RunProgressTest>`
+ * accumulator as the source of truth for what's displayed:
+ *
+ *   - **Mount**: Map seeded from SSR-provided `initialTests` (first
+ *     REST page).
+ *   - **REST forward-pagination** (one-shot, on mount): pages from
+ *     `initialNextCursor` to exhaustion are merged into the Map.
+ *   - **Live `"tests-tail"` push**: every batch the server broadcasts
+ *     just the rows it changed; client merges those into the Map by
+ *     id. Persisted across subsequent setStates because the Map is
+ *     local React state, not the synced-state value (which gets
+ *     replaced on every push).
+ *   - **Running→terminal reconcile**: when `summary.status` flips out
+ *     of `"running"`, the Map is *replaced* (not merged) from a fresh
+ *     full REST refetch — canonical tenant-DB state.
+ *
+ *   Subscribed keys:
+ *   - `"tests-tail"` — per-batch row events.
+ *   - `"summary"` — for the authoritative `totalTests` shown in the
+ *     list header and to detect the running→terminal transition.
  */
 export function RunTestsIsland({
-  initialTail,
   initialSummary,
   initialTests,
   initialNextCursor,
@@ -712,7 +713,6 @@ export function RunTestsIsland({
   resultsEndpoint,
   artifactActionsByTestId,
 }: {
-  initialTail: RunTestsTail;
   initialSummary: RunSummary;
   initialTests: RunProgressTest[];
   initialNextCursor: string | null;
@@ -721,8 +721,12 @@ export function RunTestsIsland({
   resultsEndpoint: string;
   artifactActionsByTestId?: Record<string, ArtifactAction[]>;
 }) {
+  const [accumulator, setAccumulator] = useState<Map<string, RunProgressTest>>(
+    () => buildMap(initialTests),
+  );
+
   const [tail] = useSyncedState<RunTestsTail>(
-    initialTail,
+    { tests: [], updatedAt: 0 },
     "tests-tail",
     roomId,
   );
@@ -732,7 +736,39 @@ export function RunTestsIsland({
     roomId,
   );
 
-  // Fire a single reconcile when the run flips out of "running".
+  // Each tail push carries only the rows changed in the most recent
+  // batch. Merge them into the accumulator (latest-wins). The tail
+  // state itself is replaced on every setState, so we cannot rely on
+  // it for history — the Map is what holds the run-long picture.
+  useEffect(() => {
+    if (tail.tests.length === 0) return;
+    setAccumulator((prev) => mergeIntoMap(prev, tail.tests));
+  }, [tail]);
+
+  // Page forward through any rows beyond the SSR seed (only when the
+  // initial seed didn't return everything). One-shot per mount.
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialNextCursor) return;
+    const fetchKey = `${resultsEndpoint}|${initialNextCursor}`;
+    if (seededFor.current === fetchKey) return;
+    seededFor.current = fetchKey;
+
+    const controller = new AbortController();
+    void (async () => {
+      const more = await fetchAllPages(
+        resultsEndpoint,
+        initialNextCursor,
+        controller.signal,
+      );
+      if (!more || controller.signal.aborted) return;
+      setAccumulator((prev) => mergeIntoMap(prev, more));
+    })();
+    return () => controller.abort();
+  }, [initialNextCursor, resultsEndpoint]);
+
+  // Running→terminal reconcile: full refetch from canonical tenant DB,
+  // *replacing* the accumulator. Fires once on the actual transition.
   const wasRunningRef = useRef(initialSummary.status === "running");
   const [reconcileTrigger, setReconcileTrigger] = useState(0);
   useEffect(() => {
@@ -742,22 +778,53 @@ export function RunTestsIsland({
     wasRunningRef.current = summary.status === "running";
   }, [summary.status]);
 
-  const paged = usePaginatedTests(
-    initialTests,
-    initialNextCursor,
-    resultsEndpoint,
-    reconcileTrigger,
-  );
-  const tests = useMemo(
-    () => mergeTailOverPaged(paged, tail.tests),
-    [paged, tail.tests],
-  );
+  useEffect(() => {
+    if (reconcileTrigger === 0) return;
+    const controller = new AbortController();
+    void (async () => {
+      const all = await fetchAllPages(resultsEndpoint, null, controller.signal);
+      if (!all || controller.signal.aborted) return;
+      setAccumulator(buildMap(all));
+    })();
+    return () => controller.abort();
+  }, [reconcileTrigger, resultsEndpoint]);
+
+  const tests = useMemo(() => Array.from(accumulator.values()), [accumulator]);
+
   return (
     <RunProgressTests
       tests={tests}
       totalTests={summary.totalTests}
       runBase={runBase}
       artifactActionsByTestId={artifactActionsByTestId}
+    />
+  );
+}
+
+/**
+ * Live status dot for the runs-list table row. Mounted only for rows
+ * whose run is `running` at SSR time so the dot flips to the terminal
+ * color (and loses the pulse animation) as soon as the summary push
+ * lands. Static for terminal rows — they're frozen so a WebSocket
+ * subscription would be wasted.
+ */
+export function RunRowStatusDotIsland({
+  initial,
+  roomId,
+  className,
+}: {
+  initial: RunSummary;
+  roomId: string;
+  className?: string;
+}) {
+  const [summary] = useSyncedState<RunSummary>(initial, "summary", roomId);
+  return (
+    <span
+      className={cn(
+        "inline-block rounded-full",
+        PILL_STATUS_DOT[summary.status] ?? "bg-muted-foreground/30",
+        className,
+      )}
     />
   );
 }

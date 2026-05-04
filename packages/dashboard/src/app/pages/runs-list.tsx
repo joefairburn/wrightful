@@ -5,7 +5,10 @@ import {
   RunsFilterBar,
   RunsSearchInput,
 } from "@/app/components/runs-filter-bar";
-import { RunRowProgressIsland } from "@/app/components/run-progress";
+import {
+  RunRowProgressIsland,
+  RunRowStatusDotIsland,
+} from "@/app/components/run-progress";
 import { RunTestsPopover } from "@/app/components/run-tests-popover";
 import { composeRunSummaryBatch, runRoomId } from "@/routes/api/progress";
 import {
@@ -398,12 +401,26 @@ async function RunsTableSection({
                         <span className="sr-only">
                           View run {run.commitMessage ?? run.id.slice(0, 8)}
                         </span>
-                        <span
-                          className={cn(
-                            "inline-block w-2.5 h-2.5 rounded-full",
-                            STATUS_DOT[run.status] ?? "bg-muted-foreground/30",
-                          )}
-                        />
+                        {run.status === "running" &&
+                        runningSummaries.has(run.id) ? (
+                          <RunRowStatusDotIsland
+                            initial={runningSummaries.get(run.id)!}
+                            roomId={runRoomId({
+                              teamSlug: project.teamSlug,
+                              projectSlug: project.slug,
+                              runId: run.id,
+                            })}
+                            className="w-2.5 h-2.5"
+                          />
+                        ) : (
+                          <span
+                            className={cn(
+                              "inline-block w-2.5 h-2.5 rounded-full",
+                              STATUS_DOT[run.status] ??
+                                "bg-muted-foreground/30",
+                            )}
+                          />
+                        )}
                       </a>
                     </TableCell>
 

@@ -245,11 +245,23 @@ export async function composeRunTestsTail(
 }
 
 /**
- * Compose summary + tail in parallel and broadcast each via `setState`
- * on its own synced-state key. Subscribers to `"summary"` see counter
- * updates only; subscribers to `"tests-tail"` see the latest test rows
- * only. Both keys share one realtime room so a single WebSocket serves
- * both islands.
+ * Compose summary + push to the realtime DO. The `tests-tail` key carries
+ * an *event stream*: each broadcast contains only the rows that changed
+ * in the current batch (`changedTests`). The client maintains a local
+ * accumulator Map keyed by `RunProgressTest.id` and merges each push
+ * into it — so a row's update from batch N persists even after batch
+ * N+1's `setState` replaces the synced-state value.
+ *
+ * Caller contract:
+ *   - `appendResultsHandler` passes the rows from `payload.results` —
+ *     no DB read needed; the data is already in scope.
+ *   - `openRunHandler` and `completeRunHandler` pass `[]`. There are no
+ *     test-row changes at those points; the summary push is enough,
+ *     and the client has its own running→terminal reconcile pathway.
+ *
+ * When `changedTests` is empty the `tests-tail` setState is skipped
+ * entirely so it doesn't overwrite the last meaningful batch's rows
+ * (which a freshly-subscribing client picks up via `getState`).
  *
  * Best-effort: any error here is logged but never propagated — the
  * tenant DO is the source of truth; the realtime layer is a delivery
@@ -258,12 +270,10 @@ export async function composeRunTestsTail(
 export async function broadcastRunUpdate(
   scope: TenantScope,
   runId: string,
+  changedTests: RunProgressTest[],
 ): Promise<void> {
   try {
-    const [summary, tail] = await Promise.all([
-      composeRunSummary(scope, runId),
-      composeRunTestsTail(scope, runId),
-    ]);
+    const summary = await composeRunSummary(scope, runId);
     if (!summary) return;
     const ns = env.SYNCED_STATE_SERVER;
     const stub = ns.get(
@@ -275,10 +285,15 @@ export async function broadcastRunUpdate(
         }),
       ),
     );
-    await Promise.all([
-      stub.setState(summary, "summary"),
-      stub.setState(tail, "tests-tail"),
-    ]);
+    const ops: Promise<void>[] = [stub.setState(summary, "summary")];
+    if (changedTests.length > 0) {
+      const tail: RunTestsTail = {
+        tests: changedTests,
+        updatedAt: Date.now(),
+      };
+      ops.push(stub.setState(tail, "tests-tail"));
+    }
+    await Promise.all(ops);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`broadcastRunUpdate(${runId}) failed: ${message}`);

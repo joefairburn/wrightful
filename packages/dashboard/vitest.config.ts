@@ -33,12 +33,47 @@ export default defineConfig({
     alias: {
       "@/": new URL("./src/", import.meta.url).pathname,
     },
+    coverage: {
+      provider: "v8",
+      reporter: ["text-summary", "lcov", "html"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/__tests__/**",
+        "src/**/__integration__/**",
+        "src/**/*.d.ts",
+        "src/client.tsx",
+        "src/worker.tsx",
+      ],
+    },
     projects: [
       {
         extends: true,
         test: {
           name: "unit",
           include: ["src/__tests__/**/*.test.{ts,tsx}"],
+          exclude: ["src/__tests__/components/**"],
+        },
+      },
+      {
+        // Client-side component tests run in happy-dom against React's
+        // *client* export conditions — not workerd / react-server like
+        // the rest of the unit project. Standalone (no extends) so we
+        // can fully override the root resolve.conditions, which would
+        // otherwise pick the react-server build of React. happy-dom is
+        // ~2-3x faster than jsdom; the suite uses RTL + userEvent +
+        // jest-dom matchers, all of which are happy-dom compatible.
+        resolve: {
+          alias: {
+            "@/": new URL("./src/", import.meta.url).pathname,
+          },
+          conditions: ["browser", "module", "import", "default"],
+        },
+        test: {
+          globals: true,
+          name: "components",
+          environment: "happy-dom",
+          include: ["src/__tests__/components/**/*.test.{ts,tsx}"],
+          setupFiles: ["src/__tests__/components/setup.ts"],
         },
       },
       {

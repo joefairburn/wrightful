@@ -11,8 +11,12 @@
   },
   "include": [
     "tests",
+    "tests-dashboard",
+    "tests-load",
     "src",
     "playwright.config.ts",
+    "playwright.dashboard.config.ts",
+    "playwright.load.config.ts",
     "vitest.config.ts",
     "vitest.globalSetup.ts"
   ],

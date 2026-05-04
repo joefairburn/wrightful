@@ -1,0 +1,66 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { defineConfig, devices } from "@playwright/test";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Playwright config for the dashboard UI e2e suite.
+ *
+ * Distinct from `playwright.config.ts` (the dogfood suite that targets
+ * playwright.dev to generate streamable test data). This one drives the
+ * Wrightful dashboard itself in a real browser.
+ *
+ * The dashboard is booted by `tests-dashboard/global-setup.ts` (which calls
+ * the shared `bootDashboard` helper from `src/dashboard-fixture.ts`).
+ * `storageState.json` is populated there too so every spec starts authed.
+ *
+ * Run locally:    pnpm --filter @wrightful/e2e test:dashboard
+ * Headed/debug:   pnpm --filter @wrightful/e2e test:dashboard --headed
+ */
+// `line` reporter when running under CI or a CLI agent (Claude Code etc.) —
+// the default reporter floods stdout with thousands of lines and chews
+// through context budgets. Local interactive runs still get `list`.
+const isMinimalReporter = process.env.CI || process.env.CLAUDE;
+
+export default defineConfig({
+  testDir: "./tests-dashboard",
+  testMatch: /.*\.spec\.ts/,
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  // File-level parallelism only (`fullyParallel: false`). Specs are
+  // parallel-safe at the file boundary because resources are timestamped
+  // (api-key labels, signup emails, runIds, filter queries) and project
+  // DOs serialize their own writes. logout.spec mints its own session row
+  // so signing out doesn't invalidate the shared `storageState.json`
+  // session that every other worker holds.
+  workers: process.env.CI ? 3 : undefined,
+  reporter: isMinimalReporter
+    ? [["line"], ["html", { open: "never" }]]
+    : [["list"]],
+  globalSetup: resolve(__dirname, "tests-dashboard/global-setup.ts"),
+  globalTeardown: resolve(__dirname, "tests-dashboard/global-teardown.ts"),
+  expect: {
+    // Sub-pixel rendering noise + tiny font hinting drift between local
+    // and CI runners means a strict pixel-perfect diff is too brittle.
+    // 1% tolerance catches genuine layout regressions (bar shifts, text
+    // wraps, missing element) without flaking on cosmetic noise.
+    toHaveScreenshot: { maxDiffPixelRatio: 0.01 },
+  },
+  use: {
+    baseURL: "http://localhost:5189",
+    storageState: "./tests-dashboard/.auth/storageState.json",
+    trace: process.env.CI ? "retain-on-failure" : "on-first-retry",
+    screenshot: "only-on-failure",
+    actionTimeout: 10_000,
+    navigationTimeout: 15_000,
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+  ],
+});
