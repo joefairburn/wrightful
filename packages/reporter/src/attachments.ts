@@ -1,10 +1,46 @@
 import { realpath, stat } from "node:fs/promises";
-import { extname, sep } from "node:path";
+import { basename, extname, sep } from "node:path";
 
 // Playwright attachment → Wrightful artifact-type mapping, plus path-safety
 // helpers used by the reporter before uploading local files to R2.
 
-export type ArtifactType = "trace" | "screenshot" | "video" | "other";
+export type ArtifactType =
+  | "trace"
+  | "screenshot"
+  | "video"
+  | "visual"
+  | "other";
+
+export type SnapshotRole = "expected" | "actual" | "diff";
+
+export interface SnapshotAttachmentMeta {
+  snapshotName: string;
+  role: SnapshotRole;
+}
+
+/**
+ * Detects Playwright snapshot attachments produced by `toHaveScreenshot()`
+ * (and image variants of `toMatchSnapshot()`). Playwright names them
+ * `{baseName}-(expected|actual|diff).png`. Returns the trimmed `snapshotName`
+ * (e.g. `hero-chromium-linux`) and the role; null otherwise.
+ *
+ * Returning a match here is *not* sufficient to classify the attachment as
+ * `visual` — the reporter additionally requires all three roles to be
+ * present in the same `(testId, attempt)` set before promoting the type
+ * (see `collectArtifacts` in index.ts). A user-named `foo-actual.png` from
+ * `testInfo.attach()` falls back to `screenshot` via that gate.
+ */
+export function parseSnapshotAttachment(
+  filename: string,
+): SnapshotAttachmentMeta | null {
+  const base = basename(filename);
+  const match = /^(.+)-(expected|actual|diff)\.png$/.exec(base);
+  if (!match) return null;
+  return {
+    snapshotName: match[1],
+    role: match[2] as SnapshotRole,
+  };
+}
 
 export function classifyAttachment(
   name: string,

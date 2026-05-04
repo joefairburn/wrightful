@@ -29,15 +29,19 @@ interface Artifact {
   sizeBytes: number;
   attempt: number;
   r2Key: string;
+  role: string | null;
+  snapshotName: string | null;
 }
 
 // Order within an attempt: trace first (most useful for debugging), then
-// video, screenshot, everything else. `other` covers error-context etc.
+// visual diff (groups three images into one entry), video, screenshot,
+// everything else. `other` covers error-context etc.
 const TYPE_ORDER: Record<string, number> = {
   trace: 0,
-  video: 1,
-  screenshot: 2,
-  other: 3,
+  visual: 1,
+  video: 2,
+  screenshot: 3,
+  other: 4,
 };
 
 function attemptLabel(attempt: number, totalAttempts: number): string {
@@ -182,6 +186,8 @@ export async function TestDetailPage() {
           "sizeBytes",
           "attempt",
           "r2Key",
+          "role",
+          "snapshotName",
         ])
         .where("testResultId", "=", testResultId)
         .orderBy("attempt", "asc")
@@ -302,6 +308,39 @@ export async function TestDetailPage() {
         ? traceViewerUrl(origin, a.id, artifactTokens.get(a.id) ?? "")
         : undefined,
   });
+  /**
+   * Fold the three rows of a visual snapshot triple (expected/actual/diff)
+   * into a single `ArtifactAction` with `type: "visual"` so the rail renders
+   * one button that opens the diff viewer. Reporter triple-validation already
+   * guarantees that we only see `type === "visual"` rows when the group is
+   * complete, but we still defensively render with whatever frames exist —
+   * a missing role just hides that tab in the dialog.
+   */
+  const toVisualAction = (rows: Artifact[]): ArtifactAction => {
+    const first = rows[0];
+    const byRole = new Map(rows.map((r) => [r.role, r] as const));
+    const frame = (
+      role: "expected" | "actual" | "diff",
+    ): { href: string; name: string } | null => {
+      const r = byRole.get(role);
+      return r ? { href: downloadHref(r.id), name: r.name } : null;
+    };
+    return {
+      id: `visual::${first.attempt}::${first.snapshotName}`,
+      type: "visual",
+      name: first.snapshotName ?? "snapshot",
+      contentType: "image/png",
+      // The rail's button never uses this for visual rows — the dialog
+      // links each frame separately — but ArtifactAction requires it.
+      downloadHref: frame("diff")?.href ?? frame("actual")?.href ?? "",
+      visualGroup: {
+        snapshotName: first.snapshotName ?? "snapshot",
+        expected: frame("expected"),
+        actual: frame("actual"),
+        diff: frame("diff"),
+      },
+    };
+  };
   // Default to the final attempt — the terminal state users most often want.
   const defaultTab = String(totalAttempts - 1);
 
@@ -536,9 +575,31 @@ export async function TestDetailPage() {
               {allAttempts.map((attempt) => {
                 const group = artifactsByAttempt.get(attempt) ?? [];
                 const copyPromptRaw = group.find((a) => a.type === "other");
-                const mediaActions: ArtifactAction[] = group
-                  .filter((a) => a.type !== "other")
+                const nonVisualActions: ArtifactAction[] = group
+                  .filter((a) => a.type !== "other" && a.type !== "visual")
                   .map(toAction);
+                const visualByName = new Map<string, Artifact[]>();
+                for (const a of group) {
+                  if (a.type !== "visual" || !a.snapshotName) continue;
+                  const bucket = visualByName.get(a.snapshotName) ?? [];
+                  bucket.push(a);
+                  visualByName.set(a.snapshotName, bucket);
+                }
+                const visualActions: ArtifactAction[] = Array.from(
+                  visualByName.values(),
+                ).map(toVisualAction);
+                // The pre-sorted `group` lost its ordering when we split it;
+                // reorder by TYPE_ORDER (visual sits between trace and video)
+                // and break ties on display name.
+                const mediaActions: ArtifactAction[] = [
+                  ...nonVisualActions,
+                  ...visualActions,
+                ].sort((x, y) => {
+                  const dx = TYPE_ORDER[x.type] ?? 99;
+                  const dy = TYPE_ORDER[y.type] ?? 99;
+                  if (dx !== dy) return dx - dy;
+                  return x.name.localeCompare(y.name);
+                });
                 return (
                   <AttemptPanel
                     key={attempt}

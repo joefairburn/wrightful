@@ -18,6 +18,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/app/components/ui/dialog";
+import { VisualDiffRailButton } from "@/app/components/visual-diff-dialog";
 import { cn } from "@/lib/cn";
 
 /**
@@ -124,6 +125,8 @@ function RailArtifactButton({
   switch (artifact.type) {
     case "trace":
       return <RailTraceButton artifact={artifact} />;
+    case "visual":
+      return <VisualDiffRailButton artifact={artifact} />;
     case "video":
       return <RailVideoButton artifact={artifact} />;
     case "screenshot":

@@ -12,9 +12,9 @@ import type { AppContext } from "@/worker";
 const DEFAULT_MAX_ARTIFACT_BYTES = 52_428_800; // 50 MiB
 
 // Bound statement size so a single huge reporter batch doesn't blow up
-// memory in the RPC round-trip. 9 columns × 11 rows = 99 params.
+// memory in the RPC round-trip. 11 columns × 9 rows = 99 params.
 const MAX_PARAMS_PER_STATEMENT = 99;
-const ARTIFACT_COLUMNS = 9;
+const ARTIFACT_COLUMNS = 11;
 const ARTIFACT_ROWS_PER_STATEMENT = Math.floor(
   MAX_PARAMS_PER_STATEMENT / ARTIFACT_COLUMNS,
 );
@@ -120,6 +120,8 @@ export async function registerHandler({
     r2Key: string;
     attempt: number;
     createdAt: number;
+    role: string | null;
+    snapshotName: string | null;
   }> = [];
   const uploads: Array<{
     artifactId: string;
@@ -140,6 +142,8 @@ export async function registerHandler({
       r2Key,
       attempt: a.attempt,
       createdAt: nowSeconds,
+      role: a.role ?? null,
+      snapshotName: a.snapshotName ?? null,
     });
     uploads.push({
       artifactId,

@@ -2,7 +2,7 @@
 // schemas in packages/dashboard/src/routes/api/schemas.ts; keep them in
 // sync when changing the API contract.
 
-import type { ArtifactType } from "./attachments.js";
+import type { ArtifactType, SnapshotRole } from "./attachments.js";
 
 export interface TestAttemptPayload {
   /** 0 = initial attempt, 1 = first retry, … */
@@ -82,6 +82,17 @@ export interface ArtifactRegistration {
   sizeBytes: number;
   /** Playwright attempt index (0 = initial, 1 = first retry, …). */
   attempt: number;
+  /**
+   * For `type: "visual"` artifacts: which side of the snapshot triple this
+   * file is. Required when `type === "visual"`, ignored otherwise.
+   */
+  role?: SnapshotRole;
+  /**
+   * For `type: "visual"` artifacts: the shared base name that groups the
+   * expected/actual/diff triple within a single test attempt (e.g.
+   * `hero-chromium-linux`). Required when `type === "visual"`.
+   */
+  snapshotName?: string;
 }
 
 export type ArtifactMode = "all" | "failed" | "none";

@@ -10,9 +10,11 @@ import type {
 } from "@playwright/test/reporter";
 import {
   classifyAttachment,
+  parseSnapshotAttachment,
   safeResolvedPath,
   safeSize,
   type ArtifactType,
+  type SnapshotRole,
 } from "./attachments.js";
 import { Batcher } from "./batcher.js";
 import { detectCI, generateIdempotencyKey } from "./ci.js";
@@ -45,18 +47,60 @@ function warn(message: string): void {
   process.stderr.write(`[wrightful] ${message}\n`);
 }
 
-interface PreparedArtifact {
+export interface PreparedArtifact {
   type: ArtifactType;
   name: string;
   contentType: string;
   sizeBytes: number;
   localPath: string;
   attempt: number;
+  role?: SnapshotRole;
+  snapshotName?: string;
 }
 
 interface PendingTest {
   test: TestCase;
   results: TestResult[];
+}
+
+/**
+ * Promote tentative snapshot images to `type: "visual"` only when all three
+ * roles (expected, actual, diff) are present in the same `(attempt,
+ * snapshotName)` group. A lone or pair of snapshot-named images falls back
+ * to a plain `screenshot` with role/snapshotName cleared — that's the
+ * defense against a passing test that does
+ * `testInfo.attach('foo-actual.png', …)` with no sibling diff/expected.
+ */
+export function promoteSnapshotTriples(
+  artifacts: PreparedArtifact[],
+): PreparedArtifact[] {
+  const counts = new Map<string, Set<SnapshotRole>>();
+  for (const a of artifacts) {
+    if (!a.snapshotName || !a.role) continue;
+    const key = `${a.attempt}::${a.snapshotName}`;
+    let set = counts.get(key);
+    if (!set) {
+      set = new Set<SnapshotRole>();
+      counts.set(key, set);
+    }
+    set.add(a.role);
+  }
+  return artifacts.map((a) => {
+    if (!a.snapshotName || !a.role) return a;
+    const key = `${a.attempt}::${a.snapshotName}`;
+    const roles = counts.get(key);
+    const complete =
+      roles?.has("expected") && roles.has("actual") && roles.has("diff");
+    if (complete) {
+      return { ...a, type: "visual" as const };
+    }
+    return {
+      ...a,
+      type: "screenshot" as const,
+      role: undefined,
+      snapshotName: undefined,
+    };
+  });
 }
 
 interface EnqueuedTest {
@@ -299,17 +343,27 @@ export default class WrightfulReporter implements Reporter {
         if (!resolved) continue;
         const size = await safeSize(resolved);
         if (size === null) continue;
+        const baseType = classifyAttachment(
+          attachment.name,
+          attachment.contentType,
+        );
+        const snapshot =
+          baseType === "screenshot"
+            ? parseSnapshotAttachment(attachment.name)
+            : null;
         out.push({
-          type: classifyAttachment(attachment.name, attachment.contentType),
+          type: baseType,
           name: attachment.name,
           contentType: attachment.contentType,
           sizeBytes: size,
           localPath: resolved,
           attempt: result.retry,
+          role: snapshot?.role,
+          snapshotName: snapshot?.snapshotName,
         });
       }
     }
-    return out;
+    return promoteSnapshotTriples(out);
   }
 
   private fireArtifactUploads(
@@ -333,6 +387,8 @@ export default class WrightfulReporter implements Reporter {
           contentType: a.contentType,
           sizeBytes: a.sizeBytes,
           attempt: a.attempt,
+          role: a.role,
+          snapshotName: a.snapshotName,
         });
         locals.push(a);
       }

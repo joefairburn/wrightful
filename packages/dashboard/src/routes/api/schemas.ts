@@ -92,14 +92,35 @@ export const CompleteRunPayloadSchema = z.object({
 });
 export type CompleteRunPayload = z.infer<typeof CompleteRunPayloadSchema>;
 
-const ArtifactRequestSchema = z.object({
-  testResultId: z.string().min(1),
-  type: z.enum(["trace", "screenshot", "video", "other"]),
-  name: z.string().min(1),
-  contentType: z.string().min(1),
-  sizeBytes: z.number().int().min(0),
-  attempt: z.number().int().min(0).default(0),
-});
+const ArtifactRequestSchema = z
+  .object({
+    testResultId: z.string().min(1),
+    type: z.enum(["trace", "screenshot", "video", "visual", "other"]),
+    name: z.string().min(1),
+    contentType: z.string().min(1),
+    sizeBytes: z.number().int().min(0),
+    attempt: z.number().int().min(0).default(0),
+    role: z.enum(["expected", "actual", "diff"]).optional(),
+    snapshotName: z.string().min(1).max(255).optional(),
+  })
+  .superRefine((a, ctx) => {
+    if (a.type === "visual") {
+      if (!a.role) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["role"],
+          message: "role is required when type is 'visual'",
+        });
+      }
+      if (!a.snapshotName) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["snapshotName"],
+          message: "snapshotName is required when type is 'visual'",
+        });
+      }
+    }
+  });
 
 export const RegisterArtifactsPayloadSchema = z.object({
   runId: z.string().min(1),

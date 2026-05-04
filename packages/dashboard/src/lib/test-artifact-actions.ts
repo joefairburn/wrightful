@@ -140,7 +140,10 @@ export async function loadFailingArtifactActions(
       const target = errorAttempt(t.status, totalAttempts);
       if (target === null) return;
       const forAttempt = bucket
-        .filter((a) => a.attempt === target && a.type !== "other")
+        .filter(
+          (a) =>
+            a.attempt === target && a.type !== "other" && a.type !== "visual",
+        )
         .sort((x, y) => {
           const dx = TYPE_ORDER[x.type] ?? 99;
           const dy = TYPE_ORDER[y.type] ?? 99;

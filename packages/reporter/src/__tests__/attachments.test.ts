@@ -11,6 +11,7 @@ import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   classifyAttachment,
+  parseSnapshotAttachment,
   safeResolvedPath,
   safeSize,
 } from "../attachments.js";
@@ -59,6 +60,60 @@ describe("classifyAttachment", () => {
   it("returns 'other' for unknown types", () => {
     expect(classifyAttachment("notes.txt", "text/plain")).toBe("other");
     expect(classifyAttachment("unknown", "")).toBe("other");
+  });
+
+  it("classifies all snapshot-named PNGs as plain screenshot — promotion happens later in collectArtifacts", () => {
+    expect(
+      classifyAttachment("hero-chromium-linux-actual.png", "image/png"),
+    ).toBe("screenshot");
+    expect(
+      classifyAttachment("hero-chromium-linux-expected.png", "image/png"),
+    ).toBe("screenshot");
+    expect(
+      classifyAttachment("hero-chromium-linux-diff.png", "image/png"),
+    ).toBe("screenshot");
+  });
+});
+
+describe("parseSnapshotAttachment", () => {
+  it("recognises Playwright's expected/actual/diff suffixes", () => {
+    expect(parseSnapshotAttachment("hero-chromium-linux-expected.png")).toEqual(
+      { snapshotName: "hero-chromium-linux", role: "expected" },
+    );
+    expect(parseSnapshotAttachment("hero-chromium-linux-actual.png")).toEqual({
+      snapshotName: "hero-chromium-linux",
+      role: "actual",
+    });
+    expect(parseSnapshotAttachment("hero-chromium-linux-diff.png")).toEqual({
+      snapshotName: "hero-chromium-linux",
+      role: "diff",
+    });
+  });
+
+  it("handles auto-indexed unnamed snapshots", () => {
+    expect(parseSnapshotAttachment("test-name-1-actual.png")).toEqual({
+      snapshotName: "test-name-1",
+      role: "actual",
+    });
+  });
+
+  it("strips a leading directory before parsing", () => {
+    expect(
+      parseSnapshotAttachment("/tmp/results/hero-chromium-linux-diff.png"),
+    ).toEqual({ snapshotName: "hero-chromium-linux", role: "diff" });
+  });
+
+  it("returns null for non-PNG suffixes", () => {
+    expect(parseSnapshotAttachment("hero-actual.jpg")).toBeNull();
+    expect(parseSnapshotAttachment("hero-actual.txt")).toBeNull();
+  });
+
+  it("returns null for unrelated -actual that isn't a Playwright snapshot", () => {
+    expect(parseSnapshotAttachment("just-a-screenshot.png")).toBeNull();
+  });
+
+  it("requires a non-empty base name before the suffix", () => {
+    expect(parseSnapshotAttachment("-actual.png")).toBeNull();
   });
 });
 

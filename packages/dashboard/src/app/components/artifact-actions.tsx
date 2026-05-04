@@ -11,6 +11,20 @@ import {
 } from "@/app/components/ui/dialog";
 import { cn } from "@/lib/cn";
 
+export interface VisualDiffFrame {
+  href: string;
+  name: string;
+}
+
+export interface VisualDiffGroup {
+  /** Snapshot's base name (e.g. `hero-chromium-linux`). */
+  snapshotName: string;
+  /** Each frame is null if its row is missing — typically a timeout. */
+  expected: VisualDiffFrame | null;
+  actual: VisualDiffFrame | null;
+  diff: VisualDiffFrame | null;
+}
+
 export interface ArtifactAction {
   id: string;
   type: string;
@@ -19,6 +33,8 @@ export interface ArtifactAction {
   downloadHref: string;
   /** Present only for type === "trace". */
   traceViewerUrl?: string;
+  /** Present only for type === "visual". */
+  visualGroup?: VisualDiffGroup;
 }
 
 export function ArtifactActions({
@@ -47,6 +63,11 @@ function ArtifactButton({
       return <ScreenshotButton artifact={artifact} />;
     case "trace":
       return <TraceButton artifact={artifact} />;
+    case "visual":
+      // Visual diffs only render in the test detail rail (richer modal).
+      // The run-detail row would need its own grouping pipeline; for now
+      // it's quietly omitted.
+      return <></>;
     default:
       return <CopyPromptButton artifact={artifact} />;
   }

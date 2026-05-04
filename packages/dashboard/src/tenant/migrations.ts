@@ -257,4 +257,44 @@ export const tenantMigrations = {
       await db.schema.dropIndex("runs_project_branch_idx").ifExists().execute();
     },
   },
+
+  /**
+   * Visual regression: when a Playwright snapshot assertion fails, the reporter
+   * uploads three image attachments (`*-expected.png`, `*-actual.png`,
+   * `*-diff.png`) and labels each with `role` + a shared `snapshotName`. The
+   * partial index makes the per-test grouping query (`WHERE testResultId = ?
+   * AND attempt = ? AND snapshotName IS NOT NULL`) cheap without bloating the
+   * index for non-visual rows.
+   */
+  "0002_visual_snapshots": {
+    async up(db) {
+      const addRole = await db.schema
+        .alterTable("artifacts")
+        .addColumn("role", "text")
+        .execute();
+      const addSnapshotName = await db.schema
+        .alterTable("artifacts")
+        .addColumn("snapshotName", "text")
+        .execute();
+      await db.schema
+        .createIndex("artifacts_visual_group_idx")
+        .on("artifacts")
+        .columns(["testResultId", "attempt", "snapshotName"])
+        .where("snapshotName", "is not", null)
+        .execute();
+      return [addRole, addSnapshotName];
+    },
+
+    async down(db) {
+      await db.schema
+        .dropIndex("artifacts_visual_group_idx")
+        .ifExists()
+        .execute();
+      await db.schema
+        .alterTable("artifacts")
+        .dropColumn("snapshotName")
+        .execute();
+      await db.schema.alterTable("artifacts").dropColumn("role").execute();
+    },
+  },
 } satisfies Migrations;

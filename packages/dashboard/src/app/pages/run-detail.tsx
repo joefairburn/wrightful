@@ -22,7 +22,6 @@ import { prUrl } from "@/lib/pr-url";
 import { param } from "@/lib/route-params";
 import {
   buildRunSummary,
-  type RunProgressTest,
   type RunSummary,
   runRoomId,
   TESTS_TAIL_SIZE,

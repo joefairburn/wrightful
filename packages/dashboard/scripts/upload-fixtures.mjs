@@ -16,8 +16,7 @@ import { startSpinner } from "./lib/spinner.mjs";
 const dashboardDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const seedPath = new URL("../.dev.vars.seed.json", import.meta.url).pathname;
-const playwrightDir = new URL("../fixtures/playwright/", import.meta.url)
-  .pathname;
+const playwrightDir = new URL("./seed/playwright/", import.meta.url).pathname;
 
 if (!existsSync(seedPath)) {
   console.error(

@@ -185,7 +185,7 @@ const historyMonths = (() => {
 })();
 const historySeed = (() => {
   const i = process.argv.indexOf("--history-seed");
-  return i >= 0 ? String(process.argv[i + 1] ?? "") : "wrightful-seed-1";
+  return i >= 0 ? (process.argv[i + 1] ?? "") : "wrightful-seed-1";
 })();
 
 const skipFixtures = process.argv.includes("--no-fixtures") || withHistory;
