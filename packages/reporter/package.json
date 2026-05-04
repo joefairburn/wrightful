@@ -51,7 +51,8 @@
     "@typescript/native-preview": "7.0.0-dev.20260416.2",
     "tsdown": "^0.21.9",
     "typescript": "~6.0.2",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.4",
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
     "@playwright/test": ">=1.40"
