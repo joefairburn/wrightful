@@ -11,7 +11,7 @@ import {
   type OpenRunPayload,
   type TestResultInput,
 } from "./schemas";
-import { broadcastRunUpdate } from "./progress";
+import { broadcastRunUpdate, type RunProgressTest } from "./progress";
 import type { AppContext } from "@/worker";
 
 function jsonResponse(body: unknown, status: number) {
@@ -514,7 +514,10 @@ export async function openRunHandler({
   ];
   await scope.batch(openStatements);
   bumpTeamActivity(scope.teamId, nowSeconds);
-  await broadcastRunUpdate(scope, runId);
+  // No row changes to broadcast — the queued prefill is delivered to
+  // dashboard clients via SSR + REST. The summary push tells subscribers
+  // the run exists.
+  await broadcastRunUpdate(scope, runId, []);
 
   return jsonResponse({ runId, runUrl: runUrl(scope, runId) }, 201);
 }
@@ -582,9 +585,38 @@ export async function appendResultsHandler({
   await scope.batch(statements);
   bumpTeamActivity(scope.teamId, nowSeconds);
 
-  await broadcastRunUpdate(scope, runId);
+  // Build the per-batch event tail in-process from the same payload we
+  // just persisted — no DB read needed. The client merges by id into
+  // its accumulator Map, so every changed row in this batch lands live
+  // regardless of where it sits in `createdAt` order.
+  const changedTests = buildChangedTests(payload.results, assignedIds);
+  await broadcastRunUpdate(scope, runId, changedTests);
 
   return jsonResponse({ results: mapping }, 200);
+}
+
+/**
+ * Project a `/results` payload onto the wire-format `RunProgressTest`
+ * shape. Mirrors the set of columns persisted to `testResults` for these
+ * fields so the synced-state push and a later REST read of the same row
+ * agree.
+ */
+export function buildChangedTests(
+  results: readonly TestResultInput[],
+  assignedIds: Map<string, string>,
+): RunProgressTest[] {
+  return results.map((r) => ({
+    id: assignedIds.get(r.testId)!,
+    testId: r.testId,
+    title: r.title,
+    file: r.file,
+    projectName: r.projectName ?? null,
+    status: r.status,
+    durationMs: r.durationMs,
+    retryCount: r.retryCount,
+    errorMessage: r.errorMessage ?? null,
+    errorStack: r.errorStack ?? null,
+  }));
 }
 
 /**
@@ -652,7 +684,10 @@ export async function completeRunHandler({
   ]);
   bumpTeamActivity(scope.teamId, nowSeconds);
 
-  await broadcastRunUpdate(scope, runId);
+  // Final summary push (status flips to terminal). No test-row changes —
+  // the client's running→terminal reconcile pulls fresh state from the
+  // tenant DB.
+  await broadcastRunUpdate(scope, runId, []);
 
   return jsonResponse({ runId, status: payload.status }, 200);
 }

@@ -22,10 +22,8 @@ import { prUrl } from "@/lib/pr-url";
 import { param } from "@/lib/route-params";
 import {
   buildRunSummary,
-  type RunProgressTest,
   type RunSummary,
   runRoomId,
-  TESTS_TAIL_SIZE,
 } from "@/routes/api/progress";
 import {
   loadRunResultsPage,
@@ -553,16 +551,8 @@ async function RunTestsSection({
     artifactActionsPromise,
   ]);
   if (isRunning) {
-    // The tests-tail synced-state key carries newest TESTS_TAIL_SIZE rows;
-    // seed it from the same SSR result so the island renders identical
-    // bytes either side of the WS handshake.
-    const initialTail = {
-      tests: seed.results.slice(0, TESTS_TAIL_SIZE),
-      updatedAt: Date.now(),
-    };
     return (
       <RunTestsIsland
-        initialTail={initialTail}
         initialSummary={summary}
         initialTests={seed.results}
         initialNextCursor={seed.nextCursor}
