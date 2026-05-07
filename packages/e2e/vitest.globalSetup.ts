@@ -16,7 +16,7 @@ import { existsSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { TestProject } from "vitest/node";
+import type { TestProject } from "vite-plus/test/node";
 
 import { bootDashboard, type DashboardFixture } from "./src/dashboard-fixture";
 
@@ -71,7 +71,7 @@ export function teardown(): void {
   fixture = undefined;
 }
 
-declare module "vitest" {
+declare module "vite-plus/test" {
   export interface ProvidedContext {
     dashboardUrl: string;
     apiKey: string;

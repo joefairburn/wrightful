@@ -8,7 +8,7 @@
 import { createHmac } from "node:crypto";
 import { existsSync } from "node:fs";
 
-import { beforeAll, describe, expect, inject, it } from "vitest";
+import { beforeAll, describe, expect, inject, it } from "vite-plus/test";
 
 const DASHBOARD_URL = inject("dashboardUrl");
 const API_KEY = inject("apiKey");

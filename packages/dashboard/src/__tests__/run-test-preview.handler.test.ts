@@ -3,7 +3,7 @@
  * Each of the four bucket SELECTs (failed/flaky/passed/skipped) must be
  * scoped to the resolved projectId + runId + committed runs.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Compilable } from "kysely";
 
 const { tenantDbRef } = vi.hoisted(() => ({

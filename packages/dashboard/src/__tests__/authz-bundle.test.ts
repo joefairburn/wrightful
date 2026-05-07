@@ -4,7 +4,7 @@
  * request. These tests pin the SQL contract (one SELECT, scoped to
  * `userId`) and the way we partition rows into the four output buckets.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { dbRef } = vi.hoisted(() => ({
   dbRef: { current: null as unknown },

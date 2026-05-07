@@ -1,4 +1,11 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  afterEach,
+  beforeEach,
+} from "vite-plus/test";
 import type { FullResult } from "@playwright/test/reporter";
 import WrightfulReporter from "../index.js";
 import { makeConfig, makeSuite, makeTest } from "./fixtures.js";
@@ -254,10 +261,8 @@ describe("WrightfulReporter signal handling", () => {
   it("uses a short timeout for the shutdown /complete (does not retry)", async () => {
     let openCalled = false;
     const completeStarts: number[] = [];
-    // Held in a ref so tsgo doesn't narrow it to `null` based on the literal
-    // initialiser — the callback below mutates it but tsgo can't see that.
-    const completeRejector: { current: ((err: Error) => void) | null } = {
-      current: null,
+    const completeState: { rejector: ((err: Error) => void) | null } = {
+      rejector: null,
     };
 
     const fetchFn = async (url: string) => {
@@ -270,7 +275,7 @@ describe("WrightfulReporter signal handling", () => {
         // Hang until the handler's timeout aborts the request — exercise
         // the maxRetries:0 + timeoutMs:3000 path.
         return new Promise<Response>((_, reject) => {
-          completeRejector.current = reject;
+          completeState.rejector = reject;
         });
       }
       return jsonResponse(200, {});
@@ -292,7 +297,7 @@ describe("WrightfulReporter signal handling", () => {
     expect(completeStarts).toHaveLength(1);
 
     // Unblock the pending request so the test can clean up.
-    completeRejector.current?.(new Error("aborted by test"));
+    completeState.rejector?.(new Error("aborted by test"));
     await new Promise((r) => setTimeout(r, 20));
   });
 });

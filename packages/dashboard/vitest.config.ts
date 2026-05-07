@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite-plus";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
 // Two-project setup: unit tests on the default Node pool (fast, mocked

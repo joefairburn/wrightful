@@ -3,7 +3,7 @@
  * Confirms the SELECT is project-scoped (no cross-tenant leak), 401/404
  * boundaries hold, and the success response carries a private cache header.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Compilable } from "kysely";
 
 const { tenantDbRef } = vi.hoisted(() => ({

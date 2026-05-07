@@ -3,7 +3,7 @@
  * `resolveTenantBundleForUser` (the single bundled query) lives in
  * `authz-bundle.test.ts` — these cover everything else.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 
 const { dbRef } = vi.hoisted(() => ({
   dbRef: { current: null as unknown },

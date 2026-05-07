@@ -1,6 +1,6 @@
 // @ts-expect-error — .mjs import under scripts/ has no .d.ts; typed locally.
 import { generateHistory } from "../../scripts/seed/generator.mjs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 interface GeneratedRun {
   createdAt: number;

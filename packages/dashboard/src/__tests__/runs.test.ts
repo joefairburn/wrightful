@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 import type { Compilable } from "kysely";
 
 // Hoisted mutable refs. vi.hoisted can't `import` so we stash refs and

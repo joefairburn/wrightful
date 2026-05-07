@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vite-plus/test";
 import { isTestDone, buildPayload, buildTestDescriptor } from "../index.js";
 import { makeTest, makeResult } from "./fixtures.js";
 

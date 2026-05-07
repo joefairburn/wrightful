@@ -4,7 +4,7 @@
  * this asserts the dashboard renders that shape correctly — including the
  * tab fallbacks when frames are missing and the nuqs `?vmode=` round-trip.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {

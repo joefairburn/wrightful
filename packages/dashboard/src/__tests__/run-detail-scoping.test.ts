@@ -10,7 +10,7 @@
  * loaders, streaming) is intentionally not exercised here; this test only
  * cares about the SQL contract.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 
 // Mocks below short-circuit imports that would otherwise pull in
 // rwsdk/worker's react-server-only entry (which throws outside RSC).

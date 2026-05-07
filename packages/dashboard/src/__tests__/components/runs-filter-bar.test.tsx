@@ -8,7 +8,7 @@
  * that exercises the debounced `navigate()` write, which is the contract
  * the rest of the bar shares.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { navigateMock } = vi.hoisted(() => ({
   navigateMock: vi.fn(),

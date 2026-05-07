@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 import type { FullResult } from "@playwright/test/reporter";
 import WrightfulReporter from "../index.js";
 import { makeConfig, makeResult, makeSuite, makeTest } from "./fixtures.js";

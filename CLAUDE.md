@@ -37,14 +37,9 @@ pnpm test:e2e                                # e2e (playwright)
 pnpm --filter @wrightful/dashboard exec vitest run src/__tests__/schemas.test.ts
 pnpm --filter @wrightful/reporter exec vitest run src/__tests__/aggregation.test.ts
 
-# Lint & format (oxc toolchain — not eslint/prettier)
-pnpm lint                               # oxlint (check)
-pnpm lint:fix                           # oxlint --fix
-pnpm format                             # oxfmt --check
-pnpm format:fix                         # oxfmt --write
-
-# Typecheck (uses tsgo — native TypeScript compiler preview)
-pnpm typecheck                          # dashboard + reporter
+# Static checks (format + lint + type-check, all via vp check)
+pnpm check                              # vp check
+pnpm check:fix                          # vp check --fix
 
 # Database migrations — none. Both ControlDO and TenantDO migrate themselves
 # on first request via rwsdk's Database DSL. ControlDO migrations live in
@@ -125,8 +120,24 @@ Recent architectural worklogs worth reading before substantive work: `2026-04-17
 
 ## Tooling Notes
 
-- **Linting**: oxlint with type-aware rules enabled (not eslint). Config: `.oxlintrc.json`. Key rules: `no-floating-promises`, `no-misused-promises`, `await-thenable` are errors. React plugin is activated only for dashboard `.tsx` files.
-- **Formatting**: oxfmt (not prettier). Config: `.oxfmtrc.json`. Double quotes, semicolons, trailing commas.
-- **TypeScript**: `tsgo` (native TS compiler preview) for typechecking. Standard `tsc`/`typescript` is also installed.
-- **Pre-commit hook**: Husky runs `lint-staged` which applies `oxlint --fix` + `oxfmt --write` to staged JS/TS files.
+- **Static checks**: `pnpm check` runs `vp check`, which performs format (oxfmt), lint (oxlint), and type-aware type-checking (tsgolint) in one pass. `pnpm check:fix` auto-fixes format + lint. All config lives in the root `vite.config.ts` under `fmt:` and `lint:` blocks. Type-awareness is enabled via `lint.options.typeAware` + `lint.options.typeCheck`. Key lint rules: `no-floating-promises`, `no-misused-promises`, `await-thenable` are errors. React plugin is activated only for dashboard `.tsx` files. Formatter uses double quotes, semicolons, trailing commas.
+- **TypeScript**: `tsgo` (native TS compiler preview) is also installed for ad-hoc `tsgo --noEmit` runs, but `vp check` is the canonical entry point.
+- **Pre-commit hook**: `vp config` (run via the `prepare` script) installs a hook in `.vite-hooks/` that runs `vp staged`, which applies `vp lint --fix` + `vp fmt --write` to staged files per the `staged:` block in the root `vite.config.ts`.
+- **Bundling**: reporter is bundled with `vp pack` (wraps tsdown). Config: `packages/reporter/vite.config.ts`.
 - **IDs**: ULIDs for all database primary keys (via `ulid` package).
+
+<!--VITE PLUS START-->
+
+# Using Vite+, the Unified Toolchain for the Web
+
+This project is using Vite+, a unified toolchain built on top of Vite, Rolldown, Vitest, tsdown, Oxlint, Oxfmt, and Vite Task. Vite+ wraps runtime management, package management, and frontend tooling in a single global CLI called `vp`. Vite+ is distinct from Vite, and it invokes Vite through `vp dev` and `vp build`. Run `vp help` to print a list of commands and `vp <command> --help` for information about a specific command.
+
+Docs are local at `node_modules/vite-plus/docs` or online at https://viteplus.dev/guide/.
+
+## Review Checklist
+
+- [ ] Run `vp install` after pulling remote changes and before getting started.
+- [ ] Run `vp check` and `vp test` to format, lint, type check and test changes.
+- [ ] Check if there are `vite.config.ts` tasks or `package.json` scripts necessary for validation, run via `vp run <script>`.
+
+<!--VITE PLUS END-->

@@ -5,7 +5,7 @@
  * tenant scope when the field is present — null means "not authorised /
  * not resolved" and downstream pages must render their 404 shell.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vite-plus/test";
 
 const { ctxRef, mockTenantScopeFromIds } = vi.hoisted(() => ({
   ctxRef: { current: {} as Record<string, unknown> },

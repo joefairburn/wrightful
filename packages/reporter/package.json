@@ -39,11 +39,11 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsdown",
-    "dev": "tsdown --watch",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "test": "vp test run",
+    "test:watch": "vp test",
+    "test:coverage": "vp test run --coverage",
     "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
@@ -51,9 +51,9 @@
     "@types/node": "^25.6.0",
     "@typescript/native-preview": "7.0.0-dev.20260416.2",
     "@vitest/coverage-v8": "4.1.4",
-    "tsdown": "^0.21.9",
     "typescript": "~6.0.2",
-    "vitest": "^4.1.4",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:",
     "zod": "^4.3.6"
   },
   "peerDependencies": {

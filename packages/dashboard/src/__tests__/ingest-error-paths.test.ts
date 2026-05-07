@@ -5,7 +5,7 @@
  * R2 failures must return 502, backdating must be blocked outside dev, and
  * idempotency must hold under concurrent shard semantics.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 import type { Compilable } from "kysely";
 
 const { tenantDbRef, batchImpl, mockR2 } = vi.hoisted(() => ({

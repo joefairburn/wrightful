@@ -3,7 +3,7 @@
  * Focus: 401/400/404 boundaries and that membership resolution is honoured
  * before any persistence call lands.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { dbRef, bundleRef, setLastTeamMock, setLastProjectMock } = vi.hoisted(
   () => ({

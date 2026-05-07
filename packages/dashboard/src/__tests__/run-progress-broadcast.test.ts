@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 
 const { stub, idFromName, ns } = vi.hoisted(() => {
   const stub = {
-    setState: vi.fn(async (_state: unknown, _key: string) => {}),
+    setState: vi.fn(async (_payload: unknown, _key: string) => {}),
   };
   const idFromName = vi.fn((name: string) => `id:${name}`);
   const ns = {

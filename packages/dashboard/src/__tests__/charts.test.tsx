@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vite-plus/test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Sparkline } from "../app/components/sparkline";
 import { DurationChart } from "../app/components/duration-chart";

@@ -4,7 +4,7 @@
  * or unknown invites surface an error instead of silently redirecting, and
  * an already-member accept does not burn the invite.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 
 const { dbRef, mockBatchControl } = vi.hoisted(() => ({
   dbRef: { current: null as unknown },
