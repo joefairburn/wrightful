@@ -43,8 +43,8 @@ function jsonResponse(body: unknown, status: number, cacheControl?: string) {
  * skipped) for the given run. Used by the runs list badge popovers.
  * Totals already live on the runs row on the client, so we don't echo
  * them back. Tenancy is enforced by `tenantScopeForUser` (membership
- * check on the session user) plus `runs.projectId` + `runs.committed = 1`
- * predicates on each sub-query.
+ * check on the session user) plus the `runs.projectId` predicate the
+ * scope applies on each sub-query.
  */
 export async function runTestPreviewHandler({
   params,
@@ -66,23 +66,20 @@ export async function runTestPreviewHandler({
 
   const results = await Promise.all(
     BUCKETS.map((bucket) =>
-      scope.db
-        .selectFrom("testResults")
-        .innerJoin("runs", "runs.id", "testResults.runId")
+      scope
+        .from("testResults")
         .select([
-          "testResults.id as id",
-          "testResults.title as title",
-          "testResults.file as file",
-          "testResults.projectName as projectName",
-          "testResults.status as status",
-          "testResults.errorMessage as errorMessage",
+          "id",
+          "title",
+          "file",
+          "projectName",
+          "status",
+          "errorMessage",
         ])
-        .where("runs.id", "=", runId)
-        .where("runs.projectId", "=", scope.projectId)
-        .where("runs.committed", "=", 1)
-        .where("testResults.status", "in", bucket.statuses)
-        .orderBy("testResults.file", "asc")
-        .orderBy("testResults.title", "asc")
+        .where("runId", "=", runId)
+        .where("status", "in", bucket.statuses)
+        .orderBy("file", "asc")
+        .orderBy("title", "asc")
         .limit(PREVIEW_LIMIT)
         .execute(),
     ),

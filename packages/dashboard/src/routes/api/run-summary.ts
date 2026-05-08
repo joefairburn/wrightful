@@ -52,8 +52,8 @@ export async function runSummaryHandler({
   const scope = await tenantScopeForUser(ctx.user.id, teamSlug, projectSlug);
   if (!scope) return new Response("Not found", { status: 404 });
 
-  const run = await scope.db
-    .selectFrom("runs")
+  const run = await scope
+    .from("runs")
     .select([
       "id",
       "status",

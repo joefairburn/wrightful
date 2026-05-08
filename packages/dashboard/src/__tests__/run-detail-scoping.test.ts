@@ -39,6 +39,7 @@ vi.mock("@/lib/test-artifact-actions", () => ({
 }));
 
 import {
+  makeTenantScope,
   makeTenantTestDb,
   selectResult,
   type ScriptedDriver,
@@ -53,17 +54,17 @@ describe("loadRun tenant scoping", () => {
   beforeEach(() => {
     const t = makeTenantTestDb();
     driver = t.driver;
-    project = {
-      id: "project-current",
-      projectId: "project-current" as ActiveProject["projectId"],
-      projectSlug: "web",
-      teamId: "team-current" as ActiveProject["teamId"],
-      teamSlug: "acme",
-      teamName: "Acme",
-      slug: "web",
-      name: "Web",
+    const scope = makeTenantScope({
       db: t.db,
-      batch: async () => {},
+      teamId: "team-current",
+      projectId: "project-current",
+      teamSlug: "acme",
+      projectSlug: "web",
+    });
+    project = {
+      ...scope,
+      teamName: "Acme",
+      name: "Web",
     };
   });
 
@@ -76,7 +77,6 @@ describe("loadRun tenant scoping", () => {
     expect(first.sql).toMatch(/from "runs"/i);
     expect(first.sql).toMatch(/"id"\s*=\s*\?/);
     expect(first.sql).toMatch(/"projectId"\s*=\s*\?/);
-    expect(first.sql).toMatch(/"committed"\s*=\s*\?/);
     expect(first.parameters).toEqual(
       expect.arrayContaining(["run-cross-project", "project-current"]),
     );

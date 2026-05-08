@@ -4,26 +4,25 @@
  * boundaries hold, and the success response carries a private cache header.
  */
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { Compilable } from "kysely";
 
 const { tenantDbRef } = vi.hoisted(() => ({
   tenantDbRef: { current: null as unknown },
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
-vi.mock("@/tenant", () => ({
-  tenantScopeForUser: vi.fn(async (userId, teamSlug, projectSlug) => {
-    if (!tenantDbRef.current) return null;
-    return {
-      teamId: "team-1",
-      teamSlug,
-      projectId: "proj-1",
-      projectSlug,
-      db: tenantDbRef.current,
-      batch: async (_q: Compilable[]) => {},
-    };
-  }),
-}));
+vi.mock("@/tenant", async () => {
+  const { makeTenantScope } = await import("./helpers/test-db");
+  return {
+    tenantScopeForUser: vi.fn(async (_userId, teamSlug, projectSlug) => {
+      if (!tenantDbRef.current) return null;
+      return makeTenantScope({
+        db: tenantDbRef.current as never,
+        teamSlug,
+        projectSlug,
+      });
+    }),
+  };
+});
 
 import {
   makeTenantTestDb,

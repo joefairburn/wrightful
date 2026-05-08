@@ -123,32 +123,25 @@ export async function TestDetailPage() {
   const project = await getActiveProject();
   if (!project) return <NotFoundPage />;
 
-  const tenantDb = project.db;
-
-  // Two queries — one gated on `runs.committed = 1` to prove ownership + hide
-  // uncommitted rows, one to surface run-level metadata (playwrightVersion).
+  // Two queries — one for the test result, one for run-level metadata
+  // (playwrightVersion). The scope filters projectId on both.
   const [result, run] = await Promise.all([
-    tenantDb
-      .selectFrom("testResults")
-      .innerJoin("runs", "runs.id", "testResults.runId")
-      .selectAll("testResults")
-      .where("testResults.id", "=", testResultId)
-      .where("testResults.runId", "=", runId)
-      .where("runs.projectId", "=", project.id)
-      .where("runs.committed", "=", 1)
+    project
+      .from("testResults")
+      .selectAll()
+      .where("id", "=", testResultId)
+      .where("runId", "=", runId)
       .limit(1)
       .executeTakeFirst(),
-    tenantDb
-      .selectFrom("runs")
+    project
+      .from("runs")
       .selectAll()
       .where("id", "=", runId)
-      .where("projectId", "=", project.id)
-      .where("committed", "=", 1)
       .limit(1)
       .executeTakeFirst(),
   ]);
 
-  const base = `/t/${project.teamSlug}/p/${project.slug}`;
+  const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
 
   if (!result || !run) {
     return (
@@ -166,18 +159,18 @@ export async function TestDetailPage() {
 
   const [tagRows, annotationRows, artifactRows, attemptRows, historyRows] =
     await Promise.all([
-      tenantDb
-        .selectFrom("testTags")
+      project
+        .from("testTags")
         .select("tag")
         .where("testResultId", "=", testResultId)
         .execute(),
-      tenantDb
-        .selectFrom("testAnnotations")
+      project
+        .from("testAnnotations")
         .select(["type", "description"])
         .where("testResultId", "=", testResultId)
         .execute(),
-      tenantDb
-        .selectFrom("artifacts")
+      project
+        .from("artifacts")
         .select([
           "id",
           "type",
@@ -192,8 +185,8 @@ export async function TestDetailPage() {
         .where("testResultId", "=", testResultId)
         .orderBy("attempt", "asc")
         .execute(),
-      tenantDb
-        .selectFrom("testResultAttempts")
+      project
+        .from("testResultAttempts")
         .select([
           "attempt",
           "status",
@@ -207,8 +200,8 @@ export async function TestDetailPage() {
       // Last 30 occurrences of this same test across runs — groups by
       // `testResults.testId` (a deterministic hash of file + title + project)
       // so the same spec follows a reviewer across branches and retries.
-      tenantDb
-        .selectFrom("testResults")
+      project
+        .from("testResults")
         .innerJoin("runs", "runs.id", "testResults.runId")
         .select([
           "testResults.id as testResultId",
@@ -220,8 +213,6 @@ export async function TestDetailPage() {
           "runs.commitSha as commitSha",
         ])
         .where("testResults.testId", "=", result.testId)
-        .where("runs.projectId", "=", project.id)
-        .where("runs.committed", "=", 1)
         .orderBy("testResults.createdAt", "desc")
         .limit(30)
         .execute(),
@@ -369,7 +360,7 @@ export async function TestDetailPage() {
         : {
             kind: "testResult" as const,
             teamSlug: project.teamSlug,
-            projectSlug: project.slug,
+            projectSlug: project.projectSlug,
             runId: h.runId,
             testResultId: h.testResultId,
           },

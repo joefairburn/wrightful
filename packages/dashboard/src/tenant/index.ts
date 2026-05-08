@@ -1,4 +1,10 @@
-import { type Compilable, type Kysely } from "kysely";
+import {
+  type Compilable,
+  type DeleteQueryBuilder,
+  type DeleteResult,
+  type Kysely,
+  type SelectQueryBuilder,
+} from "kysely";
 import { type Database } from "rwsdk/db";
 import { getControlDb } from "@/control";
 import {
@@ -6,9 +12,19 @@ import {
   getTenantDb as _getTenantDb,
 } from "./internal";
 import { tenantMigrations } from "./migrations";
+import {
+  type ScopedInsertBuilder,
+  type ScopedTable,
+  type ScopedUpdateBuilder,
+  scopedDelete,
+  scopedInsert,
+  scopedSelect,
+  scopedUpdate,
+} from "./scoped-query";
 import { TenantDO } from "./tenant-do";
 
 export { TenantDO };
+export type { ScopedTable };
 
 /**
  * Tenant schema type, inferred directly from the migration DSL in
@@ -42,16 +58,38 @@ export type AuthorizedProjectId = string & { readonly [__authProject]: true };
  *
  *   const scope = await tenantScopeForUser(userId, teamSlug, projectSlug);
  *   if (!scope) return <NotFoundPage />;
- *   await scope.db.selectFrom("runs").where("projectId", "=", scope.projectId)…
+ *   const runs = await scope.from("runs").selectAll().execute();
  *   await scope.batch([…]);
+ *
+ * The four query entry points (`from`, `insertInto`, `updateTable`,
+ * `deleteFrom`) pre-apply `WHERE projectId = scope.projectId` on every
+ * scoped table. Inserts and updates also strip `projectId` from their
+ * value types so a caller can't write a row into the wrong project. The
+ * raw Kysely handle is intentionally not on the public type — code
+ * outside `src/tenant/**` has no way to bypass the predicate.
  */
 export interface TenantScope {
   readonly teamId: AuthorizedTeamId;
   readonly teamSlug: string;
   readonly projectId: AuthorizedProjectId;
   readonly projectSlug: string;
-  /** Kysely handle to the team's tenant DO. */
-  readonly db: Kysely<TenantDatabase>;
+
+  /** Pre-filtered SELECT entry. WHERE is pre-applied to the scope's project. */
+  from<T extends ScopedTable>(
+    table: T,
+  ): SelectQueryBuilder<TenantDatabase, T, TenantDatabase[T]>;
+
+  /** INSERT entry. `.values` types omit `projectId`; the scope injects it. */
+  insertInto<T extends ScopedTable>(table: T): ScopedInsertBuilder<T>;
+
+  /** UPDATE entry. `.set` omits `projectId`; the WHERE pre-applies the scope's project. */
+  updateTable<T extends ScopedTable>(table: T): ScopedUpdateBuilder<T>;
+
+  /** DELETE entry. WHERE is pre-applied to the scope's project. */
+  deleteFrom<T extends ScopedTable>(
+    table: T,
+  ): DeleteQueryBuilder<TenantDatabase, T, DeleteResult>;
+
   /** Atomic multi-statement write via `TenantDO.batchExecute`. */
   batch(queries: readonly Compilable[]): Promise<void>;
 }
@@ -87,12 +125,17 @@ function buildScope(
 ): TenantScope {
   const brandedTeamId = teamId as AuthorizedTeamId;
   const brandedProjectId = projectId as AuthorizedProjectId;
+  const db: Kysely<TenantDatabase> = _getTenantDb(teamId);
+  const bindings = { db, projectId: brandedProjectId };
   return {
     teamId: brandedTeamId,
     teamSlug,
     projectId: brandedProjectId,
     projectSlug,
-    db: _getTenantDb(teamId),
+    from: (table) => scopedSelect(bindings, table),
+    insertInto: (table) => scopedInsert(bindings, table),
+    updateTable: (table) => scopedUpdate(bindings, table),
+    deleteFrom: (table) => scopedDelete(bindings, table),
     batch: (queries) => _batchTenant(teamId, queries),
   };
 }

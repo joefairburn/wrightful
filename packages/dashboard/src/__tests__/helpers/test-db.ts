@@ -16,6 +16,12 @@ import type {
   TenantDatabase,
   TenantScope,
 } from "@/tenant";
+import {
+  scopedDelete,
+  scopedInsert,
+  scopedSelect,
+  scopedUpdate,
+} from "@/tenant/scoped-query";
 
 /**
  * In-test Kysely driver: records every compiled query and returns scripted
@@ -102,7 +108,9 @@ export function makeTenantTestDb(): {
 /**
  * Build a fake `TenantScope` over a test Kysely. For unit tests that mock
  * `tenantScopeForUser` / `tenantScopeForApiKey` and want the handler to
- * run real query-building against a scripted driver.
+ * run real query-building against a scripted driver. The scoped query
+ * helpers are wired against `opts.db` so tests see the same projectId
+ * predicate the production scope applies.
  */
 export function makeTenantScope(opts: {
   db: Kysely<TenantDatabase>;
@@ -112,12 +120,18 @@ export function makeTenantScope(opts: {
   projectSlug?: string;
   batch?: (queries: readonly Compilable[]) => Promise<void>;
 }): TenantScope {
+  const teamId = (opts.teamId ?? "team-1") as AuthorizedTeamId;
+  const projectId = (opts.projectId ?? "proj-1") as AuthorizedProjectId;
+  const bindings = { db: opts.db, projectId };
   return {
-    teamId: (opts.teamId ?? "team-1") as AuthorizedTeamId,
+    teamId,
     teamSlug: opts.teamSlug ?? "t",
-    projectId: (opts.projectId ?? "proj-1") as AuthorizedProjectId,
+    projectId,
     projectSlug: opts.projectSlug ?? "p",
-    db: opts.db,
+    from: (table) => scopedSelect(bindings, table),
+    insertInto: (table) => scopedInsert(bindings, table),
+    updateTable: (table) => scopedUpdate(bindings, table),
+    deleteFrom: (table) => scopedDelete(bindings, table),
     batch: opts.batch ?? (async () => {}),
   };
 }
@@ -127,4 +141,37 @@ export function selectResult(
   rows: ReadonlyArray<Record<string, unknown>>,
 ): QueryResult<Record<string, unknown>> {
   return { rows: [...rows] };
+}
+
+/**
+ * Convenience used inside `vi.mock("@/tenant", …)` factories. Returns a
+ * fully-formed mock `TenantScope` over the supplied scripted db, with
+ * `from / insertInto / updateTable / deleteFrom` wired through the same
+ * scoped-query helpers production uses, so SQL assertions in tests see
+ * the projectId predicate. Imports must happen inside the async factory.
+ */
+export function makeMockApiKeyScope(opts: {
+  apiKey: { projectId: string } | null | undefined;
+  tenantDb: Kysely<TenantDatabase> | null;
+  teamId?: string;
+  teamSlug?: string;
+  projectSlug?: string;
+  batchCalls?: Array<{ teamId: string; queries: Compilable[] }>;
+}): TenantScope | null {
+  if (!opts.apiKey || !opts.tenantDb) return null;
+  return makeTenantScope({
+    db: opts.tenantDb,
+    teamId: opts.teamId,
+    projectId: opts.apiKey.projectId,
+    teamSlug: opts.teamSlug,
+    projectSlug: opts.projectSlug,
+    batch: opts.batchCalls
+      ? async (queries) => {
+          opts.batchCalls!.push({
+            teamId: opts.teamId ?? "team-1",
+            queries: [...queries],
+          });
+        }
+      : undefined,
+  });
 }

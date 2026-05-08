@@ -1,4 +1,3 @@
-import { type Kysely, sql } from "kysely";
 import {
   CheckCircle2,
   ChevronRight,
@@ -36,8 +35,15 @@ import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { cn } from "@/lib/cn";
 import { STATUS_COLORS } from "@/lib/status";
-import type { TenantDatabase } from "@/tenant";
 import { formatDuration } from "@/lib/time-format";
+import {
+  type BottleneckRow,
+  loadSlowestTestsBottlenecks,
+  loadSlowestTestsHistogram,
+  loadSlowestTestsSparklines,
+  loadSlowestTestsTotals,
+  type SparklinePoint,
+} from "@/tenant/queries/slowest-tests";
 
 type RangeKey = "7d" | "30d" | "90d" | "all";
 const RANGES: readonly RangeKey[] = ["7d", "30d", "90d", "all"];
@@ -45,8 +51,6 @@ const parseRange = makeRangeParser<RangeKey>(RANGES, "30d");
 
 const HIST_BINS = 20;
 const PAGE_SIZE = 20;
-const SPARKLINE_DAYS = 7;
-const DAY_SEC = 86_400;
 
 export async function SlowestTestsPage() {
   const project = await getActiveProject();
@@ -66,86 +70,29 @@ export async function SlowestTestsPage() {
   const rangeSec = rangeToSeconds(range);
   const windowStartSec = rangeSec ? nowSec - rangeSec : 0;
 
-  const tenantDb = project.db;
-  const base = `/t/${project.teamSlug}/p/${project.slug}`;
+  const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
 
   const branches = await loadProjectBranches(project);
+
+  const filters = { windowStartSec, branch: branchFilter, q };
 
   // Max durationMs over the window — used to pick a sensible histogram
   // bin width. Runs in parallel with the unique-test count query so the
   // page latency is one round-trip, not two.
-  const branchClause = branchFilter
-    ? sql`AND "runs"."branch" = ${branchFilter}`
-    : sql``;
-  const searchClause = q
-    ? sql`AND ("testResults"."title" LIKE ${`%${q}%`} OR "testResults"."file" LIKE ${`%${q}%`})`
-    : sql``;
-
-  const [maxRes, distinctRes] = await Promise.all([
-    sql<{ maxDur: number | null; n: number }>`
-      SELECT
-        MAX("testResults"."durationMs") AS "maxDur",
-        COUNT(*) AS "n"
-      FROM "testResults"
-      INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
-      WHERE "runs"."projectId" = ${project.id}
-        AND "runs"."committed" = 1
-        AND "testResults"."createdAt" >= ${windowStartSec}
-        AND "testResults"."status" != 'skipped'
-        ${branchClause}
-        ${searchClause}
-    `.execute(tenantDb),
-    sql<{ n: number }>`
-      SELECT COUNT(DISTINCT "testResults"."testId") AS "n"
-      FROM "testResults"
-      INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
-      WHERE "runs"."projectId" = ${project.id}
-        AND "runs"."committed" = 1
-        AND "testResults"."createdAt" >= ${windowStartSec}
-        AND "testResults"."status" != 'skipped'
-        ${branchClause}
-        ${searchClause}
-    `.execute(tenantDb),
-  ]);
-
-  const totalResults = maxRes.rows[0]?.n ?? 0;
-  const maxDurationMs = maxRes.rows[0]?.maxDur ?? 0;
-  const totalUniqueTests = distinctRes.rows[0]?.n ?? 0;
+  const { totalResults, maxDurationMs, totalUniqueTests } =
+    await loadSlowestTestsTotals(project, filters);
 
   // Bin width chosen from observed max duration. Rounded to a "nice"
   // number so the x-axis reads cleanly ("every 2s" beats "every 1873ms").
-  // Inlined as SQL literals via `sql.raw` — the DO-SQLite driver binds
-  // params with text affinity, so `/ ${bucketMs}` would silently turn
-  // integer division into string concatenation and return one huge bin.
-  // Same class of bug documented in analytics/bucketing.ts.
   const bucketMs = pickBinWidthMs(maxDurationMs);
   const topBin = HIST_BINS - 1;
 
-  const histRows =
+  const histRowsList =
     totalResults === 0
-      ? { rows: [] as { bin: number; cnt: number }[] }
-      : await sql<{ bin: number; cnt: number }>`
-      SELECT
-        CAST(
-          CASE
-            WHEN "testResults"."durationMs" >= ${sql.raw(String(bucketMs * HIST_BINS))}
-            THEN ${sql.raw(String(topBin))}
-            ELSE "testResults"."durationMs" / ${sql.raw(String(bucketMs))}
-          END AS INTEGER
-        ) AS "bin",
-        COUNT(*) AS "cnt"
-      FROM "testResults"
-      INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
-      WHERE "runs"."projectId" = ${project.id}
-        AND "runs"."committed" = 1
-        AND "testResults"."createdAt" >= ${windowStartSec}
-        AND "testResults"."status" != 'skipped'
-        ${branchClause}
-        ${searchClause}
-      GROUP BY "bin"
-    `.execute(tenantDb);
+      ? []
+      : await loadSlowestTestsHistogram(project, filters, bucketMs, HIST_BINS);
 
-  const histByBin = new Map(histRows.rows.map((r) => [r.bin, r.cnt]));
+  const histByBin = new Map(histRowsList.map((r) => [r.bin, r.cnt]));
   const histBuckets: BucketBarChartBucket[] = Array.from(
     { length: HIST_BINS },
     (_, i) => {
@@ -175,75 +122,23 @@ export async function SlowestTestsPage() {
     },
   );
 
-  // Paginated bottlenecks. Window functions compute a duration-sorted
-  // rank (for p95) and a time-sorted rank (to pick the latest title /
-  // file / status). Everything else is a plain aggregate.
-  //
-  // Payload stays at PAGE_SIZE rows regardless of suite size — ranked-CTE
-  // work happens inside SQLite, not in the Worker.
+  // Paginated bottlenecks — payload stays at PAGE_SIZE rows regardless of
+  // suite size since ranking happens inside SQLite.
   const totalPages = Math.max(1, Math.ceil(totalUniqueTests / PAGE_SIZE));
   const currentPage = Math.min(requestedPage, totalPages);
   const offset = (currentPage - 1) * PAGE_SIZE;
 
-  const bottleneckRows =
+  const bottlenecks =
     totalUniqueTests === 0
-      ? { rows: [] as BottleneckRow[] }
-      : await sql<BottleneckRow>`
-      WITH filtered AS (
-        SELECT
-          "testResults"."testId" AS "testId",
-          "testResults"."durationMs" AS "durationMs",
-          "testResults"."title" AS "title",
-          "testResults"."file" AS "file",
-          "testResults"."status" AS "status",
-          "testResults"."createdAt" AS "createdAt",
-          "testResults"."runId" AS "runId",
-          "testResults"."id" AS "testResultId"
-        FROM "testResults"
-        INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
-        WHERE "runs"."projectId" = ${project.id}
-          AND "runs"."committed" = 1
-          AND "testResults"."createdAt" >= ${windowStartSec}
-          AND "testResults"."status" != 'skipped'
-          ${branchClause}
-          ${searchClause}
-      ),
-      ranked AS (
-        SELECT
-          "testId", "durationMs", "title", "file", "status",
-          "createdAt", "runId", "testResultId",
-          row_number() OVER (PARTITION BY "testId" ORDER BY "durationMs") AS "rnDur",
-          row_number() OVER (PARTITION BY "testId" ORDER BY "createdAt" DESC) AS "rnTime",
-          count(*) OVER (PARTITION BY "testId") AS "cnt"
-        FROM filtered
-      )
-      SELECT
-        "testId",
-        MAX("cnt") AS "n",
-        AVG("durationMs") AS "avgDur",
-        MIN(CASE WHEN "rnDur" = MAX(1, CAST(ROUND("cnt" * 0.95) AS INTEGER)) THEN "durationMs" END) AS "p95",
-        MAX(CASE WHEN "rnTime" = 1 THEN "title" END) AS "title",
-        MAX(CASE WHEN "rnTime" = 1 THEN "file" END) AS "file",
-        MAX(CASE WHEN "rnTime" = 1 THEN "runId" END) AS "latestRunId",
-        MAX(CASE WHEN "rnTime" = 1 THEN "testResultId" END) AS "latestTestResultId",
-        SUM(CASE WHEN "status" IN ('failed', 'timedout') THEN 1 ELSE 0 END) AS "failCount",
-        SUM(CASE WHEN "status" = 'flaky' THEN 1 ELSE 0 END) AS "flakyCount"
-      FROM ranked
-      GROUP BY "testId"
-      ORDER BY "p95" DESC
-      LIMIT ${PAGE_SIZE}
-      OFFSET ${offset}
-    `.execute(tenantDb);
+      ? []
+      : await loadSlowestTestsBottlenecks(project, filters, PAGE_SIZE, offset);
 
-  const bottlenecks = bottleneckRows.rows;
   const pageTestIds = bottlenecks.map((r) => r.testId);
 
-  // Daily-avg sparkline data, limited to the current page's testIds.
-  // Always uses the last 7 days so the sparkline is a consistent
-  // "recent trend" marker regardless of the selected range.
-  const sparklines = await loadSparklines(
-    tenantDb,
-    project.id,
+  // Daily-avg sparkline data for the current page, always over the last 7
+  // days so the trend marker stays consistent regardless of selected range.
+  const sparklines = await loadSlowestTestsSparklines(
+    project,
     pageTestIds,
     branchFilter,
     nowSec,
@@ -268,7 +163,7 @@ export async function SlowestTestsPage() {
     <>
       <InsightsTabs
         teamSlug={project.teamSlug}
-        projectSlug={project.slug}
+        projectSlug={project.projectSlug}
         active="slowest-tests"
       />
 
@@ -357,7 +252,7 @@ export async function SlowestTestsPage() {
                   <EmptyDescription>
                     {q
                       ? `No tests match "${q}". Try a wider window or clear the filter.`
-                      : `No committed runs with recorded durations in the selected window${
+                      : `No runs with recorded durations in the selected window${
                           branchFilter ? ` on ${branchFilter}` : ""
                         }.`}
                   </EmptyDescription>
@@ -474,24 +369,6 @@ export async function SlowestTestsPage() {
 
 // ---- types & helpers -------------------------------------------------
 
-interface BottleneckRow {
-  testId: string;
-  n: number;
-  avgDur: number | null;
-  p95: number | null;
-  title: string | null;
-  file: string | null;
-  latestRunId: string | null;
-  latestTestResultId: string | null;
-  failCount: number;
-  flakyCount: number;
-}
-
-interface SparklinePoint {
-  day: number;
-  avg: number;
-}
-
 interface RowTone {
   Icon: typeof CheckCircle2;
   iconColor: string;
@@ -544,53 +421,6 @@ function pickBinWidthMs(maxDurationMs: number): number {
   // For very long tests, jump to 10-minute bins — good enough for a
   // 200-minute test (bin 20 tops out at 200 min).
   return 600_000;
-}
-
-async function loadSparklines(
-  db: Kysely<TenantDatabase>,
-  projectId: string,
-  testIds: string[],
-  branch: string | null,
-  nowSec: number,
-): Promise<Map<string, SparklinePoint[]>> {
-  const out = new Map<string, SparklinePoint[]>();
-  if (testIds.length === 0) return out;
-
-  const sparkStart = nowSec - SPARKLINE_DAYS * DAY_SEC;
-  const branchClause = branch ? sql`AND "runs"."branch" = ${branch}` : sql``;
-
-  // Day bucket uses a literal divisor for the same DO-SQLite text-affinity
-  // reason documented in analytics/bucketing.ts.
-  const { rows } = await sql<{
-    testId: string;
-    day: number;
-    avg: number;
-  }>`
-    SELECT
-      "testResults"."testId" AS "testId",
-      CAST("testResults"."createdAt" / 86400 AS INTEGER) AS "day",
-      AVG("testResults"."durationMs") AS "avg"
-    FROM "testResults"
-    INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
-    WHERE "runs"."projectId" = ${projectId}
-      AND "runs"."committed" = 1
-      AND "testResults"."createdAt" >= ${sparkStart}
-      AND "testResults"."status" != 'skipped'
-      AND "testResults"."testId" IN (${sql.join(testIds)})
-      ${branchClause}
-    GROUP BY "testResults"."testId", "day"
-    ORDER BY "testResults"."testId", "day"
-  `.execute(db);
-
-  for (const r of rows) {
-    let entry = out.get(r.testId);
-    if (!entry) {
-      entry = [];
-      out.set(r.testId, entry);
-    }
-    entry.push({ day: r.day, avg: r.avg });
-  }
-  return out;
 }
 
 function DurationSparkline({

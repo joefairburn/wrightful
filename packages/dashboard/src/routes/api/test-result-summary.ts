@@ -50,8 +50,8 @@ export async function testResultSummaryHandler({
   const scope = await tenantScopeForUser(ctx.user.id, teamSlug, projectSlug);
   if (!scope) return new Response("Not found", { status: 404 });
 
-  const row = await scope.db
-    .selectFrom("testResults")
+  const row = await scope
+    .from("testResults")
     .innerJoin("runs", "runs.id", "testResults.runId")
     .select([
       "testResults.id as id",

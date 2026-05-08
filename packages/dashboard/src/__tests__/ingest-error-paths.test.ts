@@ -23,19 +23,21 @@ vi.mock("cloudflare:workers", () => ({
   },
 }));
 vi.mock("@/control", () => ({ getControlDb: vi.fn() }));
-vi.mock("@/tenant", () => ({
-  tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) => {
-    if (!apiKey || !tenantDbRef.current) return null;
-    return {
-      teamId: "team-1",
-      teamSlug: "t",
-      projectId: apiKey.projectId,
-      projectSlug: "p",
-      db: tenantDbRef.current,
-      batch: (q: Compilable[]) => batchImpl.current(q),
-    };
-  }),
-}));
+vi.mock("@/tenant", async () => {
+  const { makeTenantScope } = await import("./helpers/test-db");
+  return {
+    tenantScopeForApiKey: vi.fn(
+      async (apiKey: { projectId: string } | null) => {
+        if (!apiKey || !tenantDbRef.current) return null;
+        return makeTenantScope({
+          db: tenantDbRef.current as never,
+          projectId: apiKey.projectId,
+          batch: (q) => batchImpl.current([...q]),
+        });
+      },
+    ),
+  };
+});
 
 import {
   makeTenantTestDb,

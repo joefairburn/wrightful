@@ -69,7 +69,7 @@ export async function RunsListPage(): Promise<React.ReactElement> {
   const url = new URL(requestInfo.request.url);
   const filters = parseRunsFilters(url.searchParams);
   const filtersActive = hasAnyFilter(filters);
-  const base = `/t/${project.teamSlug}/p/${project.slug}`;
+  const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
 
   // Kick off the totals query eagerly; both the header badge and the table
   // section await it inside their own Suspense boundaries, so the query runs
@@ -129,10 +129,10 @@ function countTotalRuns(
   project: ActiveProject,
   filters: RunsFilters,
 ): Promise<number> {
-  return project.db
-    .selectFrom("runs")
+  return project
+    .from("runs")
     .select((eb) => eb.fn.countAll<number>().as("value"))
-    .where((eb) => buildRunsWhere(eb, project.id, filters))
+    .where((eb) => buildRunsWhere(eb, filters))
     .executeTakeFirst()
     .then((row) => row?.value ?? 0);
 }
@@ -167,28 +167,22 @@ async function FilterBarLoader({
   pathname: string;
 }): Promise<React.ReactElement> {
   const [branchRows, actorRows, envRows] = await Promise.all([
-    project.db
-      .selectFrom("runs")
+    project
+      .from("runs")
       .select("branch as value")
       .distinct()
-      .where("projectId", "=", project.id)
-      .where("committed", "=", 1)
       .where("branch", "is not", null)
       .execute(),
-    project.db
-      .selectFrom("runs")
+    project
+      .from("runs")
       .select("actor as value")
       .distinct()
-      .where("projectId", "=", project.id)
-      .where("committed", "=", 1)
       .where("actor", "is not", null)
       .execute(),
-    project.db
-      .selectFrom("runs")
+    project
+      .from("runs")
       .select("environment as value")
       .distinct()
-      .where("projectId", "=", project.id)
-      .where("committed", "=", 1)
       .where("environment", "is not", null)
       .execute(),
   ]);
@@ -292,10 +286,10 @@ async function RunsTableSection({
   const currentPage = Math.min(filters.page, totalPages);
   const offset = (currentPage - 1) * DEFAULT_PAGE_SIZE;
 
-  const allRuns = await project.db
-    .selectFrom("runs")
+  const allRuns = await project
+    .from("runs")
     .selectAll()
-    .where((eb) => buildRunsWhere(eb, project.id, filters))
+    .where((eb) => buildRunsWhere(eb, filters))
     .orderBy("createdAt", "desc")
     .limit(DEFAULT_PAGE_SIZE)
     .offset(offset)
@@ -397,7 +391,7 @@ async function RunsTableSection({
                             initial={runningSummaries.get(run.id)!}
                             roomId={runRoomId({
                               teamSlug: project.teamSlug,
-                              projectSlug: project.slug,
+                              projectSlug: project.projectSlug,
                               runId: run.id,
                             })}
                             className="w-2.5 h-2.5"
@@ -519,11 +513,11 @@ async function RunsTableSection({
                           initial={runningSummaries.get(run.id)!}
                           roomId={runRoomId({
                             teamSlug: project.teamSlug,
-                            projectSlug: project.slug,
+                            projectSlug: project.projectSlug,
                             runId: run.id,
                           })}
                           teamSlug={project.teamSlug}
-                          projectSlug={project.slug}
+                          projectSlug={project.projectSlug}
                           runId={run.id}
                           runHref={href}
                         />
@@ -533,7 +527,7 @@ async function RunsTableSection({
                             variant="passed"
                             count={run.passed}
                             teamSlug={project.teamSlug}
-                            projectSlug={project.slug}
+                            projectSlug={project.projectSlug}
                             runId={run.id}
                             runHref={href}
                           />
@@ -541,7 +535,7 @@ async function RunsTableSection({
                             variant="failed"
                             count={run.failed}
                             teamSlug={project.teamSlug}
-                            projectSlug={project.slug}
+                            projectSlug={project.projectSlug}
                             runId={run.id}
                             runHref={href}
                           />
@@ -549,7 +543,7 @@ async function RunsTableSection({
                             variant="flaky"
                             count={run.flaky}
                             teamSlug={project.teamSlug}
-                            projectSlug={project.slug}
+                            projectSlug={project.projectSlug}
                             runId={run.id}
                             runHref={href}
                           />
@@ -557,7 +551,7 @@ async function RunsTableSection({
                             variant="skipped"
                             count={run.skipped}
                             teamSlug={project.teamSlug}
-                            projectSlug={project.slug}
+                            projectSlug={project.projectSlug}
                             runId={run.id}
                             runHref={href}
                           />

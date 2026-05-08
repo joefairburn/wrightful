@@ -137,22 +137,21 @@ describe("hasAnyFilter", () => {
 describe("buildRunsWhere", () => {
   it("compiles a projectId-scoped predicate for every filter combination", () => {
     const db = makeDb();
-    // Empty filters — projectId + committed clauses only.
+    // Empty filters — no clauses (projectId is applied by the scope, not by
+    // buildRunsWhere).
     const empty = db
       .selectFrom("runs")
       .selectAll()
-      .where((eb) => buildRunsWhere(eb, "proj_123", EMPTY_FILTERS))
+      .where((eb) => buildRunsWhere(eb, EMPTY_FILTERS))
       .compile();
-    expect(empty.sql).toMatch(/"projectId"\s*=\s*\?/);
-    expect(empty.sql).toMatch(/"committed"\s*=\s*\?/);
-    expect(empty.parameters).toContain("proj_123");
+    expect(empty.parameters).toEqual([]);
 
     // All filters — ensures every branch of the builder contributes a clause.
     const full = db
       .selectFrom("runs")
       .selectAll()
       .where((eb) =>
-        buildRunsWhere(eb, "proj_123", {
+        buildRunsWhere(eb, {
           q: "login",
           status: ["failed"],
           branch: ["main"],
@@ -164,8 +163,6 @@ describe("buildRunsWhere", () => {
         }),
       )
       .compile();
-    expect(full.sql).toMatch(/"projectId"\s*=\s*\?/);
-    expect(full.sql).toMatch(/"committed"\s*=\s*\?/);
     expect(full.sql).toMatch(/"status"\s+in\s*\(\s*\?\s*\)/i);
     expect(full.sql).toMatch(/"branch"\s+in\s*\(\s*\?\s*\)/i);
     expect(full.sql).toMatch(/"actor"\s+in\s*\(\s*\?\s*\)/i);

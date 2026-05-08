@@ -121,6 +121,7 @@ describe("tenant DO migrations", () => {
       .insertInto("testResults")
       .values({
         id: testResultId,
+        projectId: "proj_1",
         runId,
         testId: "tests/example.spec.ts|passing",
         title: "passing",

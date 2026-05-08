@@ -41,10 +41,26 @@ export default defineConfig({
         plugins: ["typescript", "import", "react"],
       },
       {
-        files: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts"],
+        files: [
+          "**/*.test.ts",
+          "**/*.test.tsx",
+          "**/*.spec.ts",
+          "**/__tests__/**",
+          "**/__integration__/**",
+        ],
         rules: {
           "typescript/no-explicit-any": "off",
           "typescript/no-unsafe-argument": "off",
+          "typescript/no-unsafe-type-assertion": "off",
+        },
+      },
+      {
+        // The tenant module mints branded auth ids (AuthorizedTeamId /
+        // AuthorizedProjectId) and uses opaque Kysely generic casts in
+        // `scoped-query.ts` to bridge the `T extends ScopedTable` generic
+        // — both of which are inherently narrowing assertions.
+        files: ["packages/dashboard/src/tenant/**"],
+        rules: {
           "typescript/no-unsafe-type-assertion": "off",
         },
       },

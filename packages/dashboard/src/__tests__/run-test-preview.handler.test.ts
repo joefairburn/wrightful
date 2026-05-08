@@ -1,29 +1,28 @@
 /**
  * Auth + scoping coverage for `runTestPreviewHandler`.
  * Each of the four bucket SELECTs (failed/flaky/passed/skipped) must be
- * scoped to the resolved projectId + runId + committed runs.
+ * scoped to the resolved projectId + runId.
  */
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { Compilable } from "kysely";
 
 const { tenantDbRef } = vi.hoisted(() => ({
   tenantDbRef: { current: null as unknown },
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
-vi.mock("@/tenant", () => ({
-  tenantScopeForUser: vi.fn(async (userId, teamSlug, projectSlug) => {
-    if (!tenantDbRef.current) return null;
-    return {
-      teamId: "team-1",
-      teamSlug,
-      projectId: "proj-1",
-      projectSlug,
-      db: tenantDbRef.current,
-      batch: async (_q: Compilable[]) => {},
-    };
-  }),
-}));
+vi.mock("@/tenant", async () => {
+  const { makeTenantScope } = await import("./helpers/test-db");
+  return {
+    tenantScopeForUser: vi.fn(async (_userId, teamSlug, projectSlug) => {
+      if (!tenantDbRef.current) return null;
+      return makeTenantScope({
+        db: tenantDbRef.current as never,
+        teamSlug,
+        projectSlug,
+      });
+    }),
+  };
+});
 
 import {
   makeTenantTestDb,
@@ -66,7 +65,7 @@ describe("runTestPreviewHandler", () => {
     expect(res.status).toBe(404);
   });
 
-  it("issues 4 parallel SELECTs (one per bucket), each scoped to the project + committed runs", async () => {
+  it("issues 4 parallel SELECTs (one per bucket), each scoped to the project + run", async () => {
     for (let i = 0; i < 4; i++) tenantDriver.results.push(selectResult([]));
     const res = await runTestPreviewHandler({
       request: new Request("https://example.com/x"),
@@ -78,7 +77,6 @@ describe("runTestPreviewHandler", () => {
     for (const q of tenantDriver.queries) {
       expect(q.parameters).toContain("proj-1");
       expect(q.parameters).toContain("run-1");
-      expect(q.parameters).toContain(1); // runs.committed = 1
     }
   });
 

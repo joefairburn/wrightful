@@ -42,10 +42,8 @@ export async function InsightsPage() {
   const windowStartSec = nowSec - days * DAY_SEC;
 
   const expr = bucketExpr(segment);
-  const aggRows = await project.db
-    .selectFrom("runs")
-    .where("projectId", "=", project.id)
-    .where("committed", "=", 1)
+  const aggRows = await project
+    .from("runs")
     .where("createdAt", ">=", windowStartSec)
     .select([
       expr.as("bucket"),
@@ -132,7 +130,7 @@ export async function InsightsPage() {
     <>
       <InsightsTabs
         teamSlug={project.teamSlug}
-        projectSlug={project.slug}
+        projectSlug={project.projectSlug}
         active="run-status"
       />
 

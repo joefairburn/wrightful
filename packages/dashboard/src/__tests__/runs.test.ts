@@ -10,24 +10,18 @@ const { tenantDbRef, batchCalls } = vi.hoisted(() => ({
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
 vi.mock("@/control", () => ({ getControlDb: vi.fn() }));
-vi.mock("@/tenant", () => ({
-  // Resolve the scope for API-key flows. Tests push their scripted
-  // tenantDb into `tenantDbRef` before the handler runs.
-  tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) => {
-    if (!apiKey) return null;
-    if (!tenantDbRef.current) return null;
-    return {
-      teamId: "team-1",
-      teamSlug: "t",
-      projectId: apiKey.projectId,
-      projectSlug: "p",
-      db: tenantDbRef.current,
-      batch: async (queries: Compilable[]) => {
-        batchCalls.push({ teamId: "team-1", queries: [...queries] });
-      },
-    };
-  }),
-}));
+vi.mock("@/tenant", async () => {
+  const { makeMockApiKeyScope } = await import("./helpers/test-db");
+  return {
+    tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) =>
+      makeMockApiKeyScope({
+        apiKey,
+        tenantDb: tenantDbRef.current as never,
+        batchCalls,
+      }),
+    ),
+  };
+});
 
 import {
   makeTenantTestDb,

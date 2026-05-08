@@ -97,14 +97,14 @@ export async function RunDetailPage(): Promise<React.ReactElement> {
   const branchParam = url.searchParams.get("branch");
   const defaultBranch = run.branch ?? ALL_BRANCHES;
   const effectiveBranch = branchParam ?? defaultBranch;
-  const base = `/t/${project.teamSlug}/p/${project.slug}`;
+  const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
   const origin = url.origin;
   const shortId = run.id.slice(-7);
   const statusLabel = STATUS_LABEL[run.status] ?? run.status;
   const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
   const roomId = runRoomId({
     teamSlug: project.teamSlug,
-    projectSlug: project.slug,
+    projectSlug: project.projectSlug,
     runId,
   });
   const isRunning = run.status === "running";
@@ -129,7 +129,7 @@ export async function RunDetailPage(): Promise<React.ReactElement> {
   const artifactActionsPromise: Promise<ArtifactActionsByTestId> =
     testsSeedPromise.then((seed) =>
       loadFailingArtifactActions(
-        project.db,
+        project,
         seed.results.map((t) => ({
           id: t.id,
           status: t.status,
@@ -188,7 +188,7 @@ export async function RunDetailPage(): Promise<React.ReactElement> {
               run={run}
               base={base}
               teamSlug={project.teamSlug}
-              projectSlug={project.slug}
+              projectSlug={project.projectSlug}
               branchParam={branchParam}
               defaultBranch={defaultBranch}
               effectiveBranch={effectiveBranch}
@@ -335,12 +335,10 @@ export async function RunDetailPage(): Promise<React.ReactElement> {
 }
 
 export async function loadRun(project: ActiveProject, runId: string) {
-  return await project.db
-    .selectFrom("runs")
+  return await project
+    .from("runs")
     .selectAll()
     .where("id", "=", runId)
-    .where("projectId", "=", project.id)
-    .where("committed", "=", 1)
     .limit(1)
     .executeTakeFirst();
 }
@@ -349,8 +347,8 @@ async function loadRunHistory(
   project: ActiveProject,
   effectiveBranch: string,
 ): Promise<HistoryRow[]> {
-  let q = project.db
-    .selectFrom("runs")
+  let q = project
+    .from("runs")
     .select([
       "id",
       "status",
@@ -359,9 +357,7 @@ async function loadRunHistory(
       "branch",
       "commitSha",
       "commitMessage",
-    ])
-    .where("projectId", "=", project.id)
-    .where("committed", "=", 1);
+    ]);
   if (effectiveBranch !== ALL_BRANCHES) {
     q = q.where("branch", "=", effectiveBranch);
   }

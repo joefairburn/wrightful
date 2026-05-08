@@ -99,7 +99,7 @@ function normalizeRunStatus(status: string): RunProgressStatus {
   }
 }
 
-function normalizeTestStatus(status: string): RunProgressTestStatus {
+export function normalizeTestStatus(status: string): RunProgressTestStatus {
   switch (status) {
     case "queued":
     case "passed":
@@ -192,8 +192,8 @@ export async function composeRunSummary(
   scope: TenantScope,
   runId: string,
 ): Promise<RunSummary | null> {
-  const run = await scope.db
-    .selectFrom("runs")
+  const run = await scope
+    .from("runs")
     .selectAll()
     .where("id", "=", runId)
     .limit(1)
@@ -222,8 +222,8 @@ export async function composeRunTestsTail(
   scope: TenantScope,
   runId: string,
 ): Promise<RunTestsTail> {
-  const rows = await scope.db
-    .selectFrom("testResults")
+  const rows = await scope
+    .from("testResults")
     .select([
       "id",
       "testId",

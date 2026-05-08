@@ -35,18 +35,10 @@ export async function artifactUploadHandler({
   const scope = await tenantScopeForApiKey(ctx.apiKey);
   if (!scope) return jsonResponse({ error: "Not found" }, 404);
 
-  const row = await scope.db
-    .selectFrom("artifacts")
-    .innerJoin("testResults", "testResults.id", "artifacts.testResultId")
-    .innerJoin("runs", "runs.id", "testResults.runId")
-    .select([
-      "artifacts.r2Key as r2Key",
-      "artifacts.contentType as contentType",
-      "artifacts.sizeBytes as sizeBytes",
-    ])
-    .where("artifacts.id", "=", artifactId)
-    .where("runs.projectId", "=", scope.projectId)
-    .where("runs.committed", "=", 1)
+  const row = await scope
+    .from("artifacts")
+    .select(["r2Key", "contentType", "sizeBytes"])
+    .where("id", "=", artifactId)
     .limit(1)
     .executeTakeFirst();
 

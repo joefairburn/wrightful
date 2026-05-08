@@ -58,9 +58,8 @@ export function RunHistoryBranchFilter({
   );
 
   // If the default value (current run's branch) isn't among the project's
-  // distinct branches — can happen on a freshly-created branch where the
-  // only run is the current one but we filtered it out because `committed`
-  // wasn't yet 1 — fold it back into the list so it renders as an option.
+  // distinct branches, fold it back into the list so it renders as an
+  // option.
   const items = [
     ALL_BRANCHES,
     ...(branches.includes(defaultValue) || defaultValue === ALL_BRANCHES

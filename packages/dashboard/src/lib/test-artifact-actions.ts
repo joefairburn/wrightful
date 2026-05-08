@@ -86,14 +86,11 @@ export interface FailingTestInput {
  * Load media artifacts (`trace`, `video`, `screenshot`) for the failing
  * attempt of each supplied test result. Returns a map keyed by
  * `testResultId` with the already-signed `ArtifactAction[]`, sorted by
- * `TYPE_ORDER` then name.
- *
- * Takes a pre-authorized `TenantScope` (or anything with a `db` handle
- * for the tenant DB, e.g. `ActiveProject`). The artifacts table lives in
- * the team's `TenantDO`, never the `ControlDO`.
+ * `TYPE_ORDER` then name. The `artifacts` table lives in the team's
+ * `TenantDO`, never the `ControlDO`.
  */
 export async function loadFailingArtifactActions(
-  tenantDb: Pick<TenantScope, "db">["db"],
+  scope: TenantScope,
   failingTests: FailingTestInput[],
   origin: string,
 ): Promise<Record<string, ArtifactAction[]>> {
@@ -103,8 +100,8 @@ export async function loadFailingArtifactActions(
   );
   if (relevant.length === 0) return {};
 
-  const rows = await tenantDb
-    .selectFrom("artifacts")
+  const rows = await scope
+    .from("artifacts")
     .select([
       "id",
       "testResultId",

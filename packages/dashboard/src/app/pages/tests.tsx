@@ -7,7 +7,6 @@ import {
   TriangleAlert,
   XCircle,
 } from "lucide-react";
-import { sql } from "kysely";
 import { requestInfo } from "rwsdk/worker";
 import { AnalyticsButtonGroup } from "@/app/components/analytics/button-group";
 import { RunHistoryBranchFilter } from "@/app/components/run-history-branch-filter";
@@ -34,37 +33,13 @@ import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { STATUS_COLORS } from "@/lib/status";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
+import { loadTestsPageData, type TestsPageData } from "@/tenant/queries/tests";
 
 type RangeKey = "7d" | "14d" | "30d";
 const RANGES: readonly RangeKey[] = ["7d", "14d", "30d"];
 const parseRange = makeRangeParser<RangeKey>(RANGES, "14d");
 
 const PAGE_SIZE = 50;
-
-interface TestRow {
-  testId: string;
-  title: string;
-  file: string;
-  latestStatus: string;
-  latestRunId: string | null;
-  latestTestResultId: string | null;
-  lastSeen: number;
-  n: number;
-  avgDurationMs: number | null;
-  passedCount: number;
-  flakyCount: number;
-  failCount: number;
-  skippedCount: number;
-}
-
-interface TestsPageData {
-  rows: TestRow[];
-  totalUniqueTests: number;
-  currentPage: number;
-  totalPages: number;
-  fromRow: number;
-  toRow: number;
-}
 
 export async function TestsPage(): Promise<React.ReactElement> {
   // Membership gate has to resolve before we start streaming the shell so a
@@ -81,13 +56,16 @@ export async function TestsPage(): Promise<React.ReactElement> {
   const requestedPage = parsePage(url.searchParams.get("page"));
 
   const branchesPromise = loadProjectBranches(project);
-  const dataPromise = loadTestsPageData(
-    project,
-    range,
-    branchFilter,
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rangeSec = rangeToSeconds(range) ?? 0;
+  const windowStartSec = nowSec - rangeSec;
+  const dataPromise = loadTestsPageData(project, {
+    windowStartSec,
+    branch: branchFilter,
     q,
     requestedPage,
-  );
+    pageSize: PAGE_SIZE,
+  });
 
   const hrefWith = (overrides: Record<string, string | null>): string => {
     const p = new URLSearchParams(url.searchParams);
@@ -191,7 +169,7 @@ async function CatalogSubtitle({
   return (
     <p className="text-xs text-muted-foreground mt-1 font-mono">
       {totalUniqueTests.toLocaleString()} unique test
-      {totalUniqueTests === 1 ? "" : "s"} seen in committed runs
+      {totalUniqueTests === 1 ? "" : "s"} seen across runs
     </p>
   );
 }
@@ -212,7 +190,7 @@ async function TestsTableSection({
   q: string;
 }): Promise<React.ReactElement> {
   const data = await dataPromise;
-  const base = `/t/${project.teamSlug}/p/${project.slug}`;
+  const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
 
   if (data.rows.length === 0) {
     return (
@@ -224,7 +202,7 @@ async function TestsTableSection({
               <EmptyDescription>
                 {q
                   ? `No tests match "${q}". Try a wider window or clear the filter.`
-                  : `No committed runs recorded in the last ${range}${
+                  : `No runs recorded in the last ${range}${
                       branchFilter ? ` on ${branchFilter}` : ""
                     }.`}
               </EmptyDescription>
@@ -394,212 +372,6 @@ function TestsTableFallback(): React.ReactElement {
       </TableBody>
     </Table>
   );
-}
-
-// ---- data loading -------------------------------------------------------
-
-async function loadTestsPageData(
-  project: ActiveProject,
-  range: RangeKey,
-  branchFilter: string | null,
-  q: string,
-  requestedPage: number,
-): Promise<TestsPageData> {
-  // Filter on `runs.createdAt` (not `testResults.createdAt`) so the planner
-  // can use the `runs (projectId, createdAt)` index. The two timestamps are
-  // within milliseconds of each other in practice — they differ only by the
-  // test runtime — so the result set is functionally identical.
-  const nowSec = Math.floor(Date.now() / 1000);
-  const rangeSec = rangeToSeconds(range) ?? 0;
-  const windowStartSec = nowSec - rangeSec;
-
-  const branchClause = branchFilter
-    ? sql`AND "runs"."branch" = ${branchFilter}`
-    : sql``;
-  const searchClause = q
-    ? sql`AND ("testResults"."title" LIKE ${`%${q}%`} OR "testResults"."file" LIKE ${`%${q}%`})`
-    : sql``;
-
-  // Query A — paginate testIds by lastSeen DESC, plus a windowed total
-  // count so we don't need a second round trip just for pagination math.
-  // `count(*) OVER ()` runs over the GROUP-BY-collapsed row set, so it's
-  // the count of distinct testIds. LIMIT/OFFSET apply afterwards.
-  const offset = (requestedPage - 1) * PAGE_SIZE;
-  const pageRes = await sql<{
-    testId: string;
-    lastSeen: number;
-    totalDistinct: number;
-  }>`
-    SELECT
-      "testId",
-      "lastSeen",
-      "totalDistinct"
-    FROM (
-      SELECT
-        "testResults"."testId" AS "testId",
-        MAX("testResults"."createdAt") AS "lastSeen",
-        count(*) OVER () AS "totalDistinct"
-      FROM "testResults"
-      INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
-      WHERE "runs"."projectId" = ${project.id}
-        AND "runs"."committed" = 1
-        AND "runs"."createdAt" >= ${windowStartSec}
-        ${branchClause}
-        ${searchClause}
-      GROUP BY "testResults"."testId"
-    )
-    ORDER BY "lastSeen" DESC
-    LIMIT ${sql.raw(String(PAGE_SIZE))}
-    OFFSET ${sql.raw(String(offset))}
-  `.execute(project.db);
-
-  const totalUniqueTests = pageRes.rows[0]?.totalDistinct ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalUniqueTests / PAGE_SIZE));
-
-  // Out-of-range page (manual URL edit, deleted runs, etc): clamp to last
-  // page and re-fetch. Uncommon; one extra round trip is fine.
-  let rowsForPage = pageRes.rows;
-  let currentPage = requestedPage;
-  if (rowsForPage.length === 0 && totalUniqueTests > 0 && requestedPage > 1) {
-    currentPage = totalPages;
-    const reOffset = (currentPage - 1) * PAGE_SIZE;
-    const reRes = await sql<{
-      testId: string;
-      lastSeen: number;
-      totalDistinct: number;
-    }>`
-      SELECT "testId", "lastSeen", "totalDistinct"
-      FROM (
-        SELECT
-          "testResults"."testId" AS "testId",
-          MAX("testResults"."createdAt") AS "lastSeen",
-          count(*) OVER () AS "totalDistinct"
-        FROM "testResults"
-        INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
-        WHERE "runs"."projectId" = ${project.id}
-          AND "runs"."committed" = 1
-          AND "runs"."createdAt" >= ${windowStartSec}
-          ${branchClause}
-          ${searchClause}
-        GROUP BY "testResults"."testId"
-      )
-      ORDER BY "lastSeen" DESC
-      LIMIT ${sql.raw(String(PAGE_SIZE))}
-      OFFSET ${sql.raw(String(reOffset))}
-    `.execute(project.db);
-    rowsForPage = reRes.rows;
-  } else {
-    currentPage = Math.min(requestedPage, totalPages);
-  }
-
-  if (rowsForPage.length === 0) {
-    return {
-      rows: [],
-      totalUniqueTests,
-      currentPage,
-      totalPages,
-      fromRow: 0,
-      toRow: 0,
-    };
-  }
-
-  const lastSeenById = new Map(rowsForPage.map((r) => [r.testId, r.lastSeen]));
-  const testIds = rowsForPage.map((r) => r.testId);
-
-  // Query B — page aggregates. Touches only rows where testId is in the
-  // page set, so work is bounded by ~PAGE_SIZE testIds × occurrences.
-  const aggRes = await sql<{
-    testId: string;
-    n: number;
-    avgDurationMs: number | null;
-    title: string | null;
-    file: string | null;
-    latestStatus: string | null;
-    latestRunId: string | null;
-    latestTestResultId: string | null;
-    passedCount: number;
-    flakyCount: number;
-    failCount: number;
-    skippedCount: number;
-  }>`
-    WITH ranked AS (
-      SELECT
-        "testResults"."testId" AS "testId",
-        "testResults"."title" AS "title",
-        "testResults"."file" AS "file",
-        "testResults"."status" AS "status",
-        "testResults"."durationMs" AS "durationMs",
-        "testResults"."createdAt" AS "createdAt",
-        "testResults"."runId" AS "runId",
-        "testResults"."id" AS "testResultId",
-        row_number() OVER (
-          PARTITION BY "testResults"."testId"
-          ORDER BY "testResults"."createdAt" DESC
-        ) AS "rnTime"
-      FROM "testResults"
-      INNER JOIN "runs" ON "runs"."id" = "testResults"."runId"
-      WHERE "runs"."projectId" = ${project.id}
-        AND "runs"."committed" = 1
-        AND "runs"."createdAt" >= ${windowStartSec}
-        AND "testResults"."testId" IN (${sql.join(testIds)})
-        ${branchClause}
-    )
-    SELECT
-      "testId",
-      COUNT(*) AS "n",
-      AVG("durationMs") AS "avgDurationMs",
-      MAX(CASE WHEN "rnTime" = 1 THEN "title" END) AS "title",
-      MAX(CASE WHEN "rnTime" = 1 THEN "file" END) AS "file",
-      MAX(CASE WHEN "rnTime" = 1 THEN "status" END) AS "latestStatus",
-      MAX(CASE WHEN "rnTime" = 1 THEN "runId" END) AS "latestRunId",
-      MAX(CASE WHEN "rnTime" = 1 THEN "testResultId" END) AS "latestTestResultId",
-      SUM(CASE WHEN "status" = 'passed' THEN 1 ELSE 0 END) AS "passedCount",
-      SUM(CASE WHEN "status" = 'flaky' THEN 1 ELSE 0 END) AS "flakyCount",
-      SUM(CASE WHEN "status" IN ('failed', 'timedout') THEN 1 ELSE 0 END) AS "failCount",
-      SUM(CASE WHEN "status" = 'skipped' THEN 1 ELSE 0 END) AS "skippedCount"
-    FROM ranked
-    GROUP BY "testId"
-  `.execute(project.db);
-
-  const aggById = new Map(aggRes.rows.map((r) => [r.testId, r]));
-
-  // Preserve the lastSeen DESC ordering from query A — the IN-list in
-  // query B doesn't preserve order.
-  const rows: TestRow[] = testIds.flatMap((id) => {
-    const a = aggById.get(id);
-    const lastSeen = lastSeenById.get(id) ?? 0;
-    if (!a) return [];
-    return [
-      {
-        testId: id,
-        title: a.title ?? "",
-        file: a.file ?? "",
-        latestStatus: a.latestStatus ?? "",
-        latestRunId: a.latestRunId,
-        latestTestResultId: a.latestTestResultId,
-        lastSeen,
-        n: a.n,
-        avgDurationMs: a.avgDurationMs,
-        passedCount: a.passedCount,
-        flakyCount: a.flakyCount,
-        failCount: a.failCount,
-        skippedCount: a.skippedCount,
-      },
-    ];
-  });
-
-  const fromRow =
-    totalUniqueTests === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
-  const toRow = (currentPage - 1) * PAGE_SIZE + rows.length;
-
-  return {
-    rows,
-    totalUniqueTests,
-    currentPage,
-    totalPages,
-    fromRow,
-    toRow,
-  };
 }
 
 // ---- helpers ------------------------------------------------------------

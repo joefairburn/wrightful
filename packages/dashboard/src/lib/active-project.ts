@@ -4,28 +4,19 @@ import type { ResolvedActiveProject } from "@/lib/authz";
 import { type TenantScope, tenantScopeFromIds } from "@/tenant";
 
 /**
- * The project scoping an RSC page render. Combines authorization (the
- * user is a member of the owning team) with the tenant-DO handle they
- * need for reads, plus the control-DB display fields used in the UI.
+ * The project scoping an RSC page render. A `TenantScope` (with the
+ * scoped query API: `from`, `insertInto`, `updateTable`, `deleteFrom`,
+ * `batch`) plus the two control-DB display fields used in the UI.
  *
  * Because `teamId` / `projectId` are branded and only mintable from
  * `tenantScopeFor*` helpers, any code that lands in an RSC page is
- * forced to go through the membership check before touching tenant
- * data. `scope.db` / `scope.batch` are the only way in.
+ * forced through the membership check before touching tenant data.
  */
 export type ActiveProject = TenantScope & {
-  /** Alias of `projectSlug` — preserved for call-site legibility. */
-  readonly slug: string;
   /** Display name of the project (from ControlDO `projects.name`). */
   readonly name: string;
   /** Display name of the team (from ControlDO `teams.name`). */
   readonly teamName: string;
-  /**
-   * Historical alias of `projectId`. Plain string (same underlying value)
-   * so call sites that pass it straight into Kysely `where` clauses keep
-   * working without a brand-narrowing cast.
-   */
-  readonly id: string;
 };
 
 /**
@@ -55,8 +46,6 @@ export const getActiveProject = cache(
     const scope = tenantScopeFromIds(ap.teamId, ap.teamSlug, ap.id, ap.slug);
     return {
       ...scope,
-      id: scope.projectId,
-      slug: scope.projectSlug,
       name: ap.name,
       teamName: ap.teamName,
     };

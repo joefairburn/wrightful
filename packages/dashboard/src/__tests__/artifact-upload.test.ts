@@ -14,19 +14,17 @@ const { mockEnv, mockR2, tenantDbRef } = vi.hoisted(() => {
 });
 
 vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
-vi.mock("@/tenant", () => ({
-  tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) => {
-    if (!apiKey || !tenantDbRef.current) return null;
-    return {
-      teamId: "team-1",
-      teamSlug: "t",
-      projectId: apiKey.projectId,
-      projectSlug: "p",
-      db: tenantDbRef.current,
-      batch: async () => {},
-    };
-  }),
-}));
+vi.mock("@/tenant", async () => {
+  const { makeMockApiKeyScope } = await import("./helpers/test-db");
+  return {
+    tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) =>
+      makeMockApiKeyScope({
+        apiKey,
+        tenantDb: tenantDbRef.current as never,
+      }),
+    ),
+  };
+});
 
 import { makeTenantTestDb, selectResult } from "./helpers/test-db";
 import { artifactUploadHandler } from "../routes/api/artifact-upload";

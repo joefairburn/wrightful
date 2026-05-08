@@ -1,7 +1,7 @@
 import type { TenantScope } from "@/tenant";
 import { tenantScopeForUser } from "@/tenant";
 import type { AppContext } from "@/worker";
-import type { RunProgressTest } from "./progress";
+import { normalizeTestStatus, type RunProgressTest } from "./progress";
 
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 500;
@@ -73,19 +73,18 @@ export async function loadRunResultsPage(
   runId: string,
   opts: LoadRunResultsOpts,
 ): Promise<RunResultsResponse | null> {
-  const owner = await scope.db
-    .selectFrom("runs")
+  const owner = await scope
+    .from("runs")
     .select("id")
     .where("id", "=", runId)
-    .where("projectId", "=", scope.projectId)
     .limit(1)
     .executeTakeFirst();
   if (!owner) return null;
 
   const limit = Math.min(Math.max(1, opts.limit), MAX_LIMIT);
 
-  let q = scope.db
-    .selectFrom("testResults")
+  let q = scope
+    .from("testResults")
     .select([
       "id",
       "testId",
@@ -138,7 +137,7 @@ export async function loadRunResultsPage(
       title: r.title,
       file: r.file,
       projectName: r.projectName,
-      status: r.status as RunProgressTest["status"],
+      status: normalizeTestStatus(r.status),
       durationMs: r.durationMs,
       retryCount: r.retryCount,
       errorMessage: r.errorMessage,

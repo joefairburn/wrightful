@@ -22,6 +22,7 @@ import {
 } from "@/lib/analytics/bucketing";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { cn } from "@/lib/cn";
+import { loadTestsAddedCount } from "@/tenant/queries/suite-size";
 
 type RangeKey = "7d" | "30d" | "90d" | "1y" | "all";
 const RANGES: readonly RangeKey[] = ["7d", "30d", "90d", "1y", "all"];
@@ -62,10 +63,8 @@ export async function SuiteSizePage() {
   //    for the size of the suite at the time of the largest run in that
   //    bucket — cheap to compute and matches the single-series bar
   //    chart in the prototype.
-  const trendRows = await project.db
-    .selectFrom("runs")
-    .where("projectId", "=", project.id)
-    .where("committed", "=", 1)
+  const trendRows = await project
+    .from("runs")
     .where("createdAt", ">=", windowStartSec)
     .select([expr.as("bucket"), sql<number>`max("totalTests")`.as("peak")])
     .groupBy(expr)
@@ -75,10 +74,8 @@ export async function SuiteSizePage() {
   // stretch back to 1970. Otherwise use the requested window.
   let shellStartSec = windowStartSec;
   if (rangeSec === null) {
-    const earliest = await project.db
-      .selectFrom("runs")
-      .where("projectId", "=", project.id)
-      .where("committed", "=", 1)
+    const earliest = await project
+      .from("runs")
       .select(sql<number | null>`min("createdAt")`.as("first"))
       .executeTakeFirst();
     shellStartSec = earliest?.first ?? nowSec;
@@ -87,52 +84,25 @@ export async function SuiteSizePage() {
   const peakOverall = Math.max(0, ...trendRows.map((r) => r.peak));
 
   // 2. Tests Added (last 30d) — distinct testIds whose first-ever
-  //    occurrence falls inside the lookback. Subquery is cheap: it
-  //    groups over testResults which is already narrow-keyed on testId.
+  //    occurrence falls inside the lookback.
   const addedLookbackSec = nowSec - ADDED_LOOKBACK_DAYS * DAY_SEC;
-  const addedRow = await project.db
-    .selectFrom(
-      project.db
-        .selectFrom("testResults")
-        .innerJoin("runs", "runs.id", "testResults.runId")
-        .where("runs.projectId", "=", project.id)
-        .where("runs.committed", "=", 1)
-        .select([
-          "testResults.testId as testId",
-          sql<number>`min("testResults"."createdAt")`.as("firstSeen"),
-        ])
-        .groupBy("testResults.testId")
-        .as("firsts"),
-    )
-    .select(sql<number>`count(*)`.as("added"))
-    .where("firstSeen", ">=", addedLookbackSec)
-    .executeTakeFirst();
-  const testsAdded = addedRow?.added ?? 0;
+  const testsAdded = await loadTestsAddedCount(project, addedLookbackSec);
 
   // 3. Distribution by spec file — distinct testIds per file in window.
-  const fileRows = await project.db
-    .selectFrom("testResults")
-    .innerJoin("runs", "runs.id", "testResults.runId")
-    .where("runs.projectId", "=", project.id)
-    .where("runs.committed", "=", 1)
-    .where("testResults.createdAt", ">=", windowStartSec)
-    .select([
-      "testResults.file as file",
-      sql<number>`count(distinct "testResults"."testId")`.as("tests"),
-    ])
-    .groupBy("testResults.file")
+  const fileRows = await project
+    .from("testResults")
+    .where("createdAt", ">=", windowStartSec)
+    .select(["file", sql<number>`count(distinct "testId")`.as("tests")])
+    .groupBy("file")
     .orderBy("tests", "desc")
     .limit(DISTRIBUTION_LIMIT)
     .execute();
   const fileTotal = fileRows.reduce((acc, r) => acc + r.tests, 0);
 
   // 4. Top tags — distinct-testId count per tag in window.
-  const tagRows = await project.db
-    .selectFrom("testTags")
+  const tagRows = await project
+    .from("testTags")
     .innerJoin("testResults", "testResults.id", "testTags.testResultId")
-    .innerJoin("runs", "runs.id", "testResults.runId")
-    .where("runs.projectId", "=", project.id)
-    .where("runs.committed", "=", 1)
     .where("testResults.createdAt", ">=", windowStartSec)
     .select([
       "testTags.tag as tag",
@@ -180,7 +150,7 @@ export async function SuiteSizePage() {
     <>
       <InsightsTabs
         teamSlug={project.teamSlug}
-        projectSlug={project.slug}
+        projectSlug={project.projectSlug}
         active="suite-size"
       />
 

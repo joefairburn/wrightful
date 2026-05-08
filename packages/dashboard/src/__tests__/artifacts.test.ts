@@ -11,21 +11,18 @@ const { mockEnv, tenantDbRef, batchCalls } = vi.hoisted(() => ({
 
 vi.mock("cloudflare:workers", () => ({ env: mockEnv }));
 vi.mock("@/control", () => ({ getControlDb: vi.fn() }));
-vi.mock("@/tenant", () => ({
-  tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) => {
-    if (!apiKey || !tenantDbRef.current) return null;
-    return {
-      teamId: "team-1",
-      teamSlug: "t",
-      projectId: apiKey.projectId,
-      projectSlug: "p",
-      db: tenantDbRef.current,
-      batch: async (queries: Compilable[]) => {
-        batchCalls.push({ teamId: "team-1", queries: [...queries] });
-      },
-    };
-  }),
-}));
+vi.mock("@/tenant", async () => {
+  const { makeMockApiKeyScope } = await import("./helpers/test-db");
+  return {
+    tenantScopeForApiKey: vi.fn(async (apiKey: { projectId: string } | null) =>
+      makeMockApiKeyScope({
+        apiKey,
+        tenantDb: tenantDbRef.current as never,
+        batchCalls,
+      }),
+    ),
+  };
+});
 
 import { makeTenantTestDb, makeTestDb, selectResult } from "./helpers/test-db";
 import { registerHandler } from "../routes/api/artifacts";
@@ -47,7 +44,7 @@ const AUTH_CTX = {
 
 /**
  * registerHandler runs in order (via the scoped tenant db):
- *   1. tenant: runs ownership (committed = 1)
+ *   1. tenant: runs ownership
  *   2. tenant: testResults id-in-chunk membership
  *   3. tenant: artifacts INSERT (via scope.batch — captured in batchCalls)
  */

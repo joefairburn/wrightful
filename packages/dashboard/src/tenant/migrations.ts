@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { type Migrations } from "rwsdk/db";
 
 /**
@@ -11,17 +12,10 @@ import { type Migrations } from "rwsdk/db";
  * layer — column names stored in SQLite match the names used in queries
  * verbatim, so rwsdk's inference pipeline stays coherent.
  *
- * The pre-M3 `committedRuns` view was dropped: views aren't inferable by
- * rwsdk/db, and `committed` is always `1` under streaming ingest anyway.
- * The legacy bulk-ingest two-phase commit (insert with committed=0, flip
- * to 1 on complete) is gone with this cut. Read paths that historically
- * used the view now filter on `runs.committed = 1` at the call site, or
- * skip the predicate entirely when they're already guarding on status.
- *
- * Migration policy (post-launch): `0000_init` is frozen — production DOs
- * have it applied. Schema changes go in new numbered migrations
- * (`0001_*`, `0002_*`, …) which run additively on existing tenant DOs.
- * Never edit a migration that has already been applied in any environment.
+ * Migration policy: `0000_init` is frozen — running tenant DOs have it
+ * applied. Schema changes go in new numbered migrations (`0001_*`,
+ * `0002_*`, …) which run additively. Never edit a migration that has
+ * already been applied in any environment.
  */
 export const tenantMigrations = {
   "0000_init": {
@@ -295,6 +289,88 @@ export const tenantMigrations = {
         .dropColumn("snapshotName")
         .execute();
       await db.schema.alterTable("artifacts").dropColumn("role").execute();
+    },
+  },
+
+  /**
+   * Adds `projectId` to every per-test child table so the scoped tenant
+   * query API (`scope.from / insertInto / updateTable / deleteFrom` in
+   * `src/tenant/scoped-query.ts`) can pre-apply `WHERE projectId = ?`
+   * structurally instead of relying on every callsite to remember to
+   * join through `runs`.
+   *
+   * The column is added `NOT NULL DEFAULT ''` so SQLite can ALTER existing
+   * rows without a default-violation, then immediately backfilled from
+   * `runs.projectId` via a correlated subquery. New writes go through
+   * `scopedInsert`, which injects the live `projectId` so the empty-string
+   * default never lands in production data.
+   */
+  "0003_add_project_id": {
+    async up(db) {
+      const testResults = await db.schema
+        .alterTable("testResults")
+        .addColumn("projectId", "text", (c) => c.notNull().defaultTo(""))
+        .execute();
+      const testTags = await db.schema
+        .alterTable("testTags")
+        .addColumn("projectId", "text", (c) => c.notNull().defaultTo(""))
+        .execute();
+      const testAnnotations = await db.schema
+        .alterTable("testAnnotations")
+        .addColumn("projectId", "text", (c) => c.notNull().defaultTo(""))
+        .execute();
+      const testResultAttempts = await db.schema
+        .alterTable("testResultAttempts")
+        .addColumn("projectId", "text", (c) => c.notNull().defaultTo(""))
+        .execute();
+      const artifacts = await db.schema
+        .alterTable("artifacts")
+        .addColumn("projectId", "text", (c) => c.notNull().defaultTo(""))
+        .execute();
+
+      // Backfill outward from runs. testResults reads `runs.projectId`
+      // directly; the child tables read it from the freshly-populated
+      // testResults row they belong to.
+      await sql`UPDATE "testResults" SET "projectId" = (SELECT "runs"."projectId" FROM "runs" WHERE "runs"."id" = "testResults"."runId") WHERE "projectId" = ''`.execute(
+        db,
+      );
+      await sql`UPDATE "testTags" SET "projectId" = (SELECT "testResults"."projectId" FROM "testResults" WHERE "testResults"."id" = "testTags"."testResultId") WHERE "projectId" = ''`.execute(
+        db,
+      );
+      await sql`UPDATE "testAnnotations" SET "projectId" = (SELECT "testResults"."projectId" FROM "testResults" WHERE "testResults"."id" = "testAnnotations"."testResultId") WHERE "projectId" = ''`.execute(
+        db,
+      );
+      await sql`UPDATE "testResultAttempts" SET "projectId" = (SELECT "testResults"."projectId" FROM "testResults" WHERE "testResults"."id" = "testResultAttempts"."testResultId") WHERE "projectId" = ''`.execute(
+        db,
+      );
+      await sql`UPDATE "artifacts" SET "projectId" = (SELECT "testResults"."projectId" FROM "testResults" WHERE "testResults"."id" = "artifacts"."testResultId") WHERE "projectId" = ''`.execute(
+        db,
+      );
+
+      return [
+        testResults,
+        testTags,
+        testAnnotations,
+        testResultAttempts,
+        artifacts,
+      ];
+    },
+
+    async down(db) {
+      await db.schema.alterTable("artifacts").dropColumn("projectId").execute();
+      await db.schema
+        .alterTable("testResultAttempts")
+        .dropColumn("projectId")
+        .execute();
+      await db.schema
+        .alterTable("testAnnotations")
+        .dropColumn("projectId")
+        .execute();
+      await db.schema.alterTable("testTags").dropColumn("projectId").execute();
+      await db.schema
+        .alterTable("testResults")
+        .dropColumn("projectId")
+        .execute();
     },
   },
 } satisfies Migrations;

@@ -1,4 +1,3 @@
-import { sql } from "kysely";
 import { Clock, Gauge, TriangleAlert } from "lucide-react";
 import { requestInfo } from "rwsdk/worker";
 import { AnalyticsButtonGroup } from "@/app/components/analytics/button-group";
@@ -23,6 +22,7 @@ import {
 } from "@/lib/analytics/bucketing";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { formatDuration } from "@/lib/time-format";
+import { loadRunDurationPercentiles } from "@/tenant/queries/run-duration";
 
 type RangeKey = "7d" | "14d" | "30d" | "90d";
 const RANGES: readonly RangeKey[] = ["7d", "14d", "30d", "90d"];
@@ -59,76 +59,12 @@ export async function RunDurationPage() {
   const nowSec = Math.floor(Date.now() / 1000);
   const windowStartSec = nowSec - days * DAY_SEC;
 
-  // SQL-side discrete percentile picking. For each bucket we rank runs by
-  // duration (`row_number()` window) and select the row whose rank equals
-  // the p-th position. Returns ≤ 3·N rows where N = bucket count, so the
-  // DO payload is O(buckets), not O(runs).
-  //
-  // `MAX(1, CAST(ROUND(cnt * q) AS INTEGER))` keeps the target rank in
-  // [1..cnt] — without the floor of 1 a bucket with a single run would
-  // resolve p50 to rank 0 (no such row).
-  //
-  // Discrete percentiles (no interpolation): fine at the bar-chart
-  // resolution we render here, and much simpler than emulating R-7
-  // inside SQLite.
   const expr = bucketExpr(segment);
-  const [perBucket, overall] = await Promise.all([
-    sql<{
-      bucket: number | string;
-      cnt: number;
-      p50: number | null;
-      p90: number | null;
-      p95: number | null;
-    }>`
-      WITH ranked AS (
-        SELECT
-          ${expr} AS bucket,
-          runs."durationMs" AS duration,
-          row_number() OVER (
-            PARTITION BY ${expr}
-            ORDER BY runs."durationMs"
-          ) AS rn,
-          count(*) OVER (PARTITION BY ${expr}) AS cnt
-        FROM runs
-        WHERE runs."projectId" = ${project.id}
-          AND runs."committed" = 1
-          AND runs."durationMs" > 0
-          AND runs."createdAt" >= ${windowStartSec}
-      )
-      SELECT
-        bucket,
-        MAX(cnt) AS cnt,
-        MIN(CASE WHEN rn = MAX(1, CAST(ROUND(cnt * 0.50) AS INTEGER)) THEN duration END) AS p50,
-        MIN(CASE WHEN rn = MAX(1, CAST(ROUND(cnt * 0.90) AS INTEGER)) THEN duration END) AS p90,
-        MIN(CASE WHEN rn = MAX(1, CAST(ROUND(cnt * 0.95) AS INTEGER)) THEN duration END) AS p95
-      FROM ranked
-      GROUP BY bucket
-    `.execute(project.db),
-    sql<{
-      cnt: number | null;
-      p50: number | null;
-      p90: number | null;
-      p95: number | null;
-    }>`
-      WITH ranked AS (
-        SELECT
-          runs."durationMs" AS duration,
-          row_number() OVER (ORDER BY runs."durationMs") AS rn,
-          count(*) OVER () AS cnt
-        FROM runs
-        WHERE runs."projectId" = ${project.id}
-          AND runs."committed" = 1
-          AND runs."durationMs" > 0
-          AND runs."createdAt" >= ${windowStartSec}
-      )
-      SELECT
-        MAX(cnt) AS cnt,
-        MIN(CASE WHEN rn = MAX(1, CAST(ROUND(cnt * 0.50) AS INTEGER)) THEN duration END) AS p50,
-        MIN(CASE WHEN rn = MAX(1, CAST(ROUND(cnt * 0.90) AS INTEGER)) THEN duration END) AS p90,
-        MIN(CASE WHEN rn = MAX(1, CAST(ROUND(cnt * 0.95) AS INTEGER)) THEN duration END) AS p95
-      FROM ranked
-    `.execute(project.db),
-  ]);
+  const { perBucket, overall } = await loadRunDurationPercentiles(
+    project,
+    expr,
+    windowStartSec,
+  );
 
   const shells = buildEmptyBuckets(segment, windowStartSec, nowSec);
   const series: LineChartSeries[] = [
@@ -137,7 +73,7 @@ export async function RunDurationPage() {
     { key: "p95", label: "p95", color: SERIES_COLORS.p95 },
   ];
 
-  const byKey = new Map(perBucket.rows.map((r) => [bucketKey(r.bucket), r]));
+  const byKey = new Map(perBucket.map((r) => [bucketKey(r.bucket), r]));
   const buckets: LineChartBucket[] = shells.map((s) => {
     const row = byKey.get(s.key);
     const p50 = row?.p50 ?? null;
@@ -184,14 +120,8 @@ export async function RunDurationPage() {
   // The overall CTE has no GROUP BY, so an empty window still yields
   // one row — but with NULLs for every aggregate. Coerce `cnt` to 0 so
   // the KPI footnote logic below can treat "no runs" uniformly.
-  const overallStats = overall.rows[0] ?? {
-    cnt: 0,
-    p50: null,
-    p90: null,
-    p95: null,
-  };
-  const overallCnt = overallStats.cnt ?? 0;
-  const { p50: p50All, p90: p90All, p95: p95All } = overallStats;
+  const overallCnt = overall.cnt ?? 0;
+  const { p50: p50All, p90: p90All, p95: p95All } = overall;
 
   const hrefWith = (overrides: Record<string, string>): string => {
     const p = new URLSearchParams(url.searchParams);
@@ -203,7 +133,7 @@ export async function RunDurationPage() {
     <>
       <InsightsTabs
         teamSlug={project.teamSlug}
-        projectSlug={project.slug}
+        projectSlug={project.projectSlug}
         active="run-duration"
       />
 

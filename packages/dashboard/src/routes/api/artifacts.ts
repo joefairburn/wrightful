@@ -67,14 +67,11 @@ export async function registerHandler({
   // Validate the run belongs to this API key's project before touching any
   // testResultId. Without this check a caller could register uploads
   // against another tenant's run by guessing its ULID (within-team
-  // cross-project). `committed = 1` keeps in-flight-at-open rows
-  // invisible.
-  const ownerRun = await scope.db
-    .selectFrom("runs")
+  // cross-project).
+  const ownerRun = await scope
+    .from("runs")
     .select("id")
     .where("id", "=", payload.runId)
-    .where("projectId", "=", scope.projectId)
-    .where("committed", "=", 1)
     .limit(1)
     .executeTakeFirst();
   if (!ownerRun) {
@@ -89,8 +86,8 @@ export async function registerHandler({
   const validIds = new Set<string>();
   for (let i = 0; i < requestedIds.length; i += MAX_IN_ARRAY_IDS) {
     const chunk = requestedIds.slice(i, i + MAX_IN_ARRAY_IDS);
-    const rows = await scope.db
-      .selectFrom("testResults")
+    const rows = await scope
+      .from("testResults")
       .select("id")
       .where("runId", "=", payload.runId)
       .where("id", "in", chunk)
@@ -158,7 +155,7 @@ export async function registerHandler({
   const statements: Compilable[] = [];
   for (let i = 0; i < rows.length; i += ARTIFACT_ROWS_PER_STATEMENT) {
     statements.push(
-      scope.db
+      scope
         .insertInto("artifacts")
         .values(rows.slice(i, i + ARTIFACT_ROWS_PER_STATEMENT)),
     );

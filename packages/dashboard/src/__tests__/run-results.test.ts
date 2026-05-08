@@ -8,19 +8,19 @@ const { tenantDbRef, scopeRef } = vi.hoisted(() => ({
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
-vi.mock("@/tenant", () => ({
-  tenantScopeForUser: vi.fn(async (userId: string) => {
-    if (!userId || !scopeRef.current || !tenantDbRef.current) return null;
-    return {
-      teamId: scopeRef.current.teamId,
-      teamSlug: "t",
-      projectId: scopeRef.current.projectId,
-      projectSlug: "p",
-      db: tenantDbRef.current,
-      batch: async () => {},
-    };
-  }),
-}));
+vi.mock("@/tenant", async () => {
+  const { makeTenantScope } = await import("./helpers/test-db");
+  return {
+    tenantScopeForUser: vi.fn(async (userId: string) => {
+      if (!userId || !scopeRef.current || !tenantDbRef.current) return null;
+      return makeTenantScope({
+        db: tenantDbRef.current as never,
+        teamId: scopeRef.current.teamId,
+        projectId: scopeRef.current.projectId,
+      });
+    }),
+  };
+});
 
 import {
   makeTenantTestDb,

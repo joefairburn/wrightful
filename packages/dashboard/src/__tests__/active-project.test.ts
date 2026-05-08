@@ -67,8 +67,6 @@ describe("getActiveProject", () => {
 
     const ap = await getActiveProject();
     expect(ap).not.toBeNull();
-    expect(ap!.id).toBe("proj-1");
-    expect(ap!.slug).toBe("web");
     expect(ap!.name).toBe("Web");
     expect(ap!.teamName).toBe("Acme");
     expect(ap!.teamSlug).toBe("acme");

@@ -32,10 +32,10 @@ function backdatingAllowed(): boolean {
 // statements readable, bounds memory for very large appends, and matches
 // the reporter's existing batching cadence.
 const MAX_PARAMS_PER_STATEMENT = 99;
-const TEST_RESULTS_COLUMNS = 13;
-const TEST_TAGS_COLUMNS = 3;
-const TEST_ANNOTATIONS_COLUMNS = 4;
-const TEST_RESULT_ATTEMPTS_COLUMNS = 8;
+const TEST_RESULTS_COLUMNS = 14;
+const TEST_TAGS_COLUMNS = 4;
+const TEST_ANNOTATIONS_COLUMNS = 5;
+const TEST_RESULT_ATTEMPTS_COLUMNS = 9;
 
 function chunkByParams<T>(rows: T[], columnsPerRow: number): T[][] {
   const rowsPerStatement = Math.max(
@@ -70,8 +70,8 @@ async function resolveTestResultIds(
   const existingIds = new Map<string, string>();
   const prevStatusByTestId = new Map<string, string>();
   if (testIds.length > 0) {
-    const rows = await scope.db
-      .selectFrom("testResults")
+    const rows = await scope
+      .from("testResults")
       .select(["id", "testId", "status"])
       .where("runId", "=", runId)
       .where("testId", "in", testIds)
@@ -122,7 +122,11 @@ function buildResultInsertStatements(
     workerIndex: number | null;
     createdAt: number;
   }> = [];
-  const tagRows: Array<{ id: string; testResultId: string; tag: string }> = [];
+  const tagRows: Array<{
+    id: string;
+    testResultId: string;
+    tag: string;
+  }> = [];
   const annotationRows: Array<{
     id: string;
     testResultId: string;
@@ -151,7 +155,7 @@ function buildResultInsertStatements(
 
     if (existingIds.has(result.testId)) {
       statements.push(
-        scope.db
+        scope
           .updateTable("testResults")
           .set({
             title: result.title,
@@ -168,12 +172,10 @@ function buildResultInsertStatements(
           .where("id", "=", testResultId),
       );
       statements.push(
-        scope.db
-          .deleteFrom("testTags")
-          .where("testResultId", "=", testResultId),
+        scope.deleteFrom("testTags").where("testResultId", "=", testResultId),
       );
       statements.push(
-        scope.db
+        scope
           .deleteFrom("testAnnotations")
           .where("testResultId", "=", testResultId),
       );
@@ -199,7 +201,7 @@ function buildResultInsertStatements(
     // set first so the reporter re-sending (flush retry, or running with
     // fewer retries than before) stays idempotent.
     statements.push(
-      scope.db
+      scope
         .deleteFrom("testResultAttempts")
         .where("testResultId", "=", testResultId),
     );
@@ -217,7 +219,11 @@ function buildResultInsertStatements(
     }
 
     for (const tag of result.tags) {
-      tagRows.push({ id: ulid(), testResultId, tag });
+      tagRows.push({
+        id: ulid(),
+        testResultId,
+        tag,
+      });
     }
     for (const annotation of result.annotations) {
       annotationRows.push({
@@ -230,19 +236,19 @@ function buildResultInsertStatements(
   }
 
   for (const chunk of chunkByParams(insertRows, TEST_RESULTS_COLUMNS)) {
-    statements.push(scope.db.insertInto("testResults").values(chunk));
+    statements.push(scope.insertInto("testResults").values(chunk));
   }
   for (const chunk of chunkByParams(tagRows, TEST_TAGS_COLUMNS)) {
-    statements.push(scope.db.insertInto("testTags").values(chunk));
+    statements.push(scope.insertInto("testTags").values(chunk));
   }
   for (const chunk of chunkByParams(annotationRows, TEST_ANNOTATIONS_COLUMNS)) {
-    statements.push(scope.db.insertInto("testAnnotations").values(chunk));
+    statements.push(scope.insertInto("testAnnotations").values(chunk));
   }
   for (const chunk of chunkByParams(
     attemptRows,
     TEST_RESULT_ATTEMPTS_COLUMNS,
   )) {
-    statements.push(scope.db.insertInto("testResultAttempts").values(chunk));
+    statements.push(scope.insertInto("testResultAttempts").values(chunk));
   }
   return { statements, mapping };
 }
@@ -281,7 +287,7 @@ function buildQueuePrefillStatements(
   }));
   const statements: Compilable[] = [];
   for (const chunk of chunkByParams(rows, TEST_RESULTS_COLUMNS)) {
-    statements.push(scope.db.insertInto("testResults").values(chunk));
+    statements.push(scope.insertInto("testResults").values(chunk));
   }
   return statements;
 }
@@ -296,7 +302,7 @@ function aggregateRecomputeStatement(
   scope: TenantScope,
   runId: string,
 ): Compilable {
-  return scope.db
+  return scope
     .updateTable("runs")
     .set({
       totalTests: sql<number>`(SELECT COUNT(*) FROM "testResults" WHERE "runId" = ${runId})`,
@@ -389,7 +395,7 @@ function aggregateDeltaStatement(
   ) {
     return null;
   }
-  return scope.db
+  return scope
     .updateTable("runs")
     .set({
       totalTests: sql<number>`"totalTests" + ${delta.totalTests}`,
@@ -419,9 +425,9 @@ function bumpTeamActivity(teamId: string, nowSeconds: number): void {
 /**
  * POST /api/runs — open a streaming run.
  *
- * Visible (committed=true) from the moment it's opened so the dashboard can
- * render results as they stream in. Aggregates start at zero and are
- * recomputed on each /results append.
+ * Visible from the moment it's opened so the dashboard can render results
+ * as they stream in. Aggregates start at zero and are recomputed on each
+ * /results append.
  *
  * Idempotent on (projectId, idempotencyKey): resending the same key returns
  * the existing runId rather than creating a duplicate run. Lets multiple
@@ -455,10 +461,9 @@ export async function openRunHandler({
   const scope = await tenantScopeForApiKey(ctx.apiKey);
   if (!scope) return jsonResponse({ error: "Unauthorized" }, 401);
 
-  const existing = await scope.db
-    .selectFrom("runs")
+  const existing = await scope
+    .from("runs")
     .select("id")
-    .where("projectId", "=", scope.projectId)
     .where("idempotencyKey", "=", payload.idempotencyKey)
     .limit(1)
     .execute();
@@ -482,7 +487,6 @@ export async function openRunHandler({
 
   const runRow = {
     id: runId,
-    projectId: scope.projectId,
     idempotencyKey: payload.idempotencyKey,
     ciProvider: payload.run.ciProvider ?? null,
     ciBuildId: payload.run.ciBuildId ?? null,
@@ -505,11 +509,15 @@ export async function openRunHandler({
     playwrightVersion: payload.run.playwrightVersion ?? null,
     createdAt: nowSeconds,
     completedAt: null,
+    // Vestigial. The legacy two-phase commit was retired with the M3
+    // streaming-ingest cut and no read path filters on `committed` any
+    // more. rwsdk's `Database` type doesn't propagate column defaults
+    // into Kysely's InsertObject, so we still have to pass a value.
     committed: 1,
   };
 
   const openStatements: Compilable[] = [
-    scope.db.insertInto("runs").values(runRow),
+    scope.insertInto("runs").values(runRow),
     ...buildQueuePrefillStatements(scope, runId, plannedTests, nowSeconds),
   ];
   await scope.batch(openStatements);
@@ -555,11 +563,10 @@ export async function appendResultsHandler({
   const scope = await tenantScopeForApiKey(ctx.apiKey);
   if (!scope) return jsonResponse({ error: "Unauthorized" }, 401);
 
-  const owner = await scope.db
-    .selectFrom("runs")
+  const owner = await scope
+    .from("runs")
     .select("id")
     .where("id", "=", runId)
-    .where("projectId", "=", scope.projectId)
     .limit(1)
     .executeTakeFirst();
   if (!owner) return jsonResponse({ error: "Run not found" }, 404);
@@ -659,11 +666,10 @@ export async function completeRunHandler({
   const scope = await tenantScopeForApiKey(ctx.apiKey);
   if (!scope) return jsonResponse({ error: "Unauthorized" }, 401);
 
-  const owner = await scope.db
-    .selectFrom("runs")
+  const owner = await scope
+    .from("runs")
     .select("id")
     .where("id", "=", runId)
-    .where("projectId", "=", scope.projectId)
     .limit(1)
     .executeTakeFirst();
   if (!owner) return jsonResponse({ error: "Run not found" }, 404);
@@ -672,7 +678,7 @@ export async function completeRunHandler({
   const completedAt =
     payload.completedAt !== undefined ? payload.completedAt : nowSeconds;
   await scope.batch([
-    scope.db
+    scope
       .updateTable("runs")
       .set({
         status: payload.status,

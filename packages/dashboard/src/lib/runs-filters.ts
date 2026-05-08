@@ -113,25 +113,19 @@ function escapeLike(value: string): string {
 }
 
 /**
- * Predicate builder for `db.selectFrom("runs")` scoped to a project and the
- * supplied filters. Caller applies via
- *   `.where((eb) => buildRunsWhere(eb, projectId, filters))`.
- *
- * Always pins `committed = 1` so in-flight / uncommitted rows stay hidden
- * — replaces the pre-M3 `committedRuns` view.
+ * Predicate builder for filter chips on top of `scope.from("runs")`. Caller
+ * applies via `.where((eb) => buildRunsWhere(eb, filters))`. The scope's
+ * `from("runs")` already pre-applies `projectId = ?`, so this only adds
+ * the user-supplied filter chips on top.
  *
  * Timestamps are stored as unix seconds; date-range filters convert the
  * ISO YYYY-MM-DD bounds to seconds at the UTC day boundary.
  */
 export function buildRunsWhere(
   eb: ExpressionBuilder<TenantDatabase, "runs">,
-  projectId: string,
   filters: RunsFilters,
 ): ExpressionWrapper<TenantDatabase, "runs", SqlBool> {
-  const clauses: ExpressionWrapper<TenantDatabase, "runs", SqlBool>[] = [
-    eb("runs.projectId", "=", projectId),
-    eb("runs.committed", "=", 1),
-  ];
+  const clauses: ExpressionWrapper<TenantDatabase, "runs", SqlBool>[] = [];
 
   if (filters.status.length > 0) {
     clauses.push(eb("runs.status", "in", filters.status));
