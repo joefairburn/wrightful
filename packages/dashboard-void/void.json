@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/void/schema.json",
+  "worker": {
+    "compatibility_date": "2026-05-22",
+    "compatibility_flags": ["nodejs_compat"]
+  },
+  "auth": {
+    "providers": ["email", "github"]
+  },
+  "routing": {
+    "headers": {
+      "/assets/*": ["Cache-Control: public, max-age=31536000, immutable"],
+      "/*": [
+        "X-Frame-Options: DENY",
+        "X-Content-Type-Options: nosniff",
+        "Referrer-Policy: strict-origin-when-cross-origin"
+      ]
+    },
+    "fallbacks": {
+      "/*": "/not-found"
+    }
+  }
+}

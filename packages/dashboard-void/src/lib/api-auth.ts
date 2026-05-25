@@ -1,0 +1,65 @@
+import type { Context } from "hono";
+import { validateApiKey } from "@/lib/api-key";
+import type { ApiKey } from "@schema";
+
+declare module "void" {
+  interface CloudContextVariables {
+    /**
+     * Populated by `middleware/02.api-auth.ts` for the bearer-authenticated
+     * /api/runs/* and /api/artifacts/{register,:id/upload} endpoints.
+     */
+    apiKey?: ApiKey;
+  }
+}
+
+/**
+ * Validate the `Authorization: Bearer <key>` header. On success, stashes the
+ * resolved row on `c.var.apiKey` and returns it. On failure, returns the 401
+ * `Response` the caller must return as-is.
+ *
+ * Used by `middleware/02.api-auth.ts` (global middleware). Handlers should
+ * read the row via `getApiKey(c)` rather than calling this directly.
+ */
+export async function requireApiKeyOrResponse(
+  c: Context,
+): Promise<ApiKey | Response> {
+  const header = c.req.header("Authorization");
+  const apiKey = await validateApiKey(c, header);
+  if (!apiKey) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  c.set("apiKey", apiKey);
+  return apiKey;
+}
+
+export function getApiKey(c: Context): ApiKey {
+  const key = c.get("apiKey");
+  if (!key) {
+    throw new Error(
+      "getApiKey called outside the ingest middleware scope — check middleware/02.api-auth.ts path matching",
+    );
+  }
+  return key;
+}
+
+/**
+ * Reject unsupported protocol versions. The reporter sends
+ * `X-Wrightful-Version: 3`; older versions get a 409 Conflict with an
+ * upgrade hint.
+ */
+const SUPPORTED_VERSIONS = new Set(["3"]);
+
+export function negotiateVersionOrResponse(c: Context): Response | null {
+  const v = c.req.header("X-Wrightful-Version");
+  if (v && !SUPPORTED_VERSIONS.has(v)) {
+    return c.json(
+      {
+        error: "Unsupported protocol version",
+        supportedVersions: Array.from(SUPPORTED_VERSIONS),
+        message: `This dashboard speaks version 3 of the ingest protocol. Your reporter is using version ${v} — upgrade @wrightful/reporter to a release that supports v3.`,
+      },
+      409,
+    );
+  }
+  return null;
+}

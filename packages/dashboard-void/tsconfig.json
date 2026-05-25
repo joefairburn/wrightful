@@ -1,0 +1,38 @@
+{
+  "extends": "./.void/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "types": ["void/env"],
+    "jsx": "react-jsx",
+    "lib": ["DOM", "DOM.Iterable", "ESNext", "ES2022"],
+    "paths": {
+      "void/db": ["./.void/db.d.ts"],
+      "@schema": ["./db/schema.ts"],
+      "@schema/*": ["./db/schema/*"],
+      "void/routes": ["./.void/routes.d.ts"],
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "src",
+    "pages",
+    "routes",
+    "middleware",
+    "crons",
+    "queues",
+    "db",
+    "auth.ts",
+    "env.ts"
+  ],
+  "files": ["./.void/routes.d.ts", "./.void/db.d.ts", "./.void/env.d.ts"]
+}

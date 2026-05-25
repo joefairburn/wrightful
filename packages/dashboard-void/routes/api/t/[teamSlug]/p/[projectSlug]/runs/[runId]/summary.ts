@@ -1,0 +1,69 @@
+import { defineHandler } from "void";
+import { requireAuth } from "void/auth";
+import { and, db, eq } from "void/db";
+import { runs } from "@schema";
+import { tenantScopeForUserBySlugs } from "@/lib/scope";
+
+export type RunSummaryResponse = {
+  id: string;
+  status: string;
+  durationMs: number;
+  totalTests: number;
+  passed: number;
+  failed: number;
+  flaky: number;
+  skipped: number;
+  branch: string | null;
+  commitSha: string | null;
+  commitMessage: string | null;
+  prNumber: number | null;
+  actor: string | null;
+  createdAt: number;
+  completedAt: number | null;
+};
+
+/**
+ * GET /api/t/:teamSlug/p/:projectSlug/runs/:runId/summary
+ *
+ * Compact snapshot of a single run for the run-history hovercard. Totals,
+ * branch, commit, author. Per-test detail lives on `/test-preview`.
+ */
+export const GET = defineHandler(async (c) => {
+  const user = requireAuth(c);
+  const teamSlug = c.req.param("teamSlug");
+  const projectSlug = c.req.param("projectSlug");
+  const runId = c.req.param("runId");
+  if (!teamSlug || !projectSlug || !runId) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  const scope = await tenantScopeForUserBySlugs(user.id, teamSlug, projectSlug);
+  if (!scope) return c.json({ error: "Not found" }, 404);
+
+  const rows = await db
+    .select({
+      id: runs.id,
+      status: runs.status,
+      durationMs: runs.durationMs,
+      totalTests: runs.totalTests,
+      passed: runs.passed,
+      failed: runs.failed,
+      flaky: runs.flaky,
+      skipped: runs.skipped,
+      branch: runs.branch,
+      commitSha: runs.commitSha,
+      commitMessage: runs.commitMessage,
+      prNumber: runs.prNumber,
+      actor: runs.actor,
+      createdAt: runs.createdAt,
+      completedAt: runs.completedAt,
+    })
+    .from(runs)
+    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)))
+    .limit(1);
+
+  const run = rows[0];
+  if (!run) return c.json({ error: "Not found" }, 404);
+
+  c.header("Cache-Control", "private, max-age=30");
+  return run satisfies RunSummaryResponse;
+});
