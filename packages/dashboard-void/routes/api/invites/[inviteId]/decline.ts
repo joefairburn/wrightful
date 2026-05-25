@@ -1,6 +1,6 @@
 import { defineHandler } from "void";
 import { requireAuth } from "void/auth";
-import { and, db, eq, or } from "void/db";
+import { and, db, eq, or, sql } from "void/db";
 import { teamInvites, userGithubAccounts } from "@schema";
 
 /**
@@ -20,10 +20,7 @@ export const POST = defineHandler(async (c) => {
   if (!inviteId) return c.json({ error: "Not found" }, 404);
 
   const [userRow, ghRow] = await Promise.all([
-    db.run({
-      sql: `SELECT email FROM "user" WHERE id = ?1 LIMIT 1`,
-      params: [user.id],
-    } as never),
+    db.run(sql`SELECT email FROM "user" WHERE id = ${user.id} LIMIT 1`),
     db
       .select({ githubLogin: userGithubAccounts.githubLogin })
       .from(userGithubAccounts)

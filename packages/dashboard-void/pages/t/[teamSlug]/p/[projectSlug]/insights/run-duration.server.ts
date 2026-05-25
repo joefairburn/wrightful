@@ -1,6 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
 import { db, sql } from "void/db";
+import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { resolveProjectBySlugs } from "@/lib/authz";
 import {
   DAY_SEC,
@@ -10,6 +11,8 @@ import {
 } from "@/lib/analytics/bucketing";
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
+import { loadProjectBranches } from "@/lib/branches-query";
+import type { AuthorizedProjectId, AuthorizedTeamId } from "@/lib/scope";
 
 export type Props = InferProps<typeof loader>;
 
@@ -60,12 +63,26 @@ export const loader = defineHandler(async (c) => {
     url.searchParams.get("segment"),
     defaultSegmentForRange(range),
   );
+  const branchParam = url.searchParams.get("branch");
+  const branchFilter =
+    !branchParam || branchParam === ALL_BRANCHES ? null : branchParam;
   const rangeSec = rangeToSeconds(range);
   const days = rangeSec ? rangeSec / DAY_SEC : 30;
 
   const nowSec = Math.floor(Date.now() / 1000);
   const windowStartSec = nowSec - days * DAY_SEC;
   const expr = bucketExpr(segment);
+
+  const scope = {
+    teamId: project.teamId as AuthorizedTeamId,
+    projectId: project.id as AuthorizedProjectId,
+    teamSlug: project.teamSlug,
+    projectSlug: project.slug,
+  };
+  const branches = await loadProjectBranches(scope);
+  const branchSql = branchFilter
+    ? sql`and runs.branch = ${branchFilter}`
+    : sql``;
 
   const perBucketResult = await db.run(sql`
     with ranked as (
@@ -78,6 +95,7 @@ export const loader = defineHandler(async (c) => {
       where runs."projectId" = ${project.id}
         and runs."durationMs" > 0
         and runs."createdAt" >= ${windowStartSec}
+        ${branchSql}
     )
     select
       bucket,
@@ -100,6 +118,7 @@ export const loader = defineHandler(async (c) => {
       where runs."projectId" = ${project.id}
         and runs."durationMs" > 0
         and runs."createdAt" >= ${windowStartSec}
+        ${branchSql}
     )
     select
       max(cnt) as cnt,
@@ -130,6 +149,8 @@ export const loader = defineHandler(async (c) => {
     days,
     nowSec,
     windowStartSec,
+    branchParam,
+    branches,
     perBucket,
     overall,
     pathname: url.pathname,

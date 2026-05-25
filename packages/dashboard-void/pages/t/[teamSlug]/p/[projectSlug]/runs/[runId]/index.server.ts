@@ -54,6 +54,8 @@ export const loader = defineHandler(async (c) => {
   const branchParam = url.searchParams.get("branch");
   const defaultBranch = run.branch ?? ALL_BRANCHES;
   const effectiveBranch = branchParam ?? defaultBranch;
+  const tabParam = url.searchParams.get("tab");
+  const tab: "tests" | "env" = tabParam === "env" ? "env" : "tests";
 
   const origin = url.origin;
 
@@ -132,6 +134,8 @@ export const loader = defineHandler(async (c) => {
     branchParam,
     defaultBranch,
     effectiveBranch,
+    tab,
+    pathname: url.pathname,
     tests: testRows.map((r) => ({
       id: r.id,
       testId: r.testId,

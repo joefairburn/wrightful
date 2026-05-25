@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Check, Minus, TriangleAlert, X } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import type React from "react";
 import { useCallback, useState } from "react";
 import { fetch } from "void/client";
@@ -18,15 +17,14 @@ type Props = {
   runHref: string;
 };
 
-const TRIGGER_BADGE: Record<Variant, string> = {
-  failed:
-    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-destructive/8 text-destructive-foreground font-mono text-[11px] font-semibold border border-destructive/20 dark:bg-destructive/16 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-destructive/12 dark:hover:bg-destructive/24 relative z-10",
-  flaky:
-    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-warning/8 text-warning-foreground font-mono text-[11px] border border-warning/20 dark:bg-warning/16 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-warning/12 dark:hover:bg-warning/24 relative z-10",
-  passed:
-    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-success/8 text-success-foreground font-mono text-[11px] border border-success/20 dark:bg-success/16 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-success/12 dark:hover:bg-success/24 relative z-10",
-  skipped:
-    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-[11px] border border-muted-foreground/20 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-muted/80 relative z-10",
+const TRIGGER_CLASS =
+  "relative z-10 inline-flex shrink-0 cursor-pointer items-center font-mono text-[11px] tabular-nums outline-none transition-colors hover:underline focus-visible:underline";
+
+const TRIGGER_COLOR: Record<Variant, string> = {
+  passed: "var(--pass)",
+  failed: "var(--fail)",
+  flaky: "var(--flaky)",
+  skipped: "var(--skipped)",
 };
 
 const VARIANT_LABEL: Record<Variant, string> = {
@@ -35,14 +33,6 @@ const VARIANT_LABEL: Record<Variant, string> = {
   passed: "passed",
   skipped: "skipped",
 };
-
-const VARIANT_ICON: Record<Variant, { Icon: LucideIcon; strokeWidth: number }> =
-  {
-    failed: { Icon: X, strokeWidth: 3 },
-    flaky: { Icon: TriangleAlert, strokeWidth: 2.5 },
-    passed: { Icon: Check, strokeWidth: 3 },
-    skipped: { Icon: Minus, strokeWidth: 2.5 },
-  };
 
 function fetchTestPreview(
   teamSlug: string,
@@ -84,17 +74,16 @@ export function RunTestsPopover({
   if (count === 0) return null;
 
   const items = data?.[variant];
-  const { Icon, strokeWidth } = VARIANT_ICON[variant];
   const isLoading = isOpen && !data && !isError;
 
   return (
     <Popover onOpenChange={setIsOpen}>
       <PopoverTrigger
-        className={TRIGGER_BADGE[variant]}
-        onPointerEnter={prefetch}
+        className={TRIGGER_CLASS}
         onFocus={prefetch}
+        onPointerEnter={prefetch}
+        style={{ color: TRIGGER_COLOR[variant] }}
       >
-        <Icon size={10} strokeWidth={strokeWidth} />
         {count}
       </PopoverTrigger>
       <PopoverPopup className="w-96 p-0" align="start" side="bottom">

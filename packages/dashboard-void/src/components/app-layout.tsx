@@ -4,18 +4,17 @@ import {
   CheckSquare,
   FlaskConical,
   Plus,
-  Search,
   Settings,
   TriangleAlert,
   UserRound,
 } from "lucide-react";
-import { useState } from "react";
 import { Link, useRouter, useShared } from "@void/react";
-import { CommandMenu, useCommandMenuShortcut } from "@/components/command-menu";
+// Command menu is wired up but temporarily hidden — re-enable by uncommenting
+// the trigger button below + the `<CommandMenu>` + shortcut hook usage.
+// import { CommandMenu, useCommandMenuShortcut } from "@/components/command-menu";
 import { QueryProvider } from "@/components/query-provider";
 import { SidebarUserMenu } from "@/components/sidebar-user-menu";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
-import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/cn";
 
 type NavId = "runs" | "flaky" | "insights" | "tests";
@@ -58,8 +57,8 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
   const pathname = router.path;
   const user = auth?.user ?? null;
 
-  const [cmdOpen, setCmdOpen] = useState(false);
-  useCommandMenuShortcut(setCmdOpen);
+  // const [cmdOpen, setCmdOpen] = useState(false);
+  // useCommandMenuShortcut(setCmdOpen);
 
   return (
     <QueryProvider>
@@ -71,7 +70,9 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
             <AppSidebarContents
               activeProject={activeProject}
               activeTeam={activeTeam}
-              onOpenCommand={() => setCmdOpen(true)}
+              onOpenCommand={() => {
+                /* command menu disabled */
+              }}
               pathname={pathname}
               teamProjects={teamProjects}
               teams={userTeams}
@@ -94,14 +95,14 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
         </main>
       </div>
 
-      <CommandMenu
+      {/* <CommandMenu
         activeProject={activeProject}
         activeTeam={activeTeam}
         onOpenChange={setCmdOpen}
         open={cmdOpen}
         projects={teamProjects}
         teams={userTeams}
-      />
+      /> */}
     </QueryProvider>
   );
 }
@@ -121,7 +122,7 @@ function AppSidebarContents({
   teamProjects,
   activeTeam,
   activeProject,
-  onOpenCommand,
+  onOpenCommand: _onOpenCommand,
 }: AppSidebarContentsProps) {
   const activeNav = deriveActiveNav(pathname);
   const base =
@@ -177,7 +178,8 @@ function AppSidebarContents({
         )}
       </div>
 
-      <div className="shrink-0 px-2 pb-2">
+      {/* Jump to… (⌘K) — commented out until the command menu is ready for prime time. */}
+      {/* <div className="shrink-0 px-2 pb-2">
         <button
           aria-label="Open command menu"
           className={cn(
@@ -194,7 +196,7 @@ function AppSidebarContents({
             <Kbd className="h-4 min-w-4 px-1 text-[10px]">K</Kbd>
           </span>
         </button>
-      </div>
+      </div> */}
 
       <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
         {navItems.map((item) => {

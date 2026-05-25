@@ -1,7 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
 import { and, db, eq, gte, inArray, sql } from "void/db";
-import { runs, testResults } from "@schema";
+import { runs, testResults, testTags } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { resolveProjectBySlugs } from "@/lib/authz";
 import { loadProjectBranches } from "@/lib/branches-query";
@@ -37,6 +37,7 @@ export interface RankedTest {
 export interface FlakyTestMeta {
   title: string;
   file: string;
+  tags: string[];
   sparkline: { status: string }[];
 }
 
@@ -45,6 +46,7 @@ export interface RecentFailureRow {
   runId: string;
   commitSha: string | null;
   branch: string | null;
+  actor: string | null;
   createdAt: number;
   errorMessage: string | null;
   errorStack: string | null;
@@ -125,7 +127,7 @@ export const loader = defineHandler(async (c) => {
   const failsByTest = new Map<string, RecentFailureRow[]>();
 
   if (testIds.length > 0) {
-    const [sparkRows, failRows] = await Promise.all([
+    const [sparkRows, failRows, tagRows] = await Promise.all([
       loadSparklinesAndMeta(
         scope.projectId,
         testIds,
@@ -138,11 +140,12 @@ export const loader = defineHandler(async (c) => {
         branchFilter,
         RECENT_FAILURES,
       ),
+      loadTagsByTestId(scope.projectId, testIds),
     ]);
     for (const r of sparkRows) {
       let entry = sparkByTest.get(r.testId);
       if (!entry) {
-        entry = { sparkline: [], title: r.title, file: r.file };
+        entry = { sparkline: [], title: r.title, file: r.file, tags: [] };
         sparkByTest.set(r.testId, entry);
       }
       if (r.rn === 1) {
@@ -150,6 +153,12 @@ export const loader = defineHandler(async (c) => {
         entry.file = r.file;
       }
       entry.sparkline.push({ status: r.status });
+    }
+    for (const r of tagRows) {
+      const entry = sparkByTest.get(r.testId);
+      if (entry && !entry.tags.includes(r.tag)) {
+        entry.tags.push(r.tag);
+      }
     }
     for (const r of failRows) {
       let entry = failsByTest.get(r.testId);
@@ -162,6 +171,7 @@ export const loader = defineHandler(async (c) => {
         runId: r.runId,
         commitSha: r.commitSha,
         branch: r.branch,
+        actor: r.actor,
         createdAt: r.createdAt,
         errorMessage: r.errorMessage,
         errorStack: r.errorStack,
@@ -254,6 +264,7 @@ interface RecentFailureSqlRow {
   errorStack: string | null;
   commitSha: string | null;
   branch: string | null;
+  actor: string | null;
   rn: number;
 }
 
@@ -276,6 +287,7 @@ async function loadRecentFailures(
         tr."errorStack" as "errorStack",
         runs."commitSha" as "commitSha",
         runs.branch as branch,
+        runs.actor as actor,
         row_number() over (
           partition by tr."testId"
           order by tr."createdAt" desc
@@ -291,7 +303,7 @@ async function loadRecentFailures(
         ${branchSql}
     )
     select "testId", "testResultId", "runId", "createdAt",
-           "errorMessage", "errorStack", "commitSha", branch, rn
+           "errorMessage", "errorStack", "commitSha", branch, actor, rn
     from ranked
     where rn <= ${count}
     order by "testId" asc, rn asc
@@ -302,4 +314,32 @@ async function loadRecentFailures(
   void inArray;
 
   return (result.results as RecentFailureSqlRow[]) ?? [];
+}
+
+interface TagRow {
+  testId: string;
+  tag: string;
+}
+
+/**
+ * Distinct (testId, tag) pairs for the requested testIds. Tags hang off
+ * `testResults` rows (one row per attempt) but are stable per testId in
+ * practice, so we dedupe across all attempts and surface the set.
+ */
+async function loadTagsByTestId(
+  projectId: string,
+  testIds: readonly string[],
+): Promise<TagRow[]> {
+  const result = await db.run(sql`
+    select distinct tr."testId" as "testId", tt.tag as tag
+    from ${testTags} tt
+    inner join ${testResults} tr on tr.id = tt."testResultId"
+    where tr."projectId" = ${projectId}
+      and tr."testId" in (${sql.join(
+        testIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})
+  `);
+
+  return (result.results as TagRow[]) ?? [];
 }

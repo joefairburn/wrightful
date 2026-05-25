@@ -1,4 +1,3 @@
-import { Activity, CheckCircle2, TriangleAlert } from "lucide-react";
 import {
   BucketBarChart,
   type BucketBarChartBucket,
@@ -6,10 +5,19 @@ import {
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import { InsightsTabs } from "@/components/analytics/insights-tabs";
 import { AnalyticsKpiCard } from "@/components/analytics/kpi-card";
+import { PageHeader } from "@/components/page-header";
+import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
+import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { Card, CardPanel } from "@/components/ui/card";
 import { bucketKey, buildEmptyBuckets } from "@/lib/analytics/bucketing";
 import { statusColor } from "@/lib/status";
 import type { Props } from "./index.server";
+
+const SEGMENT_NOUN: Record<string, string> = {
+  day: "day",
+  week: "week",
+  month: "month",
+};
 
 /**
  * Insights → Run Status (default). Stacked-bar bucket chart of pass/fail/
@@ -23,9 +31,10 @@ export default function InsightsPage({
   days,
   nowSec,
   windowStartSec,
+  branchParam,
+  branches,
   pathname,
   aggRows,
-  segments,
   ranges,
 }: Props) {
   const shells = buildEmptyBuckets(segment, windowStartSec, nowSec);
@@ -89,98 +98,127 @@ export default function InsightsPage({
   const flakyRate = executed === 0 ? 0 : (totalFlaky / executed) * 100;
   const avgRunsPerDay = totalRuns / days;
 
+  // Per-bucket trend data for the KPI sparklines. Iterates the populated
+  // buckets in chronological order (shells.map preserves order) and
+  // computes the rate or count per bucket; falls back to 0 for empty
+  // buckets so the line stays continuous.
+  const passRateSpark: number[] = [];
+  const flakyRateSpark: number[] = [];
+  const runsSpark: number[] = [];
+  for (const s of shells) {
+    const row = byKey.get(s.key);
+    const exec = (row?.passed ?? 0) + (row?.failed ?? 0) + (row?.flaky ?? 0);
+    passRateSpark.push(exec === 0 ? 0 : ((row?.passed ?? 0) / exec) * 100);
+    flakyRateSpark.push(exec === 0 ? 0 : ((row?.flaky ?? 0) / exec) * 100);
+    runsSpark.push(row?.runs ?? 0);
+  }
+
+  const segmentNoun = SEGMENT_NOUN[segment] ?? segment;
+
   const hrefWith = (overrides: Record<string, string>): string => {
     const p = new URLSearchParams();
     p.set("range", range);
     p.set("segment", segment);
+    if (branchParam) p.set("branch", branchParam);
     for (const [k, v] of Object.entries(overrides)) p.set(k, v);
     return `${pathname}?${p.toString()}`;
   };
 
   return (
     <>
-      <InsightsTabs
-        teamSlug={project.teamSlug}
-        projectSlug={project.slug}
-        active="run-status"
+      <PageHeader
+        right={
+          <>
+            <RunHistoryBranchFilter
+              branches={branches}
+              defaultValue={branchParam ?? ALL_BRANCHES}
+            />
+            <AnalyticsButtonGroup
+              hrefFor={(r) => hrefWith({ range: r })}
+              options={ranges as readonly ("7d" | "14d" | "30d" | "90d")[]}
+              value={range}
+            />
+          </>
+        }
+        subtitle={
+          <>
+            <span className="font-mono">{project.slug}</span> · trends across
+            the last {days} days
+          </>
+        }
+        title="Insights"
       />
 
-      <div className="px-6 py-5 flex flex-col gap-4 border-b border-border shrink-0 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Run Status Analytics
-          </h1>
-          <p className="text-xs text-muted-foreground mt-1 font-mono uppercase tracking-wider">
-            Historical outcome distribution · Last {days} days
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <AnalyticsButtonGroup
-            options={segments as readonly ("day" | "week" | "month")[]}
-            value={segment}
-            hrefFor={(s) => hrefWith({ segment: s })}
-          />
-          <AnalyticsButtonGroup
-            options={ranges as readonly ("7d" | "14d" | "30d" | "90d")[]}
-            value={range}
-            hrefFor={(r) => hrefWith({ range: r })}
-          />
-        </div>
-      </div>
+      <InsightsTabs
+        active="run-status"
+        branch={branchParam}
+        projectSlug={project.slug}
+        range={range}
+        teamSlug={project.teamSlug}
+      />
 
-      <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="flex-1 overflow-y-auto min-h-0 px-6 py-6 pb-12 space-y-[18px]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <AnalyticsKpiCard
-            label="Avg Pass Rate"
+            footnote={
+              executed === 0
+                ? "No executions in window"
+                : `Across ${executed.toLocaleString()} executions`
+            }
+            label="Overall pass rate"
+            spark={passRateSpark}
             value={`${passRate.toFixed(1)}%`}
-            Icon={CheckCircle2}
-            iconColor={passedColor}
-            footnote={executed === 0 ? "No executions in window" : undefined}
           />
           <AnalyticsKpiCard
-            label="Flakiness Rate"
-            value={`${flakyRate.toFixed(1)}%`}
-            Icon={TriangleAlert}
-            iconColor={flakyColor}
             footnote={`${totalFlaky.toLocaleString()} flaky of ${executed.toLocaleString()} executed`}
+            label="Flakiness rate"
+            spark={flakyRateSpark}
+            value={`${flakyRate.toFixed(1)}%`}
           />
           <AnalyticsKpiCard
-            label="Total Runs"
-            value={totalRuns.toLocaleString()}
-            Icon={Activity}
             footnote={`~${avgRunsPerDay.toFixed(avgRunsPerDay < 10 ? 1 : 0)} runs / day avg`}
+            label={`Total runs (${days}d)`}
+            spark={runsSpark}
+            value={totalRuns.toLocaleString()}
           />
         </div>
 
-        <Card>
-          <div className="flex items-center justify-between px-6 pt-5 pb-3">
-            <div>
-              <h2 className="text-base font-semibold">
-                Execution Volume &amp; Outcomes
-              </h2>
-              <p className="mt-0.5 text-xs font-mono text-muted-foreground">
-                Runs grouped by {segment}
-              </p>
-            </div>
-            <Legend
-              items={[
-                { label: "Passed", color: passedColor },
-                { label: "Failed", color: failedColor },
-                { label: "Flaky", color: flakyColor },
-                { label: "Skipped", color: skippedColor },
-              ]}
-            />
+        <Card className="overflow-hidden rounded-[9px] border-line-1">
+          <div className="border-b border-line-1 px-[18px] py-3">
+            <h2 className="text-[13px] font-semibold tracking-tight">
+              {segmentNoun.charAt(0).toUpperCase()}
+              {segmentNoun.slice(1)} outcomes
+            </h2>
+            <p className="mt-0.5 text-[11.5px] text-fg-3">
+              One bar per {segmentNoun}. Stacked passed → flaky → failed →
+              skipped.
+            </p>
           </div>
-          <CardPanel className="pt-0">
+          <CardPanel className="px-[18px] py-4">
             <BucketBarChart
-              buckets={buckets}
-              height={420}
               ariaLabel={`Run outcomes across ${buckets.length} buckets`}
+              buckets={buckets}
+              height={320}
             />
+            <div className="mt-3.5 flex items-center gap-3.5 text-[11.5px] text-fg-3">
+              <LegendSwatch color={passedColor} label="Passed" />
+              <LegendSwatch color={flakyColor} label="Flaky" />
+              <LegendSwatch color={failedColor} label="Failed" />
+              <LegendSwatch color={skippedColor} label="Skipped" />
+            </div>
           </CardPanel>
         </Card>
       </div>
     </>
+  );
+}
+
+function LegendSwatch({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="size-2.5 rounded-[2px]" style={{ background: color }} />
+      {label}
+    </span>
   );
 }
 
@@ -203,22 +241,6 @@ function TooltipRow({
         <span className="text-foreground">{label}</span>
       </span>
       <span className="text-foreground">{value.toLocaleString()}</span>
-    </div>
-  );
-}
-
-function Legend({ items }: { items: { label: string; color: string }[] }) {
-  return (
-    <div className="hidden sm:flex items-center gap-3 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-      {items.map((it) => (
-        <div key={it.label} className="flex items-center gap-1.5">
-          <span
-            className="inline-block h-2.5 w-2.5 rounded-sm"
-            style={{ background: it.color }}
-          />
-          {it.label}
-        </div>
-      ))}
     </div>
   );
 }

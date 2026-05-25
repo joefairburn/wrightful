@@ -1,6 +1,11 @@
-import { GitBranch, GitCommit, GitPullRequest } from "lucide-react";
+import { GitBranch, GitPullRequest } from "lucide-react";
+import { Link } from "@void/react";
+import { ActorAvatar } from "@/components/actor-avatar";
+import { OutcomeBar } from "@/components/outcome-bar";
+import { PageHeader } from "@/components/page-header";
 import { RunsFilterBar } from "@/components/runs-filter-bar";
 import { RunTestsPopover } from "@/components/run-tests-popover";
+import { StatusGlyph } from "@/components/status-glyph";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
 import {
   Empty,
@@ -17,32 +22,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/cn";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
 import { toSearchParams } from "@/lib/runs-filters";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { Props } from "./index.server";
 
-const STATUS_DOT: Record<string, string> = {
-  passed: "bg-success shadow-[0_0_6px_var(--color-success)]",
-  failed: "bg-destructive shadow-[0_0_6px_var(--color-destructive)]",
-  timedout: "bg-destructive shadow-[0_0_6px_var(--color-destructive)]",
-  flaky: "bg-warning",
-  interrupted: "bg-warning",
-  skipped: "bg-muted-foreground/30",
-  running: "bg-primary animate-pulse shadow-[0_0_6px_var(--color-primary)]",
-};
-
 /**
- * Runs list page. Mirrors the rwsdk version: filter bar (status, branch,
- * actor, environment, date range, free-text), paginated table, per-row
- * stretched anchor + side popovers.
- *
- * Live updates for in-flight runs use a smaller scope than the rwsdk
- * version — the runs-list popover doesn't subscribe to per-run progress
- * topics today (those land on the run-detail page). The colored "running"
- * dot animation still indicates the in-progress state from the row's
- * stored status.
+ * Runs list page. Layout mirrors the design bundle's `RunsScreen` (see
+ * `wrightful/project/screen-runs.jsx`): filter bar at the top, then a
+ * four-column row layout — status glyph (shape varies by status for
+ * colorblind safety), commit + chip meta, outcome bar with mono counts,
+ * duration, relative time. The popovers over each count are a deepening
+ * over the pure design — engineers can peek at the failed/flaky test list
+ * without leaving the page.
  */
 export default function RunsListPage({
   project,
@@ -68,17 +60,18 @@ export default function RunsListPage({
 
   return (
     <>
-      <div className="shrink-0 border-b border-border px-6 py-3">
-        <div className="mb-2.5 flex items-center gap-2.5">
-          <h1 className="text-[19px] font-semibold tracking-tight">Runs</h1>
-          <span className="rounded-sm border border-border/50 bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-            {totalRuns}
-            {filtersActive ? " match" : " total"}
-          </span>
-          <span className="text-[12.5px] text-muted-foreground">
-            <span className="font-mono">{project.slug}</span>
-          </span>
-        </div>
+      <PageHeader
+        subtitle={
+          <>
+            <span className="font-mono">{project.slug}</span> ·{" "}
+            {filtersActive
+              ? `${totalRuns} runs matching filters`
+              : `${totalRuns} runs total`}
+          </>
+        }
+        title="Runs"
+      />
+      <div className="shrink-0 border-b border-border px-6 py-2.5">
         <RunsFilterBar filters={filters} options={options} pathname={base} />
       </div>
 
@@ -101,29 +94,26 @@ export default function RunsListPage({
             </Empty>
           </div>
         ) : (
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-muted/30 backdrop-blur-sm">
+          <Table className="table-fixed">
+            <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
               <TableRow>
-                <TableHead className="w-8 px-4" />
-                <TableHead className="px-4 font-mono text-[11px] uppercase tracking-wider">
+                <TableHead className="w-10 px-4" />
+                <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                   Commit
                 </TableHead>
-                <TableHead className="w-28 px-4 font-mono text-[11px] uppercase tracking-wider">
-                  Env
+                <TableHead className="w-[220px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                  Outcome
                 </TableHead>
-                <TableHead className="w-52 px-4 font-mono text-[11px] uppercase tracking-wider">
-                  Tests
-                </TableHead>
-                <TableHead className="w-24 px-4 font-mono text-[11px] uppercase tracking-wider text-right">
+                <TableHead className="w-[90px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                   Duration
                 </TableHead>
-                <TableHead className="w-28 px-4 font-mono text-[11px] uppercase tracking-wider text-right">
-                  Started
+                <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                  When
                 </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {runs.map((run) => {
+              {runs.map((run, i) => {
                 const href = `${base}/runs/${run.id}`;
                 const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
                 const commitHref = commitUrl(
@@ -136,174 +126,130 @@ export default function RunsListPage({
                   run.repo,
                   run.branch,
                 );
+                const total = run.passed + run.failed + run.flaky + run.skipped;
+                const runNum = totalRuns - offset - i;
+
                 return (
                   <TableRow
+                    className="relative border-b border-border/50 hover:bg-bg-1"
                     key={run.id}
-                    className="relative border-b border-border/50"
                   >
-                    <TableCell className="px-4 py-3 text-center">
-                      {/* Stretched-link pattern (`after:absolute after:inset-0`)
-                       * covers the whole row as a click target. Kept as a plain
-                       * `<a>` rather than `@void/react`'s `<Link>` because the
-                       * pseudo-element overlay collides with Link's click
-                       * interception when nested children (the PR/commit/branch
-                       * external links below) sit above the same row. */}
-                      <a
+                    <TableCell className="w-10 px-4 py-3 align-middle">
+                      {/* Stretched-link pattern: the `<Link>` is
+                       * `position: static` so its `after:inset-0` pseudo
+                       * fills the nearest positioned ancestor — the
+                       * TableRow (which has `relative` above). Result: the
+                       * whole row is the click target. Nested `relative
+                       * z-10` external links (branch/PR/commit chips) call
+                       * `e.stopPropagation()` so their clicks don't bubble
+                       * to this Link's SPA-navigation handler. */}
+                      <Link
+                        className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
                         href={href}
-                        className="flex items-center justify-center rounded-sm after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-offset-0"
                       >
                         <span className="sr-only">
                           View run {run.commitMessage ?? run.id.slice(0, 8)}
                         </span>
-                        <span
-                          className={cn(
-                            "inline-block w-2.5 h-2.5 rounded-full",
-                            STATUS_DOT[run.status] ?? "bg-muted-foreground/30",
-                          )}
-                        />
-                      </a>
+                        <StatusGlyph size={14} status={run.status} />
+                      </Link>
                     </TableCell>
 
-                    <TableCell className="px-4 py-3 max-w-md">
-                      <div className="flex flex-col gap-1 min-w-0 font-mono text-xs">
-                        <span className="truncate text-foreground">
-                          {run.commitMessage ? (
-                            run.commitMessage
-                          ) : run.actor ? (
-                            `@${run.actor}`
-                          ) : (
-                            <span className="italic text-muted-foreground">
-                              No message
-                            </span>
-                          )}
-                        </span>
-                        <span className="flex items-center gap-3 min-w-0 text-muted-foreground">
-                          <span className="flex items-center gap-1.5 min-w-0">
-                            <GitBranch
-                              size={12}
-                              strokeWidth={2}
-                              className="shrink-0"
-                            />
-                            {run.branch ? (
-                              branchHref ? (
-                                <a
-                                  href={branchHref}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="relative z-10 truncate hover:underline hover:text-foreground"
-                                >
-                                  {run.branch}
-                                </a>
-                              ) : (
-                                <span className="truncate">{run.branch}</span>
-                              )
-                            ) : (
-                              <span>—</span>
-                            )}
-                            {run.prNumber != null && prHref ? (
-                              <a
-                                href={prHref}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="relative z-10 inline-flex items-center gap-0.5 shrink-0 hover:text-foreground"
-                                title={`Open PR #${run.prNumber}`}
-                              >
-                                <GitPullRequest size={10} strokeWidth={2.5} />#
-                                {run.prNumber}
-                              </a>
-                            ) : run.prNumber != null ? (
-                              <span className="inline-flex items-center gap-0.5 shrink-0">
-                                <GitPullRequest size={10} strokeWidth={2.5} />#
-                                {run.prNumber}
-                              </span>
-                            ) : null}
+                    <TableCell className="px-4 py-3 align-middle">
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-muted-foreground">
+                            #{runNum}
                           </span>
+                          <span
+                            className="min-w-0 flex-1 truncate text-[13.5px] text-foreground"
+                            title={run.commitMessage ?? undefined}
+                          >
+                            {run.commitMessage ? (
+                              run.commitMessage
+                            ) : run.actor ? (
+                              `@${run.actor}`
+                            ) : (
+                              <span className="italic text-muted-foreground">
+                                No message
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px] text-muted-foreground">
+                          {run.branch ? (
+                            <BranchPill href={branchHref} name={run.branch} />
+                          ) : null}
+                          {run.prNumber != null ? (
+                            <PrPill href={prHref} num={run.prNumber} />
+                          ) : null}
+                          {run.environment ? (
+                            <EnvPill env={run.environment} />
+                          ) : null}
                           {run.commitSha ? (
-                            <span className="flex items-center gap-1.5 shrink-0">
-                              <GitCommit
-                                size={12}
-                                strokeWidth={2}
-                                className="shrink-0"
-                              />
-                              {commitHref ? (
-                                <a
-                                  href={commitHref}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="relative z-10 hover:underline hover:text-foreground"
-                                  title="View commit"
-                                >
-                                  {run.commitSha.slice(0, 7)}
-                                </a>
-                              ) : (
-                                <span>{run.commitSha.slice(0, 7)}</span>
-                              )}
-                              {run.actor && run.commitMessage ? (
-                                <span className="shrink-0">· @{run.actor}</span>
-                              ) : null}
+                            <CommitPill href={commitHref} sha={run.commitSha} />
+                          ) : null}
+                          {run.actor ? (
+                            <span className="inline-flex shrink-0 items-center gap-1.5">
+                              <ActorAvatar actor={run.actor} />
+                              <span className="truncate">{run.actor}</span>
                             </span>
                           ) : null}
-                        </span>
+                        </div>
                       </div>
                     </TableCell>
 
-                    <TableCell className="px-4 py-3">
-                      {run.environment ? (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-border bg-muted/40 font-mono text-[11px] text-foreground max-w-[110px] truncate">
-                          {run.environment}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
-                    </TableCell>
-
-                    <TableCell className="px-4 py-3">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <RunTestsPopover
-                          variant="passed"
-                          count={run.passed}
-                          teamSlug={project.teamSlug}
-                          projectSlug={project.slug}
-                          runId={run.id}
-                          runHref={href}
+                    <TableCell className="w-[220px] px-4 py-3 align-middle">
+                      <div className="flex flex-col gap-1.5">
+                        <OutcomeBar
+                          failed={run.failed}
+                          flaky={run.flaky}
+                          height={7}
+                          passed={run.passed}
+                          skipped={run.skipped}
+                          total={total}
                         />
-                        <RunTestsPopover
-                          variant="failed"
-                          count={run.failed}
-                          teamSlug={project.teamSlug}
-                          projectSlug={project.slug}
-                          runId={run.id}
-                          runHref={href}
-                        />
-                        <RunTestsPopover
-                          variant="flaky"
-                          count={run.flaky}
-                          teamSlug={project.teamSlug}
-                          projectSlug={project.slug}
-                          runId={run.id}
-                          runHref={href}
-                        />
-                        <RunTestsPopover
-                          variant="skipped"
-                          count={run.skipped}
-                          teamSlug={project.teamSlug}
-                          projectSlug={project.slug}
-                          runId={run.id}
-                          runHref={href}
-                        />
+                        <div className="flex items-center gap-2.5 font-mono text-[11px] tabular-nums">
+                          <RunTestsPopover
+                            count={run.passed}
+                            projectSlug={project.slug}
+                            runHref={href}
+                            runId={run.id}
+                            teamSlug={project.teamSlug}
+                            variant="passed"
+                          />
+                          {run.failed > 0 ? (
+                            <RunTestsPopover
+                              count={run.failed}
+                              projectSlug={project.slug}
+                              runHref={href}
+                              runId={run.id}
+                              teamSlug={project.teamSlug}
+                              variant="failed"
+                            />
+                          ) : null}
+                          {run.flaky > 0 ? (
+                            <RunTestsPopover
+                              count={run.flaky}
+                              projectSlug={project.slug}
+                              runHref={href}
+                              runId={run.id}
+                              teamSlug={project.teamSlug}
+                              variant="flaky"
+                            />
+                          ) : null}
+                          <span className="ml-auto text-[color:var(--fg-4)]">
+                            /{total}
+                          </span>
+                        </div>
                       </div>
                     </TableCell>
 
-                    <TableCell className="px-4 py-3 text-right">
-                      <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                        {formatDuration(run.durationMs)}
-                      </span>
+                    <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-muted-foreground">
+                      {formatDuration(run.durationMs)}
                     </TableCell>
 
-                    <TableCell className="px-4 py-3 text-right">
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {formatRelativeTime(run.createdAt)}
-                      </span>
+                    <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+                      {formatRelativeTime(run.createdAt)}
                     </TableCell>
                   </TableRow>
                 );
@@ -314,15 +260,123 @@ export default function RunsListPage({
       </div>
 
       <TablePaginationFooter
-        fromRow={fromRow}
-        toRow={toRow}
-        totalCount={totalRuns}
+        className="bg-background"
         currentPage={currentPage}
-        totalPages={totalPages}
+        fromRow={fromRow}
         itemNoun="run"
         pageHref={pageHref}
-        className="bg-background"
+        toRow={toRow}
+        totalCount={totalRuns}
+        totalPages={totalPages}
       />
     </>
+  );
+}
+
+function BranchPill({
+  name,
+  href,
+}: {
+  name: string;
+  href: string | null;
+}): React.ReactElement {
+  const content = (
+    <>
+      <GitBranch className="size-3 shrink-0" strokeWidth={2} />
+      <span className="truncate">{name}</span>
+    </>
+  );
+  const className =
+    "relative z-10 inline-flex max-w-[180px] items-center gap-1 rounded-full border border-line-1 bg-bg-2 px-2 py-px font-mono text-[11.5px] leading-[18px] text-fg-2 hover:text-foreground";
+  return href ? (
+    <a
+      className={className}
+      href={href}
+      onClick={(e) => e.stopPropagation()}
+      rel="noreferrer"
+      target="_blank"
+    >
+      {content}
+    </a>
+  ) : (
+    <span className={className}>{content}</span>
+  );
+}
+
+function PrPill({
+  num,
+  href,
+}: {
+  num: number;
+  href: string | null;
+}): React.ReactElement {
+  const content = (
+    <>
+      <GitPullRequest className="size-3 shrink-0" strokeWidth={2} />#{num}
+    </>
+  );
+  const className =
+    "relative z-10 inline-flex shrink-0 items-center gap-1 rounded-full border border-line-1 bg-bg-2 px-2 py-px text-[11.5px] leading-[18px] text-fg-2 hover:text-foreground";
+  return href ? (
+    <a
+      className={className}
+      href={href}
+      onClick={(e) => e.stopPropagation()}
+      rel="noreferrer"
+      target="_blank"
+    >
+      {content}
+    </a>
+  ) : (
+    <span className={className}>{content}</span>
+  );
+}
+
+function EnvPill({ env }: { env: string }): React.ReactElement {
+  // Production gets a warm tint; staging picks up the accent; everything else
+  // lands on the neutral raised surface.
+  const tone: { bg: string; fg: string } =
+    env === "production"
+      ? { bg: "oklch(0.70 0.20 24 / 0.14)", fg: "oklch(0.78 0.20 24)" }
+      : env === "staging"
+        ? { bg: "var(--accent-soft)", fg: "var(--accent)" }
+        : { bg: "var(--bg-3)", fg: "var(--fg-2)" };
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-[4px] px-2 py-px font-mono text-[11px] font-medium tracking-[0.2px]"
+      style={{ background: tone.bg, color: tone.fg }}
+    >
+      {env}
+    </span>
+  );
+}
+
+function CommitPill({
+  sha,
+  href,
+}: {
+  sha: string;
+  href: string | null;
+}): React.ReactElement {
+  const short = sha.slice(0, 7);
+  const className =
+    "relative z-10 inline-flex shrink-0 items-center gap-1 font-mono text-[11.5px] text-fg-3 hover:text-foreground";
+  return href ? (
+    <a
+      className={className}
+      href={href}
+      onClick={(e) => e.stopPropagation()}
+      rel="noreferrer"
+      target="_blank"
+      title="View commit"
+    >
+      <span className="size-1 rounded-full bg-fg-4" />
+      {short}
+    </a>
+  ) : (
+    <span className={className}>
+      <span className="size-1 rounded-full bg-fg-4" />
+      {short}
+    </span>
   );
 }

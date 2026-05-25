@@ -2,6 +2,7 @@ import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
 import { and, db, desc, eq, gte, sql } from "void/db";
 import { runs, testResults, testTags } from "@schema";
+import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { resolveProjectBySlugs } from "@/lib/authz";
 import {
   DAY_SEC,
@@ -11,12 +12,14 @@ import {
 } from "@/lib/analytics/bucketing";
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
+import { loadProjectBranches } from "@/lib/branches-query";
+import type { AuthorizedProjectId, AuthorizedTeamId } from "@/lib/scope";
 
 export type Props = InferProps<typeof loader>;
 
-type RangeKey = "7d" | "30d" | "90d" | "1y" | "all";
-const RANGES: readonly RangeKey[] = ["7d", "30d", "90d", "1y", "all"];
-const parseRange = makeRangeParser<RangeKey>(RANGES, "90d");
+type RangeKey = "7d" | "14d" | "30d" | "90d";
+const RANGES: readonly RangeKey[] = ["7d", "14d", "30d", "90d"];
+const parseRange = makeRangeParser<RangeKey>(RANGES, "30d");
 
 const DISTRIBUTION_LIMIT = 10;
 const TAG_LIMIT = 12;
@@ -52,11 +55,29 @@ export const loader = defineHandler(async (c) => {
     url.searchParams.get("segment"),
     defaultSegmentForRange(range),
   );
+  const branchParam = url.searchParams.get("branch");
+  const branchFilter =
+    !branchParam || branchParam === ALL_BRANCHES ? null : branchParam;
+
+  const scope = {
+    teamId: project.teamId as AuthorizedTeamId,
+    projectId: project.id as AuthorizedProjectId,
+    teamSlug: project.teamSlug,
+    projectSlug: project.slug,
+  };
+  const branches = await loadProjectBranches(scope);
 
   const nowSec = Math.floor(Date.now() / 1000);
   const rangeSec = rangeToSeconds(range);
   const windowStartSec = rangeSec ? nowSec - rangeSec : 0;
   const expr = bucketExpr(segment);
+
+  const trendConditions = [
+    eq(runs.teamId, project.teamId),
+    eq(runs.projectId, project.id),
+    gte(runs.createdAt, windowStartSec),
+  ];
+  if (branchFilter) trendConditions.push(eq(runs.branch, branchFilter));
 
   const trendRows = await db
     .select({
@@ -64,13 +85,7 @@ export const loader = defineHandler(async (c) => {
       peak: sql<number>`max(${runs.totalTests})`,
     })
     .from(runs)
-    .where(
-      and(
-        eq(runs.teamId, project.teamId),
-        eq(runs.projectId, project.id),
-        gte(runs.createdAt, windowStartSec),
-      ),
-    )
+    .where(and(...trendConditions))
     .groupBy(expr);
 
   // For "all", find the earliest run so shells don't stretch back to 1970.
@@ -147,6 +162,8 @@ export const loader = defineHandler(async (c) => {
     rangeSec,
     nowSec,
     shellStartSec,
+    branchParam,
+    branches,
     trendRows: trendRows.map((r) => ({
       bucket: r.bucket,
       peak: r.peak ?? 0,

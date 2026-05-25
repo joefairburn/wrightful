@@ -1,4 +1,3 @@
-import { Clock, Gauge, TriangleAlert } from "lucide-react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import { InsightsTabs } from "@/components/analytics/insights-tabs";
 import { AnalyticsKpiCard } from "@/components/analytics/kpi-card";
@@ -7,6 +6,9 @@ import {
   type LineChartBucket,
   type LineChartSeries,
 } from "@/components/analytics/line-chart";
+import { PageHeader } from "@/components/page-header";
+import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
+import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { Card, CardPanel } from "@/components/ui/card";
 import { bucketKey, buildEmptyBuckets } from "@/lib/analytics/bucketing";
 import { formatDuration } from "@/lib/time-format";
@@ -31,8 +33,9 @@ export default function RunDurationPage({
   windowStartSec,
   perBucket,
   overall,
+  branchParam,
+  branches,
   pathname,
-  segments,
   ranges,
 }: Props) {
   const shells = buildEmptyBuckets(segment, windowStartSec, nowSec);
@@ -89,91 +92,110 @@ export default function RunDurationPage({
   const overallCnt = overall.cnt ?? 0;
   const { p50: p50All, p90: p90All, p95: p95All } = overall;
 
+  // Per-bucket sparkline data for each percentile. Skip null buckets so the
+  // line stays meaningful — `MetricSparkline` will fall back gracefully.
+  const p50Spark = buckets
+    .map((b) => b.values[0])
+    .filter((v): v is number => v != null);
+  const p90Spark = buckets
+    .map((b) => b.values[1])
+    .filter((v): v is number => v != null);
+  const p95Spark = buckets
+    .map((b) => b.values[2])
+    .filter((v): v is number => v != null);
+
   const hrefWith = (overrides: Record<string, string>): string => {
     const p = new URLSearchParams();
     p.set("range", range);
     p.set("segment", segment);
+    if (branchParam) p.set("branch", branchParam);
     for (const [k, v] of Object.entries(overrides)) p.set(k, v);
     return `${pathname}?${p.toString()}`;
   };
 
   return (
     <>
-      <InsightsTabs
-        teamSlug={project.teamSlug}
-        projectSlug={project.slug}
-        active="run-duration"
+      <PageHeader
+        right={
+          <>
+            <RunHistoryBranchFilter
+              branches={branches}
+              defaultValue={branchParam ?? ALL_BRANCHES}
+            />
+            <AnalyticsButtonGroup
+              hrefFor={(r) => hrefWith({ range: r })}
+              options={ranges as readonly ("7d" | "14d" | "30d" | "90d")[]}
+              value={range}
+            />
+          </>
+        }
+        subtitle={
+          <>
+            <span className="font-mono">{project.slug}</span> · trends across
+            the last {days} days
+          </>
+        }
+        title="Insights"
       />
 
-      <div className="px-6 py-5 flex flex-col gap-4 border-b border-border shrink-0 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Run Duration Trends
-          </h1>
-          <p className="text-xs text-muted-foreground mt-1 font-mono uppercase tracking-wider">
-            Pipeline execution percentiles · Last {days} days
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <AnalyticsButtonGroup
-            options={segments as readonly ("day" | "week" | "month")[]}
-            value={segment}
-            hrefFor={(s) => hrefWith({ segment: s })}
-          />
-          <AnalyticsButtonGroup
-            options={ranges as readonly ("7d" | "14d" | "30d" | "90d")[]}
-            value={range}
-            hrefFor={(r) => hrefWith({ range: r })}
-          />
-        </div>
-      </div>
+      <InsightsTabs
+        active="run-duration"
+        branch={branchParam}
+        projectSlug={project.slug}
+        range={range}
+        teamSlug={project.teamSlug}
+      />
 
-      <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="flex-1 overflow-y-auto min-h-0 px-6 py-6 pb-12 space-y-[18px]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <AnalyticsKpiCard
-            label="Median Duration (p50)"
-            value={formatOrDash(p50All)}
-            Icon={Clock}
-            iconColor={SERIES_COLORS.p50}
             footnote={
               overallCnt === 0
                 ? "No runs in window"
                 : `Across ${overallCnt.toLocaleString()} runs`
             }
+            label="Median duration (p50)"
+            spark={p50Spark}
+            value={formatOrDash(p50All)}
           />
           <AnalyticsKpiCard
-            label="P90 Threshold"
+            label="P90 threshold"
+            spark={p90Spark}
             value={formatOrDash(p90All)}
-            Icon={Gauge}
-            iconColor={SERIES_COLORS.p90}
           />
           <AnalyticsKpiCard
-            label="P95 Wall-Clock Time"
+            label="P95 wall-clock time"
+            spark={p95Spark}
             value={formatOrDash(p95All)}
-            Icon={TriangleAlert}
-            iconColor={SERIES_COLORS.p95}
           />
         </div>
 
-        <Card>
-          <div className="flex items-center justify-between px-6 pt-5 pb-3">
-            <div>
-              <h2 className="text-base font-semibold">Duration Percentiles</h2>
-              <p className="mt-0.5 text-xs font-mono text-muted-foreground">
-                Per {segment} — p50, p90, p95 of `runs.durationMs`
-              </p>
-            </div>
-            <Legend series={series} />
+        <Card className="overflow-hidden rounded-[9px] border-line-1">
+          <div className="border-b border-line-1 px-[18px] py-3">
+            <h2 className="text-[13px] font-semibold tracking-tight">
+              Duration percentiles
+            </h2>
+            <p className="mt-0.5 text-[11.5px] text-fg-3">
+              Per {segment} — p50, p90, p95 of run duration.
+            </p>
           </div>
-          <CardPanel className="pt-0">
+          <CardPanel className="px-[18px] py-4">
             <AnalyticsLineChart
-              buckets={buckets}
-              series={series}
-              height={360}
-              formatYTick={(ms) => formatDuration(Math.round(ms))}
               ariaLabel={`Duration percentiles across ${buckets.length} buckets`}
+              buckets={buckets}
               emptyState="No runs in this window."
+              formatYTick={(ms) => formatDuration(Math.round(ms))}
+              height={320}
+              series={series}
             />
+            <div className="mt-3.5 flex items-center gap-3.5 text-[11.5px] text-fg-3">
+              {series.map((s) => (
+                <span className="inline-flex items-center gap-1.5" key={s.key}>
+                  <span className="h-0.5 w-3" style={{ background: s.color }} />
+                  {s.label}
+                </span>
+              ))}
+            </div>
           </CardPanel>
         </Card>
       </div>
@@ -204,22 +226,6 @@ function PercentileRow({
         <span className="text-foreground">{label}</span>
       </span>
       <span className="text-foreground">{formatOrDash(value)}</span>
-    </div>
-  );
-}
-
-function Legend({ series }: { series: LineChartSeries[] }) {
-  return (
-    <div className="hidden sm:flex items-center gap-3 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-      {series.map((s) => (
-        <div key={s.key} className="flex items-center gap-1.5">
-          <span
-            className="inline-block h-0.5 w-3"
-            style={{ background: s.color }}
-          />
-          {s.label}
-        </div>
-      ))}
     </div>
   );
 }

@@ -1,13 +1,7 @@
-import {
-  CheckCircle2,
-  ChevronRight,
-  HelpCircle,
-  MinusCircle,
-  TriangleAlert,
-  XCircle,
-} from "lucide-react";
+import { SearchIcon } from "lucide-react";
 import { Link } from "@void/react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
+import { PageHeader } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
@@ -25,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/cn";
 import { STATUS_COLORS } from "@/lib/status";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { Props } from "./tests.server";
@@ -32,6 +27,8 @@ import type { Props } from "./tests.server";
 /**
  * Test catalog page. Every distinct testId observed in the window, with
  * counters, average duration, and a tiny pass/flaky/fail outcome bar.
+ * Layout mirrors the design bundle's `TestsCatalogScreen` (see
+ * `wrightful/project/screen-flaky-tests.jsx:134-189`).
  */
 export default function TestsPage({
   project,
@@ -70,40 +67,46 @@ export default function TestsPage({
 
   return (
     <>
-      <div className="px-6 py-5 flex flex-col gap-4 border-b border-border shrink-0 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Tests</h1>
-          <p className="text-xs text-muted-foreground mt-1 font-mono">
+      <PageHeader
+        title="Tests catalog"
+        subtitle={
+          <>
+            <span className="font-mono">{project.slug}</span> ·{" "}
             {totalUniqueTests.toLocaleString()} unique test
-            {totalUniqueTests === 1 ? "" : "s"} seen across runs
-          </p>
-          <div className="mt-2">
-            <RunHistoryBranchFilter
-              branches={branches}
-              defaultValue={branchParam ?? ALL_BRANCHES}
-            />
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <form className="relative" method="get">
-            <input type="hidden" name="range" value={range} />
-            {branchParam ? (
-              <input type="hidden" name="branch" value={branchParam} />
-            ) : null}
-            <input
-              type="text"
-              name="q"
-              defaultValue={q}
-              placeholder="Filter path or name..."
-              className="w-56 rounded-md border border-border bg-background px-3 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/24"
-            />
-          </form>
-          <AnalyticsButtonGroup
-            options={ranges as readonly ("7d" | "14d" | "30d")[]}
-            value={range}
-            hrefFor={(r) => hrefWith({ range: r, page: null })}
+            {totalUniqueTests === 1 ? "" : "s"} across{" "}
+            {branchParam ? branchFilter : "all branches"}
+          </>
+        }
+      />
+
+      <div className="sticky top-0 z-[4] flex shrink-0 flex-wrap items-center gap-2.5 border-b border-border bg-background px-6 py-2.5">
+        <form className="relative max-w-[360px] flex-1" method="get">
+          <input name="range" type="hidden" value={range} />
+          {branchParam ? (
+            <input name="branch" type="hidden" value={branchParam} />
+          ) : null}
+          <SearchIcon
+            aria-hidden
+            className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
           />
-        </div>
+          <input
+            className="h-7 w-full rounded-md border border-input bg-card pl-8 pr-2.5 text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
+            defaultValue={q}
+            name="q"
+            placeholder="Search by test name or path…"
+            type="search"
+          />
+        </form>
+        <RunHistoryBranchFilter
+          branches={branches}
+          defaultValue={branchParam ?? ALL_BRANCHES}
+        />
+        <div className="flex-1" />
+        <AnalyticsButtonGroup
+          hrefFor={(r) => hrefWith({ range: r, page: null })}
+          options={ranges as readonly ("7d" | "14d" | "30d")[]}
+          value={range}
+        />
       </div>
 
       {rows.length === 0 ? (
@@ -126,81 +129,92 @@ export default function TestsPage({
       ) : (
         <>
           <div className="flex-1 overflow-y-auto min-h-0">
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-16 px-4 text-center font-mono text-[11px] uppercase tracking-wider">
-                    Status
-                  </TableHead>
-                  <TableHead className="px-4 font-mono text-[11px] uppercase tracking-wider">
+                  <TableHead className="w-10 px-4" />
+                  <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                     Test
                   </TableHead>
-                  <TableHead className="w-32 px-4 text-right font-mono text-[11px] uppercase tracking-wider">
+                  <TableHead className="w-[90px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                    Total runs
+                  </TableHead>
+                  <TableHead className="w-[200px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                    Mix
+                  </TableHead>
+                  <TableHead className="w-[110px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                    Avg duration
+                  </TableHead>
+                  <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                     Last seen
                   </TableHead>
-                  <TableHead className="w-16 px-4 text-right font-mono text-[11px] uppercase tracking-wider">
-                    Runs
-                  </TableHead>
-                  <TableHead className="w-40 px-4 font-mono text-[11px] uppercase tracking-wider">
-                    Pass / Flaky / Fail
-                  </TableHead>
-                  <TableHead className="w-24 px-4 text-right font-mono text-[11px] uppercase tracking-wider">
-                    Avg
-                  </TableHead>
-                  <TableHead className="w-10 px-2" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row) => {
-                  const tone = statusTone(row.latestStatus);
+                  const dotColor = mixToneColor(row);
+                  const title = row.title || row.testId;
                   const href =
                     row.latestRunId && row.latestTestResultId
                       ? `${base}/runs/${row.latestRunId}/tests/${row.latestTestResultId}?attempt=0`
                       : base;
                   return (
                     <TableRow
+                      className="relative border-b border-border/50 hover:bg-bg-1"
                       key={row.testId}
-                      className="border-b border-border/50"
                     >
-                      <TableCell className="px-4 py-3">
-                        <div className="flex items-center justify-center">
-                          <tone.Icon size={18} color={tone.iconColor} />
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-4 py-3 max-w-md">
+                      <TableCell className="w-10 px-4 py-3 align-middle">
+                        {/* Stretched-link pattern — the `<Link>` is
+                         * position: static so its `after:inset-0` pseudo
+                         * fills the nearest positioned ancestor (the
+                         * TableRow with `relative`). Whole row becomes
+                         * the click target. */}
                         <Link
+                          className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
                           href={href}
-                          className="block truncate font-mono text-sm text-foreground hover:underline"
                         >
-                          {row.title || row.testId}
+                          <span className="sr-only">View {title}</span>
+                          <span
+                            aria-hidden
+                            className="inline-block size-2 rounded-full"
+                            style={{ backgroundColor: dotColor }}
+                          />
                         </Link>
-                        <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                          {row.file}
+                      </TableCell>
+                      <TableCell className="px-4 py-3 align-middle">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className="truncate text-[13px] text-foreground"
+                            title={title}
+                          >
+                            {title}
+                          </span>
+                          <span
+                            className="truncate font-mono text-[11px] text-muted-foreground"
+                            title={row.file}
+                          >
+                            {row.file}
+                          </span>
                         </div>
                       </TableCell>
-                      <TableCell className="px-4 py-3 text-right font-mono text-xs tabular-nums text-muted-foreground">
-                        {formatRelativeTime(row.lastSeen)}
-                      </TableCell>
-                      <TableCell className="px-4 py-3 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-muted-foreground">
                         {row.n.toLocaleString()}
                       </TableCell>
-                      <TableCell className="px-4 py-3">
-                        <OutcomeBar
-                          passed={row.passedCount}
-                          flaky={row.flakyCount}
+                      <TableCell className="w-[200px] px-4 py-3 align-middle">
+                        <OutcomeMix
                           failed={row.failCount}
+                          flaky={row.flakyCount}
+                          passed={row.passedCount}
                           skipped={row.skippedCount}
                         />
                       </TableCell>
-                      <TableCell className="px-4 py-3 text-right font-mono text-xs tabular-nums text-foreground">
+                      <TableCell className="w-[110px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-foreground">
                         {row.avgDurationMs === null
                           ? "—"
                           : formatDuration(Math.round(row.avgDurationMs))}
                       </TableCell>
-                      <TableCell className="px-2 py-3 text-center text-muted-foreground">
-                        <Link href={href} aria-label="Open latest run">
-                          <ChevronRight size={14} />
-                        </Link>
+                      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+                        {formatRelativeTime(row.lastSeen)}
                       </TableCell>
                     </TableRow>
                   );
@@ -210,13 +224,13 @@ export default function TestsPage({
           </div>
           {totalPages > 1 && (
             <TablePaginationFooter
-              fromRow={fromRow}
-              toRow={toRow}
-              totalCount={totalUniqueTests}
               currentPage={currentPage}
-              totalPages={totalPages}
+              fromRow={fromRow}
               itemNoun="test"
               pageHref={pageHref}
+              toRow={toRow}
+              totalCount={totalUniqueTests}
+              totalPages={totalPages}
             />
           )}
         </>
@@ -225,31 +239,22 @@ export default function TestsPage({
   );
 }
 
-interface StatusTone {
-  Icon: typeof CheckCircle2;
-  iconColor: string;
+/**
+ * Worst-case status dot — failed > flaky > passed > skipped. Mirrors the
+ * reference catalog row's single-color indicator.
+ */
+function mixToneColor(row: {
+  failCount: number;
+  flakyCount: number;
+  passedCount: number;
+}): string {
+  if (row.failCount > 0) return STATUS_COLORS.failed;
+  if (row.flakyCount > 0) return STATUS_COLORS.flaky;
+  if (row.passedCount > 0) return STATUS_COLORS.passed;
+  return STATUS_COLORS.skipped;
 }
 
-function statusTone(status: string): StatusTone {
-  switch (status) {
-    case "passed":
-      return { Icon: CheckCircle2, iconColor: STATUS_COLORS.passed };
-    case "failed":
-    case "timedout":
-      return { Icon: XCircle, iconColor: STATUS_COLORS.failed };
-    case "flaky":
-      return { Icon: TriangleAlert, iconColor: STATUS_COLORS.flaky };
-    case "skipped":
-      return { Icon: MinusCircle, iconColor: STATUS_COLORS.skipped };
-    default:
-      return {
-        Icon: HelpCircle,
-        iconColor: "var(--color-muted-foreground)",
-      };
-  }
-}
-
-function OutcomeBar({
+function OutcomeMix({
   passed,
   flaky,
   failed,
@@ -271,31 +276,24 @@ function OutcomeBar({
     { count: skipped, color: STATUS_COLORS.skipped, label: "skipped" },
   ];
   return (
-    <div className="flex flex-col gap-1">
-      <div
-        className="flex h-1.5 w-32 overflow-hidden rounded-full bg-muted"
-        role="img"
-        aria-label={`${passed} passed, ${flaky} flaky, ${failed} failed, ${skipped} skipped`}
-      >
-        {segments.map((s) =>
-          s.count > 0 ? (
-            <span
-              key={s.label}
-              style={{
-                width: `${(s.count / total) * 100}%`,
-                backgroundColor: s.color,
-              }}
-            />
-          ) : null,
-        )}
-      </div>
-      <div className="font-mono text-[10px] tabular-nums text-muted-foreground">
-        <span style={{ color: STATUS_COLORS.passed }}>{passed}</span>
-        {" / "}
-        <span style={{ color: STATUS_COLORS.flaky }}>{flaky}</span>
-        {" / "}
-        <span style={{ color: STATUS_COLORS.failed }}>{failed}</span>
-      </div>
+    <div
+      aria-label={`${passed} passed, ${flaky} flaky, ${failed} failed, ${skipped} skipped`}
+      className={cn(
+        "flex h-1.5 w-full max-w-[180px] overflow-hidden rounded-full bg-muted",
+      )}
+      role="img"
+    >
+      {segments.map((s) =>
+        s.count > 0 ? (
+          <span
+            key={s.label}
+            style={{
+              width: `${(s.count / total) * 100}%`,
+              backgroundColor: s.color,
+            }}
+          />
+        ) : null,
+      )}
     </div>
   );
 }

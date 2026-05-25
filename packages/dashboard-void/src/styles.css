@@ -1,7 +1,6 @@
 @import "tailwindcss";
-@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist";
 @import "@fontsource-variable/jetbrains-mono";
-@import "@fontsource-variable/space-grotesk";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -18,10 +17,25 @@
   --animate-pulse-soft: pulse-soft 1.4s cubic-bezier(0.5, 0, 0.2, 1) infinite;
   --animate-progress-stripe: progress-stripe 1.8s cubic-bezier(0.5, 0, 0.2, 1)
     infinite;
-  --font-heading: "Inter Variable", "Inter", sans-serif;
-  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", monospace;
-  --font-sans: "Inter Variable", "Inter", sans-serif;
-  --font-label: "Space Grotesk Variable", "Space Grotesk", sans-serif;
+  --font-sans: "Geist Variable", "Geist", -apple-system, system-ui, sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular,
+    Menlo, monospace;
+
+  /* Explicit type scale from the Wrightful design bundle's tokens.css.
+   * Consume via Tailwind arbitrary values, e.g. text-[length:var(--text-fs-18)]. */
+  --text-fs-12: 11.5px;
+  --text-fs-13: 12.5px;
+  --text-fs-14: 13.5px;
+  --text-fs-15: 14px;
+  --text-fs-16: 15px;
+  --text-fs-18: 17px;
+  --text-fs-19: 19px;
+  --text-fs-22: 21px;
+  --text-fs-28: 26px;
+  --text-fs-36: 34px;
+  --text-fs-48: 44px;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -75,6 +89,32 @@
   --color-running-soft: var(--running-soft);
   --color-accent-soft: var(--accent-soft);
   --color-accent-line: var(--accent-line);
+
+  /* Past-tense status aliases — keeps porting JSX from the design bundle
+   * literal (it writes `bg-passed-soft` / `text-failed`). */
+  --color-passed: var(--pass);
+  --color-passed-soft: var(--pass-soft);
+  --color-failed: var(--fail);
+  --color-failed-soft: var(--fail-soft);
+
+  /* 4-level surface scale (bg-0 = app, bg-1 = card, bg-2 = elevated tint,
+   * bg-3 = hover/active). */
+  --color-bg-0: var(--bg-0);
+  --color-bg-1: var(--bg-1);
+  --color-bg-2: var(--bg-2);
+  --color-bg-3: var(--bg-3);
+
+  /* 4-level foreground scale (fg-1 primary, fg-2 secondary, fg-3 tertiary,
+   * fg-4 placeholder). */
+  --color-fg-1: var(--fg-1);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-fg-4: var(--fg-4);
+
+  /* 2-level border scale. */
+  --color-line-1: var(--line-1);
+  --color-line-2: var(--line-2);
+
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -82,6 +122,12 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /* Explicit r-* scale matching the design bundle (tokens.css --r-*). */
+  --radius-r-2: 3px;
+  --radius-r-4: 5px;
+  --radius-r-6: 7px;
+  --radius-r-8: 9px;
+  --radius-r-12: 12px;
   @keyframes skeleton {
     to {
       background-position: -200% 0;
@@ -187,28 +233,40 @@
 :root {
   color-scheme: light;
 
-  /* Surfaces */
-  --background: oklch(0.99 0.003 260);
-  --card: oklch(1 0 0);
-  --popover: oklch(0.975 0.004 260);
+  /* 4-level surface scale (sourced from design bundle tokens.css). */
+  --bg-0: oklch(0.99 0.003 260);
+  --bg-1: oklch(1 0 0);
+  --bg-2: oklch(0.975 0.004 260);
+  --bg-3: oklch(0.95 0.005 260);
 
-  /* Foreground */
-  --foreground: oklch(0.18 0.008 260);
-  --card-foreground: oklch(0.18 0.008 260);
-  --popover-foreground: oklch(0.18 0.008 260);
+  /* 4-level foreground scale. */
+  --fg-1: oklch(0.18 0.008 260);
+  --fg-2: oklch(0.36 0.01 260);
+  --fg-3: oklch(0.5 0.01 260);
+  --fg-4: oklch(0.65 0.008 260);
 
-  /* Borders / inputs */
-  --border: oklch(0.91 0.005 260);
-  --input: oklch(0.91 0.005 260);
+  /* 2-level border scale. */
+  --line-1: oklch(0.91 0.005 260);
+  --line-2: oklch(0.84 0.007 260);
+
+  /* Aliases — every existing UI primitive reads these. */
+  --background: var(--bg-0);
+  --card: var(--bg-1);
+  --popover: var(--bg-2);
+  --foreground: var(--fg-1);
+  --card-foreground: var(--fg-1);
+  --popover-foreground: var(--fg-1);
+  --border: var(--line-1);
+  --input: var(--line-1);
   --ring: oklch(0.5 0.16 268 / 0.4);
 
-  /* Muted = secondary surface tint */
-  --muted: oklch(0.94 0.006 260);
-  --muted-foreground: oklch(0.5 0.01 260);
+  /* Muted = bg-3 in light (matches reference's "soft fill"). */
+  --muted: var(--bg-3);
+  --muted-foreground: var(--fg-3);
 
-  /* Accent surface (hover tint, subtle background) */
-  --accent: oklch(0.94 0.006 260);
-  --accent-foreground: oklch(0.18 0.008 260);
+  /* Accent surface = bg-3, the "raised" tint used for hover/active fills. */
+  --accent: var(--bg-3);
+  --accent-foreground: var(--fg-1);
   --accent-soft: oklch(0.5 0.16 268 / 0.08);
   --accent-line: oklch(0.5 0.16 268 / 0.28);
 
@@ -241,6 +299,12 @@
   --running: oklch(0.5 0.16 268);
   --running-soft: oklch(0.5 0.16 268 / 0.1);
 
+  /* Past-tense aliases — design bundle JSX writes these names directly. */
+  --passed: var(--pass);
+  --passed-soft: var(--pass-soft);
+  --failed: var(--fail);
+  --failed-soft: var(--fail-soft);
+
   /* Chart slots (pass/fail/flaky/skipped/running) */
   --chart-1: var(--pass);
   --chart-2: var(--fail);
@@ -253,7 +317,12 @@
   --code-foreground: var(--foreground);
   --code-highlight: oklch(0 0 0 / 0.04);
 
-  --radius: 0.3125rem; /* prototype's --r-4 = 5px */
+  /* Elevation. */
+  --shadow-sm: 0 1px 0 oklch(0 0 0 / 0.04), 0 1px 2px oklch(0 0 0 / 0.05);
+  --shadow-md: 0 6px 18px oklch(0 0 0 / 0.06), 0 1px 0 oklch(0 0 0 / 0.04);
+  --shadow-lg: 0 30px 80px oklch(0 0 0 / 0.18);
+
+  --radius: 0.3125rem; /* design bundle's --r-4 = 5px */
 
   /* Sidebar — slightly raised from the page bg */
   --sidebar: oklch(1 0 0);
@@ -269,28 +338,40 @@
 .dark {
   color-scheme: dark;
 
-  /* Surfaces — bg-0 → background, bg-1 → card, bg-2 → popover */
-  --background: oklch(0.135 0.004 260);
-  --card: oklch(0.165 0.005 260);
-  --popover: oklch(0.195 0.006 260);
+  /* 4-level surface scale. */
+  --bg-0: oklch(0.135 0.004 260);
+  --bg-1: oklch(0.165 0.005 260);
+  --bg-2: oklch(0.195 0.006 260);
+  --bg-3: oklch(0.235 0.008 260);
 
-  /* Foreground */
-  --foreground: oklch(0.975 0.003 260);
-  --card-foreground: oklch(0.975 0.003 260);
-  --popover-foreground: oklch(0.975 0.003 260);
+  /* 4-level foreground scale. */
+  --fg-1: oklch(0.975 0.003 260);
+  --fg-2: oklch(0.78 0.005 260);
+  --fg-3: oklch(0.6 0.007 260);
+  --fg-4: oklch(0.46 0.008 260);
 
-  /* Borders / inputs */
-  --border: oklch(0.245 0.008 260);
-  --input: oklch(0.315 0.01 260);
+  /* 2-level border scale. */
+  --line-1: oklch(0.245 0.008 260);
+  --line-2: oklch(0.315 0.01 260);
+
+  /* Aliases. */
+  --background: var(--bg-0);
+  --card: var(--bg-1);
+  --popover: var(--bg-2);
+  --foreground: var(--fg-1);
+  --card-foreground: var(--fg-1);
+  --popover-foreground: var(--fg-1);
+  --border: var(--line-1);
+  --input: var(--line-2);
   --ring: oklch(0.74 0.1 268 / 0.4);
 
-  /* Muted = bg-2 (used as subtle filled surface) */
-  --muted: oklch(0.195 0.006 260);
-  --muted-foreground: oklch(0.6 0.007 260);
+  /* Muted = bg-2 (subtle filled surface). */
+  --muted: var(--bg-2);
+  --muted-foreground: var(--fg-3);
 
-  /* Accent surface — bg-3, the "raised" tint */
-  --accent: oklch(0.235 0.008 260);
-  --accent-foreground: oklch(0.975 0.003 260);
+  /* Accent = bg-3 (raised tint, hover/active). */
+  --accent: var(--bg-3);
+  --accent-foreground: var(--fg-1);
   --accent-soft: oklch(0.74 0.1 268 / 0.14);
   --accent-line: oklch(0.74 0.1 268 / 0.32);
 
@@ -323,6 +404,12 @@
   --running: oklch(0.74 0.1 268);
   --running-soft: oklch(0.74 0.1 268 / 0.16);
 
+  /* Past-tense aliases. */
+  --passed: var(--pass);
+  --passed-soft: var(--pass-soft);
+  --failed: var(--fail);
+  --failed-soft: var(--fail-soft);
+
   --chart-1: var(--pass);
   --chart-2: var(--fail);
   --chart-3: var(--flaky);
@@ -332,6 +419,13 @@
   --code: oklch(0.165 0.005 260);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(1 0 0 / 0.04);
+
+  /* Elevation tuned for dark. */
+  --shadow-sm: 0 1px 0 oklch(0 0 0 / 0.4), 0 1px 2px oklch(0 0 0 / 0.3);
+  --shadow-md:
+    0 4px 12px oklch(0 0 0 / 0.45), 0 1px 0 oklch(1 0 0 / 0.04) inset;
+  --shadow-lg:
+    0 24px 60px oklch(0 0 0 / 0.6), 0 1px 0 oklch(1 0 0 / 0.06) inset;
 
   /* Sidebar matches card surface (bg-1) per prototype */
   --sidebar: oklch(0.165 0.005 260);
@@ -348,8 +442,21 @@
   * {
     @apply border-border outline-ring/50;
   }
+  :root,
+  .dark {
+    /* Density (overridden by .density-compact). Surfaced for any primitive
+     * that wants to consume `var(--row-h)` directly (table rows, chip pads). */
+    --row-h: 40px;
+    --row-h-dense: 32px;
+    --pad-x: 16px;
+    --gap: 12px;
+  }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
   code,
   kbd,
@@ -358,8 +465,25 @@
     font-family: var(--font-mono);
   }
   html {
-    @apply font-sans font-mono;
+    @apply font-sans;
   }
+}
+
+@layer components {
+  /* Opt-in mono utility for JSX that wants the calt/ss02 ligature set on top
+   * of the font swap (numeric columns, file paths). */
+  .mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "calt", "ss02";
+  }
+}
+
+/* Compact density variant — wraps the whole app via a class on <html>. */
+.density-compact {
+  --row-h: 30px;
+  --row-h-dense: 26px;
+  --pad-x: 12px;
+  --gap: 8px;
 }
 
 /* Anser ANSI → HTML class hooks. Playwright embeds SGR escapes (dim, red,

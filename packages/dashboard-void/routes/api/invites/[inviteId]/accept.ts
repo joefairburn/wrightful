@@ -1,6 +1,6 @@
 import { defineHandler } from "void";
 import { requireAuth } from "void/auth";
-import { and, db, eq, gt, or } from "void/db";
+import { and, db, eq, gt, or, sql } from "void/db";
 import { ulid } from "ulid";
 import { memberships, teamInvites, userGithubAccounts } from "@schema";
 
@@ -20,10 +20,7 @@ export const POST = defineHandler(async (c) => {
   // Fetch the user's email (from void's user table via raw SQL) and
   // captured github login so we can match against the invite addressing.
   const [userRow, ghRow] = await Promise.all([
-    db.run({
-      sql: `SELECT email FROM "user" WHERE id = ?1 LIMIT 1`,
-      params: [user.id],
-    } as never),
+    db.run(sql`SELECT email FROM "user" WHERE id = ${user.id} LIMIT 1`),
     db
       .select({ githubLogin: userGithubAccounts.githubLogin })
       .from(userGithubAccounts)

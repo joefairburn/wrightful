@@ -1,9 +1,4 @@
-import {
-  CheckCircle2,
-  ChevronRight,
-  TriangleAlert,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, TriangleAlert, XCircle } from "lucide-react";
 import { Link } from "@void/react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import {
@@ -11,6 +6,8 @@ import {
   type BucketBarChartBucket,
 } from "@/components/analytics/bucket-bar-chart";
 import { InsightsTabs } from "@/components/analytics/insights-tabs";
+import { AnalyticsKpiCard } from "@/components/analytics/kpi-card";
+import { PageHeader } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
@@ -113,87 +110,120 @@ export default function SlowestTestsPage({
   const pageHref = (page: number): string =>
     hrefWith({ page: page === 1 ? null : String(page) });
 
+  // KPI summary across the ranked window.
+  const topRow = bottlenecks[0];
+  const p95Values = bottlenecks
+    .map((b) => b.p95)
+    .filter((v): v is number => v != null);
+  const avgP95 =
+    p95Values.length === 0
+      ? null
+      : p95Values.reduce((s, v) => s + v, 0) / p95Values.length;
+
   return (
     <>
-      <InsightsTabs
-        teamSlug={project.teamSlug}
-        projectSlug={project.slug}
-        active="slowest-tests"
-      />
-
-      <div className="px-6 py-5 flex flex-col gap-4 border-b border-border shrink-0 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Slowest Tests
-          </h1>
-          <p className="text-xs text-muted-foreground mt-1 font-mono uppercase tracking-wider">
-            Duration distribution · tests ranked by p95
-          </p>
-          <div className="mt-2">
+      <PageHeader
+        right={
+          <>
             <RunHistoryBranchFilter
               branches={branches}
               defaultValue={branchParam ?? ALL_BRANCHES}
             />
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <AnalyticsButtonGroup
-            options={ranges as readonly ("7d" | "30d" | "90d" | "all")[]}
-            value={range}
-            hrefFor={(r) => hrefWith({ range: r, page: null })}
+            <AnalyticsButtonGroup
+              hrefFor={(r) => hrefWith({ range: r, page: null })}
+              options={ranges as readonly ("7d" | "14d" | "30d" | "90d")[]}
+              value={range}
+            />
+          </>
+        }
+        subtitle={
+          <>
+            <span className="font-mono">{project.slug}</span> · tests ranked by
+            p95 duration
+          </>
+        }
+        title="Insights"
+      />
+
+      <InsightsTabs
+        active="slowest-tests"
+        branch={branchParam}
+        projectSlug={project.slug}
+        range={range}
+        teamSlug={project.teamSlug}
+      />
+
+      <div className="flex-1 overflow-y-auto min-h-0 px-6 py-6 pb-12 space-y-[18px]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <AnalyticsKpiCard
+            footnote={`${totals.totalResults.toLocaleString()} test result${totals.totalResults === 1 ? "" : "s"} in window`}
+            label="Tests tracked"
+            value={totals.totalUniqueTests.toLocaleString()}
+          />
+          <AnalyticsKpiCard
+            footnote={topRow?.title ?? "—"}
+            label="Slowest test (p95)"
+            value={
+              topRow?.p95 == null ? "—" : formatDuration(Math.round(topRow.p95))
+            }
+          />
+          <AnalyticsKpiCard
+            footnote="Across the ranked window"
+            label="Average p95"
+            value={avgP95 == null ? "—" : formatDuration(Math.round(avgP95))}
           />
         </div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-6">
-        <Card>
-          <div className="flex items-center justify-between px-6 pt-5 pb-3">
-            <div>
-              <h2 className="text-base font-semibold">
-                Execution Time Distribution
+        <Card className="overflow-hidden rounded-[9px] border-line-1">
+          <div className="flex items-center justify-between gap-3 border-b border-line-1 px-[18px] py-3">
+            <div className="min-w-0">
+              <h2 className="text-[13px] font-semibold tracking-tight">
+                Execution time distribution
               </h2>
-              <p className="mt-0.5 text-xs font-mono text-muted-foreground">
+              <p className="mt-0.5 text-[11.5px] text-fg-3">
                 Count of test results per duration bin
                 {totals.maxDurationMs > 0
                   ? ` · bin width ${formatDuration(bucketMs)}`
                   : ""}
+                .
               </p>
             </div>
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="shrink-0 font-mono text-[11.5px] text-fg-3">
               n={totals.totalResults.toLocaleString()}
             </span>
           </div>
-          <CardPanel className="pt-0">
+          <CardPanel className="px-[18px] py-4">
             <BucketBarChart
-              buckets={histBuckets}
-              height={220}
               ariaLabel="Execution time distribution histogram"
+              buckets={histBuckets}
               emptyState="No runs in this window."
+              height={200}
             />
           </CardPanel>
         </Card>
 
-        <Card>
-          <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-3">
-            <div>
-              <h2 className="text-base font-semibold">Slowest Tests</h2>
-              <p className="mt-0.5 text-xs font-mono text-muted-foreground">
+        <Card className="overflow-hidden rounded-[9px] border-line-1">
+          <div className="flex items-center justify-between gap-4 border-b border-line-1 px-[18px] py-3">
+            <div className="min-w-0">
+              <h2 className="text-[13px] font-semibold tracking-tight">
+                Top {bottlenecks.length} slowest tests
+              </h2>
+              <p className="mt-0.5 text-[11.5px] text-fg-3">
                 {totals.totalUniqueTests.toLocaleString()} unique test
-                {totals.totalUniqueTests === 1 ? "" : "s"} · sorted by p95 desc
+                {totals.totalUniqueTests === 1 ? "" : "s"} sorted by p95.
               </p>
             </div>
             <form className="relative" method="get">
-              {/* Preserve other params on search submit. */}
-              <input type="hidden" name="range" value={range} />
+              <input name="range" type="hidden" value={range} />
               {branchParam ? (
-                <input type="hidden" name="branch" value={branchParam} />
+                <input name="branch" type="hidden" value={branchParam} />
               ) : null}
               <input
-                type="text"
-                name="q"
+                className="w-56 rounded-md border border-line-1 bg-card px-3 py-1 font-mono text-[12.5px] text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/24"
                 defaultValue={q}
-                placeholder="Filter path or name..."
-                className="w-56 rounded-md border border-border bg-background px-3 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/24"
+                name="q"
+                placeholder="Filter path or name…"
+                type="text"
               />
             </form>
           </div>
@@ -212,28 +242,25 @@ export default function SlowestTestsPage({
                 </EmptyHeader>
               </Empty>
             ) : (
-              <Table>
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-12 px-4 text-center font-mono text-[11px] uppercase tracking-wider">
-                      Status
+                    <TableHead className="w-10 px-4" />
+                    <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                      Test
                     </TableHead>
-                    <TableHead className="px-4 font-mono text-[11px] uppercase tracking-wider">
-                      Test Name & Path
-                    </TableHead>
-                    <TableHead className="w-28 px-4 text-right font-mono text-[11px] uppercase tracking-wider">
+                    <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                       Avg
                     </TableHead>
-                    <TableHead className="w-28 px-4 text-right font-mono text-[11px] uppercase tracking-wider">
+                    <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                       P95
                     </TableHead>
-                    <TableHead className="w-28 px-4 text-center font-mono text-[11px] uppercase tracking-wider">
-                      Trend (7d)
+                    <TableHead className="w-[120px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                      Trend
                     </TableHead>
-                    <TableHead className="w-16 px-4 text-right font-mono text-[11px] uppercase tracking-wider">
+                    <TableHead className="w-[80px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                       Runs
                     </TableHead>
-                    <TableHead className="w-10 px-2" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -243,37 +270,51 @@ export default function SlowestTestsPage({
                     const spark = sparklines[row.testId] ?? [];
                     return (
                       <TableRow
+                        className="relative border-b border-border/50 hover:bg-bg-1"
                         key={row.testId}
-                        className={cn(
-                          "border-b border-border/50 border-l-2",
-                          tone.border,
-                        )}
                       >
-                        <TableCell className="px-4 py-3 text-center align-middle">
-                          <tone.Icon
-                            size={18}
-                            style={{ color: tone.iconColor }}
-                          />
-                        </TableCell>
-                        <TableCell className="px-4 py-3 max-w-md">
+                        <TableCell className="w-10 px-4 py-3 align-middle">
+                          {/* Stretched-link pattern — `<Link>` is
+                           * position: static so its `after:inset-0`
+                           * pseudo fills the TableRow (which is
+                           * `relative`). Whole row = click target. */}
                           <Link
+                            className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
                             href={href}
-                            className="block truncate font-mono text-sm text-foreground hover:underline"
                           >
-                            {row.title ?? row.testId}
+                            <span className="sr-only">
+                              View {row.title ?? row.testId}
+                            </span>
+                            <tone.Icon
+                              size={16}
+                              style={{ color: tone.iconColor }}
+                            />
                           </Link>
-                          <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                            {row.file ?? ""}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-middle">
+                          <div className="min-w-0">
+                            <div
+                              className="truncate text-[13px] text-foreground"
+                              title={row.title ?? row.testId}
+                            >
+                              {row.title ?? row.testId}
+                            </div>
+                            <div
+                              className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground"
+                              title={row.file ?? ""}
+                            >
+                              {row.file ?? ""}
+                            </div>
                           </div>
                         </TableCell>
-                        <TableCell className="px-4 py-3 text-right font-mono text-xs tabular-nums text-foreground">
+                        <TableCell className="w-[100px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-foreground">
                           {row.avgDur === null
                             ? "—"
                             : formatDuration(Math.round(row.avgDur))}
                         </TableCell>
                         <TableCell
                           className={cn(
-                            "px-4 py-3 text-right font-mono text-xs tabular-nums font-medium",
+                            "w-[100px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums font-medium",
                             tone.p95Text,
                           )}
                         >
@@ -281,19 +322,14 @@ export default function SlowestTestsPage({
                             ? "—"
                             : formatDuration(Math.round(row.p95))}
                         </TableCell>
-                        <TableCell className="px-4 py-3 text-center align-middle">
+                        <TableCell className="w-[120px] px-4 py-3 align-middle">
                           <DurationSparkline
-                            points={spark}
                             color={tone.sparkColor}
+                            points={spark}
                           />
                         </TableCell>
-                        <TableCell className="px-4 py-3 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                        <TableCell className="w-[80px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-muted-foreground">
                           {row.n.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="px-2 py-3 text-center text-muted-foreground">
-                          <Link href={href} aria-label="Open latest run">
-                            <ChevronRight size={14} />
-                          </Link>
                         </TableCell>
                       </TableRow>
                     );

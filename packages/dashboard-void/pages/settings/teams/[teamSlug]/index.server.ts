@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
-import { and, db, desc, eq, gt, inArray, ne } from "void/db";
+import { and, db, desc, eq, gt, inArray, ne, sql } from "void/db";
 import { ulid } from "ulid";
 import {
   apiKeys,
@@ -104,13 +104,12 @@ export const loader = defineHandler(async (c) => {
   const newInviteId = url.searchParams.get("newInvite");
 
   const [memberRowsRaw, projectRows, inviteRows] = await Promise.all([
-    db.run({
-      sql: `SELECT m.userId AS userId, m.role AS role, u.email AS email, u.name AS name, u.image AS image
-              FROM memberships m
-              INNER JOIN "user" u ON u.id = m.userId
-              WHERE m.teamId = ?1`,
-      params: [team.id],
-    } as never),
+    db.run(sql`
+      SELECT m.userId AS userId, m.role AS role, u.email AS email, u.name AS name, u.image AS image
+        FROM memberships m
+        INNER JOIN "user" u ON u.id = m.userId
+        WHERE m.teamId = ${team.id}
+    `),
     db
       .select({
         id: projects.id,

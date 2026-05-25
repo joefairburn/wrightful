@@ -1,10 +1,9 @@
-import { ChevronRight } from "lucide-react";
 import { Link } from "@void/react";
 import type React from "react";
-import { useState } from "react";
+import { ActorAvatar } from "@/components/actor-avatar";
 import { Sparkline, type SparklinePoint } from "@/components/sparkline";
-import { TestErrorAlert } from "@/components/test-error-alert";
-import { cn } from "@/lib/cn";
+import { StatusGlyph } from "@/components/status-glyph";
+import { stripAnsi } from "@/lib/ansi";
 import { formatRelativeTime } from "@/lib/time-format";
 
 export interface FlakyRecentFailure {
@@ -12,162 +11,145 @@ export interface FlakyRecentFailure {
   runId: string;
   commitSha: string | null;
   branch: string | null;
+  actor: string | null;
   createdAt: number;
   errorMessage: string | null;
   errorStack: string | null;
 }
 
 export interface FlakyTestRowProps {
-  rank: number;
   testId: string;
   title: string;
   file: string;
-  total: number;
-  flakyCount: number;
+  tags: string[];
   pct: number;
+  rangeDays: number;
   sparklinePoints: SparklinePoint[];
   recentFailures: FlakyRecentFailure[];
-  /** Base route `/t/:team/p/:project` — used to compose per-failure links. */
-  projectBase: string;
-  /** Fallback destination when the title is clicked; typically the latest failure. */
-  historyHref: string;
+  /** Where the row click lands — typically the most recent failure's
+   * test-detail page, falling back to the project base. */
+  rowHref: string;
 }
 
-function pctTone(pct: number): {
-  text: string;
-  border: string;
-} {
-  if (pct >= 20)
-    return {
-      text: "text-destructive-foreground",
-      border: "border-l-destructive",
-    };
-  if (pct >= 5)
-    return {
-      text: "text-warning-foreground",
-      border: "border-l-warning",
-    };
-  return {
-    text: "text-muted-foreground",
-    border: "border-l-border",
-  };
+function pctTone(pct: number): string {
+  if (pct >= 20) return "var(--fail)";
+  if (pct >= 5) return "var(--flaky)";
+  return "var(--muted-foreground)";
 }
 
+/**
+ * Strip the file path prefix from the title if Playwright captured it
+ * that way. Our reporter sometimes stores titles like
+ * `"flaky.spec.ts > Promo codes > validates …"`; the design wants just
+ * `"Promo codes > validates …"` on the top line.
+ */
+function displayTitle(title: string, file: string): string {
+  if (!file) return title;
+  const prefix = `${file} > `;
+  return title.startsWith(prefix) ? title.slice(prefix.length) : title;
+}
+
+/**
+ * Flaky test row. Layout mirrors the design bundle's `FlakyRow`
+ * (`wrightful/project/screen-flaky-tests.jsx:84-122`):
+ *   [glyph 40] [Test flex] [Flake rate 110 r] [Nd trend 180] [Last failure 280] [Owner 120] [Last seen 90 r]
+ *
+ * Test cell is two lines:
+ *   - Line 1 (sans 13px, weight 450): describe-path + test title.
+ *   - Line 2 (mono 11px muted): file path + tags inline (`gap: 8`).
+ * Tags pick up `var(--running)` (the indigo accent — same hex the
+ * design's `--accent` token holds).
+ *
+ * X-padding matches the runs table (`px-4`).
+ */
 export function FlakyTestRow({
-  rank,
   title,
   file,
-  total,
-  flakyCount,
+  tags,
   pct,
+  rangeDays,
   sparklinePoints,
   recentFailures,
-  projectBase,
-  historyHref,
+  rowHref,
 }: FlakyTestRowProps): React.ReactElement {
-  const [open, setOpen] = useState(false);
   const tone = pctTone(pct);
+  const latest = recentFailures[0];
+  const cleanTitle = displayTitle(title, file);
 
   return (
-    <>
-      <tr
-        className={cn(
-          "border-b border-border/50 border-l-2 cursor-pointer transition-colors hover:bg-muted/30",
-          tone.border,
-        )}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <td className="px-4 py-3 text-center text-xs font-mono text-muted-foreground w-12">
-          #{rank}
-        </td>
-        <td className="px-4 py-3 max-w-md">
-          <Link
-            href={historyHref}
-            className="block truncate font-mono text-sm text-foreground hover:underline"
-            onClick={(e) => e.stopPropagation()}
+    <tr className="relative border-b border-border/50 hover:bg-bg-1">
+      <td className="w-10 px-4 align-middle">
+        <Link
+          className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
+          href={rowHref}
+        >
+          <span className="sr-only">View {cleanTitle}</span>
+          <StatusGlyph size={14} status="flaky" />
+        </Link>
+      </td>
+      <td className="px-4 py-3 align-middle">
+        <div className="min-w-0">
+          <div
+            className="truncate text-[13px] font-[450] text-foreground"
+            title={cleanTitle}
           >
-            {title}
-          </Link>
-          <div className="text-xs text-muted-foreground truncate font-mono mt-0.5">
-            {file}
+            {cleanTitle}
           </div>
-        </td>
-        <td className="px-4 py-3 text-right w-28">
-          <span className={cn("font-bold text-base", tone.text)}>
-            {pct.toFixed(1)}%
-          </span>
-        </td>
-        <td className="px-4 py-3 text-right w-28 text-muted-foreground font-mono text-xs tabular-nums">
-          {flakyCount} / {total}
-        </td>
-        <td className="px-4 py-3 w-48">
-          <Sparkline points={sparklinePoints} width={160} height={24} />
-        </td>
-        <td className="px-4 py-3 text-center w-10 text-muted-foreground">
-          <ChevronRight
-            size={14}
-            className={cn("transition-transform", open && "rotate-90")}
-          />
-        </td>
-      </tr>
-      {open && (
-        <tr className="border-b-4 border-background bg-muted/10">
-          <td colSpan={6} className="p-0">
-            <div className="p-6 pl-16">
-              <h4 className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
-                Recent Failures ({recentFailures.length})
-              </h4>
-              {recentFailures.length === 0 ? (
-                <div className="text-xs text-muted-foreground">
-                  No recent failures captured.
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {recentFailures.map((f) => {
-                    const href = `${projectBase}/runs/${f.runId}/tests/${f.testResultId}?attempt=0`;
-                    return (
-                      <div
-                        key={f.testResultId}
-                        className="flex flex-col gap-2"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Link
-                          href={href}
-                          className="flex items-center justify-between gap-4 text-xs hover:text-foreground transition-colors"
-                        >
-                          <div className="flex items-center gap-2 min-w-0 font-mono">
-                            <span className="size-2 rounded-full bg-destructive shrink-0" />
-                            <span className="text-foreground font-medium truncate hover:underline">
-                              Run{" "}
-                              {f.commitSha
-                                ? f.commitSha.slice(0, 7)
-                                : f.runId.slice(0, 8)}
-                            </span>
-                            {f.branch && (
-                              <span className="text-muted-foreground truncate">
-                                {f.branch}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-muted-foreground shrink-0 font-mono">
-                            {formatRelativeTime(f.createdAt)}
-                          </span>
-                        </Link>
-                        {f.errorMessage ? (
-                          <TestErrorAlert
-                            errorMessage={f.errorMessage}
-                            errorStack={f.errorStack}
-                          />
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[11px] text-muted-foreground">
+            <span className="min-w-0 truncate" title={file}>
+              {file}
+            </span>
+            {tags.map((t) => (
+              <span
+                className="shrink-0"
+                key={t}
+                style={{ color: "var(--running)" }}
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        </div>
+      </td>
+      <td className="w-[110px] px-4 py-3 text-right align-middle">
+        <div
+          className="font-mono text-[13px] font-semibold tabular-nums"
+          style={{ color: tone }}
+        >
+          {pct.toFixed(0)}%
+        </div>
+        <div className="mt-0.5 text-[10.5px] text-muted-foreground">
+          over {rangeDays}d
+        </div>
+      </td>
+      <td className="w-[180px] px-4 py-3 align-middle">
+        <Sparkline height={22} points={sparklinePoints} width={160} />
+      </td>
+      <td className="w-[280px] max-w-[280px] px-4 py-3 align-middle">
+        <div
+          className="truncate font-mono text-[11.5px] text-muted-foreground"
+          title={latest?.errorMessage ? stripAnsi(latest.errorMessage) : ""}
+        >
+          {latest?.errorMessage
+            ? stripAnsi(latest.errorMessage.split("\n")[0] ?? "")
+            : "—"}
+        </div>
+      </td>
+      <td className="w-[120px] px-4 py-3 align-middle">
+        {latest?.actor ? (
+          <div className="flex min-w-0 items-center gap-1.5">
+            <ActorAvatar actor={latest.actor} size={16} />
+            <span className="truncate text-[12px] text-fg-2">
+              {latest.actor}
+            </span>
+          </div>
+        ) : (
+          <span className="text-[12px] text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+        {latest ? formatRelativeTime(latest.createdAt) : "—"}
+      </td>
+    </tr>
   );
 }

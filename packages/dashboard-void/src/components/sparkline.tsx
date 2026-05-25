@@ -13,66 +13,67 @@ export interface SparklineProps {
   chronological?: boolean;
   width?: number;
   height?: number;
-  /** Gap between bars in px. */
-  gap?: number;
 }
 
 /**
- * Minimal status sparkline — renders one bar per data point, coloured by
- * status. Pure SVG so it works inside Server Components (no client JS).
+ * Status history bar — one rounded rectangle per historical attempt,
+ * vertically centered with padding above/below, separated by a small gap.
+ * Pure SVG so it works inside Server Components (no client JS).
  *
- * Accepting a simple `points[]` keeps the callsites unsurprising. We keep the
- * sizing API restrictive on purpose: every place this lives is a small inline
- * visualization, so a handful of pixels' worth of flexibility is all we need.
+ * Visual mirrors the design bundle's `StatusHistoryBar`
+ * (`wrightful/project/primitives.jsx:287-300`): `rx="1.5"` rounded corners,
+ * 3px top/bottom padding, 2px between bars. The bars read as discrete
+ * attempts rather than a continuous edge-to-edge bar.
+ *
+ * (The component is still named `Sparkline` for historical reasons —
+ * callers across the app reference it under that name, and there's a
+ * separate `DurationSparkline` in `insights/slowest-tests.tsx` that does
+ * actual line-chart sparkline work.)
  */
 export function Sparkline({
   points,
   chronological = true,
   width = 160,
-  height = 24,
-  gap = 1,
+  height = 22,
 }: SparklineProps) {
   if (points.length === 0) {
     return (
       <svg
-        width={width}
-        height={height}
-        style={{ display: "block" }}
-        role="img"
         aria-label="No runs"
+        height={height}
+        role="img"
+        style={{ display: "block" }}
+        width={width}
       />
     );
   }
 
   const ordered = chronological ? points : [...points].reverse();
-  const barWidth = Math.max(
-    1,
-    (width - gap * (ordered.length - 1)) / ordered.length,
-  );
+  const cellW = width / ordered.length;
+  const barH = Math.max(1, height - 6);
+  const inset = 1;
 
   return (
     <svg
-      width={width}
-      height={height}
-      style={{ display: "block" }}
-      role="img"
       aria-label={`Last ${ordered.length} runs`}
+      height={height}
+      role="img"
+      style={{ display: "block" }}
+      width={width}
     >
-      {ordered.map((p, i) => {
-        const x = i * (barWidth + gap);
-        return (
-          <rect
-            key={i}
-            x={x}
-            y={0}
-            width={barWidth}
-            height={height}
-            fill={statusColor(p.status)}
-          >
-            {p.label && <title>{p.label}</title>}
-          </rect>
-        );
-      })}
+      {ordered.map((p, i) => (
+        <rect
+          fill={statusColor(p.status)}
+          height={barH}
+          key={`${i}-${p.status}`}
+          rx="1.5"
+          width={Math.max(1, cellW - inset * 2)}
+          x={i * cellW + inset}
+          y={3}
+        >
+          {p.label ? <title>{p.label}</title> : null}
+        </rect>
+      ))}
     </svg>
   );
 }

@@ -110,7 +110,7 @@ export function RunsSearchInput({
       />
       <input
         aria-label="Search runs"
-        className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/72 shadow-xs/5 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 [&::-webkit-search-cancel-button]:appearance-none"
+        className="h-8 w-full rounded-md border border-line-1 bg-card pl-8 pr-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 [&::-webkit-search-cancel-button]:appearance-none"
         onChange={(e) => setQLocal(e.target.value)}
         placeholder="Search commits…"
         type="search"

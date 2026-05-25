@@ -9,8 +9,8 @@ import type { AuthorizedProjectId, AuthorizedTeamId } from "@/lib/scope";
 
 export type Props = InferProps<typeof loader>;
 
-type RangeKey = "7d" | "30d" | "90d" | "all";
-const RANGES: readonly RangeKey[] = ["7d", "30d", "90d", "all"];
+type RangeKey = "7d" | "14d" | "30d" | "90d";
+const RANGES: readonly RangeKey[] = ["7d", "14d", "30d", "90d"];
 const parseRange = makeRangeParser<RangeKey>(RANGES, "30d");
 
 const HIST_BINS = 20;
