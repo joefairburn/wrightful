@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/cn";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import {
   type RunsFilters,
@@ -44,6 +45,15 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   timedout: "Timed out",
   interrupted: "Interrupted",
   skipped: "Skipped",
+};
+
+const STATUS_DOT_CLASS: Record<RunStatus, string> = {
+  passed: "bg-pass",
+  failed: "bg-fail",
+  flaky: "bg-flaky",
+  timedout: "bg-fail",
+  interrupted: "bg-flaky",
+  skipped: "bg-skipped",
 };
 
 function formatDisplayDate(iso: string): string {
@@ -93,16 +103,16 @@ export function RunsSearchInput({
   }, [filters.q]);
 
   return (
-    <div className="relative w-64">
+    <div className="relative w-[240px] shrink-0">
       <SearchIcon
         aria-hidden
         className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"
       />
       <input
         aria-label="Search runs"
-        className="h-8 w-full rounded-lg border border-input bg-background pl-8 pr-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/72 shadow-xs/5 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 [&::-webkit-search-cancel-button]:appearance-none"
+        className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/72 shadow-xs/5 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 [&::-webkit-search-cancel-button]:appearance-none"
         onChange={(e) => setQLocal(e.target.value)}
-        placeholder="Search commits, SHA, branch"
+        placeholder="Search commits…"
         type="search"
         value={qLocal}
       />
@@ -110,6 +120,13 @@ export function RunsSearchInput({
   );
 }
 
+/**
+ * Horizontal filter row matching the prototype: search input on the left,
+ * faceted dropdowns next to it, a ghost-style date-range trigger on the
+ * right. All controls share `h-8` and identical visual rhythm. Multi-select
+ * is preserved everywhere — the prototype is single-select per facet but the
+ * user opted to keep multi-select for parity with the existing model.
+ */
 export function RunsFilterBar({
   pathname,
   filters,
@@ -138,57 +155,78 @@ export function RunsFilterBar({
   const dateHasValue = Boolean(filters.from || filters.to);
 
   return (
-    <div className="flex w-full items-center gap-2 min-w-0">
+    <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <RunsSearchInput filters={filters} pathname={pathname} />
+
+        <MultiComboboxFilter
+          active={filters.status}
+          icon={<CircleDotIcon />}
+          label="Status"
+          onChange={(v) => {
+            const allowed: ReadonlySet<string> = new Set(RUN_STATUSES);
+            const status = v.filter((s): s is RunStatus => allowed.has(s));
+            apply({ ...filters, status });
+          }}
+          options={RUN_STATUSES.map((s) => ({
+            value: s,
+            label: STATUS_LABEL[s],
+          }))}
+          placeholder="Status"
+          renderItem={(value, itemLabel) => (
+            <span className="flex items-center gap-2 truncate">
+              <span
+                aria-hidden
+                className={cn(
+                  "inline-block size-2 shrink-0 rounded-full",
+                  STATUS_DOT_CLASS[value as RunStatus],
+                )}
+              />
+              <span className="truncate">{itemLabel}</span>
+            </span>
+          )}
+          searchable={false}
+          summary={(count) => `${count}/${RUN_STATUSES.length}`}
+        />
+
+        <MultiComboboxFilter
+          active={filters.branch}
+          icon={<GitBranchIcon />}
+          label="Branches"
+          onChange={(v) => apply({ ...filters, branch: v })}
+          options={options.branches.map((b) => ({ value: b, label: b }))}
+          placeholder="All branches"
+          renderItem={(_value, itemLabel) => (
+            <span className="truncate font-mono text-[12.5px]">
+              {itemLabel}
+            </span>
+          )}
+        />
+
+        <MultiComboboxFilter
+          active={filters.actor}
+          icon={<UserIcon />}
+          label="Authors"
+          onChange={(v) => apply({ ...filters, actor: v })}
+          options={options.actors.map((a) => ({ value: a, label: a }))}
+          placeholder="All authors"
+        />
+
+        <MultiComboboxFilter
+          active={filters.environment}
+          icon={<ServerIcon />}
+          label="Environments"
+          onChange={(v) => apply({ ...filters, environment: v })}
+          options={options.environments.map((e) => ({ value: e, label: e }))}
+          placeholder="All envs"
+        />
+      </div>
+
       <DateRangeFilter
         dateLabel={dateLabel}
         hasValue={dateHasValue}
         onApply={(from, to) => apply({ ...filters, from, to })}
         range={range}
-      />
-
-      <MultiComboboxFilter
-        active={filters.actor}
-        icon={<UserIcon />}
-        label="Authors"
-        onChange={(v) => apply({ ...filters, actor: v })}
-        options={options.actors.map((a) => ({ value: a, label: a }))}
-        placeholder="All Authors"
-      />
-
-      <MultiComboboxFilter
-        active={filters.environment}
-        icon={<ServerIcon />}
-        label="Environments"
-        onChange={(v) => apply({ ...filters, environment: v })}
-        options={options.environments.map((e) => ({ value: e, label: e }))}
-        placeholder="All Environments"
-      />
-
-      <MultiComboboxFilter
-        active={filters.branch}
-        icon={<GitBranchIcon />}
-        label="Branches"
-        onChange={(v) => apply({ ...filters, branch: v })}
-        options={options.branches.map((b) => ({ value: b, label: b }))}
-        placeholder="All Branches"
-      />
-
-      <MultiComboboxFilter
-        active={filters.status}
-        icon={<CircleDotIcon />}
-        label="Status"
-        onChange={(v) => {
-          const allowed: ReadonlySet<string> = new Set(RUN_STATUSES);
-          const status = v.filter((s): s is RunStatus => allowed.has(s));
-          apply({ ...filters, status });
-        }}
-        options={RUN_STATUSES.map((s) => ({
-          value: s,
-          label: STATUS_LABEL[s],
-        }))}
-        placeholder="Status"
-        searchable={false}
-        summary={(count) => `${count}/${RUN_STATUSES.length}`}
       />
     </div>
   );
@@ -213,13 +251,13 @@ function DateRangeFilter({
             aria-label="Date range"
             hasValue={hasValue}
             icon={<CalendarIcon />}
-            label={dateLabel ?? "Select Date Range"}
+            label={dateLabel ?? "Last 24 hours"}
             muted={!hasValue}
             onClear={() => onApply(null, null)}
           />
         }
       />
-      <PopoverPopup align="start" className="p-2">
+      <PopoverPopup align="end" className="p-2">
         <Calendar
           mode="range"
           onSelect={(selected: DateRange | undefined) =>

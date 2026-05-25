@@ -1,5 +1,5 @@
 import { GitBranch, GitCommit, GitPullRequest } from "lucide-react";
-import { RunsFilterBar, RunsSearchInput } from "@/components/runs-filter-bar";
+import { RunsFilterBar } from "@/components/runs-filter-bar";
 import { RunTestsPopover } from "@/components/run-tests-popover";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
 import {
@@ -68,18 +68,17 @@ export default function RunsListPage({
 
   return (
     <>
-      <div className="px-6 py-4 flex items-center justify-between border-b border-border shrink-0 gap-4">
-        <div className="flex items-center gap-3 shrink-0">
-          <h2 className="text-base font-semibold tracking-tight">All Runs</h2>
-          <span className="px-2 py-0.5 rounded-sm bg-muted text-muted-foreground font-mono text-xs border border-border/50">
+      <div className="shrink-0 border-b border-border px-6 py-3">
+        <div className="mb-2.5 flex items-center gap-2.5">
+          <h1 className="text-[19px] font-semibold tracking-tight">Runs</h1>
+          <span className="rounded-sm border border-border/50 bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
             {totalRuns}
             {filtersActive ? " match" : " total"}
           </span>
+          <span className="text-[12.5px] text-muted-foreground">
+            <span className="font-mono">{project.slug}</span>
+          </span>
         </div>
-        <RunsSearchInput filters={filters} pathname={base} />
-      </div>
-
-      <div className="px-6 py-3 border-b border-border shrink-0">
         <RunsFilterBar filters={filters} options={options} pathname={base} />
       </div>
 

@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/cn";
 
 export const FILTER_TRIGGER_CLASSES =
-  "group h-8 flex-1 min-w-0 justify-start gap-2 px-2.5 font-normal text-muted-foreground data-[has-value=true]:text-foreground";
+  "group h-8 min-w-0 justify-start gap-2 px-2.5 font-normal text-muted-foreground data-[has-value=true]:text-foreground";
 
 export function TrailingAction({
   hasValue,
@@ -110,6 +110,7 @@ export function MultiComboboxFilter({
   icon,
   searchable = true,
   summary,
+  renderItem,
 }: {
   label: string;
   options: FilterOption[];
@@ -119,6 +120,11 @@ export function MultiComboboxFilter({
   icon: React.ReactNode;
   searchable?: boolean;
   summary?: (count: number) => string;
+  /**
+   * Render the inner content of each list row. Defaults to the option's
+   * label. Useful for prefixing a status dot, a mono-font branch chip, etc.
+   */
+  renderItem?: (value: string, label: string) => React.ReactNode;
 }): React.ReactElement {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const labelByValue = useMemo(() => {
@@ -173,13 +179,18 @@ export function MultiComboboxFilter({
           </div>
         )}
         <ComboboxList>
-          {(value: string) => (
-            <ComboboxItem key={value} value={value}>
-              <span className="truncate">
-                {labelByValue.get(value) ?? value}
-              </span>
-            </ComboboxItem>
-          )}
+          {(value: string) => {
+            const itemLabel = labelByValue.get(value) ?? value;
+            return (
+              <ComboboxItem key={value} value={value}>
+                {renderItem ? (
+                  renderItem(value, itemLabel)
+                ) : (
+                  <span className="truncate">{itemLabel}</span>
+                )}
+              </ComboboxItem>
+            );
+          }}
         </ComboboxList>
         <ComboboxEmpty>No matches</ComboboxEmpty>
         {hasValue && (

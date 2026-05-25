@@ -1,0 +1,31 @@
+import { defineMiddleware } from "void";
+
+/**
+ * Sets `<head>` defaults that need to run before first paint on every page.
+ *
+ * The inline script is the FOUC-killer: it reads the user's saved theme from
+ * localStorage and toggles `.dark` on `<html>` synchronously, before the body
+ * paints. Tailwind v4's `@custom-variant dark (&:is(.dark *))` then keys off
+ * that class for every component in the tree.
+ *
+ * Default is dark to match the Wrightful design direction. `script`,
+ * `htmlAttrs`, and `bodyAttrs` from `headDefaults` are SSR-only per the void
+ * head-management docs — they aren't re-applied on client-side navigation,
+ * which is fine because the class lives on `<html>` and persists across
+ * SPA transitions.
+ */
+export default defineMiddleware(async (c, next) => {
+  c.set("headDefaults", {
+    htmlAttrs: { class: "dark" },
+    script: [
+      {
+        innerHTML:
+          `try{var t=localStorage.getItem("theme");` +
+          `var d=t?t==="dark":true;` +
+          `document.documentElement.classList.toggle("dark",d);` +
+          `}catch(_){}`,
+      },
+    ],
+  });
+  await next();
+});
