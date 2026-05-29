@@ -75,9 +75,10 @@ describe("Wrightful E2E", () => {
       const res = await fetchAuthed(PROJECT_URL);
       const html = await res.text();
       expect(res.status).toBe(200);
-      // Project page chrome: the runs-list <h1> renders "Runs" (PageHeader);
-      // it was "All Runs" in the pre-Void UI.
-      expect(html).toContain("Runs");
+      // Assert on a marker UNIQUE to the runs-list page, not the bare word
+      // "Runs" (which the sidebar nav prints on every tenant page). The Void
+      // page-data component id is rendered only by this route.
+      expect(html).toContain('"component":"t/[teamSlug]/p/[projectSlug]"');
     });
   });
 

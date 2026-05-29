@@ -51,6 +51,11 @@ export class RunDetailPage {
     const link = this.testRowLinks.first();
     await expect(link).toBeVisible({ timeout: 10_000 });
     await link.click();
-    await this.page.waitForURL(/\/tests\//, { timeout: 10_000 });
+    // Wait for the navigation to SETTLE on a test-detail URL. We don't re-click
+    // on a slow nav (a second click can land on a stale element on the
+    // already-changed page); a generous wait + load-state ride out the
+    // hydration/SPA transition without racing a transient URL.
+    await this.page.waitForURL(/\/tests\//, { timeout: 15_000 });
+    await this.page.waitForLoadState("load");
   }
 }

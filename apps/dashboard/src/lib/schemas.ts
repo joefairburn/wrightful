@@ -57,7 +57,14 @@ const MAX_ARTIFACTS_PER_REQUEST = 2000;
 const truncatedText = (max: number) =>
   z
     .string()
-    .transform((s) => (s.length > max ? s.slice(0, max) : s))
+    .transform((s) => {
+      if (s.length <= max) return s;
+      // Don't split a surrogate pair at the cut: a lone high surrogate is
+      // ill-formed UTF-16/UTF-8 and breaks JSON serialization to the client.
+      const lastKept = s.charCodeAt(max - 1);
+      const end = lastKept >= 0xd800 && lastKept <= 0xdbff ? max - 1 : max;
+      return s.slice(0, end);
+    })
     .nullable()
     .optional();
 
