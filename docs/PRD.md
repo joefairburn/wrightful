@@ -4,6 +4,8 @@
 
 This document is the strategy + decisions doc — what Wrightful is, what it isn't, and why we made the architectural calls we did. For the request flow, storage layout, and route surface as they stand today, see [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md). For self-hosting steps, see [`SELF-HOSTING.md`](../SELF-HOSTING.md). For the dated narrative behind specific changes, see [`docs/worklog/`](./worklog/).
 
+> **Architecture note (2026-05):** the dashboard was migrated from RedwoodSDK + per-team Durable Objects + Kysely onto [Void](https://void.cloud) with a single D1 database + Drizzle. Several decisions below were reversed by that migration; they're kept and annotated rather than deleted, because the reasoning is part of the project's history. The consolidated record is [`docs/worklog/void-migration-consolidated.md`](./worklog/void-migration-consolidated.md).
+
 ## Problem
 
 Playwright's built-in HTML reporter is excellent for debugging a single run, but has no persistence, no cross-run analytics, no flaky test detection, and no team sharing beyond downloading zip artifacts from CI. The only solutions are commercial dashboards starting at $49/month (Currents.dev, TestDino). There is no credible open-source alternative that provides historical test analytics with a simple self-hosting story.
@@ -29,40 +31,44 @@ Non-goals (explicitly out of scope):
 
 | Layer          | Technology                                          | Why                                                                                                                                               |
 | -------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Framework      | **RedwoodSDK**                                      | Server-first React on Cloudflare. RSC means routes can query the data layer directly and return JSX — no separate API layer needed for the UI.    |
-| Auth/tenancy   | **Singleton `ControlDO`** + **Better Auth**         | SQLite-backed Durable Object holds users, sessions, teams, projects, memberships, API keys. Addressed by name `"control"`; one instance globally. |
-| Tenant data    | **Per-team `TenantDO`**                             | One SQLite-backed Durable Object per team holds runs + derived rows. Physical tenant isolation, addressed by `idFromName(teamId)`.                |
-| Realtime       | **`SyncedStateServer` DO**                          | rwsdk's stock realtime DO; broadcasts run-progress snapshots to subscribed dashboard clients.                                                     |
-| Query builder  | **Kysely**                                          | Same builder, two stores. Schema for each DO is defined as a Kysely-DSL migration; types are inferred from the migration with `Database<typeof>`. |
+| Framework      | **Void**                                            | Fullstack Vite plugin + deploy platform for Cloudflare. File-based Hono routing + Inertia-style server-rendered pages with co-located loaders.    |
+| Data store     | **Single Cloudflare D1**                            | One SQLite database holds auth, tenancy, runs, and derived rows. Tenant isolation is logical (filter by `teamId`/`projectId`), not physical.      |
+| Query builder  | **Drizzle ORM**                                     | Ships with Void (`void/db`); schema in `db/schema.ts`; typed routes + typed fetch client. Multi-statement writes via D1 `db.batch`.               |
+| Auth/tenancy   | **Better Auth via `void/auth`**                     | Sessions (email + password, optional GitHub OAuth). Better Auth's own tables are void-managed; our tenancy tables live in the same D1.            |
+| Realtime       | **`void/live`**                                     | DO-backed pub-bus; ingest publishes on topic `run:<runId>`, run detail/list islands subscribe via `useRunProgress`.                               |
 | Object storage | **Cloudflare R2**                                   | S3-compatible storage for traces, screenshots, videos. 10GB free, zero egress charges. Artifacts uploaded and downloaded via presigned URLs.      |
 | Reporter       | **`@wrightful/reporter`**                           | Custom Playwright reporter that streams per-test results live as the suite runs (open run → append batches → complete). Not a JSON-file uploader. |
-| CI integration | **GitHub Action** (planned)                         | Optional action that posts PR comments with run summary, flaky warnings, and dashboard link.                                                      |
+| CI integration | **Reporter PR comment**                             | Opt-in `postPrComment` upserts a PR comment with run summary, tallies, and a dashboard link, posted from CI with the runner's `GITHUB_TOKEN`.     |
 | API auth       | **Bearer API keys**                                 | Per-project keys, SHA-256 hashed at rest, looked up by 8-char prefix. Multiple keys per project with individual revocation.                       |
-| Dashboard auth | **Better Auth** (sessions; email + optional GitHub) | Email/password sign-in by default, optional GitHub OAuth. Session cookie + middleware (`loadSession`, `requireUser`) gate the UI.                 |
+| Dashboard auth | **Better Auth** (sessions; email + optional GitHub) | Email/password sign-in by default, optional GitHub OAuth. Session cookie gates the UI.                                                            |
 
-### Why RedwoodSDK over Hono + React SPA
+### Why Void
 
-- RSC removes the need to build and maintain a separate REST API for the dashboard — a route handler queries the data layer and returns JSX directly
-- Built-in DO, R2, Queues, Crons bindings with no config
-- Vite-based, so the dev experience is fast and familiar
-- Server Functions for mutations (no manual fetch/POST wiring)
-- Still React — leverages existing knowledge
-- Stable framework purpose-built for Cloudflare Workers
+- Server-rendered Inertia-style pages: a page's `*.server.ts` loader queries the data layer and returns props directly — no separate REST API to maintain for the UI.
+- Auto-provisioned D1/KV/R2 bindings inferred from source; `void deploy` builds, runs Drizzle migrations, and ships in one command — no manual resource creation, no migrate orchestration.
+- First-class Drizzle integration with typed routes and a typed fetch client.
+- Vite-based dev experience; built-in auth, cron jobs, and realtime (`void/live`).
 
-### Why Durable Objects over D1
+### Storage: single D1 (and the earlier Durable Object detour)
 
-The original design used a single Cloudflare D1 database for everything. Two pressures pushed us off that path:
+The project's original Cloudflare design used a singleton `ControlDO` for auth/tenancy plus one `TenantDO` per team for test data, queried with Kysely. The reasoning at the time:
 
-1. **Per-tenant data partitioning.** Running every team's runs/results/artifacts through one D1 single-writer instance makes the noisy-neighbour problem inevitable. Sharding by team into per-team `TenantDO` instances gives each team its own SQLite + its own write throughput, and makes tenant isolation physical rather than conventional. See [`docs/worklog/2026-04-20-per-tenant-durable-objects.md`](./worklog/2026-04-20-per-tenant-durable-objects.md).
-2. **Auto-provisioning friction for self-hosters.** Cloudflare's binding-resolution behaviour for newly-created D1 databases meant the first deploy needed a multi-step migrate orchestration with a side-channel `MIGRATE_SECRET`. Moving auth/tenancy into a singleton `ControlDO` removed the orchestration entirely — `wrangler deploy` provisions the DOs and each migrates lazily on first request. See [`docs/worklog/2026-04-29-control-do.md`](./worklog/2026-04-29-control-do.md).
+1. **Per-tenant write isolation** — sharding runs by team into per-team DOs avoided a single-writer noisy-neighbour problem and made tenant isolation physical.
+2. **Auto-provisioning friction** — Cloudflare's binding behaviour for newly-created D1 made the first deploy need a multi-step migrate orchestration; a singleton `ControlDO` sidestepped it.
 
-The trade-off accepted: auth lookups now hit a single DO (region-pinned) rather than a read-replicated D1. The dashboard hot path takes a ~200–400ms latency hit for distant users; ingest is unaffected. KV-caching session reads is the deferred mitigation if traffic ever justifies it.
+**The 2026-05 Void migration reversed this** and moved everything to a single D1 with Drizzle. What changed the calculus:
+
+- **Void removed the provisioning friction.** `void deploy` infers and provisions D1/R2/KV and runs migrations as part of deploy — the orchestration that motivated the DO approach no longer exists.
+- **The write-rate concern was overstated.** Wrightful's write rate is single-digit per team per second; a single D1 writer handles it comfortably.
+- **One store is simpler and more capable.** Cross-team joins, one source of truth, one migration history, and far less operational surface than N Durable Objects.
+
+The trade-off accepted: isolation is now logical, not physical. Every run-scoped query must filter by `teamId`/`projectId`; the branded `AuthorizedProjectId` on `TenantScope` enforces this through the type system so it can't be forgotten.
 
 ## Architecture
 
 For the canonical view, see [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md). One-paragraph summary:
 
-A single Cloudflare Worker hosts both the streaming ingest API (`/api/runs/*`, `/api/artifacts/*`) and the RSC dashboard UI (`/t/:teamSlug/p/:projectSlug/…`). API requests authenticate with a project-scoped Bearer key; dashboard requests carry a Better Auth session cookie. Auth/tenancy reads/writes go to the singleton `ControlDO`; runs and derived rows go to the team-scoped `TenantDO`; artifact bytes go to R2 via presigned PUT/GET. Realtime progress is fanned out via a `SyncedStateServer` DO that the run-detail and run-list client islands subscribe to.
+A single Cloudflare Worker (a Void app) hosts both the streaming ingest API (`/api/runs/*`, `/api/artifacts/*`) and the server-rendered dashboard UI (`/t/:teamSlug/p/:projectSlug/…`). API requests authenticate with a project-scoped Bearer key; dashboard requests carry a Better Auth session cookie. All reads/writes go to a single D1 database via Drizzle — auth/tenancy tables and run/derived tables live together, isolated logically by `teamId`/`projectId`. Artifact bytes go to R2 via presigned PUT/GET. Realtime progress is published on `void/live` topic `run:<runId>`, which the run-detail and run-list islands subscribe to via `useRunProgress`.
 
 ### Streaming ingest flow
 
@@ -72,11 +78,11 @@ The reporter doesn't dump a JSON file at the end of the suite — it streams. Th
 - `onTestEnd` → buffer per test until all retries are settled, then `POST /api/runs/:runId/results` in batches. Each response returns `clientKey → testResultId`, which the reporter uses to register and PUT artifacts via `POST /api/artifacts/register` + presigned R2 URLs.
 - `onEnd` → `POST /api/runs/:runId/complete` sets the terminal status.
 
-Per-test emission means one row per test at its final outcome, with retries aggregated into `flaky`. Wire types live in both `packages/reporter/src/types.ts` (TypeScript) and `packages/dashboard/src/routes/api/schemas.ts` (Zod) — keep them in sync.
+The route handlers are auth + translation only; the batch pipeline lives behind `openRun` / `appendRunResults` / `completeRun` in `apps/dashboard/src/lib/ingest.ts`. Per-test emission means one row per test at its final outcome, with retries aggregated into `flaky`. Wire types live in both `packages/reporter/src/types.ts` (TypeScript) and `apps/dashboard/src/lib/schemas.ts` (Zod) — keep them in sync; `packages/reporter/src/__tests__/contract.test.ts` is the canary.
 
 ### Multi-tenancy
 
-Teams → projects → runs (+ derived rows). Users join teams via `memberships` (`owner` | `member`). Tenant isolation is physical — each team gets its own `TenantDO` instance. Within a team's DO, queries against `runs` / `testResults` / `testResultAttempts` / `testTags` / `testAnnotations` / `artifacts` must still filter by `projectId`; the branded `AuthorizedProjectId` on `TenantScope` makes that hard to forget at the type level. Auth helpers (`tenantScopeForUser`, `tenantScopeForApiKey`, `getActiveProject`) gate every read/write — no route handler should reach raw bindings.
+Teams → projects → runs (+ derived rows). Users join teams via `memberships` (`owner` | `member`). Tenant isolation is **logical** — there is no per-team DO; every query against `runs` / `testResults` / `testResultAttempts` / `testTags` / `testAnnotations` / `artifacts` must filter by `projectId` (and `teamId` where present). The branded `AuthorizedProjectId` on `TenantScope` makes that hard to forget at the type level. Auth helpers (`requireTenantContext`, `tenantScopeForApiKey`, `resolveProjectBySlugs`) gate every read/write — no route handler should reach raw bindings.
 
 ### Stable test ID
 
@@ -107,7 +113,7 @@ Reporter requests carry `X-Wrightful-Version`. Currently only version 3 is suppo
 
 ### Core views
 
-1. **Team picker** (`/`)
+1. **Team / project picker** (`/`)
    - Lists teams the signed-in user is a member of; landing page.
 
 2. **Runs list** (`/t/:teamSlug/p/:projectSlug`)
@@ -118,7 +124,7 @@ Reporter requests carry `X-Wrightful-Version`. Currently only version 3 is suppo
 3. **Run detail** (`/t/:teamSlug/p/:projectSlug/runs/:runId`)
    - Summary: pass/fail/flaky/skipped counts, total duration, commit info
    - Test list: sortable by status, duration, name; filterable by tag
-   - In-flight runs: realtime progress via `useSyncedState` subscribed to the `SyncedStateServer` DO
+   - In-flight runs: realtime progress via `useRunProgress(runId)` over `void/live`
    - Sharded runs: per-shard breakdown alongside merged totals
 
 4. **Test detail** (`/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId`)
@@ -138,25 +144,23 @@ Reporter requests carry `X-Wrightful-Version`. Currently only version 3 is suppo
    - Filters: time window, branch (default: main/master), minimum run count, tags
 
 7. **Settings**
-   - Team management, project management, member invites, API keys
-   - Per-project key reveal flow: minted plaintext returned once via the `wrightful_reveal_key` Set-Cookie header.
+   - Profile, team management (general / members / projects), member invites, API keys
+   - Per-project key reveal: the minted plaintext key is returned once in the mint-key API response and surfaced in a modal client-side.
 
 ### Nice-to-have views (post-MVP)
 
-- **Insights** — suite duration trend, top 10 slowest tests, pass rate trend, duration regression detection
+- **Insights** — suite duration trend, top 10 slowest tests, pass rate trend, duration regression detection (shipped)
 - **Branch comparison** — compare test results between two branches
 - **PR view** — all runs associated with a PR, with status timeline
 - **Notifications** — webhook on flaky test threshold breach
 
-## GitHub Integration (planned)
+## CI integration
 
-A lightweight GitHub Action that runs after the reporter finishes posts a PR comment with a summary table and link back to the dashboard. Fork PRs cannot access repository secrets, so the action degrades gracefully — skip the comment and log a warning rather than fail the workflow.
+The reporter has an opt-in `postPrComment` option: when a run finishes inside a GitHub Actions PR workflow, it posts (or upserts) a PR comment with a summary table and a link back to the dashboard. The comment is posted from CI using the runner's `GITHUB_TOKEN` — no GitHub App, no per-tenant install state. Fork PRs without secret access degrade gracefully (skip + warn rather than fail the workflow). A GitHub App is the longer-term answer if check runs / status checks / non-Actions runners are wanted.
 
 ## Self-hosting
 
-See [`SELF-HOSTING.md`](../SELF-HOSTING.md) for the canonical step-by-step guide. In one paragraph: deploy via Cloudflare's Git integration (preferred) or `wrangler deploy` directly; Wrangler auto-provisions the R2 bucket and the three DO classes (`ControlDO`, `TenantDO`, `SyncedStateServer`) on first run, each DO migrates itself lazily on first access, then you sign up via the dashboard, create a team + project, and mint an API key from the project's keys page. No D1 database to create, no migration step to run, no `MIGRATE_SECRET` to manage.
-
-**Cloudflare free tier** (Workers Free) covers most small-to-medium teams. Heavy users upgrade to Workers Paid ($5/month) for higher CPU/request limits and bigger DO storage budgets.
+See [`SELF-HOSTING.md`](../SELF-HOSTING.md) for the canonical step-by-step guide. In one paragraph: clone the repo, authenticate with `void auth login`, set `BETTER_AUTH_SECRET` + `WRIGHTFUL_PUBLIC_URL` (via `void secret put`), and run `pnpm deploy` — `void deploy` builds the app, applies the Drizzle migrations in `apps/dashboard/db/migrations/`, and provisions the D1 database + R2 bucket + KV bindings, then you sign up via the dashboard, create a team + project, and mint an API key. No resource creation, no separate migrate step. `void deploy` ships to Void's managed Cloudflare platform by default; you can also deploy to your own Cloudflare account.
 
 ## Key Design Decisions
 
@@ -178,11 +182,11 @@ To keep R2 storage manageable, the default reporter config uploads traces/screen
 
 ### Presigned R2 URLs for artifact serving
 
-Artifacts upload directly from the reporter to R2 (presigned PUT) and are served from R2 to the browser (signed token containing the R2 key). The Worker is never in the byte path. This avoids Worker CPU time on large files and avoids the response-size cap.
+Artifacts upload directly from the reporter to R2 (presigned PUT) and are served from R2 to the browser (signed token containing the R2 key). The Worker is never in the byte path. This avoids Worker CPU time on large files and avoids the response-size cap. Served content types are normalized against an allowlist with `Content-Disposition: attachment` to prevent stored-XSS via artifact downloads.
 
-### RSC for dashboard pages
+### Server-rendered pages over a React SPA
 
-Every dashboard page is a React Server Component that queries the data layer directly. No client-side data fetching, no loading spinners, no REST API to maintain for the UI. Client islands only for interactive bits: charts, sortable tables, filter dropdowns, realtime progress subscriptions.
+Every dashboard page is server-rendered (Void Inertia-style): a `*.server.ts` loader queries the data layer and returns props. No client-side data fetching for the initial render, no REST API to maintain for the UI. Client islands only for interactive bits: charts, sortable tables, filter dropdowns, realtime progress subscriptions.
 
 ### Multiple API keys from day one
 
@@ -192,19 +196,20 @@ Instead of a single shared secret, each project supports multiple labelled API k
 
 Tags and annotations are stored in dedicated tables (`testTags`, `testAnnotations`) rather than JSON strings, so they can be filtered and joined efficiently. Adds insertion complexity but is essential for the "filter by tag" feature on run detail and flaky test pages.
 
-### Pre-launch migration policy
+### Migration policy
 
-Both `ControlDO` and `TenantDO` schemas live as a single `0000_init` Kysely-DSL migration each. Pre-launch policy: edit `0000_init` in place and redeploy on schema changes; don't stack numbered migrations. This avoids accumulating migration debt during the rapid-iteration phase. Once the project ships to non-test users, the policy flips to additive-only migrations.
+Schema lives in `apps/dashboard/db/schema.ts`; migrations are generated with `void db generate` into `apps/dashboard/db/migrations/` and applied by `void deploy`. Changes are forward-only / additive (new tables, new nullable columns); never edit a migration already applied to a live database. (Pre-migration, the project used a single in-place `0000_init` Kysely-DSL migration per DO — superseded by the Drizzle migration history under Void.)
 
 ## Decisions (Resolved)
 
-| Question                                | Decision           | Rationale                                                                                                                         |
-| --------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| Support non-Playwright runners?         | No                 | Playwright-specific features (traces, annotations, projects) are core differentiators. Generalization would dilute the product.   |
-| Single D1 vs per-tenant DO + ControlDO? | DO-only            | Per-tenant write isolation, simpler self-hosting story (no D1 auto-provisioning friction). Trade-off: single-region auth latency. |
-| CLI uploader vs streaming reporter?     | Streaming reporter | Matches the dashboard's realtime model; per-test emission integrates cleanly with sharded CI.                                     |
-| Drizzle vs Kysely?                      | Kysely             | Same builder works for both DOs (no D1-specific adapter); types inferred from migration DSL; lighter dep surface.                 |
-| Bring-your-own-Postgres alternative?    | No                 | Split maintenance focus kills OSS projects. Community contribution if demand exists.                                              |
-| License                                 | MIT                | Lower friction for adoption, matches Playwright itself.                                                                           |
-| Monorepo tooling                        | pnpm workspaces    | Skip Turborepo unless pain is felt — overhead for 3 packages.                                                                     |
-| Naming                                  | Wrightful          | Rebranded from "Greenroom" on 2026-04-16. Short, memorable, pairs with the `wrightful.dev` domain.                                |
+| Question                                | Decision           | Rationale                                                                                                                                                       |
+| --------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Support non-Playwright runners?         | No                 | Playwright-specific features (traces, annotations, projects) are core differentiators. Generalization would dilute the product.                                 |
+| Framework?                              | Void               | Server-rendered pages + auto-provisioned bindings + one-command deploy on Cloudflare. (Migrated from RedwoodSDK in 2026-05.)                                    |
+| Single D1 vs per-tenant DO + ControlDO? | Single D1          | Void removes the provisioning friction that motivated DOs; write rate is trivial; one store = cross-team joins + simpler ops. Reversed the earlier DO decision. |
+| Drizzle vs Kysely?                      | Drizzle            | Ships with Void; typed routes + typed fetch; D1 `batch` atomicity. Reversed the earlier Kysely decision.                                                        |
+| CLI uploader vs streaming reporter?     | Streaming reporter | Matches the dashboard's realtime model; per-test emission integrates cleanly with sharded CI.                                                                   |
+| Bring-your-own-Postgres alternative?    | No                 | Split maintenance focus kills OSS projects. Community contribution if demand exists.                                                                            |
+| License                                 | MIT                | Lower friction for adoption, matches Playwright itself.                                                                                                         |
+| Monorepo tooling                        | pnpm workspaces    | Skip Turborepo unless pain is felt — overhead for a few packages.                                                                                               |
+| Naming                                  | Wrightful          | Rebranded from "Greenroom" on 2026-04-16. Short, memorable, pairs with the `wrightful.dev` domain.                                                              |
