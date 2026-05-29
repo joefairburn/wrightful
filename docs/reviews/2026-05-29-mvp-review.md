@@ -13,6 +13,66 @@ than the P0–P1 items, which were checked directly.
 
 ---
 
+## Resolution status (2026-05-29, follow-up commit)
+
+A follow-up pass implemented the bulk of this roadmap. `vp check` passes with 0
+errors and all unit tests pass (dashboard + reporter, incl. new tests).
+
+**Fixed:**
+
+- **P0 — rate limiting wired** (`middleware/03.rate-limit.ts` + `checkRateLimit`
+  in `rate-limit.ts`): auth (IP), ingest (apiKey.id), artifact download
+  (artifactId), with a regression test (`__tests__/rate-limit.test.ts`).
+- **Ingest errors → Cloudflare Tail** (`00.errors.ts` logs genuine `/api/*`
+  errors before re-throw; `action-errors.ts` logs the unexpected branch of the
+  settings mutations).
+- **CI production-build gate** + `--frozen-lockfile` (`ci.yml`).
+- **Reporter no longer calls `process.exit()`** — Playwright owns termination
+  (`reporter/src/index.ts`); shutdown tests updated.
+- **Sharding** — `completeRun` merges status monotonically (a failed shard can't
+  be overwritten by a later passing one) + max duration/completedAt;
+  duplicate-open prefills via `onConflictDoNothing` (`ingest.ts`); test added.
+- **Watchdog** funnels through `finalizeStaleRun` (recompute + broadcast) with
+  per-run error logging (`crons/sweep-stuck-runs.ts`).
+- **`(projectId, createdAt)` index** on `testResults` (new migration) +
+  **suite-size "tests added" query rewritten** to a window-bounded form.
+- **Artifact registration is idempotent** (reuse existing row + R2 key on
+  retry) + **filename sanitized** for the R2 key (`artifacts/register.ts`).
+- **Ingest Zod bounds** (`schemas.ts`) — finite caps on all strings/arrays.
+- **Security headers** restored at the edge in `void.json` `routing.headers`
+  (added CSP — with the GitHub-avatar origin allowed — plus HSTS and
+  Permissions-Policy; X-Frame-Options/nosniff/Referrer-Policy were already there).
+- **`ARTIFACT_TOKEN_SECRET`** decoupled from `BETTER_AUTH_SECRET` (falls back;
+  test added). **GitHub `read:org` scope dropped** (vestigial). **Version header
+  now required.**
+- **`/signup` page added** (gated on `ALLOW_OPEN_SIGNUP`) — dead link fixed.
+- **`@wrightful/dashboard-void` → `@wrightful/dashboard`** filter fix in setup
+  scripts.
+
+**Deliberately deferred (with rationale):**
+
+- **Live run-detail header** — a frontend island restructure (lift
+  `useRunProgress` to drive the header) that needs visual verification in a
+  running app; the backend now broadcasts live summaries + terminal events, so
+  the data path is ready.
+- **Full DB-backed integration tests** (validateApiKey, ownership rejection,
+  openRun idempotency) — needs an in-memory D1 harness + a native `better-sqlite3`
+  dev dep; DB-free coverage was added for token verify, status merge, and the
+  rate limiter instead.
+- **`ingest.ts` split** — a pure structural refactor; bundling it with behavior
+  changes in still-untested code is risky. Do it as a dedicated PR.
+- **R2 object deletion on tenant delete** — needs a queued/reconciliation job
+  (inline deletion of many objects risks request timeout).
+- **e2e harness rework + re-enable** — large; the build gate was added as the
+  interim safety net.
+- **Explicit CSRF Origin-allowlist middleware** — `SameSite=Lax` +
+  `frame-ancestors 'none'` + Better Auth's built-in checks cover the threat; a
+  misconfigured allowlist risks breaking self-host.
+- **Dead-code removal (CommandMenu/Toast), chip dedup, worklog index** —
+  cosmetic.
+
+---
+
 ## Bottom line
 
 This is a genuinely well-built MVP with **one hard ship-blocker**. The core
@@ -56,8 +116,8 @@ For a SaaS holding other people's CI credentials and data, this leaves wide open
 - **Artifact download** — unbounded byte egress (every byte proxies through the
   Worker).
 
-The `void-migration-consolidated.md` worklog flagged this — *"declared … but not
-provisioned/exercised — revisit before any real deploy"* — and it shipped anyway.
+The `void-migration-consolidated.md` worklog flagged this — _"declared … but not
+provisioned/exercised — revisit before any real deploy"_ — and it shipped anyway.
 
 **Fix (S):** add `middleware/03.rate-limit.ts` path-matching the three surfaces,
 keyed by `clientIp` / `apiKey.id` (post-auth, tenant-scoped) / `artifactId`. Verify
@@ -100,9 +160,9 @@ well-reasoned and well-executed — the denormalized `teamId`/`projectId` on eve
 child table is the right call.
 
 - **The branded `AuthorizedProjectId`/`AuthorizedTeamId` pattern is a clean guardrail,
-  but be honest about what it is.** It is *compile-time-only* — erased at runtime,
+  but be honest about what it is.** It is _compile-time-only_ — erased at runtime,
   minted by `as` casts on raw row strings. It reliably stops a developer from
-  *forgetting* a filter, but it **cannot catch an incorrect-but-present id** (a loader
+  _forgetting_ a filter, but it **cannot catch an incorrect-but-present id** (a loader
   resolving the wrong project, or a child row written with the wrong `projectId`). In
   a single-D1 model, one wrong id silently leaks cross-tenant data. The denormalized
   `teamId` filters are good defense-in-depth, but the gap between "compile-time
@@ -110,7 +170,7 @@ child table is the right call.
   tenant-isolation tests that don't yet exist. (The casts themselves are at legitimate
   minting points, not abused — the issue is the type-only nature.)
 - **`ingest.ts` (725 lines) is approaching god-module territory** with a fragile
-  *implicit positional contract* ("the summary is the last `db.batch` statement").
+  _implicit positional contract_ ("the summary is the last `db.batch` statement").
   During refactor, split into aggregate/statements/broadcast/orchestrator modules and
   make that contract explicit (named index, not position).
 - **The watchdog cron bypasses the deep module.** `sweep-stuck-runs.ts` flips status
@@ -121,10 +181,10 @@ child table is the right call.
 
 ## 2. Security
 
-| Area | Verdict |
-|---|---|
-| Tenant isolation / IDOR | ✅ **Ship** — strongest dimension, no leaks found |
-| Artifact serving (XSS) | ✅ **Ship** — triple-layer defense is robust |
+| Area                    | Verdict                                                  |
+| ----------------------- | -------------------------------------------------------- |
+| Tenant isolation / IDOR | ✅ **Ship** — strongest dimension, no leaks found        |
+| Artifact serving (XSS)  | ✅ **Ship** — triple-layer defense is robust             |
 | Auth / abuse resistance | 🔴 **Fix first** — rate limiting dead code (the blocker) |
 
 Beyond the ship-blocker, defense-in-depth gaps (not active leaks) to close:
@@ -170,16 +230,16 @@ store other people's CI history at scale:
 Excellent for the single-shard case. But:
 
 - **Playwright sharding corrupts run aggregates. Confirmed.** `idempotencyKey =
-  generateIdempotencyKey(GITHUB_RUN_ID)` is identical across shards, so all shards
+generateIdempotencyKey(GITHUB_RUN_ID)` is identical across shards, so all shards
   collapse to one run. Shards 2..N hit the `duplicate:true` early-return (skipping
   queue prefill), per-status deltas race across non-serialized `UPDATE`s, and
-  **whichever shard calls `/complete` last wins** — so a run where shard 2 *failed* can
+  **whichever shard calls `/complete` last wins** — so a run where shard 2 _failed_ can
   be recorded `passed`. Either namespace the key per shard or document sharding as
   unsupported until fixed.
 - **Artifact registration is non-idempotent** — a retried `/results` flush (which the
   reporter does on 5xx) duplicates artifact rows and re-uploads bytes (double
   storage/egress billing). Add a unique index on `artifacts(testResultId, name,
-  attempt)`.
+attempt)`.
 
 ## 5. Reporter DX → **Ship with caveats**
 
@@ -202,7 +262,7 @@ automation presents as a safety net but verifies less than it appears:
 
 - **CI never runs the production build.** Only `vp check` + unit tests + reporter
   build. An SSR/worker-bundle break that typechecks and passes Vitest reaches `void
-  deploy` undetected. Add `vp build` after `void prepare`.
+deploy` undetected. Add `vp build` after `void prepare`.
 - **Both e2e jobs are `if: false`** and the harness resolves a non-existent
   `packages/dashboard` path with `.dev.vars` conventions Void replaced. There is zero
   browser/integration gate on the core reporter→ingest→UI path. Either rework the
@@ -228,7 +288,7 @@ automation presents as a safety net but verifies less than it appears:
   landing on a 404.
 - **Zero tests on the logic that matters.** Every dashboard test targets a pure
   helper. No tests for `openRun`/`appendRunResults`/`completeRun` (incl. the
-  ownership-rejection paths that *are* the tenant guard), `validateApiKey`, scope
+  ownership-rejection paths that _are_ the tenant guard), `validateApiKey`, scope
   resolvers, or `verifyArtifactToken`. The brand types are compile-time-only, so they
   don't substitute. This is the single biggest gap behind "feel confident shipping."
 
@@ -237,24 +297,27 @@ automation presents as a safety net but verifies less than it appears:
 ## Prioritized roadmap
 
 ### P0 — before launch
-| # | Item | Effort |
-|---|---|---|
-| 1 | **Wire up the rate limiters** (the one blocker) + 429 smoke test | S |
+
+| #   | Item                                                             | Effort |
+| --- | ---------------------------------------------------------------- | ------ |
+| 1   | **Wire up the rate limiters** (the one blocker) + 429 smoke test | S      |
 
 ### P1 — soon after / alongside launch
-| # | Item | Effort |
-|---|---|---|
-| 2 | Route ingest errors through `void/log`; stop swallowing DB errors | S |
-| 3 | Add `vp build` to CI; fix or quarantine the e2e harness | S |
-| 4 | Fix reporter `process.exit()` signal handling | S |
-| 5 | Resolve Playwright sharding (namespace key, or document unsupported) | M |
-| 6 | Watchdog cron → shared `finalizeStaleRun` (recompute + broadcast) | S |
-| 7 | Add `(projectId, createdAt)` index + manual purge script + retention env vars | M |
-| 8 | Make artifact registration idempotent | S |
-| 9 | Integration tests: foreign-runId rejection, key validation, token verify | M |
-| 10 | Live run-detail header; add `/signup` page or remove the link | M |
+
+| #   | Item                                                                          | Effort |
+| --- | ----------------------------------------------------------------------------- | ------ |
+| 2   | Route ingest errors through `void/log`; stop swallowing DB errors             | S      |
+| 3   | Add `vp build` to CI; fix or quarantine the e2e harness                       | S      |
+| 4   | Fix reporter `process.exit()` signal handling                                 | S      |
+| 5   | Resolve Playwright sharding (namespace key, or document unsupported)          | M      |
+| 6   | Watchdog cron → shared `finalizeStaleRun` (recompute + broadcast)             | S      |
+| 7   | Add `(projectId, createdAt)` index + manual purge script + retention env vars | M      |
+| 8   | Make artifact registration idempotent                                         | S      |
+| 9   | Integration tests: foreign-runId rejection, key validation, token verify      | M      |
+| 10  | Live run-detail header; add `/signup` page or remove the link                 | M      |
 
 ### P2 — refactor
+
 - Dedicated `ARTIFACT_TOKEN_SECRET`; restore CSP/HSTS/Permissions-Policy; add
   Origin/CSRF check + `trustedOrigins`; narrow GitHub scope.
 - Split `ingest.ts`; make the positional batch contract explicit; derive the live
@@ -264,6 +327,7 @@ automation presents as a safety net but verifies less than it appears:
 - Delete R2 bytes on team/project deletion.
 
 ### P3 — hygiene
+
 - Dedupe the drifted chip helpers; delete the orphaned `CommandMenu` and unmounted
   `Toast`; back hand-rolled tab controls with the Base UI `Tabs` primitive.
 - Enforce (not just advise) `X-Wrightful-Version`; `--frozen-lockfile` in CI; mark

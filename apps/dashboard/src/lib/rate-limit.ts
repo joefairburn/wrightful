@@ -24,25 +24,36 @@ type RateLimiterEnv = Partial<
   Record<RateLimiterBindingName, RateLimiterBinding>
 >;
 
+/**
+ * Check a single request against a Cloudflare rate limiter binding. Returns
+ * `true` (allowed) when the binding is unavailable (local dev / miniflare
+ * doesn't always wire rate limiters) or when the limiter reports success.
+ * Returns `false` only when the limiter is present AND reports the key over
+ * its budget. `key === null` means "skip this limiter for this request".
+ *
+ * Shared by the `rateLimit()` per-route factory and the global
+ * `middleware/03.rate-limit.ts` path-matched gate so both honor identical
+ * fail-open-in-dev semantics.
+ */
+export async function checkRateLimit(
+  env: unknown,
+  bindingName: RateLimiterBindingName,
+  key: string | null,
+): Promise<boolean> {
+  if (key === null) return true;
+  const limiter = (env as RateLimiterEnv)[bindingName];
+  if (!limiter) return true;
+  const { success } = await limiter.limit({ key });
+  return success;
+}
+
 export function rateLimit(
   bindingName: RateLimiterBindingName,
   keyFn: (c: Parameters<MiddlewareHandler>[0]) => string | null,
 ): MiddlewareHandler {
   return defineMiddleware(async (c, next) => {
-    const limiter = (c.env as RateLimiterEnv)[bindingName];
-    // In local dev miniflare doesn't always wire rate limiter bindings.
-    // Skip when unavailable so dev isn't blocked.
-    if (!limiter) {
-      await next();
-      return;
-    }
-    const key = keyFn(c);
-    if (key === null) {
-      await next();
-      return;
-    }
-    const { success } = await limiter.limit({ key });
-    if (!success) {
+    const allowed = await checkRateLimit(c.env, bindingName, keyFn(c));
+    if (!allowed) {
       return c.json({ error: "Too many requests" }, 429);
     }
     await next();

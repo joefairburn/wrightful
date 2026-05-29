@@ -93,7 +93,7 @@ async function ensureDashboardRunning() {
   if (initial === 401) authRejected();
 
   log(`dashboard not reachable at ${baseUrl} — starting dev server…`);
-  devServer = spawn("pnpm", ["--filter", "@wrightful/dashboard-void", "dev"], {
+  devServer = spawn("pnpm", ["--filter", "@wrightful/dashboard", "dev"], {
     cwd: repoRoot,
     stdio: "ignore",
     detached: false,

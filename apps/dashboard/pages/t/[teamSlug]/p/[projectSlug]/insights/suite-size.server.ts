@@ -86,15 +86,27 @@ export const loader = defineHandler(async (c) => {
   }
 
   const addedLookbackSec = nowSec - ADDED_LOOKBACK_DAYS * DAY_SEC;
+  // "Tests added in the lookback" = tests that appear in the window AND never
+  // appeared before it. Equivalent to the old `min(createdAt) >= lookback` over
+  // ALL history, but bounded: the recent set is scanned via the
+  // (projectId, createdAt) index and each first-seen check is an index seek on
+  // (testId, createdAt) — instead of grouping the project's entire testResults
+  // history on every render.
   const testsAddedRow = await db.run(sql`
     select count(*) as added
     from (
-      select tr."testId" as "testId", min(tr."createdAt") as "firstSeen"
+      select distinct tr."testId" as "testId"
       from "testResults" tr
       where tr."projectId" = ${scope.projectId}
-      group by tr."testId"
-    ) firsts
-    where firsts."firstSeen" >= ${addedLookbackSec}
+        and tr."createdAt" >= ${addedLookbackSec}
+    ) recent
+    where not exists (
+      select 1
+      from "testResults" prev
+      where prev."projectId" = ${scope.projectId}
+        and prev."testId" = recent."testId"
+        and prev."createdAt" < ${addedLookbackSec}
+    )
   `);
   const testsAdded =
     (testsAddedRow.results?.[0] as { added?: number } | undefined)?.added ?? 0;

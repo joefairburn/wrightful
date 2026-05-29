@@ -16,6 +16,15 @@ export default defineEnv({
   BETTER_AUTH_SECRET: string().secret(),
 
   /**
+   * Optional dedicated secret for signing short-lived artifact download tokens.
+   * Decouples those (low-value, broadly-minted, HTML-embeddable) capabilities
+   * from the session-signing BETTER_AUTH_SECRET: with it set, a leaked artifact
+   * token is revoked by rotating THIS secret without logging out every user.
+   * Falls back to BETTER_AUTH_SECRET when unset (backward compatible). ≥32 chars.
+   */
+  ARTIFACT_TOKEN_SECRET: string().secret().optional(),
+
+  /**
    * GitHub OAuth credentials. Void's auth layer expects the `AUTH_GITHUB_*`
    * naming convention — `AUTH_<PROVIDER>_CLIENT_{ID,SECRET}` — and wires
    * them through automatically when "github" is in `void.json#auth.providers`.

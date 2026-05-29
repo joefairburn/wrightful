@@ -261,6 +261,10 @@ export const testResults = sqliteTable(
     index("testResults_status_createdAt_idx").on(t.status, t.createdAt),
     uniqueIndex("testResults_runId_testId_idx").on(t.runId, t.testId),
     index("testResults_project_runId_idx").on(t.projectId, t.runId),
+    // Backs the analytics surface (flaky / tests / slowest / suite-size), all
+    // of which filter by (projectId, createdAt). Without it those queries scan
+    // the whole project partition via testResults_project_runId_idx.
+    index("testResults_project_createdAt_idx").on(t.projectId, t.createdAt),
   ],
 );
 

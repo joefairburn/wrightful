@@ -6,7 +6,9 @@ import {
   redirectWithParam,
   requireOwnedProjectScope,
 } from "@/lib/settings-scope";
+import { logger } from "void/log";
 import { isValidSlug, SLUG_ERROR } from "@/lib/slug";
+import { mutationErrorMessage } from "@/lib/action-errors";
 
 export type Props = InferProps<typeof loader>;
 
@@ -117,10 +119,12 @@ export const actions = {
         .set({ name, slug })
         .where(eq(projects.id, project.id));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      const friendly = msg.includes("UNIQUE")
-        ? "That slug is already used by another project in this team."
-        : "Could not save changes.";
+      const friendly = mutationErrorMessage(err, {
+        context: "update project failed",
+        uniqueMessage:
+          "That slug is already used by another project in this team.",
+        genericMessage: "Could not save changes.",
+      });
       return redirectWithParam(c, here, "generalError", friendly);
     }
 
@@ -147,7 +151,11 @@ export const actions = {
         db.delete(apiKeys).where(eq(apiKeys.projectId, project.id)),
         db.delete(projects).where(eq(projects.id, project.id)),
       ] as never);
-    } catch {
+    } catch (err) {
+      logger.error("delete project failed", {
+        projectId: project.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
       return redirectWithParam(
         c,
         here,

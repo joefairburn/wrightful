@@ -100,9 +100,13 @@ export default defineAuth(({ defaults }) => ({
           github: {
             clientId: githubClientId as string,
             clientSecret: githubClientSecret as string,
-            // `read:org` lets us surface org-aware team suggestions on
-            // sign-in; `user:email` is required for the email claim.
-            scope: ["read:org", "user:email"],
+            // Only `user:email` (required for the email claim). The previous
+            // `read:org` scope existed for GitHub-org auto-join team
+            // suggestions, which were replaced by directed invites
+            // (docs/worklog/2026-05-05-directed-invites-replace-org-link.md) —
+            // nothing reads org membership anymore, so requesting it just
+            // inflates the OAuth consent screen.
+            scope: ["user:email"],
           },
         }
       : {}),

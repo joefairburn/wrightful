@@ -3,6 +3,7 @@ import { requireAuth } from "void/auth";
 import { db, eq, like, or } from "void/db";
 import { ulid } from "ulid";
 import { memberships, teams as teamsTable } from "@schema";
+import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
 
 export type Props = InferProps<typeof loader>;
@@ -105,10 +106,11 @@ export const action = defineHandler(async (c) => {
       }),
     ] as never);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    const friendly = msg.includes("UNIQUE")
-      ? "Could not create team — please try again."
-      : "Could not create team.";
+    const friendly = mutationErrorMessage(err, {
+      context: "create team failed",
+      uniqueMessage: "Could not create team — please try again.",
+      genericMessage: "Could not create team.",
+    });
     return c.redirect(`${formUrl}?error=${encodeURIComponent(friendly)}`);
   }
 

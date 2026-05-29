@@ -51,12 +51,17 @@ const SUPPORTED_VERSIONS = new Set(["3"]);
 
 export function negotiateVersionOrResponse(c: Context): Response | null {
   const v = c.req.header("X-Wrightful-Version");
-  if (v && !SUPPORTED_VERSIONS.has(v)) {
+  // Require the header — every supported reporter sends it on every ingest
+  // request (see packages/reporter client `this.headers`). Treating a missing
+  // header as "fine" let an unversioned client bypass the gate entirely.
+  if (!SUPPORTED_VERSIONS.has(v ?? "")) {
     return c.json(
       {
-        error: "Unsupported protocol version",
+        error: v ? "Unsupported protocol version" : "Missing protocol version",
         supportedVersions: Array.from(SUPPORTED_VERSIONS),
-        message: `This dashboard speaks version 3 of the ingest protocol. Your reporter is using version ${v} — upgrade @wrightful/reporter to a release that supports v3.`,
+        message: v
+          ? `This dashboard speaks version 3 of the ingest protocol. Your reporter is using version ${v} — upgrade @wrightful/reporter to a release that supports v3.`
+          : "This dashboard requires the X-Wrightful-Version header. Upgrade @wrightful/reporter to a release that supports v3.",
       },
       409,
     );

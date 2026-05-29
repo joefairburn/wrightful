@@ -44,9 +44,13 @@ function base64urlDecode(str: string): Uint8Array | null {
 }
 
 async function getKey(): Promise<CryptoKey> {
+  // Prefer a dedicated artifact-token secret so these short-lived, broadly
+  // minted download capabilities can be rotated independently of the session
+  // secret. Falls back to BETTER_AUTH_SECRET when unset (backward compatible).
+  const secret = env.ARTIFACT_TOKEN_SECRET ?? env.BETTER_AUTH_SECRET;
   return crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(env.BETTER_AUTH_SECRET),
+    new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"],
