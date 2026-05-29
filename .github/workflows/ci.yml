@@ -125,9 +125,11 @@ jobs:
   # shape (via the dogfood e2e suite). When Renovate bumps @playwright/test,
   # this job surfaces any format / reporter-API incompatibilities early.
   #
-  # DISABLED: the e2e dashboard fixtures boot the pre-Void dashboard via
-  # .dev.vars/wrangler conventions that no longer exist. Re-enable once the
-  # suite is reworked to boot the Void dashboard (apps/dashboard).
+  # DISABLED pending a verified local run. The fixtures now boot the Void
+  # dashboard at apps/dashboard (.env.local + `void db reset`), repointed from
+  # the pre-Void packages/dashboard + .dev.vars conventions. Flip `if:` to
+  # true once `pnpm test:e2e` is confirmed green on a Void checkout (the specs
+  # themselves may still need Void-migration touch-ups beyond the harness).
   test-e2e:
     name: E2E Tests
     if: false
@@ -159,8 +161,9 @@ jobs:
   # cross-cutting regressions (auth → navigation → run-detail) that the
   # API-level e2e and component RTL tests can't see.
   #
-  # DISABLED: same reason as test-e2e — the dashboard-boot fixtures target the
-  # pre-Void dashboard. Re-enable once reworked for the Void dashboard.
+  # DISABLED pending a verified local run — same status as test-e2e (fixtures
+  # repointed to the Void dashboard at apps/dashboard; confirm a green local
+  # `pnpm --filter @wrightful/e2e test:dashboard` before flipping `if:`).
   test-e2e-ui:
     name: E2E UI Tests (Playwright)
     if: false

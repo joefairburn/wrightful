@@ -8,27 +8,25 @@
  * drift between the two consumers.
  *
  * Lifecycle: `bootDashboard(...)` returns a `DashboardFixture` whose `.teardown()`
- * kills the dev server and restores the original `.dev.vars`. Always pair the
+ * kills the dev server and restores the original `.env.local`. Always pair the
  * call with a `finally`/teardown hook — the dashboard listens on a fixed port,
  * so a leaked process blocks the next run.
+ *
+ * Targets the Void dashboard at `apps/dashboard`: local config is `.env.local`
+ * (not the pre-Void `.dev.vars`) and the clean slate is `void db reset` (wipe
+ * the local D1 + reapply migrations), not a Durable-Object state wipe.
  */
 import { type ChildProcess, execSync, spawn } from "node:child_process";
-import {
-  existsSync,
-  renameSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../../..");
-const DASHBOARD_DIR = resolve(ROOT, "packages/dashboard");
+const DASHBOARD_DIR = resolve(ROOT, "apps/dashboard");
 const REPORTER_DIR = resolve(ROOT, "packages/reporter");
-const DEV_VARS_PATH = resolve(DASHBOARD_DIR, ".dev.vars");
+const ENV_LOCAL_PATH = resolve(DASHBOARD_DIR, ".env.local");
 
 const REVEAL_COOKIE = "wrightful_reveal_key";
 
@@ -52,8 +50,8 @@ export interface BootOptions {
   email?: string;
   password?: string;
   userName?: string;
-  /** Distinct path so concurrent suites don't collide on .dev.vars backup. */
-  devVarsBackupSuffix?: string;
+  /** Distinct suffix so concurrent suites don't collide on the .env.local backup. */
+  envBackupSuffix?: string;
 }
 
 export interface DashboardFixture {
@@ -67,7 +65,7 @@ export interface DashboardFixture {
   betterAuthSecret: string;
   email: string;
   password: string;
-  /** Kills the dev server and restores `.dev.vars`. Idempotent. */
+  /** Kills the dev server and restores `.env.local`. Idempotent. */
   teardown: () => void;
 }
 
@@ -155,11 +153,11 @@ export async function bootDashboard(
     options.betterAuthSecret ??
     "e2e-local-only-not-a-secret-openssl-rand-base64-32ch";
 
-  const backupSuffix = options.devVarsBackupSuffix ?? "e2e-backup";
-  const devVarsBackupPath = resolve(DASHBOARD_DIR, `.dev.vars.${backupSuffix}`);
+  const backupSuffix = options.envBackupSuffix ?? "e2e-backup";
+  const envBackupPath = resolve(DASHBOARD_DIR, `.env.local.${backupSuffix}`);
 
   let devServer: ChildProcess | undefined;
-  let devVarsBackedUp = false;
+  let envBackedUp = false;
   let tornDown = false;
 
   const teardown = () => {
@@ -169,17 +167,17 @@ export async function bootDashboard(
       devServer.kill("SIGTERM");
       devServer = undefined;
     }
-    if (!devVarsBackedUp) return;
+    if (!envBackedUp) return;
     try {
-      if (existsSync(devVarsBackupPath)) {
-        if (existsSync(DEV_VARS_PATH)) unlinkSync(DEV_VARS_PATH);
-        renameSync(devVarsBackupPath, DEV_VARS_PATH);
-      } else if (existsSync(DEV_VARS_PATH)) {
-        unlinkSync(DEV_VARS_PATH);
+      if (existsSync(envBackupPath)) {
+        if (existsSync(ENV_LOCAL_PATH)) unlinkSync(ENV_LOCAL_PATH);
+        renameSync(envBackupPath, ENV_LOCAL_PATH);
+      } else if (existsSync(ENV_LOCAL_PATH)) {
+        unlinkSync(ENV_LOCAL_PATH);
       }
-      devVarsBackedUp = false;
+      envBackedUp = false;
     } catch (err) {
-      console.error(`[dashboard-fixture] Failed to restore .dev.vars:`, err);
+      console.error(`[dashboard-fixture] Failed to restore .env.local:`, err);
     }
   };
 
@@ -187,38 +185,29 @@ export async function bootDashboard(
     log("Step 1: Build reporter");
     run("pnpm build", { cwd: REPORTER_DIR });
 
-    log("Step 2: Wipe Durable Object state");
-    for (const name of [
-      "wrightful-ControlDO",
-      "wrightful-TenantDO",
-      "wrightful-SyncedStateServer",
-    ]) {
-      rmSync(resolve(DASHBOARD_DIR, ".wrangler/state/v3/do", name), {
-        recursive: true,
-        force: true,
-      });
-    }
-
-    log("Step 3: Write .dev.vars (backup any existing)");
-    if (existsSync(devVarsBackupPath)) {
+    log("Step 2: Write .env.local (backup any existing)");
+    if (existsSync(envBackupPath)) {
       throw new Error(
-        `Refusing to start: ${devVarsBackupPath} already exists. A previous run likely crashed before teardown. Inspect it and restore/remove manually.`,
+        `Refusing to start: ${envBackupPath} already exists. A previous run likely crashed before teardown. Inspect it and restore/remove manually.`,
       );
     }
-    if (existsSync(DEV_VARS_PATH)) {
-      renameSync(DEV_VARS_PATH, devVarsBackupPath);
-      log("  Existing .dev.vars backed up.");
+    if (existsSync(ENV_LOCAL_PATH)) {
+      renameSync(ENV_LOCAL_PATH, envBackupPath);
+      log("  Existing .env.local backed up.");
     }
-    devVarsBackedUp = true;
-    const devVars =
+    envBackedUp = true;
+    const envLocal =
       [
         `BETTER_AUTH_SECRET=${betterAuthSecret}`,
         `WRIGHTFUL_PUBLIC_URL=${url}`,
         // Sign-up gate is locked in production; e2e provisions a user via
         // /api/auth/sign-up/email so we explicitly opt in here.
-        `ALLOW_OPEN_SIGNUP=1`,
+        `ALLOW_OPEN_SIGNUP=true`,
       ].join("\n") + "\n";
-    writeFileSync(DEV_VARS_PATH, devVars, "utf8");
+    writeFileSync(ENV_LOCAL_PATH, envLocal, "utf8");
+
+    log("Step 3: Reset local D1 (clean slate + reapply migrations)");
+    run("npx void db reset", { cwd: DASHBOARD_DIR });
 
     log(`Step 4: Start dashboard dev server on :${port}`);
     devServer = spawn("npx", ["vite", "dev", "--port", String(port)], {
@@ -270,7 +259,7 @@ export async function bootDashboard(
     const teamMatch = teamLoc.match(/\/settings\/teams\/([^/?#]+)/);
     if (!teamMatch || teamMatch[1] !== teamSlug) {
       throw new Error(
-        `expected team slug "${teamSlug}", got Location "${teamLoc}" — DO state probably wasn't wiped`,
+        `expected team slug "${teamSlug}", got Location "${teamLoc}" — local D1 probably wasn't reset`,
       );
     }
 

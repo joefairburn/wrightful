@@ -26,7 +26,7 @@ import { bootDashboard, type DashboardFixture } from "../src/dashboard-fixture";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../../..");
-const DASHBOARD_DIR = resolve(ROOT, "packages/dashboard");
+const DASHBOARD_DIR = resolve(ROOT, "apps/dashboard");
 const STORAGE_STATE_PATH = resolve(__dirname, ".auth", "storageState.json");
 const FIXTURE_PATH = resolve(__dirname, ".auth", "fixture.json");
 
@@ -47,7 +47,7 @@ declare global {
 export default async function globalSetup(_config: FullConfig): Promise<void> {
   const fixture = await bootDashboard({
     port: PORT,
-    devVarsBackupSuffix: "playwright-dashboard-backup",
+    envBackupSuffix: "playwright-dashboard-backup",
   });
   globalThis.__wrightfulDashboardFixture = fixture;
 
@@ -58,7 +58,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     );
     // Reuse the local-dev fixture pipeline so the e2e suite sees the same
     // data shape a developer does. The script accepts WRIGHTFUL_URL +
-    // WRIGHTFUL_TOKEN env to bypass its standard `.dev.vars.seed.json`
+    // WRIGHTFUL_TOKEN env to bypass its standard `.env.seed.json`
     // lookup. Its three scenarios produce the runs the specs assert on:
     //   01-main-green, 02-feature-flaky (visual + flaky failures),
     //   03-main-historical.

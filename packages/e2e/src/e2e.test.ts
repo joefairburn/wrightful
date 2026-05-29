@@ -18,7 +18,7 @@ const TEAM_SLUG = inject("teamSlug");
 const PROJECT_SLUG = inject("projectSlug");
 const BETTER_AUTH_SECRET = inject("betterAuthSecret");
 
-// Mirrors packages/dashboard/src/lib/artifact-tokens.ts#signArtifactToken.
+// Mirrors apps/dashboard/src/lib/artifact-tokens.ts#signArtifactToken.
 // Artifact downloads are gated by a short-lived HMAC token the dashboard mints
 // server-side on authenticated pages; the e2e suite holds the same secret, so
 // we can forge a valid token rather than scrape one out of the rendered HTML.
