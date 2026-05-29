@@ -28,8 +28,6 @@ const DASHBOARD_DIR = resolve(ROOT, "apps/dashboard");
 const REPORTER_DIR = resolve(ROOT, "packages/reporter");
 const ENV_LOCAL_PATH = resolve(DASHBOARD_DIR, ".env.local");
 
-const REVEAL_COOKIE = "wrightful_reveal_key";
-
 export interface BootOptions {
   /** TCP port the dev server should listen on. */
   port: number;
@@ -164,7 +162,14 @@ export async function bootDashboard(
     if (tornDown) return;
     tornDown = true;
     if (devServer) {
-      devServer.kill("SIGTERM");
+      // Kill the whole process group (detached leader) so vp/vite/miniflare
+      // don't outlive the parent and hold the port. Fall back to a direct kill.
+      try {
+        if (devServer.pid) process.kill(-devServer.pid, "SIGTERM");
+        else devServer.kill("SIGTERM");
+      } catch {
+        devServer.kill("SIGTERM");
+      }
       devServer = undefined;
     }
     if (!envBackedUp) return;
@@ -203,6 +208,12 @@ export async function bootDashboard(
         // Sign-up gate is locked in production; e2e provisions a user via
         // /api/auth/sign-up/email so we explicitly opt in here.
         `ALLOW_OPEN_SIGNUP=true`,
+        // void.json declares the `github` auth provider, and Void throws on
+        // every request if its credentials are absent. The e2e suite only uses
+        // email/password (no spec exercises GitHub OAuth), so dummy values
+        // satisfy the provider resolver without ever being used.
+        `AUTH_GITHUB_CLIENT_ID=e2e-unused-github-client-id`,
+        `AUTH_GITHUB_CLIENT_SECRET=e2e-unused-github-client-secret`,
       ].join("\n") + "\n";
     writeFileSync(ENV_LOCAL_PATH, envLocal, "utf8");
 
@@ -210,9 +221,16 @@ export async function bootDashboard(
     run("npx void db reset", { cwd: DASHBOARD_DIR });
 
     log(`Step 4: Start dashboard dev server on :${port}`);
-    devServer = spawn("npx", ["vite", "dev", "--port", String(port)], {
+    // Boot the Void dashboard via the vite-plus toolchain (`vp dev`). There is
+    // no bare `vite` bin — the workspace aliases `vite` to vite-plus-core, whose
+    // CLI is `vp`. `pnpm exec` resolves it from apps/dashboard's node_modules.
+    // `detached` makes the child a process-group leader so teardown can kill the
+    // whole pnpm→vp→vite→miniflare tree instead of orphaning miniflare on the
+    // fixed port.
+    devServer = spawn("pnpm", ["exec", "vp", "dev", "--port", String(port)], {
       cwd: DASHBOARD_DIR,
       stdio: "pipe",
+      detached: true,
       env: { ...process.env },
     });
     let serverLog = "";
@@ -288,30 +306,25 @@ export async function bootDashboard(
       );
     }
 
-    // api key
+    // api key — minted via the Void API route, which returns the plaintext
+    // token in the JSON body (the Void dashboard surfaces it client-side in a
+    // modal; there's no pre-Void server-action reveal cookie).
     const keyRes = await request(
       "POST",
-      `/settings/teams/${teamSlug}/p/${projectSlug}/keys`,
-      { cookies: sessionCookies, form: { action: "create", label: "e2e" } },
+      `/api/teams/${teamSlug}/p/${projectSlug}/keys`,
+      { cookies: sessionCookies, json: { label: "e2e" } },
     );
-    if (keyRes.status !== 302) {
+    if (!keyRes.ok) {
       throw new Error(
         `api key creation returned ${keyRes.status}: ${(await keyRes.text()) || "(empty body)"}`,
       );
     }
-    let apiKey: string | undefined;
-    for (const raw of keyRes.headers.getSetCookie()) {
-      const head = raw.split(";")[0];
-      const eq = head.indexOf("=");
-      if (eq < 0) continue;
-      if (head.slice(0, eq) === REVEAL_COOKIE) {
-        const value = head.slice(eq + 1);
-        if (value) apiKey = decodeURIComponent(value);
-      }
-    }
+    const keyBody = (await keyRes.json()) as { token?: unknown };
+    const apiKey =
+      typeof keyBody.token === "string" ? keyBody.token : undefined;
     if (!apiKey) {
       throw new Error(
-        "key creation succeeded but reveal cookie was missing — cannot recover the plaintext key.",
+        "key creation succeeded but no token was returned in the response body.",
       );
     }
 
