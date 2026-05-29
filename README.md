@@ -3,13 +3,13 @@
 A Playwright test reporting dashboard. Ships as two pieces:
 
 - **`@wrightful/reporter`** — Playwright reporter that streams results and artifacts to the dashboard live as each test completes.
-- **`@wrightful/dashboard`** — a Cloudflare Worker (Vite + React 19 RSC on RedwoodSDK, Kysely over Durable Objects: a singleton `ControlDO` for auth/tenancy and one `TenantDO` per team for test data; R2 for artifacts) that ingests results and serves the UI.
+- **`@wrightful/dashboard`** — a Cloudflare app built on [Void](https://void.cloud) (Vite + React, server-rendered pages; a single D1 database via Drizzle for auth/tenancy and test data; R2 for artifacts) that ingests results and serves the UI.
 
 ## Deploy your own dashboard
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/joefairburn/wrightful/tree/main/packages/dashboard)
+The dashboard deploys to Cloudflare with `void deploy`, which auto-provisions the D1 database, R2 bucket, and any KV bindings on first run — no manual resource creation, no separate migrate step. See **[`SELF-HOSTING.md`](./SELF-HOSTING.md)** for the full step-by-step guide (fork + Cloudflare Git integration, or CLI).
 
-One click provisions an R2 bucket and the Durable Object classes (`ControlDO`, `TenantDO`, `SyncedStateServer`) from `packages/dashboard/wrangler.jsonc`, then runs `deploy`. Each DO migrates itself lazily on first access — no separate migrate step. Artifact uploads and downloads use the native R2 binding, so no S3 credentials are needed. A few manual steps remain:
+In short, once deployed:
 
 1. **Sign up** in the deployed dashboard and **create a team + project** via `/settings/teams/new` and `/settings/teams/<team-slug>/projects/new`.
 2. **Mint an API key** from the project's keys page (`/settings/teams/<team-slug>/p/<project-slug>/keys`). The plaintext key is shown once on creation; the server only stores its SHA-256 hash.
@@ -45,8 +45,8 @@ Results appear in the dashboard live as tests complete. Shards converge on a sin
 
 ```bash
 pnpm install
-pnpm setup:local                                # .dev.vars + demo team/project/API key (over HTTP)
-pnpm dev                                        # dashboard on localhost
+pnpm setup:local                                # .env.local + demo team/project/API key (over HTTP)
+pnpm dev                                        # dashboard on localhost:5173
 
 # Need additional API keys for local testing? Mint them from the dashboard
 # at http://localhost:5173/settings/teams/<team-slug>/p/<project-slug>/keys.

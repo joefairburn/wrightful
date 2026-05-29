@@ -1,5 +1,5 @@
 // Wire-format types for the v3 streaming ingest API. Mirrors the Zod
-// schemas in packages/dashboard/src/routes/api/schemas.ts; keep them in
+// schemas in apps/dashboard/src/lib/schemas.ts; keep them in
 // sync when changing the API contract.
 
 import type { ArtifactType, SnapshotRole } from "./attachments.js";
@@ -114,4 +114,14 @@ export interface ReporterOptions {
    * attachments. `none`: skip artifact uploads entirely.
    */
   artifacts?: ArtifactMode;
+  /**
+   * Post a sticky summary comment to the GitHub PR when the run completes.
+   *
+   * Requires GitHub Actions context (`GITHUB_ACTIONS=true`), a PR-triggered
+   * workflow (`GITHUB_REF=refs/pull/N/merge` so `prNumber` is set), `repo`
+   * detected, and a `GITHUB_TOKEN` (or `WRIGHTFUL_GITHUB_TOKEN`) in env.
+   * Defaults to false. Comment is upserted via a hidden marker so re-runs
+   * of the same workflow update the existing comment.
+   */
+  postPrComment?: boolean;
 }

@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1779540096718,
+      "tag": "20260523124136_dizzy_wong",
+      "breakpoints": true
+    }
+  ]
+}

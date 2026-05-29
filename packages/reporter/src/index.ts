@@ -17,8 +17,13 @@ import {
   type SnapshotRole,
 } from "./attachments.js";
 import { Batcher } from "./batcher.js";
-import { detectCI, generateIdempotencyKey } from "./ci.js";
+import { detectCI, generateIdempotencyKey, type CIInfo } from "./ci.js";
 import { AuthError, StreamClient } from "./client.js";
+import {
+  postPrComment,
+  shouldPostPrComment,
+  type RunSummary,
+} from "./pr-comment.js";
 import { computeTestId } from "./test-id.js";
 import type {
   ArtifactMode,
@@ -132,6 +137,8 @@ interface EnqueuedTest {
 export default class WrightfulReporter implements Reporter {
   private client: StreamClient | null = null;
   private runId: string | null = null;
+  private runUrl: string | null = null;
+  private ci: CIInfo | null = null;
   private batcher: Batcher<EnqueuedTest> | null = null;
   private pending: Map<string, PendingTest> = new Map();
   private artifactTasks: Promise<void>[] = [];
@@ -145,6 +152,8 @@ export default class WrightfulReporter implements Reporter {
   private streamFailed = 0;
   private artifactsOk = 0;
   private artifactsFailed = 0;
+  // Per-status tallies, used for the PR comment summary.
+  private counts = { passed: 0, failed: 0, flaky: 0, skipped: 0, timedout: 0 };
   // Signal-handler state so we only attempt the shutdown /complete once.
   private shuttingDown = false;
   private signalHandlersInstalled = false;
@@ -179,6 +188,7 @@ export default class WrightfulReporter implements Reporter {
     );
 
     const ci = detectCI();
+    this.ci = ci;
     const payload = {
       idempotencyKey: generateIdempotencyKey(ci?.ciBuildId),
       run: {
@@ -204,6 +214,7 @@ export default class WrightfulReporter implements Reporter {
     const openPromise = this.client.openRun(payload).then(
       (r) => {
         this.runId = r.runId;
+        this.runUrl = r.runUrl;
       },
       (err: Error) => {
         if (err instanceof AuthError) {
@@ -315,6 +326,7 @@ export default class WrightfulReporter implements Reporter {
 
   private async enqueueDone(entry: PendingTest): Promise<void> {
     const payload = buildPayload(entry, this.rootDir);
+    this.counts[payload.status]++;
     const attachments =
       this.artifactMode === "none"
         ? []
@@ -473,10 +485,11 @@ export default class WrightfulReporter implements Reporter {
     const durationMs = Date.now() - this.startedAt;
 
     let completeFailed = false;
+    let runStatus: ReturnType<typeof mapFullResultStatus> | null = null;
     if (this.client && this.runId) {
-      const status = mapFullResultStatus(result.status);
+      runStatus = mapFullResultStatus(result.status);
       try {
-        await this.client.completeRun(this.runId, status, durationMs);
+        await this.client.completeRun(this.runId, runStatus, durationMs);
       } catch (err) {
         completeFailed = true;
         warn(
@@ -488,7 +501,60 @@ export default class WrightfulReporter implements Reporter {
       }
     }
 
+    if (!completeFailed && runStatus) {
+      await this.maybePostPrComment(runStatus, durationMs);
+    }
+
     this.emitSummary(completeFailed);
+  }
+
+  private async maybePostPrComment(
+    runStatus: "passed" | "failed" | "timedout" | "interrupted",
+    durationMs: number,
+  ): Promise<void> {
+    const gate = shouldPostPrComment(
+      this.options.postPrComment ?? false,
+      this.ci,
+      process.env,
+    );
+    if (!gate.ok) return;
+    if (!this.baseUrl || !this.ci?.repo || !this.ci.prNumber) return;
+
+    const total =
+      this.counts.passed +
+      this.counts.failed +
+      this.counts.flaky +
+      this.counts.skipped +
+      this.counts.timedout;
+
+    const summary: RunSummary = {
+      status: runStatus,
+      durationMs,
+      passed: this.counts.passed,
+      failed: this.counts.failed,
+      flaky: this.counts.flaky,
+      skipped: this.counts.skipped,
+      timedout: this.counts.timedout,
+      total,
+      runUrl: this.runUrl,
+      dashboardUrl: this.baseUrl,
+      repo: this.ci.repo,
+      prNumber: this.ci.prNumber,
+      environment: this.options.environment ?? null,
+      commitSha: this.ci.commitSha,
+    };
+    try {
+      const result = await postPrComment(summary, gate.token);
+      warn(
+        `PR comment ${result.status} on ${this.ci.repo}#${this.ci.prNumber}.`,
+      );
+    } catch (err) {
+      // Cross-fork PRs hit 403 here — the runner's GITHUB_TOKEN is read-only.
+      // Log and continue; the run itself is unaffected.
+      warn(
+        `PR comment skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private emitSummary(completeFailed: boolean): void {

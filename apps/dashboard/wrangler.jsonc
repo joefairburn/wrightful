@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Wrangler fallback config. Void manages the worker entry, bindings, and
+  // deploy lifecycle via `void.json` + inferred D1/KV/R2 imports. This file
+  // exists only for the binding types Void's config schema doesn't accept:
+  //
+  //   - Cloudflare-native rate limiters (`ratelimits` block)
+  //
+  // Void picks this file up at deploy time and merges these blocks into the
+  // generated worker manifest. Do NOT add `main`, `migrations`, or DO bindings
+  // here — those collide with Void's runtime.
+  "name": "wrightful-dashboard-void",
+  "compatibility_date": "2026-05-22",
+  "ratelimits": [
+    {
+      // Unauthenticated /api/auth/* (void auth). Keyed by IP + pathname as a
+      // coarse fallback — we have no stable identity pre-auth.
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 20, "period": 60 },
+    },
+    {
+      // Authenticated streaming ingest API (/api/runs/*, /api/artifacts/*).
+      // Keyed by apiKey.id — tenant-scoped, not IP, so CI workers sharing an
+      // egress IP don't trip each other.
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 120, "period": 60 },
+    },
+    {
+      // Token-authenticated artifact download. Keyed by artifactId — per-file
+      // rather than per-caller, since trace.playwright.dev fetches many ranged
+      // chunks of the same trace.
+      "name": "ARTIFACT_RATE_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 300, "period": 60 },
+    },
+  ],
+}

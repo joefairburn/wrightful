@@ -1,0 +1,33 @@
+import { defineHandler } from "void";
+import { getApiKey } from "@/lib/api-auth";
+import { tenantScopeForApiKey } from "@/lib/scope";
+import { CompleteRunPayloadSchema } from "@/lib/schemas";
+import { backdatingAllowed, completeRun } from "@/lib/ingest";
+
+/**
+ * POST /api/runs/:id/complete — finalize a streaming run. See `completeRun`
+ * in `@/lib/ingest` for the recompute + broadcast semantics; the handler is
+ * auth + translation + the dev-only backdating guard.
+ */
+export const POST = defineHandler.withValidator({
+  body: CompleteRunPayloadSchema,
+})(async (c, { body: payload }) => {
+  const runId = c.req.param("id");
+  if (!runId) return c.json({ error: "Not found" }, 404);
+
+  if (payload.completedAt !== undefined && !backdatingAllowed()) {
+    return c.json(
+      { error: "completedAt override is only allowed in local development" },
+      400,
+    );
+  }
+
+  const scope = await tenantScopeForApiKey(getApiKey(c));
+  const completedAt = payload.completedAt ?? Math.floor(Date.now() / 1000);
+  const result = await completeRun(scope, runId, payload, completedAt);
+
+  if (result.kind === "notFound") {
+    return c.json({ error: "Run not found" }, 404);
+  }
+  return c.json({ runId, status: result.status }, 200);
+});

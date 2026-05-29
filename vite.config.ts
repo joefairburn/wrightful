@@ -37,7 +37,7 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: ["packages/dashboard/**/*.{tsx,jsx}"],
+        files: ["apps/dashboard/**/*.{tsx,jsx}"],
         plugins: ["typescript", "import", "react"],
       },
       {
@@ -52,44 +52,6 @@ export default defineConfig({
           "typescript/no-explicit-any": "off",
           "typescript/no-unsafe-argument": "off",
           "typescript/no-unsafe-type-assertion": "off",
-        },
-      },
-      {
-        // The tenant module mints branded auth ids (AuthorizedTeamId /
-        // AuthorizedProjectId) and uses opaque Kysely generic casts in
-        // `scoped-query.ts` to bridge the `T extends ScopedTable` generic
-        // — both of which are inherently narrowing assertions.
-        files: ["packages/dashboard/src/tenant/**"],
-        rules: {
-          "typescript/no-unsafe-type-assertion": "off",
-        },
-      },
-      {
-        files: ["packages/dashboard/src/**/*.{ts,tsx}"],
-        rules: {
-          "no-restricted-imports": [
-            "error",
-            {
-              paths: [
-                {
-                  name: "@/tenant/internal",
-                  message:
-                    "Raw tenant DO access skips the membership / API-key auth check. Use tenantScopeForUser / tenantScopeForApiKey from `@/tenant` instead. The only legitimate importers are src/tenant/** and src/scheduled.ts (cron watchdog).",
-                },
-              ],
-            },
-          ],
-        },
-      },
-      {
-        files: [
-          "packages/dashboard/src/tenant/**",
-          "packages/dashboard/src/scheduled.ts",
-          "packages/dashboard/src/__integration__/**",
-          "packages/dashboard/src/__tests__/**",
-        ],
-        rules: {
-          "no-restricted-imports": "off",
         },
       },
     ],
