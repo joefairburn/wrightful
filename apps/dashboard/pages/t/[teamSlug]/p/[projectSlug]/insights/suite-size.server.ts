@@ -146,6 +146,9 @@ export const loader = defineHandler(async (c) => {
 
   const peakOverall = Math.max(0, ...trendRows.map((r) => r.peak ?? 0));
 
+  // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
+  // `private` keeps tenant-scoped data out of shared/edge caches.
+  c.header("Cache-Control", "private, max-age=300, stale-while-revalidate=900");
   return {
     project: {
       id: project.id,

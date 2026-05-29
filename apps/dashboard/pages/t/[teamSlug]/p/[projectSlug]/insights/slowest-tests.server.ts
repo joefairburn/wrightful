@@ -86,6 +86,13 @@ export const loader = defineHandler(async (c) => {
   const branchSql = branchFilter
     ? sql`and runs.branch = ${branchFilter}`
     : sql``;
+  // `runs` is only needed to filter `runs.branch`. Without a branch filter the
+  // join is a no-op (`runId` is a NOT NULL FK) that adds a `runs` PK probe per
+  // scanned row — the window already filters `tr.createdAt`, which prunes via
+  // the testResults index on its own.
+  const joinSql = branchFilter
+    ? sql`inner join runs on runs.id = tr."runId"`
+    : sql``;
   const qSql = pattern
     ? sql`and (tr.title like ${pattern} or tr.file like ${pattern})`
     : sql``;
@@ -97,7 +104,7 @@ export const loader = defineHandler(async (c) => {
       count(*) as n,
       count(distinct tr."testId") as "unique"
     from "testResults" tr
-    inner join runs on runs.id = tr."runId"
+    ${joinSql}
     where tr."projectId" = ${scope.projectId}
       and tr."createdAt" >= ${windowStartSec}
       and tr.status != 'skipped'
@@ -129,7 +136,7 @@ export const loader = defineHandler(async (c) => {
         ) as bin,
         count(*) as cnt
       from "testResults" tr
-      inner join runs on runs.id = tr."runId"
+      ${joinSql}
       where tr."projectId" = ${scope.projectId}
         and tr."createdAt" >= ${windowStartSec}
         and tr.status != 'skipped'
@@ -161,7 +168,7 @@ export const loader = defineHandler(async (c) => {
           tr."runId" as "runId",
           tr.id as "testResultId"
         from "testResults" tr
-        inner join runs on runs.id = tr."runId"
+        ${joinSql}
         where tr."projectId" = ${scope.projectId}
           and tr."createdAt" >= ${windowStartSec}
           and tr.status != 'skipped'
@@ -208,7 +215,7 @@ export const loader = defineHandler(async (c) => {
         cast(tr."createdAt" / 86400 as integer) as day,
         avg(tr."durationMs") as avg
       from "testResults" tr
-      inner join runs on runs.id = tr."runId"
+      ${joinSql}
       where tr."projectId" = ${scope.projectId}
         and tr."createdAt" >= ${sparkStart}
         and tr.status != 'skipped'
@@ -235,6 +242,9 @@ export const loader = defineHandler(async (c) => {
   const fromRow = totals.totalUniqueTests === 0 ? 0 : offset + 1;
   const toRow = offset + bottlenecks.length;
 
+  // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
+  // `private` keeps tenant-scoped data out of shared/edge caches.
+  c.header("Cache-Control", "private, max-age=300, stale-while-revalidate=900");
   return {
     project: {
       id: project.id,

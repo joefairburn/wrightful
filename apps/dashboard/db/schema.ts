@@ -1,4 +1,9 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "void/schema-d1";
+// `sql` is needed for the partial-index predicate on `runs` below. `void/db`'s
+// `db` export is a lazy Proxy (it only resolves the D1 binding on property
+// access), so importing it here is side-effect-free at schema-parse time —
+// safe for both the app build and `void db generate`.
+import { sql } from "void/db";
 
 export type MembershipRole = "owner" | "member";
 
@@ -230,6 +235,14 @@ export const runs = sqliteTable(
       t.createdAt,
     ),
     index("runs_project_actor_idx").on(t.projectId, t.actor),
+    // Partial index for the stuck-run watchdog cron (`crons/sweep-stuck-runs.ts`:
+    // `WHERE status = 'running' AND createdAt < cutoff`). Indexing only in-flight
+    // runs turns the sweep from a cross-project scan into a tiny seek, and the
+    // index stays small (one row per live run). See
+    // docs/worklog/2026-05-29-db-performance-audit.md §3.K.
+    index("runs_running_idx")
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'running'`),
   ],
 );
 
@@ -257,14 +270,24 @@ export const testResults = sqliteTable(
   },
   (t) => [
     index("testResults_testId_createdAt_idx").on(t.testId, t.createdAt),
-    index("testResults_runId_idx").on(t.runId),
-    index("testResults_status_createdAt_idx").on(t.status, t.createdAt),
+    // NB: no standalone (runId) or (status, createdAt) index — (runId) is a
+    // prefix of the unique (runId, testId) below, and no query filters by
+    // `status` as a leading predicate (it's a low-cardinality CASE column).
+    // See docs/worklog/2026-05-29-db-performance-audit.md §2/§3.A/§3.B.
     uniqueIndex("testResults_runId_testId_idx").on(t.runId, t.testId),
     index("testResults_project_runId_idx").on(t.projectId, t.runId),
     // Backs the analytics surface (flaky / tests / slowest / suite-size), all
     // of which filter by (projectId, createdAt). Without it those queries scan
     // the whole project partition via testResults_project_runId_idx.
     index("testResults_project_createdAt_idx").on(t.projectId, t.createdAt),
+    // Covering index for the tests-catalog list: WHERE projectId = ? AND
+    // createdAt >= ? GROUP BY testId is served project-scoped from the index
+    // with the group satisfied by index order (no temp b-tree). See worklog §3.E.
+    index("testResults_project_testId_createdAt_idx").on(
+      t.projectId,
+      t.testId,
+      t.createdAt,
+    ),
   ],
 );
 
@@ -281,7 +304,9 @@ export const testTags = sqliteTable(
     tag: text("tag").notNull(),
   },
   (t) => [
-    index("testTags_tag_idx").on(t.tag),
+    // No standalone (tag) index — nothing filters `WHERE tag = ?`; the only tag
+    // reads group by tag from a testResults-driven scan. Re-add (projectId, tag)
+    // if a tag-filter feature lands. See worklog §2.
     index("testTags_testResultId_idx").on(t.testResultId),
   ],
 );
@@ -320,7 +345,9 @@ export const testResultAttempts = sqliteTable(
     createdAt: integer("createdAt").notNull(),
   },
   (t) => [
-    index("testResultAttempts_testResultId_idx").on(t.testResultId),
+    // No standalone (testResultId) index — it's a prefix of the unique
+    // (testResultId, attempt) below, which serves every testResultId-leading
+    // access (reads + the ingest delete + FK cascade). See worklog §2/§3.A.
     uniqueIndex("testResultAttempts_testResultId_attempt_uq").on(
       t.testResultId,
       t.attempt,
