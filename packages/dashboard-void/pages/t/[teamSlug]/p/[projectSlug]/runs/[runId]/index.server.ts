@@ -1,15 +1,9 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { and, db, desc, eq } from "void/db";
 import { runs, testResults } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
-import { resolveProjectBySlugs } from "@/lib/authz";
 import { loadProjectBranches } from "@/lib/branches-query";
-import type {
-  TenantScope,
-  AuthorizedTeamId,
-  AuthorizedProjectId,
-} from "@/lib/scope";
+import { requireTenantContext } from "@/lib/tenant-context";
 import { loadFailingArtifactActions } from "@/lib/test-artifact-actions";
 
 export type Props = InferProps<typeof loader>;
@@ -24,23 +18,10 @@ const TESTS_LIMIT = 200;
  * top of these SSR-seeded rows.
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
   const runId = c.req.param("runId");
-  if (!teamSlug || !projectSlug || !runId) {
-    throw new Response("Not Found", { status: 404 });
-  }
+  if (!runId) throw new Response("Not Found", { status: 404 });
 
-  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  if (!project) throw new Response("Not Found", { status: 404 });
-
-  const scope: TenantScope = {
-    teamId: project.teamId as AuthorizedTeamId,
-    projectId: project.id as AuthorizedProjectId,
-    teamSlug: project.teamSlug,
-    projectSlug: project.slug,
-  };
+  const { project, scope } = requireTenantContext(c);
 
   const runRows = await db
     .select()

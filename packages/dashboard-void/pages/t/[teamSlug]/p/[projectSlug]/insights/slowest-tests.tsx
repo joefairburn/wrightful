@@ -269,10 +269,7 @@ export default function SlowestTestsPage({
                     const href = `${base}/runs/${row.latestRunId}/tests/${row.latestTestResultId}?attempt=0`;
                     const spark = sparklines[row.testId] ?? [];
                     return (
-                      <TableRow
-                        className="relative border-b border-border/50 hover:bg-bg-1"
-                        key={row.testId}
-                      >
+                      <TableRow key={row.testId}>
                         <TableCell className="w-10 px-4 py-3 align-middle">
                           {/* Stretched-link pattern — `<Link>` is
                            * position: static so its `after:inset-0`

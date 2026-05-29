@@ -1,14 +1,12 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { and, db, eq, gte, sql } from "void/db";
 import { runs } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
-import { resolveProjectBySlugs } from "@/lib/authz";
 import { DAY_SEC, parseSegment, SEGMENTS } from "@/lib/analytics/bucketing";
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
-import type { AuthorizedProjectId, AuthorizedTeamId } from "@/lib/scope";
+import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
 
@@ -21,14 +19,7 @@ const parseRange = makeRangeParser(RANGES, "30d");
  * plus the totals row for the KPI cards.
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
-  if (!teamSlug || !projectSlug) {
-    throw new Response("Not Found", { status: 404 });
-  }
-  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  if (!project) throw new Response("Not Found", { status: 404 });
+  const { project, scope } = requireTenantContext(c);
 
   const url = new URL(c.req.url);
   const range = parseRange(url.searchParams.get("range"));
@@ -42,19 +33,13 @@ export const loader = defineHandler(async (c) => {
   const nowSec = Math.floor(Date.now() / 1000);
   const windowStartSec = nowSec - days * DAY_SEC;
 
-  const scope = {
-    teamId: project.teamId as AuthorizedTeamId,
-    projectId: project.id as AuthorizedProjectId,
-    teamSlug: project.teamSlug,
-    projectSlug: project.slug,
-  };
   const branches = await loadProjectBranches(scope);
 
   const expr = bucketExpr(segment);
 
   const aggConditions = [
-    eq(runs.teamId, project.teamId),
-    eq(runs.projectId, project.id),
+    eq(runs.teamId, scope.teamId),
+    eq(runs.projectId, scope.projectId),
     gte(runs.createdAt, windowStartSec),
   ];
   if (branchFilter) aggConditions.push(eq(runs.branch, branchFilter));

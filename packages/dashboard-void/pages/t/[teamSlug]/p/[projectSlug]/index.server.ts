@@ -1,8 +1,6 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { and, db, desc, eq, isNotNull, sql } from "void/db";
 import { runs } from "@schema";
-import { resolveTenantBundleForUser } from "@/lib/authz";
 import {
   DEFAULT_PAGE_SIZE,
   hasAnyFilter,
@@ -10,6 +8,7 @@ import {
   type RunsFilters,
 } from "@/lib/runs-filters";
 import { scopedRunsWhere } from "@/lib/runs-filters-where";
+import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
 
@@ -19,28 +18,11 @@ export type Props = InferProps<typeof loader>;
  * filters state straight from the URL so the page component can re-use it
  * for pagination links + the filter-bar form.
  *
- * Active team + project context is sourced from the request middleware
- * (`middleware/01.context.ts`), so we still go through `resolveTenantBundleForUser`
- * to keep the loader self-contained — middleware populates `c.var`, this
- * runs the same path so a direct hit (no middleware?) still works.
+ * Active project comes from `middleware/01.context.ts` via
+ * `requireTenantContext` — single source of truth, no extra DB join.
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
-  if (!teamSlug || !projectSlug) {
-    throw new Response("Not Found", { status: 404 });
-  }
-
-  const bundle = await resolveTenantBundleForUser(
-    user.id,
-    teamSlug,
-    projectSlug,
-  );
-  const project = bundle.activeProject;
-  if (!project) {
-    throw new Response("Not Found", { status: 404 });
-  }
+  const { project, scope } = requireTenantContext(c);
 
   const url = new URL(c.req.url);
   const filters = parseRunsFilters(url.searchParams);
@@ -50,7 +32,7 @@ export const loader = defineHandler(async (c) => {
   const totalRunsPromise: Promise<number> = db
     .select({ value: sql<number>`count(*)` })
     .from(runs)
-    .where(scopedRunsWhere(project.teamId, project.id, filters))
+    .where(scopedRunsWhere(scope.teamId, scope.projectId, filters))
     .then((rows) => rows[0]?.value ?? 0);
 
   const [branchRows, actorRows, envRows, totalRuns] = await Promise.all([
@@ -59,8 +41,8 @@ export const loader = defineHandler(async (c) => {
       .from(runs)
       .where(
         and(
-          eq(runs.teamId, project.teamId),
-          eq(runs.projectId, project.id),
+          eq(runs.teamId, scope.teamId),
+          eq(runs.projectId, scope.projectId),
           isNotNull(runs.branch),
         ),
       ),
@@ -69,8 +51,8 @@ export const loader = defineHandler(async (c) => {
       .from(runs)
       .where(
         and(
-          eq(runs.teamId, project.teamId),
-          eq(runs.projectId, project.id),
+          eq(runs.teamId, scope.teamId),
+          eq(runs.projectId, scope.projectId),
           isNotNull(runs.actor),
         ),
       ),
@@ -79,8 +61,8 @@ export const loader = defineHandler(async (c) => {
       .from(runs)
       .where(
         and(
-          eq(runs.teamId, project.teamId),
-          eq(runs.projectId, project.id),
+          eq(runs.teamId, scope.teamId),
+          eq(runs.projectId, scope.projectId),
           isNotNull(runs.environment),
         ),
       ),
@@ -109,7 +91,7 @@ export const loader = defineHandler(async (c) => {
   const allRuns = await db
     .select()
     .from(runs)
-    .where(scopedRunsWhere(project.teamId, project.id, filters))
+    .where(scopedRunsWhere(scope.teamId, scope.projectId, filters))
     .orderBy(desc(runs.createdAt))
     .limit(DEFAULT_PAGE_SIZE)
     .offset(offset);

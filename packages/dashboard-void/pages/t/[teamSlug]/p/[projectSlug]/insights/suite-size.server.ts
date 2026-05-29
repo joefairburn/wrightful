@@ -1,9 +1,7 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { and, db, desc, eq, gte, sql } from "void/db";
 import { runs, testResults, testTags } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
-import { resolveProjectBySlugs } from "@/lib/authz";
 import {
   DAY_SEC,
   parseSegment,
@@ -13,7 +11,7 @@ import {
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
-import type { AuthorizedProjectId, AuthorizedTeamId } from "@/lib/scope";
+import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
 
@@ -40,14 +38,7 @@ function defaultSegmentForRange(range: RangeKey): Segment {
  *   4. Distribution by spec file + top tags.
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
-  if (!teamSlug || !projectSlug) {
-    throw new Response("Not Found", { status: 404 });
-  }
-  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  if (!project) throw new Response("Not Found", { status: 404 });
+  const { project, scope } = requireTenantContext(c);
 
   const url = new URL(c.req.url);
   const range = parseRange(url.searchParams.get("range"));
@@ -59,12 +50,6 @@ export const loader = defineHandler(async (c) => {
   const branchFilter =
     !branchParam || branchParam === ALL_BRANCHES ? null : branchParam;
 
-  const scope = {
-    teamId: project.teamId as AuthorizedTeamId,
-    projectId: project.id as AuthorizedProjectId,
-    teamSlug: project.teamSlug,
-    projectSlug: project.slug,
-  };
   const branches = await loadProjectBranches(scope);
 
   const nowSec = Math.floor(Date.now() / 1000);
@@ -73,8 +58,8 @@ export const loader = defineHandler(async (c) => {
   const expr = bucketExpr(segment);
 
   const trendConditions = [
-    eq(runs.teamId, project.teamId),
-    eq(runs.projectId, project.id),
+    eq(runs.teamId, scope.teamId),
+    eq(runs.projectId, scope.projectId),
     gte(runs.createdAt, windowStartSec),
   ];
   if (branchFilter) trendConditions.push(eq(runs.branch, branchFilter));
@@ -95,7 +80,7 @@ export const loader = defineHandler(async (c) => {
       .select({ first: sql<number | null>`min(${runs.createdAt})` })
       .from(runs)
       .where(
-        and(eq(runs.teamId, project.teamId), eq(runs.projectId, project.id)),
+        and(eq(runs.teamId, scope.teamId), eq(runs.projectId, scope.projectId)),
       );
     shellStartSec = earliest[0]?.first ?? nowSec;
   }
@@ -106,7 +91,7 @@ export const loader = defineHandler(async (c) => {
     from (
       select tr."testId" as "testId", min(tr."createdAt") as "firstSeen"
       from "testResults" tr
-      where tr."projectId" = ${project.id}
+      where tr."projectId" = ${scope.projectId}
       group by tr."testId"
     ) firsts
     where firsts."firstSeen" >= ${addedLookbackSec}
@@ -122,7 +107,7 @@ export const loader = defineHandler(async (c) => {
     .from(testResults)
     .where(
       and(
-        eq(testResults.projectId, project.id),
+        eq(testResults.projectId, scope.projectId),
         gte(testResults.createdAt, windowStartSec),
       ),
     )
@@ -139,7 +124,7 @@ export const loader = defineHandler(async (c) => {
     .innerJoin(testResults, eq(testResults.id, testTags.testResultId))
     .where(
       and(
-        eq(testResults.projectId, project.id),
+        eq(testResults.projectId, scope.projectId),
         gte(testResults.createdAt, windowStartSec),
       ),
     )

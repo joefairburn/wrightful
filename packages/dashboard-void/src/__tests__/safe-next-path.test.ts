@@ -33,4 +33,11 @@ describe("safeNextPath", () => {
     expect(safeNextPath(null)).toBe("/");
     expect(safeNextPath(undefined)).toBe("/");
   });
+
+  it("rejects paths with control characters", () => {
+    expect(safeNextPath("/foo\r\nSet-Cookie: x=y")).toBe("/");
+    expect(safeNextPath("/foo\nbar")).toBe("/");
+    expect(safeNextPath("/foo\x00bar")).toBe("/");
+    expect(safeNextPath("/foo\x7fbar")).toBe("/");
+  });
 });

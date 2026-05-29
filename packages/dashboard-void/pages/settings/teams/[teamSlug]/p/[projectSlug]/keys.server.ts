@@ -1,126 +1,32 @@
-import type { Context } from "hono";
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { and, db, desc, eq, isNull, ne } from "void/db";
-import { ulid } from "ulid";
-import { apiKeys, projects, userState, type ApiKey } from "@schema";
-import { resolveProjectBySlugs } from "@/lib/authz";
+import { apiKeys, projects, type ApiKey } from "@schema";
 import { readField } from "@/lib/form";
+import {
+  redirectWithParam,
+  requireOwnedProjectScope,
+} from "@/lib/settings-scope";
+import { isValidSlug, SLUG_ERROR } from "@/lib/slug";
 
 export type Props = InferProps<typeof loader>;
 
-const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
-const REVEAL_COOKIE = "wrightful_reveal_key";
-
-async function sha256Hex(input: string): Promise<string> {
-  const data = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function generateApiKey(): string {
-  const rand = crypto.getRandomValues(new Uint8Array(24));
-  const b64 = btoa(String.fromCharCode(...rand))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-  return `wrf_${b64}`;
-}
-
-function readRevealCookie(c: Context): string | null {
-  const header = c.req.header("cookie");
-  if (!header) return null;
-  for (const part of header.split(";")) {
-    const [name, ...rest] = part.trim().split("=");
-    if (name === REVEAL_COOKIE) {
-      try {
-        return decodeURIComponent(rest.join("="));
-      } catch {
-        return null;
-      }
-    }
-  }
-  return null;
-}
-
-function revealCookie(
-  teamSlug: string,
-  projectSlug: string,
-  value: string | null,
-): string {
-  const path = `/settings/teams/${teamSlug}/p/${projectSlug}/keys`;
-  const base = `${REVEAL_COOKIE}=${value ? encodeURIComponent(value) : ""}; Path=${path}; HttpOnly; Secure; SameSite=Lax`;
-  return value ? `${base}; Max-Age=60` : `${base}; Max-Age=0`;
-}
-
-function redirectWithParam(
-  c: Context,
-  base: string,
-  key: string,
-  value: string,
-): Response {
-  const url = new URL(base, "http://placeholder.local");
-  url.searchParams.set(key, value);
-  return c.redirect(`${url.pathname}${url.search}`);
-}
-
-interface ProjectScope {
-  id: string;
-  teamId: string;
-  slug: string;
-  name: string;
-  teamSlug: string;
-}
-
-async function requireOwnedProject(
-  c: Context,
-): Promise<{ user: ReturnType<typeof requireAuth>; project: ProjectScope }> {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
-  if (!teamSlug || !projectSlug) {
-    throw new Response("Not Found", { status: 404 });
-  }
-  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  if (!project || project.role !== "owner") {
-    throw new Response("Not Found", { status: 404 });
-  }
-  return {
-    user,
-    project: {
-      id: project.id,
-      teamId: project.teamId,
-      slug: project.slug,
-      name: project.name,
-      teamSlug: project.teamSlug,
-    },
-  };
-}
+const hereFor = (project: { teamSlug: string; slug: string }) =>
+  `/settings/teams/${project.teamSlug}/p/${project.slug}/keys`;
 
 /**
- * Settings → Project keys loader. Owner-only. Surfaces the project's keys,
- * the flash-revealed plaintext for a freshly-minted key (single-render), and
- * any per-section error messages stashed on the redirect.
+ * Settings → Project keys loader. Owner-only. Returns the project's keys list
+ * and any per-section error messages stashed on a redirect.
  *
- * The plaintext lives in an HttpOnly, path-scoped flash cookie set by the
- * `create` action. We consume it here and immediately clear it so it can't
- * be re-displayed.
+ * Minting a key happens via `POST /api/teams/:teamSlug/p/:projectSlug/keys`
+ * (client-side fetch). The plaintext token comes back in that response and
+ * the client surfaces it once in a modal — no flash cookie, no full reload.
  */
 export const loader = defineHandler(async (c) => {
-  const { project } = await requireOwnedProject(c);
+  const { project } = await requireOwnedProjectScope(c, hereFor);
 
   const url = new URL(c.req.url);
   const generalError = url.searchParams.get("generalError");
   const dangerError = url.searchParams.get("dangerError");
-
-  const revealedKey = readRevealCookie(c);
-  if (revealedKey) {
-    c.header("Set-Cookie", revealCookie(project.teamSlug, project.slug, null), {
-      append: true,
-    });
-  }
 
   const keys = await db
     .select()
@@ -129,51 +35,28 @@ export const loader = defineHandler(async (c) => {
     .orderBy(desc(apiKeys.createdAt));
 
   return {
-    project,
+    project: {
+      id: project.id,
+      teamId: project.teamId,
+      slug: project.slug,
+      name: project.name,
+      teamSlug: project.teamSlug,
+    },
     keys: keys as ApiKey[],
-    revealedKey,
     generalError,
     dangerError,
   };
 });
 
 /**
- * Settings → Project keys mutations. One named action per concern, per
- * Void's documented convention. Forms target `<here>?actionName`.
+ * Settings → Project keys mutations. Mint-key is client-side via `/api/teams/.../keys`.
+ * The remaining server actions handle slow-path / no-JS flows for revoke key,
+ * rename / re-slug, and project delete.
  */
 export const actions = {
-  /**
-   * Mint a key. Plaintext is reveal-once via an HttpOnly flash cookie
-   * scoped to the keys page; the loader consumes + clears it on next render.
-   */
-  createKey: defineHandler(async (c) => {
-    const { project, here } = await requireProjectScope(c);
-
-    const form = await c.req.formData();
-    const label = readField(form, "label").trim();
-    if (!label) return c.redirect(here);
-    const rawKey = generateApiKey();
-    await db.insert(apiKeys).values({
-      id: ulid(),
-      projectId: project.id,
-      label,
-      keyHash: await sha256Hex(rawKey),
-      keyPrefix: rawKey.slice(0, 8),
-      createdAt: Math.floor(Date.now() / 1000),
-      lastUsedAt: null,
-      revokedAt: null,
-    });
-    c.header(
-      "Set-Cookie",
-      revealCookie(project.teamSlug, project.slug, rawKey),
-      { append: true },
-    );
-    return c.redirect(here);
-  }),
-
   /** Flip `revokedAt` on a non-revoked key. Idempotent. */
   revokeKey: defineHandler(async (c) => {
-    const { project, here } = await requireProjectScope(c);
+    const { project, here } = await requireOwnedProjectScope(c, hereFor);
 
     const form = await c.req.formData();
     const keyId = readField(form, "keyId");
@@ -193,7 +76,7 @@ export const actions = {
 
   /** Rename project or change slug. */
   updateGeneral: defineHandler(async (c) => {
-    const { project, here } = await requireProjectScope(c);
+    const { project, here } = await requireOwnedProjectScope(c, hereFor);
 
     const form = await c.req.formData();
     const name = readField(form, "name").trim();
@@ -202,13 +85,8 @@ export const actions = {
     if (!name) {
       return redirectWithParam(c, here, "generalError", "Name is required.");
     }
-    if (!SLUG_RE.test(slug)) {
-      return redirectWithParam(
-        c,
-        here,
-        "generalError",
-        "Slug must be 1–40 lowercase alphanumerics and hyphens, starting and ending with a letter or number.",
-      );
+    if (!isValidSlug(slug)) {
+      return redirectWithParam(c, here, "generalError", SLUG_ERROR);
     }
 
     if (slug !== project.slug) {
@@ -251,7 +129,7 @@ export const actions = {
 
   /** Delete project + its keys. */
   deleteProject: defineHandler(async (c) => {
-    const { project, here } = await requireProjectScope(c);
+    const { project, here } = await requireOwnedProjectScope(c, hereFor);
 
     const form = await c.req.formData();
     const confirm = readField(form, "confirm").trim();
@@ -267,10 +145,6 @@ export const actions = {
     try {
       await db.batch([
         db.delete(apiKeys).where(eq(apiKeys.projectId, project.id)),
-        db
-          .update(userState)
-          .set({ lastProjectId: null })
-          .where(eq(userState.lastProjectId, project.id)),
         db.delete(projects).where(eq(projects.id, project.id)),
       ] as never);
     } catch {
@@ -285,13 +159,3 @@ export const actions = {
     return c.redirect(`/settings/teams/${project.teamSlug}`);
   }),
 };
-
-async function requireProjectScope(
-  c: Context,
-): Promise<{ project: ProjectScope; here: string }> {
-  const { project } = await requireOwnedProject(c);
-  return {
-    project,
-    here: `/settings/teams/${project.teamSlug}/p/${project.slug}/keys`,
-  };
-}

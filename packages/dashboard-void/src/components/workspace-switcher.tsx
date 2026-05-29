@@ -1,7 +1,6 @@
 import { Check, ChevronsUpDown, FlaskConical, Plus } from "lucide-react";
 import { useState } from "react";
-import { fetch } from "void/client";
-import { Link } from "@void/react";
+import { Link, useRouter } from "@void/react";
 import { useNavigate } from "@/lib/navigate";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/cn";
@@ -18,8 +17,8 @@ interface Project {
 }
 
 interface WorkspaceSwitcherProps {
-  activeTeam: Team;
-  activeProject: Project;
+  selectedTeam: Team;
+  selectedProject: Project;
   teams: Team[];
   projects: Project[];
   isOwner: boolean;
@@ -31,45 +30,56 @@ interface WorkspaceSwitcherProps {
  * the separate `<TeamSwitcher>` (top of sidebar) + `<ProjectSwitcher>` (top
  * header) — the header is gone, so both pickers consolidate here.
  *
- * The popover renders two sections: the user's teams (selecting one
- * navigates to `/t/:slug`, where Void resolves the user's last project for
- * that team) and the projects within the active team (mono font, settings
- * gear is omitted here — that lives in `/settings/teams/:slug/p/:slug/keys`
- * accessed via the user menu).
+ * The popover renders two sections: the user's teams and the projects within
+ * the selected team. Selection persistence is handled by middleware (the
+ * `wf_workspace` cookie) — navigation alone is enough; no explicit POST.
  */
 export function WorkspaceSwitcher({
-  activeTeam,
-  activeProject,
+  selectedTeam,
+  selectedProject,
   teams,
   projects,
   isOwner,
 }: WorkspaceSwitcherProps) {
   const navigate = useNavigate();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
 
   const switchTeam = (slug: string) => {
     setOpen(false);
-    if (slug === activeTeam.slug) return;
-    void fetch("/api/user/last-team", {
-      method: "POST",
-      body: { teamSlug: slug },
-    });
+    if (slug === selectedTeam.slug) return;
     navigate(link("/t/:teamSlug", { teamSlug: slug }));
   };
 
+  /**
+   * Swap project while keeping the user on the same page when possible.
+   *
+   * - If the current URL pins a project segment (`/p/<old>/…` under either
+   *   `/t/<team>/` or `/settings/teams/<team>/`), rewrite that segment in
+   *   place — the middleware updates the workspace cookie on tenant paths,
+   *   and SPA navigation keeps state where it is.
+   * - Otherwise (e.g. `/settings/profile`, where no project is pinned in the
+   *   URL), POST to `/api/user/select-workspace` to update just the cookie,
+   *   then refresh the current page so the sidebar + any other shared-state
+   *   consumers pick up the new selection.
+   */
   const switchProject = (slug: string) => {
     setOpen(false);
-    if (slug === activeProject.slug) return;
-    void fetch("/api/user/last-project", {
+    if (slug === selectedProject.slug) return;
+    const here = router.path;
+    const pinned = new RegExp(`/p/${escapeRegExp(selectedProject.slug)}(/|$)`);
+    if (pinned.test(here)) {
+      navigate(here.replace(pinned, `/p/${slug}$1`));
+      return;
+    }
+    const body = new FormData();
+    body.set("teamSlug", selectedTeam.slug);
+    body.set("projectSlug", slug);
+    void fetch("/api/user/select-workspace", {
       method: "POST",
-      body: { teamSlug: activeTeam.slug, projectSlug: slug },
-    });
-    navigate(
-      link("/t/:teamSlug/p/:projectSlug", {
-        teamSlug: activeTeam.slug,
-        projectSlug: slug,
-      }),
-    );
+      body,
+      credentials: "same-origin",
+    }).then(() => router.refresh());
   };
 
   return (
@@ -81,13 +91,13 @@ export function WorkspaceSwitcher({
           "min-w-0",
         )}
       >
-        <TeamBadge name={activeTeam.name} />
+        <TeamBadge name={selectedTeam.name} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-[13px] font-medium text-foreground">
-            {activeTeam.name}
+            {selectedTeam.name}
           </span>
           <span className="truncate font-mono text-[11px] text-muted-foreground">
-            {activeProject.name}
+            {selectedProject.name}
           </span>
         </span>
         <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
@@ -105,14 +115,14 @@ export function WorkspaceSwitcher({
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
                   "hover:bg-accent",
-                  t.slug === activeTeam.slug && "bg-accent",
+                  t.slug === selectedTeam.slug && "bg-accent",
                 )}
                 onClick={() => switchTeam(t.slug)}
                 type="button"
               >
                 <TeamBadge name={t.name} size="sm" />
                 <span className="flex-1 truncate">{t.name}</span>
-                {t.slug === activeTeam.slug && (
+                {t.slug === selectedTeam.slug && (
                   <Check className="size-3.5 text-foreground" />
                 )}
               </button>
@@ -122,7 +132,7 @@ export function WorkspaceSwitcher({
 
         <div className="my-1.5 h-px bg-border" />
 
-        <SectionLabel>Projects in {activeTeam.name}</SectionLabel>
+        <SectionLabel>Projects in {selectedTeam.name}</SectionLabel>
         <ul className="flex flex-col">
           {projects.map((p) => (
             <li key={p.slug}>
@@ -131,14 +141,14 @@ export function WorkspaceSwitcher({
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
                   "font-mono text-[13px]",
                   "hover:bg-accent",
-                  p.slug === activeProject.slug && "bg-accent",
+                  p.slug === selectedProject.slug && "bg-accent",
                 )}
                 onClick={() => switchProject(p.slug)}
                 type="button"
               >
                 <FlaskConical className="size-3.5 text-muted-foreground" />
                 <span className="flex-1 truncate">{p.name}</span>
-                {p.slug === activeProject.slug && (
+                {p.slug === selectedProject.slug && (
                   <Check className="size-3.5 text-foreground" />
                 )}
               </button>
@@ -152,7 +162,7 @@ export function WorkspaceSwitcher({
             <Link
               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
               href={link("/settings/teams/:teamSlug/projects/new", {
-                teamSlug: activeTeam.slug,
+                teamSlug: selectedTeam.slug,
               })}
               onClick={() => setOpen(false)}
             >
@@ -200,6 +210,10 @@ function TeamBadge({
       {initial}
     </span>
   );
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function teamHue(name: string): number {

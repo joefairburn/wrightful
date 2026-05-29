@@ -4,20 +4,12 @@ import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/cn";
+import { initials } from "@/lib/initials";
 
 interface SidebarUserMenuProps {
   name: string;
   email: string;
   image: string | null;
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  const first = parts[0] ?? "";
-  if (parts.length === 1) return first.slice(0, 2).toUpperCase();
-  const last = parts[parts.length - 1] ?? "";
-  return (first.charAt(0) + last.charAt(0)).toUpperCase();
 }
 
 /**

@@ -3,10 +3,12 @@ import {
   BarChart2,
   CheckSquare,
   FlaskConical,
-  Plus,
+  KeyRound,
+  List,
   Settings,
   TriangleAlert,
   UserRound,
+  Users,
 } from "lucide-react";
 import { Link, useRouter, useShared } from "@void/react";
 // Command menu is wired up but temporarily hidden — re-enable by uncommenting
@@ -19,6 +21,20 @@ import { cn } from "@/lib/cn";
 
 type NavId = "runs" | "flaky" | "insights" | "tests";
 
+interface Team {
+  slug: string;
+  name: string;
+}
+
+interface Project {
+  slug: string;
+  name: string;
+}
+
+interface SelectedTeam extends Team {
+  role?: string;
+}
+
 function deriveActiveNav(pathname: string): NavId {
   if (/\/flaky(\/|$)/.test(pathname)) return "flaky";
   if (/\/insights(\/|$)/.test(pathname)) return "insights";
@@ -26,33 +42,43 @@ function deriveActiveNav(pathname: string): NavId {
   return "runs";
 }
 
+function buildBackToAppHref(
+  selectedTeam: SelectedTeam | null,
+  selectedProject: Project | null,
+): string {
+  if (selectedTeam && selectedProject) {
+    return `/t/${selectedTeam.slug}/p/${selectedProject.slug}`;
+  }
+  if (selectedTeam) return `/t/${selectedTeam.slug}`;
+  return "/";
+}
+
 interface AppLayoutProps {
   children: React.ReactNode;
   /**
-   * Settings mode swaps the sidebar for the account/teams chrome. The route
-   * layouts pass this explicitly: `pages/settings/layout.tsx` sets
-   * `"settings"`, `pages/t/[teamSlug]/p/[projectSlug]/layout.tsx` sets
-   * `"app"`. Inferred from the URL only as a defensive fallback.
+   * Settings mode swaps the middle nav for the account/teams chrome. The
+   * route layouts pass this explicitly: `pages/settings/layout.tsx` sets
+   * `"settings"`, `pages/t/[teamSlug]/p/[projectSlug]/layout.tsx` sets `"app"`.
    */
   mode: "app" | "settings";
 }
 
 /**
- * Top-level app shell: integrated sidebar (no top header).
+ * Top-level app shell: 240px integrated sidebar (no top header).
  *
- * Mirrors the Wrightful prototype layout: a single 240px sidebar carries
- * the team/project switcher, ⌘K jump-to, primary nav, and the user menu —
- * everything that used to live in a separate top header is now in the
- * sidebar footer or workspace switcher.
+ * Shared chrome across both modes:
+ * - Top: `<WorkspaceSwitcher>` when a workspace is selected; "Wrightful"
+ *   placeholder otherwise.
+ * - Bottom (above user menu): Settings link (app mode) or "Back to app" link
+ *   (settings mode).
  *
- * Tenant + user + the settings shell's "back to app" target all come from
- * `useShared()`, populated by `middleware/01.context.ts`. Mounted
- * automatically by the route layouts under `pages/settings/` and
- * `pages/t/[teamSlug]/p/[projectSlug]/`.
+ * Selection comes from `useShared()` → `selectedTeam` / `selectedProject`,
+ * populated by `middleware/01.context.ts` from the `wf_workspace` cookie
+ * (URL overrides cookie when pinned).
  */
 export function AppLayout({ children, mode }: AppLayoutProps) {
   const router = useRouter();
-  const { auth, userTeams, activeTeam, teamProjects, activeProject } =
+  const { auth, userTeams, selectedTeam, teamProjects, selectedProject } =
     useShared();
   const pathname = router.path;
   const user = auth?.user ?? null;
@@ -64,20 +90,36 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
     <QueryProvider>
       <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans">
         <nav className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+          <SidebarTop
+            selectedProject={selectedProject}
+            selectedTeam={selectedTeam}
+            teamProjects={teamProjects}
+            teams={userTeams}
+          />
+
           {mode === "settings" ? (
-            <SettingsSidebarContents pathname={pathname} teams={userTeams} />
-          ) : (
-            <AppSidebarContents
-              activeProject={activeProject}
-              activeTeam={activeTeam}
-              onOpenCommand={() => {
-                /* command menu disabled */
-              }}
+            <SettingsSidebarMiddle
               pathname={pathname}
-              teamProjects={teamProjects}
+              selectedProject={selectedProject}
+              selectedTeam={selectedTeam}
               teams={userTeams}
             />
+          ) : (
+            <AppSidebarMiddle
+              base={
+                selectedTeam && selectedProject
+                  ? `/t/${selectedTeam.slug}/p/${selectedProject.slug}`
+                  : null
+              }
+              pathname={pathname}
+            />
           )}
+
+          <SidebarBottom
+            mode={mode}
+            selectedProject={selectedProject}
+            selectedTeam={selectedTeam}
+          />
 
           {user && (
             <div className="shrink-0 border-t border-sidebar-border p-2">
@@ -96,8 +138,8 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
       </div>
 
       {/* <CommandMenu
-        activeProject={activeProject}
-        activeTeam={activeTeam}
+        activeProject={selectedProject}
+        activeTeam={selectedTeam}
         onOpenChange={setCmdOpen}
         open={cmdOpen}
         projects={teamProjects}
@@ -107,29 +149,89 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
   );
 }
 
-interface AppSidebarContentsProps {
-  pathname: string;
-  teams: { slug: string; name: string }[];
-  teamProjects: { slug: string; name: string }[];
-  activeTeam: { slug: string; name: string; role?: string } | null;
-  activeProject: { slug: string; name: string } | null;
-  onOpenCommand: () => void;
+interface SidebarTopProps {
+  teams: Team[];
+  teamProjects: Project[];
+  selectedTeam: SelectedTeam | null;
+  selectedProject: Project | null;
 }
 
-function AppSidebarContents({
-  pathname,
+function SidebarTop({
   teams,
   teamProjects,
-  activeTeam,
-  activeProject,
-  onOpenCommand: _onOpenCommand,
-}: AppSidebarContentsProps) {
-  const activeNav = deriveActiveNav(pathname);
-  const base =
-    activeTeam && activeProject
-      ? `/t/${activeTeam.slug}/p/${activeProject.slug}`
-      : null;
+  selectedTeam,
+  selectedProject,
+}: SidebarTopProps) {
+  return (
+    <div className="shrink-0 px-2 pb-1.5 pt-2.5">
+      {selectedTeam && selectedProject ? (
+        <WorkspaceSwitcher
+          isOwner={selectedTeam.role === "owner"}
+          projects={teamProjects}
+          selectedProject={selectedProject}
+          selectedTeam={selectedTeam}
+          teams={teams}
+        />
+      ) : (
+        <div className="flex h-9 items-center px-2 text-sm font-semibold tracking-tight">
+          Wrightful
+        </div>
+      )}
+    </div>
+  );
+}
 
+interface SidebarBottomProps {
+  mode: "app" | "settings";
+  selectedTeam: SelectedTeam | null;
+  selectedProject: Project | null;
+}
+
+function SidebarBottom({
+  mode,
+  selectedTeam,
+  selectedProject,
+}: SidebarBottomProps) {
+  if (mode === "settings") {
+    const href = buildBackToAppHref(selectedTeam, selectedProject);
+    return (
+      <div className="shrink-0 px-2 pb-2">
+        <Link
+          className={cn(
+            "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+            "text-sidebar-foreground hover:bg-accent hover:text-foreground",
+          )}
+          href={href}
+        >
+          <ArrowLeft className="size-4" />
+          Back to app
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div className="shrink-0 px-2 pb-2">
+      <Link
+        className={cn(
+          "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+          "text-sidebar-foreground hover:bg-accent hover:text-foreground",
+        )}
+        href="/settings/profile"
+      >
+        <Settings className="size-4" />
+        Settings
+      </Link>
+    </div>
+  );
+}
+
+interface AppSidebarMiddleProps {
+  pathname: string;
+  base: string | null;
+}
+
+function AppSidebarMiddle({ pathname, base }: AppSidebarMiddleProps) {
+  const activeNav = deriveActiveNav(pathname);
   const navItems: {
     href: string;
     label: string;
@@ -161,180 +263,177 @@ function AppSidebarContents({
     : [];
 
   return (
-    <>
-      <div className="shrink-0 px-2 pb-1.5 pt-2.5">
-        {activeTeam && activeProject ? (
-          <WorkspaceSwitcher
-            activeProject={activeProject}
-            activeTeam={activeTeam}
-            isOwner={activeTeam.role === "owner"}
-            projects={teamProjects}
-            teams={teams}
-          />
-        ) : (
-          <div className="flex h-9 items-center px-2 text-sm font-semibold tracking-tight">
-            Wrightful
-          </div>
-        )}
-      </div>
-
-      {/* Jump to… (⌘K) — commented out until the command menu is ready for prime time. */}
-      {/* <div className="shrink-0 px-2 pb-2">
-        <button
-          aria-label="Open command menu"
-          className={cn(
-            "flex w-full items-center gap-2 rounded-md border border-sidebar-border bg-muted px-2.5 py-1.5",
-            "text-[12.5px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-          )}
-          onClick={onOpenCommand}
-          type="button"
-        >
-          <Search className="size-3.5" />
-          <span>Jump to…</span>
-          <span className="ml-auto inline-flex items-center gap-0.5">
-            <Kbd className="h-4 min-w-4 px-1 text-[10px]">⌘</Kbd>
-            <Kbd className="h-4 min-w-4 px-1 text-[10px]">K</Kbd>
-          </span>
-        </button>
-      </div> */}
-
-      <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
-        {navItems.map((item) => {
-          const active = activeNav === item.id;
-          return (
-            <Link
-              className={cn(
-                "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-                active
-                  ? "bg-accent font-medium text-foreground"
-                  : "text-sidebar-foreground hover:bg-accent hover:text-foreground",
-              )}
-              href={item.href}
-              key={item.id}
-            >
-              <item.icon className="size-4" />
-              <span className="flex-1">{item.label}</span>
-              {item.count != null && (
-                <span className="rounded-full bg-flaky-soft px-1.5 py-px font-mono text-[10.5px] font-semibold text-flaky tabular-nums">
-                  {item.count}
-                </span>
-              )}
-            </Link>
-          );
-        })}
-      </div>
-
-      <div className="shrink-0 px-2 pb-2">
-        <Link
-          className={cn(
-            "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-            "text-sidebar-foreground hover:bg-accent hover:text-foreground",
-          )}
-          href="/settings/profile"
-        >
-          <Settings className="size-4" />
-          Settings
-        </Link>
-      </div>
-    </>
-  );
-}
-
-interface SettingsSidebarContentsProps {
-  pathname: string;
-  teams: { slug: string; name: string }[];
-}
-
-function SettingsSidebarContents({
-  pathname,
-  teams,
-}: SettingsSidebarContentsProps) {
-  const { backToAppHref } = useShared();
-  const profileActive = pathname.startsWith("/settings/profile");
-
-  return (
-    <>
-      <div className="shrink-0 px-2 pb-1.5 pt-2.5">
-        <Link
-          className={cn(
-            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-            "text-sidebar-foreground hover:bg-accent hover:text-foreground",
-          )}
-          href={backToAppHref}
-        >
-          <ArrowLeft className="size-3.5" />
-          Back to app
-        </Link>
-      </div>
-
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-2 py-1">
-        <div className="flex flex-col gap-0.5">
-          <SettingsSectionLabel>Account</SettingsSectionLabel>
+    <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
+      {navItems.map((item) => {
+        const active = activeNav === item.id;
+        return (
           <Link
             className={cn(
               "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-              profileActive
+              active
                 ? "bg-accent font-medium text-foreground"
                 : "text-sidebar-foreground hover:bg-accent hover:text-foreground",
             )}
-            href="/settings/profile"
+            href={item.href}
+            key={item.id}
           >
-            <UserRound className="size-4" />
-            Profile
-          </Link>
-        </div>
-
-        <div className="flex flex-col gap-0.5">
-          <SettingsSectionLabel>Your teams</SettingsSectionLabel>
-          {teams.length === 0 ? (
-            <p className="px-2.5 py-1 text-xs text-muted-foreground">
-              No teams yet.
-            </p>
-          ) : (
-            teams.map((team) => {
-              const href = `/settings/teams/${team.slug}`;
-              const active =
-                pathname === href || pathname.startsWith(`${href}/`);
-              return (
-                <Link
-                  className={cn(
-                    "flex min-w-0 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-                    active
-                      ? "bg-accent font-medium text-foreground"
-                      : "text-sidebar-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                  href={href}
-                  key={team.slug}
-                >
-                  <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-sidebar-border bg-muted font-mono text-[10px] font-semibold uppercase text-muted-foreground">
-                    {team.name.charAt(0)}
-                  </span>
-                  <span className="truncate">{team.name}</span>
-                </Link>
-              );
-            })
-          )}
-          <Link
-            className={cn(
-              "mt-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-              pathname === "/settings/teams/new"
-                ? "bg-accent font-medium text-foreground"
-                : "text-sidebar-foreground hover:bg-accent hover:text-foreground",
+            <item.icon className="size-4" />
+            <span className="flex-1">{item.label}</span>
+            {item.count != null && (
+              <span className="rounded-full bg-flaky-soft px-1.5 py-px font-mono text-[10.5px] font-semibold text-flaky tabular-nums">
+                {item.count}
+              </span>
             )}
-            href="/settings/teams/new"
-          >
-            <Plus className="size-4" />
-            Create team
           </Link>
-        </div>
-      </div>
-    </>
+        );
+      })}
+    </div>
   );
 }
 
-function SettingsSectionLabel({ children }: { children: React.ReactNode }) {
+interface SettingsSidebarMiddleProps {
+  pathname: string;
+  teams: Team[];
+  selectedTeam: SelectedTeam | null;
+  selectedProject: Project | null;
+}
+
+/**
+ * Which team's settings group to expand in the sidebar. URL is the override
+ * — when on `/settings/teams/<slug>/…` we expand that team regardless of the
+ * workspace selection. Otherwise we fall back to the cookie-backed
+ * `selectedTeam`, so the group stays expanded while you're on `/settings/profile`
+ * or any other non-team-pinned settings page.
+ */
+const SETTINGS_TEAM_RE = /^\/settings\/teams\/([^/]+)(?:\/p\/([^/]+))?(?:\/|$)/;
+
+function SettingsSidebarMiddle({
+  pathname,
+  teams,
+  selectedTeam,
+  selectedProject,
+}: SettingsSidebarMiddleProps) {
+  const profileActive = pathname.startsWith("/settings/profile");
+
+  const teamMatch = pathname.match(SETTINGS_TEAM_RE);
+  const urlTeamSlug = teamMatch?.[1] ?? null;
+  const urlProjectSlug = teamMatch?.[2] ?? null;
+
+  const expandedTeam: Team | null = urlTeamSlug
+    ? (teams.find((t) => t.slug === urlTeamSlug) ?? {
+        slug: urlTeamSlug,
+        name: urlTeamSlug,
+      })
+    : selectedTeam;
+  const expandedProject: Project | null = urlProjectSlug
+    ? { slug: urlProjectSlug, name: urlProjectSlug }
+    : expandedTeam && selectedTeam?.slug === expandedTeam.slug
+      ? selectedProject
+      : null;
+
   return (
-    <div className="px-2.5 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-2 py-1">
+      <div className="flex flex-col gap-0.5">
+        <SettingsSectionLabel>Account</SettingsSectionLabel>
+        <SettingsNavLink
+          active={profileActive}
+          href="/settings/profile"
+          icon={UserRound}
+          label="Profile"
+        />
+      </div>
+
+      {expandedTeam && (
+        <div className="flex flex-col gap-0.5">
+          <SettingsSectionLabel title={expandedTeam.name}>
+            {expandedTeam.name}
+          </SettingsSectionLabel>
+          <SettingsNavLink
+            active={
+              pathname === `/settings/teams/${expandedTeam.slug}/general` ||
+              pathname === `/settings/teams/${expandedTeam.slug}`
+            }
+            href={`/settings/teams/${expandedTeam.slug}/general`}
+            icon={Settings}
+            label="General"
+          />
+          <SettingsNavLink
+            active={pathname === `/settings/teams/${expandedTeam.slug}/members`}
+            href={`/settings/teams/${expandedTeam.slug}/members`}
+            icon={Users}
+            label="Members"
+          />
+          <SettingsNavLink
+            active={
+              pathname.startsWith(
+                `/settings/teams/${expandedTeam.slug}/projects`,
+              ) ||
+              (pathname.startsWith(`/settings/teams/${expandedTeam.slug}/p/`) &&
+                !urlProjectSlug)
+            }
+            href={`/settings/teams/${expandedTeam.slug}/projects`}
+            icon={List}
+            label="Projects"
+          />
+        </div>
+      )}
+
+      {expandedTeam && expandedProject && (
+        <div className="flex flex-col gap-0.5">
+          <SettingsSectionLabel title={expandedProject.name}>
+            {expandedProject.name}
+          </SettingsSectionLabel>
+          <SettingsNavLink
+            active={pathname.endsWith("/keys")}
+            href={`/settings/teams/${expandedTeam.slug}/p/${expandedProject.slug}/keys`}
+            icon={KeyRound}
+            label="API keys"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsNavLink({
+  active,
+  href,
+  icon: Icon,
+  label,
+}: {
+  active: boolean;
+  href: string;
+  icon: typeof Settings;
+  label: string;
+}) {
+  return (
+    <Link
+      className={cn(
+        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+        active
+          ? "bg-accent font-medium text-foreground"
+          : "text-sidebar-foreground hover:bg-accent hover:text-foreground",
+      )}
+      href={href}
+    >
+      <Icon className="size-4" />
+      {label}
+    </Link>
+  );
+}
+
+function SettingsSectionLabel({
+  children,
+  title,
+}: {
+  children: React.ReactNode;
+  title?: string;
+}) {
+  return (
+    <div
+      className="truncate px-2.5 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground"
+      title={title}
+    >
       {children}
     </div>
   );

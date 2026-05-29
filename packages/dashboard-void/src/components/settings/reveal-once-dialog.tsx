@@ -1,0 +1,52 @@
+import { useEffect, useState } from "react";
+import { Dialog, DialogPopup } from "@/components/ui/dialog";
+
+/**
+ * Modal that pops open when `open` becomes true to surface a freshly-minted
+ * secret (API key plaintext, invite URL) exactly once.
+ *
+ * Caches `children` internally so the previous content keeps rendering while
+ * Base UI's exit animation runs after `open` flips to false — otherwise the
+ * consumer typically clears its source state in `onClose`, the children
+ * collapse mid-fade, and the dialog shrinks visibly. The cache is replaced
+ * the next time the dialog opens.
+ */
+export function RevealOnceDialog({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [cachedChildren, setCachedChildren] = useState<React.ReactNode>(null);
+  useEffect(() => {
+    if (open) setCachedChildren(children);
+  }, [open, children]);
+
+  return (
+    <Dialog
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      open={open}
+    >
+      <DialogPopup className="max-w-md">
+        <div className="flex flex-col gap-4 p-6">
+          <div>
+            <div className="font-semibold text-base">{title}</div>
+            <div className="mt-1 text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+              {description}
+            </div>
+          </div>
+          {cachedChildren}
+        </div>
+      </DialogPopup>
+    </Dialog>
+  );
+}

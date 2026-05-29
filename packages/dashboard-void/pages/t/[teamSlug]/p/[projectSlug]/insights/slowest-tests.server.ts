@@ -1,11 +1,9 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { db, sql } from "void/db";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
-import { resolveProjectBySlugs } from "@/lib/authz";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
-import type { AuthorizedProjectId, AuthorizedTeamId } from "@/lib/scope";
+import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
 
@@ -67,21 +65,7 @@ function pickBinWidthMs(maxDurationMs: number): number {
  * - Sparklines: daily-avg duration over the trailing 7 days for the page slice.
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
-  if (!teamSlug || !projectSlug) {
-    throw new Response("Not Found", { status: 404 });
-  }
-  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  if (!project) throw new Response("Not Found", { status: 404 });
-
-  const scope = {
-    teamId: project.teamId as AuthorizedTeamId,
-    projectId: project.id as AuthorizedProjectId,
-    teamSlug: project.teamSlug,
-    projectSlug: project.slug,
-  };
+  const { project, scope } = requireTenantContext(c);
 
   const url = new URL(c.req.url);
   const range = parseRange(url.searchParams.get("range"));

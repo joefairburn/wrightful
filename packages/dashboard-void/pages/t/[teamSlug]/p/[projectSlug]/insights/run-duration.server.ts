@@ -1,8 +1,6 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { db, sql } from "void/db";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
-import { resolveProjectBySlugs } from "@/lib/authz";
 import {
   DAY_SEC,
   parseSegment,
@@ -12,7 +10,7 @@ import {
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
-import type { AuthorizedProjectId, AuthorizedTeamId } from "@/lib/scope";
+import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
 
@@ -48,14 +46,7 @@ export interface OverallDurationStats {
  * — keeps the target rank in [1..cnt] so a single-run bucket still resolves.
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
-  if (!teamSlug || !projectSlug) {
-    throw new Response("Not Found", { status: 404 });
-  }
-  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  if (!project) throw new Response("Not Found", { status: 404 });
+  const { project, scope } = requireTenantContext(c);
 
   const url = new URL(c.req.url);
   const range = parseRange(url.searchParams.get("range"));
@@ -73,12 +64,6 @@ export const loader = defineHandler(async (c) => {
   const windowStartSec = nowSec - days * DAY_SEC;
   const expr = bucketExpr(segment);
 
-  const scope = {
-    teamId: project.teamId as AuthorizedTeamId,
-    projectId: project.id as AuthorizedProjectId,
-    teamSlug: project.teamSlug,
-    projectSlug: project.slug,
-  };
   const branches = await loadProjectBranches(scope);
   const branchSql = branchFilter
     ? sql`and runs.branch = ${branchFilter}`

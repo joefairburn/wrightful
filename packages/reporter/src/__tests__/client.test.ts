@@ -91,16 +91,18 @@ describe("StreamClient", () => {
   });
 
   describe("openRun", () => {
-    it("posts to /api/runs with auth headers and returns runId", async () => {
+    it("posts to /api/runs with auth headers and returns runId + runUrl", async () => {
       const fetchMock = vi
         .fn()
-        .mockResolvedValueOnce(jsonResponse(200, { runId: "run_1" }));
+        .mockResolvedValueOnce(
+          jsonResponse(200, { runId: "run_1", runUrl: "/t/a/p/b/runs/run_1" }),
+        );
       vi.stubGlobal("fetch", fetchMock);
 
       const client = new StreamClient("http://dash.example", "tok-1");
       const result = await client.openRun(runPayload);
 
-      expect(result).toEqual({ runId: "run_1" });
+      expect(result).toEqual({ runId: "run_1", runUrl: "/t/a/p/b/runs/run_1" });
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0];
       expect(url).toBe("http://dash.example/api/runs");

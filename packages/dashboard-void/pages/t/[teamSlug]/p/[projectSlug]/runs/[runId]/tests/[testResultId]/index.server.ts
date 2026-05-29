@@ -1,5 +1,4 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { and, asc, db, desc, eq } from "void/db";
 import {
   artifacts,
@@ -9,8 +8,8 @@ import {
   testResults,
   testTags,
 } from "@schema";
-import { resolveProjectBySlugs } from "@/lib/authz";
 import { signArtifactToken } from "@/lib/artifact-tokens";
+import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
 
@@ -42,20 +41,16 @@ interface ArtifactRow {
  * download/trace-viewer URLs without making a round-trip.
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
   const runId = c.req.param("runId");
   const testResultId = c.req.param("testResultId");
-  if (!teamSlug || !projectSlug || !runId || !testResultId) {
+  if (!runId || !testResultId) {
     throw new Response("Not Found", { status: 404 });
   }
 
   const url = new URL(c.req.url);
   const origin = url.origin;
 
-  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  if (!project) throw new Response("Not Found", { status: 404 });
+  const { project } = requireTenantContext(c);
 
   const [resultRows, runRows] = await Promise.all([
     db

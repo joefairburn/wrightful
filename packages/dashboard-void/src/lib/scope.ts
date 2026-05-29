@@ -1,14 +1,13 @@
 import { db, eq } from "void/db";
-import type { Context } from "hono";
 import { projects, teams } from "@schema";
-import { requireActiveProject } from "@/lib/active-project";
 import type { ApiKey } from "@schema";
 
 /**
  * Branded id types make it a compile-time error to feed a raw string
- * `projectId` into a scoped query without going through `tenantScope*`.
- * Preserves the same invariant the per-DO `TenantScope` enforced before:
- * every run-table query MUST carry an auth-checked project id.
+ * `projectId` into a scoped query without going through `tenantScope*` or
+ * `requireTenantContext`. Preserves the same invariant the per-DO
+ * `TenantScope` enforced before: every run-table query MUST carry an
+ * auth-checked project id.
  */
 export type AuthorizedTeamId = string & { readonly __team: unique symbol };
 export type AuthorizedProjectId = string & {
@@ -23,25 +22,15 @@ export interface TenantScope {
 }
 
 /**
- * Resolve the tenant scope for a session-authenticated dashboard request.
- * Reads `activeProject` from middleware context; throws 404 if absent (the
- * URL didn't carry a valid team/project pair, or the user isn't a member).
- */
-export function tenantScopeForUser(c: Context): TenantScope {
-  const ap = requireActiveProject(c);
-  return {
-    teamId: ap.teamId as AuthorizedTeamId,
-    projectId: ap.id as AuthorizedProjectId,
-    teamSlug: ap.teamSlug,
-    projectSlug: ap.slug,
-  };
-}
-
-/**
  * Resolve the tenant scope for a session-authenticated request that *isn't*
  * gated by `middleware/01.context.ts` (i.e. an API route under
  * `/api/t/...` where the middleware regex doesn't fire). Looks up the
  * project + verifies membership in one query.
+ *
+ * For `/t/:teamSlug/p/:projectSlug/*` page loaders, use
+ * `requireTenantContext(c)` from `@/lib/tenant-context` — it reads the
+ * already-resolved active project from middleware context and skips the
+ * extra DB round trip.
  *
  * Returns null when the team doesn't exist, the project doesn't exist, or
  * the user isn't a member. Callers should map null to 404 — don't leak

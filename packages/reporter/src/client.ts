@@ -90,7 +90,9 @@ export class StreamClient {
     };
   }
 
-  async openRun(payload: OpenRunPayload): Promise<{ runId: string }> {
+  async openRun(
+    payload: OpenRunPayload,
+  ): Promise<{ runId: string; runUrl: string | null }> {
     const response = await fetchWithRetry(`${this.baseUrl}/api/runs`, {
       method: "POST",
       headers: this.headers,
@@ -98,6 +100,7 @@ export class StreamClient {
     });
     const body = (await response.json().catch(() => ({}))) as {
       runId?: string;
+      runUrl?: string;
       error?: string;
     };
     if (!response.ok || !body.runId) {
@@ -107,7 +110,7 @@ export class StreamClient {
         `openRun failed (${response.status}): ${body.error ?? response.statusText}`,
       );
     }
-    return { runId: body.runId };
+    return { runId: body.runId, runUrl: body.runUrl ?? null };
   }
 
   async appendResults(

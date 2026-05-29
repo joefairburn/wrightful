@@ -1,12 +1,10 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { db, sql } from "void/db";
 import { z } from "zod";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
-import { resolveProjectBySlugs } from "@/lib/authz";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { rangeToSeconds } from "@/lib/analytics/range";
-import type { AuthorizedProjectId, AuthorizedTeamId } from "@/lib/scope";
+import { requireTenantContext } from "@/lib/tenant-context";
 
 // withValidator's TypedHandler doesn't auto-await the handler return like
 // the plain `defineHandler` overload does (see void/dist/handler.d.mts).
@@ -74,21 +72,7 @@ export const loader = defineHandler.withValidator({
     page: z.coerce.number().int().min(1).optional(),
   }),
 })(async (c, { query }) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
-  if (!teamSlug || !projectSlug) {
-    throw new Response("Not Found", { status: 404 });
-  }
-  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  if (!project) throw new Response("Not Found", { status: 404 });
-
-  const scope = {
-    teamId: project.teamId as AuthorizedTeamId,
-    projectId: project.id as AuthorizedProjectId,
-    teamSlug: project.teamSlug,
-    projectSlug: project.slug,
-  };
+  const { project, scope } = requireTenantContext(c);
 
   const range: RangeKey = query.range ?? "14d";
   const branchParam = query.branch ?? null;

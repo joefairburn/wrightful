@@ -3,6 +3,7 @@ import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
 import { Sparkline, type SparklinePoint } from "@/components/sparkline";
 import { StatusGlyph } from "@/components/status-glyph";
+import { TableRow } from "@/components/ui/table";
 import { stripAnsi } from "@/lib/ansi";
 import { formatRelativeTime } from "@/lib/time-format";
 
@@ -77,7 +78,7 @@ export function FlakyTestRow({
   const cleanTitle = displayTitle(title, file);
 
   return (
-    <tr className="relative border-b border-border/50 hover:bg-bg-1">
+    <TableRow>
       <td className="w-10 px-4 align-middle">
         <Link
           className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
@@ -150,6 +151,6 @@ export function FlakyTestRow({
       <td className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
         {latest ? formatRelativeTime(latest.createdAt) : "—"}
       </td>
-    </tr>
+    </TableRow>
   );
 }

@@ -9,7 +9,12 @@ import {
   teams,
 } from "@schema";
 import type { TenantScope } from "@/lib/scope";
-import type { TestResultInput } from "@/lib/schemas";
+import type {
+  AppendResultsPayload,
+  CompleteRunPayload,
+  OpenRunPayload,
+  TestResultInput,
+} from "@/lib/schemas";
 import {
   publishRunUpdate,
   type RunProgressEvent,
@@ -497,4 +502,224 @@ export async function broadcastRunUpdate(
     changedTests,
     summary,
   });
+}
+
+/**
+ * Honor `payload.createdAt` / `payload.completedAt` overrides only in local
+ * dev. The handlers' validators don't (and shouldn't) gate this — a stolen
+ * production API key would otherwise be able to fabricate historical runs.
+ *
+ * `VITE_IS_DEV_SERVER` is wired by `vite.config.ts`; production builds inline
+ * `false` here.
+ */
+export function backdatingAllowed(): boolean {
+  return Boolean(import.meta.env?.VITE_IS_DEV_SERVER);
+}
+
+// ─── Run-scoped write operations ─────────────────────────────────────────────
+//
+// Three operations wrap the entire "verify ownership → compose batch → extract
+// summary → bump team activity → broadcast" pipeline. Handlers call into these
+// and translate the result to an HTTP response — no batch knowledge in routes.
+
+export interface OpenRunResult {
+  runId: string;
+  duplicate: boolean;
+}
+
+/**
+ * Open a streaming run. Idempotent on `(projectId, idempotencyKey)`: a second
+ * call with the same key returns the existing runId without writing.
+ *
+ * On a fresh open, inserts the parent `runs` row plus any planned-test queue
+ * rows in one batch, bumps `teams.lastActivityAt`, and broadcasts the
+ * initial progress snapshot (synthesized inline — we just wrote the row,
+ * no DB read needed).
+ */
+export async function openRun(
+  scope: TenantScope,
+  payload: OpenRunPayload,
+  nowSeconds: number,
+): Promise<OpenRunResult> {
+  const existing = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.projectId, scope.projectId),
+        eq(runs.idempotencyKey, payload.idempotencyKey),
+      ),
+    )
+    .limit(1);
+  if (existing[0]) {
+    return { runId: existing[0].id, duplicate: true };
+  }
+
+  const runId = ulid();
+  const plannedTests = payload.run.plannedTests ?? [];
+
+  const runInsert = db.insert(runs).values({
+    id: runId,
+    teamId: scope.teamId,
+    projectId: scope.projectId,
+    idempotencyKey: payload.idempotencyKey,
+    ciProvider: payload.run.ciProvider ?? null,
+    ciBuildId: payload.run.ciBuildId ?? null,
+    branch: payload.run.branch ?? null,
+    environment: payload.run.environment ?? null,
+    commitSha: payload.run.commitSha ?? null,
+    commitMessage: payload.run.commitMessage ?? null,
+    prNumber: payload.run.prNumber ?? null,
+    repo: payload.run.repo ?? null,
+    actor: payload.run.actor ?? null,
+    totalTests: plannedTests.length,
+    expectedTotalTests: payload.run.expectedTotalTests ?? plannedTests.length,
+    passed: 0,
+    failed: 0,
+    flaky: 0,
+    skipped: 0,
+    durationMs: 0,
+    status: "running",
+    reporterVersion: payload.run.reporterVersion ?? null,
+    playwrightVersion: payload.run.playwrightVersion ?? null,
+    createdAt: nowSeconds,
+    completedAt: null,
+  });
+
+  const stmts = [
+    runInsert,
+    ...buildQueuePrefillStatements(scope, runId, plannedTests, nowSeconds),
+  ];
+  if (stmts.length === 1) {
+    await stmts[0];
+  } else {
+    // D1 batch atomicity: all-or-nothing.
+    await db.batch(stmts as never);
+  }
+  await bumpTeamActivity(scope.teamId, nowSeconds);
+
+  const summary: RunAggregateSummary = {
+    totalTests: plannedTests.length,
+    passed: 0,
+    failed: 0,
+    flaky: 0,
+    skipped: 0,
+    durationMs: 0,
+    status: "running",
+    completedAt: null,
+  };
+  await broadcastRunUpdate(runId, [], summary);
+
+  return { runId, duplicate: false };
+}
+
+export type AppendRunResultsOutcome =
+  | { kind: "ok"; mapping: ResultMapping[] }
+  | { kind: "notFound" };
+
+/**
+ * Append a batch of test results to a streaming run. Verifies the run
+ * belongs to `scope.projectId` (404 otherwise), then runs the upsert /
+ * tag-replace / annotation-replace / per-attempt-insert / aggregate-delta
+ * statements in one D1 batch. The last statement is `.returning()` on the
+ * delta UPDATE (or a SELECT when no delta) so the broadcast summary is
+ * transactionally consistent with the per-test writes.
+ */
+export async function appendRunResults(
+  scope: TenantScope,
+  runId: string,
+  payload: AppendResultsPayload,
+  nowSeconds: number,
+): Promise<AppendRunResultsOutcome> {
+  const owner = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)))
+    .limit(1);
+  if (!owner[0]) return { kind: "notFound" };
+
+  const testIds = payload.results.map((r) => r.testId);
+  const { existingIds, assignedIds, prevStatusByTestId } =
+    await resolveTestResultIds(scope, runId, testIds);
+  const { statements, mapping } = buildResultInsertStatements(
+    scope,
+    runId,
+    payload.results,
+    nowSeconds,
+    existingIds,
+    assignedIds,
+  );
+  const deltaStmt = aggregateDeltaStatement(
+    scope,
+    runId,
+    computeAggregateDelta(payload.results, prevStatusByTestId),
+  );
+  const summaryStmt =
+    deltaStmt ?? aggregateSummarySelectStatement(scope, runId);
+  statements.push(summaryStmt as never);
+
+  const batchResults = (await db.batch(
+    statements as never,
+  )) as readonly unknown[];
+  await bumpTeamActivity(scope.teamId, nowSeconds);
+
+  const summaryRows = batchResults[batchResults.length - 1] as
+    | readonly RunAggregateSummary[]
+    | undefined;
+  const summary = summaryRows?.[0];
+  if (!summary) return { kind: "notFound" };
+
+  const changedTests = buildChangedTests(payload.results, assignedIds);
+  await broadcastRunUpdate(runId, changedTests, summary);
+
+  return { kind: "ok", mapping };
+}
+
+export type CompleteRunOutcome =
+  | { kind: "ok"; status: CompleteRunPayload["status"] }
+  | { kind: "notFound" };
+
+/**
+ * Finalize a streaming run. Verifies ownership, then in one batch sets the
+ * terminal status / durationMs / completedAt and runs one aggregate
+ * recompute to reconcile any straggler /results writes that raced this
+ * call. Broadcasts the final summary. Idempotent — a second shard calling
+ * `complete` re-sets the same values.
+ */
+export async function completeRun(
+  scope: TenantScope,
+  runId: string,
+  payload: CompleteRunPayload,
+  completedAt: number,
+): Promise<CompleteRunOutcome> {
+  const owner = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)))
+    .limit(1);
+  if (!owner[0]) return { kind: "notFound" };
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const batchResults = (await db.batch([
+    db
+      .update(runs)
+      .set({
+        status: payload.status,
+        durationMs: payload.durationMs,
+        completedAt,
+      })
+      .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId))),
+    aggregateRecomputeStatement(scope, runId),
+  ] as never)) as readonly unknown[];
+  await bumpTeamActivity(scope.teamId, nowSeconds);
+
+  const summaryRows = batchResults[batchResults.length - 1] as
+    | readonly RunAggregateSummary[]
+    | undefined;
+  const summary = summaryRows?.[0];
+  if (summary) {
+    await broadcastRunUpdate(runId, [], summary);
+  }
+
+  return { kind: "ok", status: payload.status };
 }
