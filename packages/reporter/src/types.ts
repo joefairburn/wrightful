@@ -1,5 +1,5 @@
 // Wire-format types for the v3 streaming ingest API. Mirrors the Zod
-// schemas in packages/dashboard/src/routes/api/schemas.ts; keep them in
+// schemas in apps/dashboard/src/lib/schemas.ts; keep them in
 // sync when changing the API contract.
 
 import type { ArtifactType, SnapshotRole } from "./attachments.js";

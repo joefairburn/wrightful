@@ -4,14 +4,14 @@ import {
   CompleteRunPayloadSchema,
   OpenRunPayloadSchema,
   RegisterArtifactsPayloadSchema,
-} from "../../../dashboard/src/routes/api/schemas.js";
+} from "../../../../apps/dashboard/src/lib/schemas.js";
 import { buildPayload, buildTestDescriptor } from "../index.js";
 import type { ArtifactRegistration, TestResultPayload } from "../types.js";
 import { makeResult, makeTest } from "./fixtures.js";
 
 // This test is the canary against silent drift between the reporter's
 // emitted payload shape (packages/reporter/src/index.ts) and the dashboard's
-// Zod wire schemas (packages/dashboard/src/routes/api/schemas.ts). It builds
+// Zod wire schemas (apps/dashboard/src/lib/schemas.ts). It builds
 // payloads with the reporter's real `buildPayload` and parses them through
 // the dashboard's schemas. Any divergence on either side breaks this test.
 
