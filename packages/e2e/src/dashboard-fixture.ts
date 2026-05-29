@@ -227,11 +227,21 @@ export async function bootDashboard(
     // `detached` makes the child a process-group leader so teardown can kill the
     // whole pnpm→vp→vite→miniflare tree instead of orphaning miniflare on the
     // fixed port.
+    // Strip vitest's env markers from the spawned dev server. The vitest
+    // dogfood suite (`vp test run`) sets VITEST=true, and the dashboard's
+    // vite.config disables the Void plugin in test mode — which removes ALL
+    // /api/auth + D1 routes, so sign-up 404s. We want the FULL app here. (The
+    // Playwright suite doesn't set VITEST, so this is a no-op for it.)
+    const childEnv = { ...process.env };
+    delete childEnv.VITEST;
+    delete childEnv.VITEST_POOL_ID;
+    delete childEnv.VITEST_WORKER_ID;
+    delete childEnv.VITEST_MODE;
     devServer = spawn("pnpm", ["exec", "vp", "dev", "--port", String(port)], {
       cwd: DASHBOARD_DIR,
       stdio: "pipe",
       detached: true,
-      env: { ...process.env },
+      env: childEnv,
     });
     let serverLog = "";
     devServer.stdout?.on("data", (d) => (serverLog += d.toString()));
@@ -249,10 +259,25 @@ export async function bootDashboard(
     log("Step 5: Sign up + create team/project/key over HTTP");
     const request = makeRequester(url);
 
-    // sign-up
-    const signupRes = await request("POST", "/api/auth/sign-up/email", {
+    // sign-up. The dev server answers on "/" (so waitForServer returns) before
+    // its /api/auth/* routes finish mounting, so a signup fired immediately can
+    // 404. Retry on 404/5xx to ride out that boot window — but NOT on a 4xx
+    // user error (e.g. 422 "already exists"), which is a real failure.
+    let signupRes = await request("POST", "/api/auth/sign-up/email", {
       json: { email, password, name: userName },
     });
+    for (
+      let i = 0;
+      i < 15 &&
+      !signupRes.ok &&
+      (signupRes.status === 404 || signupRes.status >= 500);
+      i++
+    ) {
+      await sleep(1000);
+      signupRes = await request("POST", "/api/auth/sign-up/email", {
+        json: { email, password, name: userName },
+      });
+    }
     if (!signupRes.ok) {
       const body = await signupRes.text();
       throw new Error(`Sign-up failed (${signupRes.status}): ${body}`);

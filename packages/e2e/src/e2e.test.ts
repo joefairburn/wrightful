@@ -75,7 +75,9 @@ describe("Wrightful E2E", () => {
       const res = await fetchAuthed(PROJECT_URL);
       const html = await res.text();
       expect(res.status).toBe(200);
-      expect(html).toContain("All Runs");
+      // Project page chrome: the runs-list <h1> renders "Runs" (PageHeader);
+      // it was "All Runs" in the pre-Void UI.
+      expect(html).toContain("Runs");
     });
   });
 

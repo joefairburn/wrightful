@@ -125,14 +125,12 @@ jobs:
   # shape (via the dogfood e2e suite). When Renovate bumps @playwright/test,
   # this job surfaces any format / reporter-API incompatibilities early.
   #
-  # DISABLED pending a verified local run. The fixtures now boot the Void
-  # dashboard at apps/dashboard (.env.local + `void db reset`), repointed from
-  # the pre-Void packages/dashboard + .dev.vars conventions. Flip `if:` to
-  # true once `pnpm test:e2e` is confirmed green on a Void checkout (the specs
-  # themselves may still need Void-migration touch-ups beyond the harness).
+  # The fixtures boot the Void dashboard at apps/dashboard (.env.local +
+  # `void db reset`); the suite is green (12/12) locally. Note: the harness
+  # strips VITEST from the spawned dev server's env so the Void plugin (and
+  # thus /api/auth + D1) stays enabled — see src/dashboard-fixture.ts.
   test-e2e:
     name: E2E Tests
-    if: false
     runs-on: ubuntu-latest
     needs: [test-reporter, test-dashboard]
     steps:
@@ -159,14 +157,11 @@ jobs:
 
   # Browser-driven UI smoke against a locally booted dashboard. Catches
   # cross-cutting regressions (auth → navigation → run-detail) that the
-  # API-level e2e and component RTL tests can't see.
-  #
-  # DISABLED pending a verified local run — same status as test-e2e (fixtures
-  # repointed to the Void dashboard at apps/dashboard; confirm a green local
-  # `pnpm --filter @wrightful/e2e test:dashboard` before flipping `if:`).
+  # API-level e2e and component RTL tests can't see. The fixtures boot the Void
+  # dashboard at apps/dashboard (.env.local + `void db reset`); the suite is
+  # green (35/35) locally. CI runs 3 workers + retries:2 to absorb timing flake.
   test-e2e-ui:
     name: E2E UI Tests (Playwright)
-    if: false
     runs-on: ubuntu-latest
     needs: [test-reporter, test-dashboard]
     steps:
