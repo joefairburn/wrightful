@@ -72,7 +72,16 @@ export default defineMiddleware(async (c, next) => {
 
     const status = extractStatus(err);
     if (status === 401) return c.redirect("/login");
-    if (status === 404) return c.rewrite(NOT_FOUND_PATH);
+    if (status === 404) {
+      // Rewrite to the not-found page but preserve the 404 status — a missing
+      // resource must answer 404, not 200 (correct semantics + no
+      // existence-leak signal for foreign tenants).
+      const rewritten = await c.rewrite(NOT_FOUND_PATH);
+      return new Response(rewritten.body, {
+        status: 404,
+        headers: rewritten.headers,
+      });
+    }
 
     logger.error("unhandled error in request pipeline", {
       path,
@@ -123,7 +132,15 @@ export default defineMiddleware(async (c, next) => {
   }
   if (responseStatus === 404) {
     const rewritten = await c.rewrite(NOT_FOUND_PATH);
-    replaceResponse(c, rewritten);
+    // Preserve the 404 status (the rewrite target renders 200) so a missing
+    // resource answers 404, not 200.
+    replaceResponse(
+      c,
+      new Response(rewritten.body, {
+        status: 404,
+        headers: rewritten.headers,
+      }),
+    );
     return;
   }
   if (responseStatus !== undefined && responseStatus >= 500) {

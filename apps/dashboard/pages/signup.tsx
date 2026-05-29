@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { auth } from "void/client";
 import { Link, useRouter } from "@void/react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,11 @@ export default function SignupPage({ githubEnabled }: Props) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Sign-up runs client-side (`auth.signUp`); disable submit until hydrated so
+  // a pre-hydration native submit can't GET this page with the password in the
+  // query string. `useEffect` only runs after hydration. (Mirrors login.tsx.)
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -88,8 +93,12 @@ export default function SignupPage({ githubEnabled }: Props) {
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
-        {error && <p className="text-destructive text-sm">{error}</p>}
-        <Button type="submit" disabled={busy} className="w-full">
+        {error && (
+          <p role="alert" className="text-destructive text-sm">
+            {error}
+          </p>
+        )}
+        <Button type="submit" disabled={busy || !hydrated} className="w-full">
           {busy ? "Creating account…" : "Create account"}
         </Button>
       </form>

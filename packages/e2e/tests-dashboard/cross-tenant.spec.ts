@@ -14,14 +14,20 @@ import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { seedSecondUser } from "./helpers/second-user";
 
+// Unique per worker process: Playwright runs `beforeAll` once per worker, so a
+// fixed email/slug collides ("user already exists") when the file's tests are
+// split across parallel workers. The pid suffix keeps each worker's second
+// user (and its derived team/project slugs) isolated. Names are chosen so the
+// dashboard's slugify yields exactly teamSlug/projectSlug below.
+const WORKER_SUFFIX = String(process.pid);
 const SECOND_USER = {
-  email: "second@wrightful.test",
+  email: `second-${WORKER_SUFFIX}@wrightful.test`,
   password: "second-second-password-1",
   name: "Second User",
-  teamSlug: "second-team",
-  teamName: "Second Team",
-  projectSlug: "second-proj",
-  projectName: "Second Proj",
+  teamSlug: `second-team-${WORKER_SUFFIX}`,
+  teamName: `Second Team ${WORKER_SUFFIX}`,
+  projectSlug: `second-proj-${WORKER_SUFFIX}`,
+  projectName: `Second Proj ${WORKER_SUFFIX}`,
 };
 
 // Only the seeded runId crosses test boundaries — User A needs a real
@@ -67,9 +73,7 @@ test.describe("UI isolation (User A's browser session)", () => {
       `/t/${SECOND_USER.teamSlug}/p/${SECOND_USER.projectSlug}`,
     );
     expect(res?.status()).toBe(404);
-    await expect(
-      page.getByRole("heading", { name: /not found/i }),
-    ).toBeVisible();
+    await expect(page.getByText(/page not found/i)).toBeVisible();
     await expect(
       page.getByRole("heading", { name: /all runs/i }),
     ).not.toBeVisible();

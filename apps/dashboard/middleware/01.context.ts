@@ -78,7 +78,22 @@ export default defineMiddleware(async (c, next) => {
 
   const url = new URL(c.req.url);
 
-  if (API_PATH_RE.test(url.pathname) || !session) {
+  if (!session) {
+    // Anonymous visitors to a protected tenant/settings page are sent to
+    // /login (consistent with the "/" picker) rather than falling through to
+    // the loader's 404 — a missing session is an auth prompt, not a missing
+    // resource. Public paths (/, /login, /signup, /invite, /api/*, assets)
+    // fall through to render anonymously.
+    const p = url.pathname;
+    if (TENANT_PATH_RE.test(p) || p.startsWith("/settings")) {
+      return c.redirect("/login");
+    }
+    c.set("shared", STUB_SHARED(auth));
+    await next();
+    return;
+  }
+
+  if (API_PATH_RE.test(url.pathname)) {
     c.set("shared", STUB_SHARED(auth));
     await next();
     return;

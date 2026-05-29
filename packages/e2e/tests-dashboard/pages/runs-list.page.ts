@@ -20,14 +20,14 @@ export class RunsListPage {
     this.teamSlug = teamSlug;
     this.projectSlug = projectSlug;
 
-    this.heading = page.getByRole("heading", { name: /all runs/i });
+    this.heading = page.getByRole("heading", { name: /^Runs$/ });
     this.emptyState = page.getByText(/no test runs/i);
     // Each run anchor wraps an `<span class="sr-only">View run …</span>`
     // for screen readers; that's the link's accessible name. Anchoring
     // on role+name leans on real a11y instead of a test-only attribute.
     this.runLinks = page.getByRole("link", { name: /^View run/i });
     this.userMenuTrigger = page.getByLabel(/account menu for/i);
-    this.logoutButton = page.getByRole("button", { name: /log out/i });
+    this.logoutButton = page.getByRole("button", { name: /sign out/i });
   }
 
   get path(): string {

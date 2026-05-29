@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { auth } from "void/client";
 import { Link, useRouter } from "@void/react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,13 @@ export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Sign-in runs entirely client-side (`auth.signIn`), so the form is useless
+  // until React hydrates. Until then, keep the submit disabled: a pre-hydration
+  // native submit would otherwise GET this page with the credentials in the
+  // query string (leaking the password into the URL/history) and do nothing
+  // useful. `useEffect` only runs after hydration.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,8 +82,12 @@ export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
-        {error && <p className="text-destructive text-sm">{error}</p>}
-        <Button type="submit" disabled={busy} className="w-full">
+        {error && (
+          <p role="alert" className="text-destructive text-sm">
+            {error}
+          </p>
+        )}
+        <Button type="submit" disabled={busy || !hydrated} className="w-full">
           {busy ? "Signing in…" : "Continue"}
         </Button>
       </form>

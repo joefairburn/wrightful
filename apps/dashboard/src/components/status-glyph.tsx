@@ -48,6 +48,7 @@ export function StatusGlyph({
     const cy = size / 2;
     return (
       <span
+        role="img"
         aria-label="running"
         className="inline-flex items-center justify-center"
         style={{ width: size, height: size }}
@@ -125,6 +126,7 @@ export function StatusGlyph({
 
   return (
     <span
+      role="img"
       aria-label={status}
       className="inline-flex items-center justify-center"
       style={{ width: size, height: size }}

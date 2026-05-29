@@ -33,9 +33,7 @@ test.describe("Run detail", () => {
     const phantomId = "01HZZZZZZZZZZZZZZZZZZZZZZZ";
     const res = await page.goto(runDetailPage.pathFor(phantomId));
     expect(res?.status()).toBe(404);
-    await expect(
-      page.getByRole("heading", { name: /not found/i }),
-    ).toBeVisible();
+    await expect(page.getByText(/page not found/i)).toBeVisible();
     await expect(runDetailPage.testRowLinks).toHaveCount(0);
   });
 });

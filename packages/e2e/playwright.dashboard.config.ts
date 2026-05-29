@@ -36,7 +36,12 @@ export default defineConfig({
   // DOs serialize their own writes. logout.spec mints its own session row
   // so signing out doesn't invalidate the shared `storageState.json`
   // session that every other worker holds.
-  workers: process.env.CI ? 3 : undefined,
+  // One shared dev server (single miniflare + vite + Better Auth on a local
+  // D1) backs the whole suite. Under parallel load it gets slow enough that the
+  // client-side auth calls and live-update propagation blow their timeouts and
+  // flip pass↔fail. Run serially locally so each test hits a responsive server;
+  // CI keeps 3 workers + retries:2 for throughput and absorbs residual flake.
+  workers: process.env.CI ? 3 : 1,
   reporter: isMinimalReporter
     ? [["line"], ["html", { open: "never" }]]
     : [["list"]],

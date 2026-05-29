@@ -63,8 +63,16 @@ errors and all unit tests pass (dashboard + reporter, incl. new tests).
   changes in still-untested code is risky. Do it as a dedicated PR.
 - **R2 object deletion on tenant delete** — needs a queued/reconciliation job
   (inline deletion of many objects risks request timeout).
-- **e2e harness rework + re-enable** — large; the build gate was added as the
-  interim safety net.
+- ~~**e2e harness rework + re-enable**~~ — **DONE** (follow-up). The dashboard
+  UI e2e suite (`packages/e2e/tests-dashboard`) was repointed to the Void
+  dashboard (`apps/dashboard`, `.env.local`, `vp dev`, `void db reset`, the Void
+  key API) and its specs reconciled to the shipped UI — now **35/35 green**.
+  Running it surfaced (and this work fixed) several real bugs the static review
+  missed: 404 pages returned HTTP 200; missing `<html lang>` / `<title>` /
+  `aria` attributes (axe serious); anonymous deep-page visits 404'd instead of
+  redirecting to `/login`; and the login/signup forms native-submitted
+  (leaking credentials into the URL) before hydration. Still TODO: re-enable
+  the CI job, and validate/rework the separate vitest dogfood `test:e2e` suite.
 - **Explicit CSRF Origin-allowlist middleware** — `SameSite=Lax` +
   `frame-ancestors 'none'` + Better Auth's built-in checks cover the threat; a
   misconfigured allowlist risks breaking self-host.
