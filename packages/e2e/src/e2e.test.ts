@@ -180,11 +180,17 @@ describe("Wrightful E2E", () => {
       const detailRes = await fetchAuthed(`${PROJECT_URL}/runs/${runId}`);
       const detailHtml = await detailRes.text();
       expect(detailRes.status).toBe(200);
-      expect(
-        detailHtml.includes("demo") ||
-          detailHtml.includes("spec") ||
-          detailHtml.includes("Test Results"),
-      ).toBe(true);
+      // Two assertions instead of a loose OR over 'demo'||'spec'||'Test Results'
+      // (which passed on nearly any non-empty page — "Test Results" isn't even
+      // a string the Void run-detail page renders):
+      //   1. Stable page chrome — the Tests/Environment tab pills — proves we
+      //      landed on the run-detail page rather than an error/empty render.
+      //   2. A streamed test-file marker (`.spec`, from the demo suite's
+      //      *.spec.ts files) proves real test-result data rendered, not just
+      //      the page shell.
+      expect(detailHtml).toContain("Tests");
+      expect(detailHtml).toContain("Environment");
+      expect(detailHtml).toContain(".spec");
     });
   });
 

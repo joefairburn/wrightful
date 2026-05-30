@@ -72,6 +72,28 @@ export interface PreparedArtifact {
 // re-exported here so existing import sites (tests, downstream) stay stable.
 export { isTestDone, type PendingTest };
 
+// The streaming ingest client is part of the package's public surface so
+// out-of-process callers (e.g. the local history seeder in
+// apps/dashboard/scripts) can drive the same open → append → complete pipeline
+// the reporter uses — with the same retry / Retry-After / timeout / version-
+// header behaviour — instead of hand-rolling a second, untested HTTP client.
+export { AuthError, StreamClient } from "./client.js";
+
+// Plain-data v3 payload builders. The reporter derives payloads from live
+// Playwright objects via `buildPayload` / `buildTestDescriptor`; the local
+// history seeder has only synthetic plain data, so it feeds these builders the
+// few fields it owns and gets back the same wire shape — concentrating the v3
+// contract instead of hand-assembling a third, drift-prone copy.
+export {
+  buildAttempt,
+  buildCompleteRunPayload,
+  buildOpenRunPayload,
+  buildResult,
+  type AttemptInput,
+  type ResultFields,
+  type RunMeta,
+} from "./payload.js";
+
 /**
  * Promote tentative snapshot images to `type: "visual"` only when all three
  * roles (expected, actual, diff) are present in the same `(attempt,

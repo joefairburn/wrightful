@@ -277,6 +277,34 @@ describe("StreamClient", () => {
       });
     });
 
+    it("omits completedAt from the body unless one is supplied", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(emptyResponse(200));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      await client.completeRun("run_1", "passed", 10, { maxRetries: 0 });
+
+      const [, init] = fetchMock.mock.calls[0];
+      expect(JSON.parse(init.body)).not.toHaveProperty("completedAt");
+    });
+
+    it("forwards an optional completedAt backdate (history seeder path)", async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(emptyResponse(200));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      await client.completeRun("run_1", "passed", 1234, {
+        completedAt: 1_600_000_000,
+      });
+
+      const [, init] = fetchMock.mock.calls[0];
+      expect(JSON.parse(init.body)).toEqual({
+        status: "passed",
+        durationMs: 1234,
+        completedAt: 1_600_000_000,
+      });
+    });
+
     it("respects a caller-supplied maxRetries=0 (single attempt)", async () => {
       const fetchMock = vi
         .fn()

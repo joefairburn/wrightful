@@ -11,7 +11,12 @@ import {
   TestAttemptSchema,
   WRIGHTFUL_VERSION_HEADER as DASHBOARD_VERSION_HEADER,
 } from "../../../../apps/dashboard/src/lib/schemas.js";
-import { buildPayload, buildTestDescriptor } from "../index.js";
+import {
+  buildOpenRunPayload,
+  buildPayload,
+  buildResult,
+  buildTestDescriptor,
+} from "../index.js";
 import {
   PROTOCOL_VERSION,
   WRIGHTFUL_VERSION_HEADER as REPORTER_VERSION_HEADER,
@@ -243,6 +248,93 @@ describe("reporter ↔ dashboard wire contract", () => {
       ],
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+// The plain-data builders (payload.ts) are the third producer of the v3 wire
+// shape — fed by the local history seeder (apps/dashboard/scripts/seed),
+// which has only synthetic data and no Playwright runtime. Before they
+// existed, the seeder hand-assembled the payloads as an untested copy that had
+// already drifted (it omitted projectName/workerIndex). These assertions make
+// the seeder's producer a first-class member of the canary: builder output is
+// parsed through the same dashboard Zod schemas, so a new required wire field
+// that the builder fails to emit goes red here rather than at the live server.
+describe("seeder payload builders ↔ dashboard wire contract", () => {
+  it("buildResult output parses through AppendResultsPayloadSchema", () => {
+    const result = buildResult(
+      {
+        testId: "tests/auth/signin.spec.ts|logs in",
+        title: "logs in",
+        file: "tests/auth/signin.spec.ts",
+        projectName: null,
+        status: "flaky",
+        durationMs: 80,
+      },
+      [
+        { attempt: 0, status: "failed", durationMs: 50, errorMessage: "boom" },
+        { attempt: 1, status: "passed", durationMs: 30 },
+      ],
+    );
+
+    const parsed = AppendResultsPayloadSchema.safeParse({ results: [result] });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("buildResult emits the full TestResult key set the dashboard declares", () => {
+    const result = buildResult(
+      {
+        testId: "t1",
+        title: "t",
+        file: "a.spec.ts",
+        projectName: null,
+        status: "passed",
+        durationMs: 12,
+      },
+      [{ attempt: 0, status: "passed", durationMs: 12 }],
+    );
+
+    const resultElement = AppendResultsPayloadSchema.shape.results.element;
+    const expected = Object.keys(resultElement.shape).sort();
+    const emitted = Object.keys(result).sort();
+    // Same exact-key-set guard the reporter's buildPayload gets — catches a
+    // one-sided field add on either the schema or the builder.
+    expect(emitted).toEqual(expected);
+  });
+
+  it("buildOpenRunPayload output parses through OpenRunPayloadSchema", () => {
+    const open = buildOpenRunPayload(
+      {
+        idempotencyKey: "seed-1-0-0-main",
+        ciProvider: "github",
+        branch: "main",
+        reporterVersion: "0.1.0",
+        playwrightVersion: "1.59.1",
+      },
+      [
+        { testId: "t1", title: "a", file: "a.spec.ts", projectName: null },
+        { testId: "t2", title: "b", file: "b.spec.ts", projectName: null },
+      ],
+    );
+
+    const parsed = OpenRunPayloadSchema.safeParse(open);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("buildOpenRunPayload's plannedTests element matches the schema's key set", () => {
+    const open = buildOpenRunPayload(
+      {
+        idempotencyKey: "seed-1-0-0-main",
+        reporterVersion: "0.1.0",
+        playwrightVersion: "1.59.1",
+      },
+      [{ testId: "t1", title: "a", file: "a.spec.ts", projectName: null }],
+    );
+
+    const plannedArray =
+      OpenRunPayloadSchema.shape.run.shape.plannedTests.unwrap();
+    const expected = Object.keys(plannedArray.element.shape).sort();
+    const emitted = Object.keys(open.run.plannedTests[0] as object).sort();
+    expect(emitted).toEqual(expected);
   });
 });
 

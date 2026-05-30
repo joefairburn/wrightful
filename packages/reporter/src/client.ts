@@ -198,21 +198,33 @@ export class StreamClient {
    * completeRun is the last-chance signal that a run finished normally. We
    * retry more aggressively than other calls because failing here leaves the
    * run stuck at status='running' until the dashboard's watchdog sweeps it.
+   *
+   * `completedAt` (unix seconds) is an optional backdate the dashboard only
+   * honours in local development — the reporter never sends it (production
+   * runs always complete "now"), but the local history seeder passes it so
+   * synthesized runs land at their historical completion time. When omitted
+   * the body stays the production-shape `{ status, durationMs }`.
    */
   async completeRun(
     runId: string,
     status: CompleteRunPayload["status"],
     durationMs: number,
-    options: FetchOptions = {},
+    options: FetchOptions & { completedAt?: number } = {},
   ): Promise<void> {
+    const { completedAt, ...retryOptions } = options;
+    const body: CompleteRunPayload & { completedAt?: number } = {
+      status,
+      durationMs,
+    };
+    if (completedAt !== undefined) body.completedAt = completedAt;
     const response = await fetchWithRetry(
       `${this.baseUrl}/api/runs/${runId}/complete`,
       {
         method: "POST",
         headers: this.headers,
-        body: JSON.stringify({ status, durationMs }),
+        body: JSON.stringify(body),
       },
-      { maxRetries: 5, ...options },
+      { maxRetries: 5, ...retryOptions },
     );
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as {

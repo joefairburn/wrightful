@@ -319,46 +319,40 @@ export async function bootDashboard(
     }
     const sessionCookie = sessionCookies[0];
 
-    // team
-    const teamRes = await request("POST", "/settings/teams/new", {
+    // team — created via the Void API route, which returns the assigned slug
+    // as JSON (the typed sibling of the create-team form action). No 302
+    // Location scraping.
+    const teamRes = await request("POST", "/api/teams", {
       cookies: sessionCookies,
-      form: { name: teamName },
+      json: { name: teamName },
     });
-    if (teamRes.status !== 302) {
+    if (!teamRes.ok) {
       throw new Error(
         `team creation returned ${teamRes.status}: ${(await teamRes.text()) || "(empty body)"}`,
       );
     }
-    const teamLoc = teamRes.headers.get("location") ?? "";
-    const teamMatch = teamLoc.match(/\/settings\/teams\/([^/?#]+)/);
-    if (!teamMatch || teamMatch[1] !== teamSlug) {
+    const teamBody = (await teamRes.json()) as { teamSlug?: unknown };
+    if (teamBody.teamSlug !== teamSlug) {
       throw new Error(
-        `expected team slug "${teamSlug}", got Location "${teamLoc}" — local D1 probably wasn't reset`,
+        `expected team slug "${teamSlug}", got "${String(teamBody.teamSlug)}" — local D1 probably wasn't reset`,
       );
     }
 
-    // project
+    // project — same typed JSON contract; returns the assigned slug.
     const projectRes = await request(
       "POST",
-      `/settings/teams/${teamSlug}/projects/new`,
-      { cookies: sessionCookies, form: { name: projectName } },
+      `/api/teams/${teamSlug}/projects`,
+      { cookies: sessionCookies, json: { name: projectName } },
     );
-    if (projectRes.status !== 302) {
+    if (!projectRes.ok) {
       throw new Error(
         `project creation returned ${projectRes.status}: ${(await projectRes.text()) || "(empty body)"}`,
       );
     }
-    const expectedProjectLoc = `/settings/teams/${teamSlug}`;
-    const projectLoc = projectRes.headers.get("location") ?? "";
-    let projectLocPath = projectLoc;
-    try {
-      projectLocPath = new URL(projectLoc, url).pathname;
-    } catch {
-      /* fall through */
-    }
-    if (projectLocPath !== expectedProjectLoc) {
+    const projectBody = (await projectRes.json()) as { projectSlug?: unknown };
+    if (projectBody.projectSlug !== projectSlug) {
       throw new Error(
-        `project creation redirected to unexpected URL: ${projectLoc}`,
+        `expected project slug "${projectSlug}", got "${String(projectBody.projectSlug)}" — local D1 probably wasn't reset`,
       );
     }
 
