@@ -3,6 +3,7 @@ import { requireAuth } from "void/auth";
 import { db, eq, like, or } from "void/db";
 import { ulid } from "ulid";
 import { memberships, teams as teamsTable } from "@schema";
+import { runBatch } from "@/lib/db-batch";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
 
@@ -89,7 +90,7 @@ export const action = defineHandler(async (c) => {
   const teamId = ulid();
   const nowSeconds = Math.floor(Date.now() / 1000);
   try {
-    await db.batch([
+    await runBatch([
       db.insert(teamsTable).values({
         id: teamId,
         slug,
@@ -104,7 +105,7 @@ export const action = defineHandler(async (c) => {
         role: "owner",
         createdAt: nowSeconds,
       }),
-    ] as never);
+    ]);
   } catch (err) {
     const friendly = mutationErrorMessage(err, {
       context: "create team failed",

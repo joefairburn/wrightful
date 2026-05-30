@@ -3,6 +3,7 @@ import { requireAuth } from "void/auth";
 import { and, db, eq, gt, or, sql } from "void/db";
 import { ulid } from "ulid";
 import { memberships, teamInvites, userGithubAccounts } from "@schema";
+import { runBatch } from "@/lib/db-batch";
 
 /**
  * POST /api/invites/:inviteId/accept
@@ -79,7 +80,7 @@ export const POST = defineHandler(async (c) => {
     return c.json({ ok: true, teamId: invite.teamId });
   }
 
-  await db.batch([
+  await runBatch([
     db.insert(memberships).values({
       id: ulid(),
       userId: user.id,
@@ -88,7 +89,7 @@ export const POST = defineHandler(async (c) => {
       createdAt: now,
     }),
     db.delete(teamInvites).where(eq(teamInvites.id, invite.id)),
-  ] as never);
+  ]);
 
   return c.json({ ok: true, teamId: invite.teamId });
 });

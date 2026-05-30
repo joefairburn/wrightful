@@ -8,6 +8,7 @@ import {
   testTags,
   teams,
 } from "@schema";
+import { runBatch } from "@/lib/db-batch";
 import type { TenantScope } from "@/lib/scope";
 import type {
   AppendResultsPayload,
@@ -50,11 +51,17 @@ export type RunAggregateSummary = RunProgressEvent["summary"];
 // D1 caps the parameter count per statement at 100. Match the previous DO
 // cadence (99) so chunk sizes stay identical.
 const MAX_PARAMS_PER_STATEMENT = 99;
-const TEST_RESULTS_COLUMNS = 14;
-const TEST_TAGS_COLUMNS = 4;
-const TEST_ANNOTATIONS_COLUMNS = 5;
-const TEST_RESULT_ATTEMPTS_COLUMNS = 9;
 
+/**
+ * Split `rows` into sub-arrays whose `.values(chunk)` multi-row insert stays
+ * under D1's per-statement parameter ceiling, given the number of columns each
+ * row binds. Hides the `Math.floor(99 / columnsPerRow)` arithmetic behind one
+ * call so the 100-param cap lives in exactly one place.
+ *
+ * Prefer `chunkInsertRows` for real inserts — it derives `columnsPerRow` from
+ * the row shape so the count can't drift from the row literal. This lower-level
+ * form is kept for the unit test that asserts the chunking math directly.
+ */
 export function chunkByParams<T>(rows: T[], columnsPerRow: number): T[][] {
   const rowsPerStatement = Math.max(
     1,
@@ -65,6 +72,27 @@ export function chunkByParams<T>(rows: T[], columnsPerRow: number): T[][] {
     chunks.push(rows.slice(i, i + rowsPerStatement));
   }
   return chunks;
+}
+
+/**
+ * Chunk insert rows for a multi-row `db.insert(table).values(chunk)`, deriving
+ * the per-row column count from the row object itself (`Object.keys(row).length`)
+ * — the SAME object that is handed to `.values()`. There is therefore no
+ * separate hand-counted column constant that can silently drift from the row
+ * shape when a column is added (the classic footgun: a nullable column makes
+ * `$inferInsert` optional, so it lands in the row literal with no compile
+ * error, and a stale literal count would then pack rows past the 99-param cap
+ * and D1 would reject the statement at runtime).
+ *
+ * Every row in a batch binds the same columns (they all flow through one
+ * builder), so the first row's key count governs the whole array. An empty
+ * array has nothing to bind and returns no chunks.
+ */
+export function chunkInsertRows<T extends Record<string, unknown>>(
+  rows: T[],
+): T[][] {
+  if (rows.length === 0) return [];
+  return chunkByParams(rows, Object.keys(rows[0]).length);
 }
 
 export interface ResultMapping {
@@ -143,7 +171,7 @@ export function buildQueuePrefillStatements(
   // idempotencyKey (so they re-open the same run), and each shard prefills its
   // own slice of planned tests without clobbering rows another shard already
   // created or completed.
-  return chunkByParams(rows, TEST_RESULTS_COLUMNS).map((chunk) =>
+  return chunkInsertRows(rows).map((chunk) =>
     db.insert(testResults).values(chunk).onConflictDoNothing(),
   );
 }
@@ -325,19 +353,16 @@ export function buildResultInsertStatements(
     }
   }
 
-  for (const chunk of chunkByParams(insertRows, TEST_RESULTS_COLUMNS)) {
+  for (const chunk of chunkInsertRows(insertRows)) {
     statements.push(db.insert(testResults).values(chunk));
   }
-  for (const chunk of chunkByParams(tagRows, TEST_TAGS_COLUMNS)) {
+  for (const chunk of chunkInsertRows(tagRows)) {
     statements.push(db.insert(testTags).values(chunk));
   }
-  for (const chunk of chunkByParams(annotationRows, TEST_ANNOTATIONS_COLUMNS)) {
+  for (const chunk of chunkInsertRows(annotationRows)) {
     statements.push(db.insert(testAnnotations).values(chunk));
   }
-  for (const chunk of chunkByParams(
-    attemptRows,
-    TEST_RESULT_ATTEMPTS_COLUMNS,
-  )) {
+  for (const chunk of chunkInsertRows(attemptRows)) {
     statements.push(db.insert(testResultAttempts).values(chunk));
   }
   return { statements, mapping };
@@ -461,6 +486,95 @@ export function aggregateSummarySelectStatement(
 }
 
 /**
+ * Extract the publishable summary from a D1 batch result, given the invariant
+ * that the summary-producing statement (an `AGGREGATE_SUMMARY_COLUMNS`
+ * `.returning()` UPDATE or `aggregateSummarySelectStatement` SELECT) was run
+ * LAST. `db.batch` returns one result array per statement in order, so the
+ * summary row is the first element of the final result.
+ *
+ * This is the single owner of the "last batch row is the summary" cast. Pulled
+ * out as a pure function so the positional convention has one unit-tested home
+ * instead of being hand-transcribed (`batchResults[len-1] as … ?.[0]`) at every
+ * caller — see `runBatchWithSummary`. Returns `null` (never a spurious
+ * `undefined`) when the final statement produced no row, e.g. the run vanished
+ * between the ownership check and the batch.
+ */
+export function summaryFromBatchResults(
+  batchResults: readonly unknown[],
+): RunAggregateSummary | null {
+  const summaryRows = batchResults[batchResults.length - 1] as
+    | readonly RunAggregateSummary[]
+    | undefined;
+  return summaryRows?.[0] ?? null;
+}
+
+/**
+ * Run a heterogeneous write batch whose LAST statement produces the broadcast
+ * summary, and return that transactionally-consistent summary (or `null` if the
+ * final statement returned no row).
+ *
+ * Owns the convention shared by `appendRunResults` / `completeRun` /
+ * `finalizeStaleRun`: append the summary-producing statement last, run them all
+ * in one D1 transaction (`db.batch`), then read back the final result via
+ * `summaryFromBatchResults`. `summary` may be any summary-producing statement —
+ * a `.returning()` UPDATE or a `.select()` — both project
+ * `AGGREGATE_SUMMARY_COLUMNS`, so both yield `RunAggregateSummary[]`. Concentrating
+ * the append-last + run + read-last positional contract here means callers can't
+ * silently break the broadcast by inserting a trailing statement or by counting
+ * array positions wrong.
+ *
+ * The batch is `PromiseLike<unknown>[]` for the same reason as
+ * `buildResultInsertStatements`: Drizzle's batch accepts a heterogeneous tuple
+ * of query builders and expressing the union precisely fights the type system
+ * more than it helps. The `db.batch` call-signature cast lives once in
+ * `runBatch` (`@/lib/db-batch`), which this routes through.
+ */
+export async function runBatchWithSummary(
+  writes: PromiseLike<unknown>[],
+  summary: PromiseLike<unknown>,
+): Promise<RunAggregateSummary | null> {
+  const batchResults = await runBatch([...writes, summary]);
+  return summaryFromBatchResults(batchResults);
+}
+
+/**
+ * The terminal reconcile-and-broadcast tail shared by `completeRun` and
+ * `finalizeStaleRun`: run the caller's status-flip UPDATE together with a single
+ * `aggregateRecomputeStatement` (which projects the broadcast summary via its
+ * `.returning()`) in one D1 batch, then broadcast that transactionally-consistent
+ * summary to `run:<runId>` subscribers — but only when the recompute matched a
+ * row. The recompute is appended LAST so `runBatchWithSummary` reads its
+ * `.returning()` row back as the summary.
+ *
+ * Both terminal paths differ ONLY in the status-flip statement (completeRun
+ * merges severity in SQL + max()'s duration/completedAt; finalizeStaleRun flips
+ * to "interrupted" guarded on status="running"), so the caller passes that one
+ * statement and the recompute scope; everything downstream of the write — append
+ * recompute, batch, extract last row, broadcast-iff-present — lives here once
+ * instead of being mirrored by convention across the two functions (and the
+ * cron docstring). Returns the summary so callers can read back the merged
+ * `status` (or ignore it).
+ *
+ * Note `bumpTeamActivity` is deliberately NOT part of this tail: completeRun
+ * bumps team activity (a user-driven /complete), finalizeStaleRun does not (a
+ * cron sweep is not user activity). It stays at the caller.
+ */
+export async function reconcileAndBroadcast(
+  runId: string,
+  statusUpdate: PromiseLike<unknown>,
+  recomputeScope: { projectId: string },
+): Promise<RunAggregateSummary | null> {
+  const summary = await runBatchWithSummary(
+    [statusUpdate],
+    aggregateRecomputeStatement(recomputeScope, runId),
+  );
+  if (summary) {
+    await broadcastRunUpdate(runId, [], summary);
+  }
+  return summary;
+}
+
+/**
  * Bump `teams.lastActivityAt`. Awaited per the no-fire-and-forget rule —
  * workerd terminates orphaned promises after the response so an unawaited
  * write can be silently dropped.
@@ -576,7 +690,7 @@ export async function openRun(
     if (prefill.length === 1) {
       await prefill[0];
     } else if (prefill.length > 1) {
-      await db.batch(prefill as never);
+      await runBatch(prefill);
     }
     return { runId, duplicate: true };
   }
@@ -620,7 +734,7 @@ export async function openRun(
     await stmts[0];
   } else {
     // D1 batch atomicity: all-or-nothing.
-    await db.batch(stmts as never);
+    await runBatch(stmts);
   }
   await bumpTeamActivity(scope.teamId, nowSeconds);
 
@@ -682,17 +796,10 @@ export async function appendRunResults(
   );
   const summaryStmt =
     deltaStmt ?? aggregateSummarySelectStatement(scope, runId);
-  statements.push(summaryStmt as never);
 
-  const batchResults = (await db.batch(
-    statements as never,
-  )) as readonly unknown[];
+  const summary = await runBatchWithSummary(statements, summaryStmt);
   await bumpTeamActivity(scope.teamId, nowSeconds);
 
-  const summaryRows = batchResults[batchResults.length - 1] as
-    | readonly RunAggregateSummary[]
-    | undefined;
-  const summary = summaryRows?.[0];
   if (!summary) return { kind: "notFound" };
 
   const changedTests = buildChangedTests(payload.results, assignedIds);
@@ -722,32 +829,71 @@ const RUN_STATUS_SEVERITY: Record<string, number> = {
   failed: 4,
 };
 
+/** Severity rank for a status not present in {@link RUN_STATUS_SEVERITY}. */
+const UNKNOWN_STATUS_SEVERITY = 0;
+
 /**
- * Merge an incoming /complete status into the run's current status. The first
- * shard to complete a still-"running" run sets the status verbatim; any later
- * shard can only escalate to a more-severe outcome, never downgrade it.
+ * Severity rank of a run status, with unknown statuses pinned to
+ * {@link UNKNOWN_STATUS_SEVERITY}. This single function owns the fallback so the
+ * JS merge (`mergeRunStatus`) and the SQL merge (`statusSeveritySql`'s `else`)
+ * cannot disagree about how an unrecognized status ranks — both derive it here.
+ */
+function runStatusSeverity(status: string): number {
+  return RUN_STATUS_SEVERITY[status] ?? UNKNOWN_STATUS_SEVERITY;
+}
+
+/**
+ * The monotonic status-merge invariant, in JS. It is the single source of the
+ * decision the run's terminal status obeys across shards:
+ *   1. a still-"running" run takes the incoming status verbatim;
+ *   2. otherwise the incoming status wins only if STRICTLY more severe
+ *      (`incoming > current`) — equally-severe statuses keep the current one,
+ *      so arrival order can't flip-flop a terminal outcome.
+ * `mergeRunStatusSql` encodes this exact rule as one atomic SQL `CASE`;
+ * `merge-run-status.test.ts` exercises this reference, and the two are kept
+ * branch-for-branch identical by hand (see `mergeRunStatusSql`).
  */
 export function mergeRunStatus(current: string, incoming: string): string {
   if (current === "running") return incoming;
-  const cur = RUN_STATUS_SEVERITY[current] ?? 0;
-  const inc = RUN_STATUS_SEVERITY[incoming] ?? 0;
-  return inc > cur ? incoming : current;
+  return runStatusSeverity(incoming) > runStatusSeverity(current)
+    ? incoming
+    : current;
 }
 
 /**
  * SQL `CASE` mapping the current `runs.status` column to its severity rank,
- * built from RUN_STATUS_SEVERITY so it can't drift from `mergeRunStatus` (the
- * JS reference, exercised by merge-run-status.test.ts). `completeRun` uses this
- * to merge status ATOMICALLY inside one UPDATE — reading and writing `status`
- * in a single statement closes the read-modify-write race that a separate
- * SELECT-then-UPDATE leaves open when two shards complete concurrently.
+ * built from the SAME `RUN_STATUS_SEVERITY` table and the same fallback
+ * (`UNKNOWN_STATUS_SEVERITY`, the value `runStatusSeverity` returns for unknown
+ * statuses) the JS reference uses, so the rank and the fallback are written
+ * once, not transcribed.
  */
-function currentStatusSeveritySql() {
+export function currentStatusSeveritySql() {
   let expr = sql`case ${runs.status}`;
   for (const [status, severity] of Object.entries(RUN_STATUS_SEVERITY)) {
     expr = sql`${expr} when ${status} then ${severity}`;
   }
-  return sql`(${expr} else 0 end)`;
+  return sql`(${expr} else ${UNKNOWN_STATUS_SEVERITY} end)`;
+}
+
+/**
+ * Atomic SQL form of `mergeRunStatus`: merges `incoming` into the current
+ * `runs.status` column inside a single expression so `completeRun` reads and
+ * writes `status` in one statement, closing the read-modify-write race that a
+ * separate SELECT-then-UPDATE leaves open when two shards complete
+ * concurrently.
+ *
+ * This is the production encoding of the decision documented on
+ * `mergeRunStatus`; its branches are deliberately one-to-one with that
+ * function — running-special-case, then a STRICT severity compare (`<`, so
+ * ties keep the current status, matching JS's `inc > cur`) — and both consume
+ * the same severity table. The pair is held in sync by hand: changing the
+ * tie-break or the running case here MUST change `mergeRunStatus` too. The JS
+ * reference is the tested surface; an executable assertion that binds this
+ * UPDATE to it awaits the real-D1 harness (see docs).
+ */
+export function mergeRunStatusSql(incoming: string) {
+  const incomingSeverity = runStatusSeverity(incoming);
+  return sql`case when ${runs.status} = 'running' then ${incoming} when ${currentStatusSeveritySql()} < ${incomingSeverity} then ${incoming} else ${runs.status} end`;
 }
 
 /**
@@ -776,33 +922,22 @@ export async function completeRun(
 
   // Monotonic status merge expressed entirely in SQL so the read (current
   // status) and write happen in one atomic statement — no TOCTOU window
-  // between a SELECT and a separate UPDATE. Mirrors `mergeRunStatus`: a still-
-  // running run takes the incoming status; otherwise only a more-severe
-  // outcome wins.
-  const incomingSeverity = RUN_STATUS_SEVERITY[payload.status] ?? 0;
-  const statusExpr = sql`case when ${runs.status} = 'running' then ${payload.status} when ${currentStatusSeveritySql()} < ${incomingSeverity} then ${payload.status} else ${runs.status} end`;
+  // between a SELECT and a separate UPDATE. The merge rule itself lives in one
+  // place (`mergeRunStatusSql`, the SQL twin of `mergeRunStatus`).
+  const statusExpr = mergeRunStatusSql(payload.status);
 
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const batchResults = (await db.batch([
-    db
-      .update(runs)
-      .set({
-        status: statusExpr,
-        durationMs: sql`max(${runs.durationMs}, ${payload.durationMs})`,
-        completedAt: sql`max(coalesce(${runs.completedAt}, 0), ${completedAt})`,
-      })
-      .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId))),
-    aggregateRecomputeStatement(scope, runId),
-  ] as never)) as readonly unknown[];
-  await bumpTeamActivity(scope.teamId, nowSeconds);
+  const statusUpdate = db
+    .update(runs)
+    .set({
+      status: statusExpr,
+      durationMs: sql`max(${runs.durationMs}, ${payload.durationMs})`,
+      completedAt: sql`max(coalesce(${runs.completedAt}, 0), ${completedAt})`,
+    })
+    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)));
 
-  const summaryRows = batchResults[batchResults.length - 1] as
-    | readonly RunAggregateSummary[]
-    | undefined;
-  const summary = summaryRows?.[0];
-  if (summary) {
-    await broadcastRunUpdate(runId, [], summary);
-  }
+  const summary = await reconcileAndBroadcast(runId, statusUpdate, scope);
+  await bumpTeamActivity(scope.teamId, nowSeconds);
 
   return { kind: "ok", status: summary?.status ?? payload.status };
 }
@@ -825,25 +960,18 @@ export async function finalizeStaleRun(
   run: { id: string; projectId: string; teamId: string },
   completedAt: number,
 ): Promise<void> {
-  const batchResults = (await db.batch([
-    db
-      .update(runs)
-      .set({ status: "interrupted", completedAt })
-      .where(
-        and(
-          eq(runs.projectId, run.projectId),
-          eq(runs.id, run.id),
-          eq(runs.status, "running"),
-        ),
+  const statusUpdate = db
+    .update(runs)
+    .set({ status: "interrupted", completedAt })
+    .where(
+      and(
+        eq(runs.projectId, run.projectId),
+        eq(runs.id, run.id),
+        eq(runs.status, "running"),
       ),
-    aggregateRecomputeStatement({ projectId: run.projectId }, run.id),
-  ] as never)) as readonly unknown[];
+    );
 
-  const summaryRows = batchResults[batchResults.length - 1] as
-    | readonly RunAggregateSummary[]
-    | undefined;
-  const summary = summaryRows?.[0];
-  if (summary) {
-    await broadcastRunUpdate(run.id, [], summary);
-  }
+  await reconcileAndBroadcast(run.id, statusUpdate, {
+    projectId: run.projectId,
+  });
 }

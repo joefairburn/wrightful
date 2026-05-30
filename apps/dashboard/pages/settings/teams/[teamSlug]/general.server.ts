@@ -9,6 +9,7 @@ import {
   teams as teamsTable,
 } from "@schema";
 import { logger } from "void/log";
+import { runBatch } from "@/lib/db-batch";
 import { resolveTeamBySlug } from "@/lib/authz";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
@@ -119,7 +120,7 @@ export const actions = {
       .where(eq(projects.teamId, team.id));
     const projectIds = teamProjects.map((r) => r.id);
 
-    const ops: unknown[] = [];
+    const ops: PromiseLike<unknown>[] = [];
     if (projectIds.length > 0) {
       ops.push(
         db.delete(apiKeys).where(inArray(apiKeys.projectId, projectIds)),
@@ -133,7 +134,7 @@ export const actions = {
     );
 
     try {
-      await db.batch(ops as never);
+      await runBatch(ops);
     } catch (err) {
       logger.error("delete team failed", {
         teamId: team.id,

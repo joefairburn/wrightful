@@ -10,9 +10,11 @@ import { finalizeStaleRun } from "@/lib/ingest";
  * than `WRIGHTFUL_RUN_STALE_MINUTES` (e.g. the CI job was SIGKILL'd and never
  * called /complete).
  *
- * Each stale run is finalized through `finalizeStaleRun` — the same
- * reconcile-and-broadcast path `completeRun` uses — rather than a blanket
- * status UPDATE. That matters because a SIGKILL'd run is exactly the case where
+ * Each stale run is finalized through `finalizeStaleRun`, which shares the
+ * `reconcileAndBroadcast` tail with `completeRun` (recompute aggregates from the
+ * testResults rows actually present, then broadcast the terminal summary) rather
+ * than doing a blanket status UPDATE. That matters because a SIGKILL'd run is
+ * exactly the case where
  * the incremental aggregate deltas are most likely to have drifted: we recompute
  * counts from the testResults rows actually present and emit a terminal live
  * event so any dashboard viewer stops spinning on "running".
