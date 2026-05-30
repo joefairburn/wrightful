@@ -6,7 +6,12 @@ import {
   it,
   vi,
 } from "vite-plus/test";
-import { AuthError, StreamClient } from "../client.js";
+import {
+  AuthError,
+  backoffDelay,
+  isRetryableStatus,
+  StreamClient,
+} from "../client.js";
 import type { OpenRunPayload } from "../types.js";
 
 // Mock node:fs openAsBlob so uploadArtifact tests don't touch the filesystem.
@@ -472,6 +477,62 @@ describe("StreamClient", () => {
       await vi.runAllTimersAsync();
       await expect(promise).rejects.toThrow(/fetch failed/);
       expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+  });
+});
+
+/**
+ * The shared retry policy that fetchWithRetry and uploadArtifact both consume.
+ * These are the pure decide-and-wait halves, exercised directly so the rule
+ * (which status is retryable, how long to wait) is pinned in one place rather
+ * than only reachable by replaying a method against a stubbed fetch.
+ */
+describe("retry policy", () => {
+  describe("isRetryableStatus", () => {
+    it("retries 5xx", () => {
+      expect(isRetryableStatus(500)).toBe(true);
+      expect(isRetryableStatus(502)).toBe(true);
+      expect(isRetryableStatus(599)).toBe(true);
+    });
+
+    it("retries 429 specifically", () => {
+      expect(isRetryableStatus(429)).toBe(true);
+    });
+
+    it("does not retry other 4xx (auth/validation are terminal)", () => {
+      expect(isRetryableStatus(400)).toBe(false);
+      expect(isRetryableStatus(401)).toBe(false);
+      expect(isRetryableStatus(403)).toBe(false);
+      expect(isRetryableStatus(404)).toBe(false);
+    });
+
+    it("does not retry 2xx/3xx", () => {
+      expect(isRetryableStatus(200)).toBe(false);
+      expect(isRetryableStatus(204)).toBe(false);
+      expect(isRetryableStatus(304)).toBe(false);
+    });
+  });
+
+  describe("backoffDelay", () => {
+    it("uses exponential 2^attempt * 500 when no Retry-After", () => {
+      const noHeader = new Response(null, { status: 500 });
+      expect(backoffDelay(noHeader, 0)).toBe(500);
+      expect(backoffDelay(noHeader, 1)).toBe(1000);
+      expect(backoffDelay(noHeader, 2)).toBe(2000);
+    });
+
+    it("falls back to exponential backoff for a network throw (null response)", () => {
+      expect(backoffDelay(null, 0)).toBe(500);
+      expect(backoffDelay(null, 3)).toBe(4000);
+    });
+
+    it("honours a Retry-After header (seconds) over the backoff curve", () => {
+      const withRetryAfter = new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "2" },
+      });
+      // 2s wins over the 2^attempt*500 = 500ms the attempt would otherwise use.
+      expect(backoffDelay(withRetryAfter, 0)).toBe(2000);
     });
   });
 });
