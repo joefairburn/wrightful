@@ -13,21 +13,26 @@ export class ApiKeysPage {
   readonly settingsHeading: Locator;
   readonly labelInput: Locator;
   readonly mintButton: Locator;
-  readonly revealAlert: Locator;
+  readonly revealDialog: Locator;
 
   constructor(page: Page, teamSlug: string, projectSlug: string) {
     this.page = page;
     this.teamSlug = teamSlug;
     this.projectSlug = projectSlug;
 
+    // The keys page <h1> renders `${project.name} · API keys`; the only
+    // project-independent text is "API keys". ("Settings" above it is a
+    // styled <div> kicker, not a heading role.)
     this.settingsHeading = page.getByRole("heading", {
-      name: /project settings/i,
+      name: /api keys/i,
     });
     this.labelInput = page.locator('input[name="label"]');
     this.mintButton = page.getByRole("button", { name: /mint key/i });
-    this.revealAlert = page.getByText(
-      /copy your new key now — it won't be shown again/i,
-    );
+    // The freshly-minted token is surfaced in a Base UI Dialog
+    // (role="dialog"), title "Save this key now" — not a status Alert.
+    this.revealDialog = page.getByRole("dialog").filter({
+      hasText: /save this key now/i,
+    });
   }
 
   get path(): string {
@@ -41,21 +46,38 @@ export class ApiKeysPage {
 
   /** Mint a key with the given label. Returns the revealed plaintext. */
   async mint(label: string): Promise<string> {
-    await this.labelInput.fill(label);
-    await this.mintButton.click();
-    // The success Alert renders as a `role="status"` live region; scope
-    // the plaintext lookup to that container so an unrelated <pre>
-    // elsewhere on the page can't shadow it. Filter by title text in
-    // case any other status region happens to be live.
-    const successAlert = this.page
-      .getByRole("status")
-      .filter({ hasText: /copy your new key now/i });
-    await expect(successAlert).toBeVisible();
-    return successAlert.locator("pre").innerText();
+    // The mint form is a client island. Before React hydrates, clicking the
+    // submit button does a native GET (appending ?label=… to the URL) rather
+    // than running the mintKey mutation, so the dialog never opens. Re-fill +
+    // re-click until it appears — once hydrated, the mutation runs and the
+    // RevealOnceDialog (role="dialog", title "Save this key now") surfaces the
+    // plaintext token in a <pre>. Scope the lookup to the dialog so an
+    // unrelated <pre> elsewhere on the page can't shadow it.
+    await expect(async () => {
+      await this.labelInput.fill(label);
+      await this.mintButton.click();
+      await expect(this.revealDialog).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
+    const token = await this.revealDialog.locator("pre").innerText();
+    // Dismiss the modal — left open, its overlay intercepts clicks on the keys
+    // list behind it (e.g. the Revoke button), which is what broke the revoke
+    // spec while the mint spec, which only reads visibility, was unaffected.
+    await this.page.keyboard.press("Escape");
+    await expect(this.revealDialog).not.toBeVisible();
+    return token;
   }
 
   rowFor(label: string): Locator {
-    return this.page.locator("tr").filter({ hasText: label });
+    // The keys list is not a table: each key is a <div> row containing
+    // the label, prefix, a status badge with exact text "active"/
+    // "revoked", and (while active) a Revoke button. Anchor on the row
+    // <div> that holds both the label and the status badge so the inner
+    // label-only <div> can't match.
+    return this.page
+      .locator("div")
+      .filter({ hasText: label })
+      .filter({ has: this.page.getByText(/^(active|revoked)$/i) })
+      .last();
   }
 
   async revoke(label: string): Promise<void> {

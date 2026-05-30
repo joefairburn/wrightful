@@ -8,7 +8,8 @@ import type { TenantScope } from "@/lib/scope";
  *
  * Single SELECT DISTINCT against the `runs` table, gated on the scoped
  * `projectId` (and teamId for defense in depth). The composite index
- * `runs_project_branch_idx` lets SQLite skip-scan distinct values.
+ * `runs_project_branch_created_at_idx` lets SQLite skip-scan distinct values
+ * (verified: `SEARCH runs USING INDEX runs_project_branch_created_at_idx`).
  */
 export async function loadProjectBranches(
   scope: TenantScope,

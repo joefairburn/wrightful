@@ -31,6 +31,51 @@ const validTestResult = {
   ],
 };
 
+describe("ingest payload bounds", () => {
+  const wrap = (overrides: Record<string, unknown>) => ({
+    results: [{ ...validTestResult, ...overrides }],
+  });
+
+  it("accepts a large (20KB) error message + stack — must not drop the batch", () => {
+    // A Playwright assertion diff on a big object routinely runs to tens of KB.
+    // Rejecting would fail the whole batch with a non-retryable 4xx.
+    const big = "x".repeat(20_000);
+    const r = AppendResultsPayloadSchema.safeParse(
+      wrap({ errorMessage: big, errorStack: big }),
+    );
+    expect(r.success).toBe(true);
+  });
+
+  it("truncates an oversized error message instead of rejecting", () => {
+    const huge = "y".repeat(200_000);
+    const r = AppendResultsPayloadSchema.safeParse(
+      wrap({ errorMessage: huge }),
+    );
+    expect(r.success).toBe(true);
+    // Stored value is capped but the result is preserved, not dropped.
+    if (r.success) {
+      expect(r.data.results[0].errorMessage?.length).toBe(65536);
+    }
+  });
+
+  it("rejects an over-long structural field (title)", () => {
+    const r = AppendResultsPayloadSchema.safeParse(
+      wrap({ title: "t".repeat(5000) }),
+    );
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects more attempts than the per-result cap", () => {
+    const attempts = Array.from({ length: 101 }, (_, i) => ({
+      attempt: i,
+      status: "passed",
+      durationMs: 1,
+    }));
+    const r = AppendResultsPayloadSchema.safeParse(wrap({ attempts }));
+    expect(r.success).toBe(false);
+  });
+});
+
 describe("OpenRunPayloadSchema", () => {
   const validPayload = {
     idempotencyKey: "test-key-1",

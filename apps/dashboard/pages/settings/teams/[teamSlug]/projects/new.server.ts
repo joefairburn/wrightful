@@ -4,6 +4,7 @@ import { db, eq } from "void/db";
 import { ulid } from "ulid";
 import { projects } from "@schema";
 import { requireTeamOwner } from "@/lib/authz";
+import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
 
 export type Props = InferProps<typeof loader>;
@@ -109,10 +110,11 @@ export const action = defineHandler(async (c) => {
       createdAt: Math.floor(Date.now() / 1000),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    const friendly = msg.includes("UNIQUE")
-      ? "Could not create project — please try again."
-      : "Could not create project.";
+    const friendly = mutationErrorMessage(err, {
+      context: "create project failed",
+      uniqueMessage: "Could not create project — please try again.",
+      genericMessage: "Could not create project.",
+    });
     return c.redirect(`${formUrl}?error=${encodeURIComponent(friendly)}`);
   }
 

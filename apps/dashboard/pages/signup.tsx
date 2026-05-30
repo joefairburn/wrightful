@@ -4,26 +4,23 @@ import { Link, useRouter } from "@void/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Props } from "./login.server";
+import type { Props } from "./signup.server";
 
 /**
- * Login page. Uses `void/client`'s preconfigured Better Auth client for
- * email/password sign-in and (when configured) GitHub OAuth.
- *
- * Anonymous users only — server redirects authenticated users to `/` via
- * the colocated loader.
+ * Open-signup page (email + password). Mirrors `login.tsx`; reachable only when
+ * `ALLOW_OPEN_SIGNUP` is enabled (the colocated loader bounces to /login
+ * otherwise). Authenticated users are redirected to `/` by the loader.
  */
-export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
+export default function SignupPage({ githubEnabled }: Props) {
   const router = useRouter();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Sign-in runs entirely client-side (`auth.signIn`), so the form is useless
-  // until React hydrates. Until then, keep the submit disabled: a pre-hydration
-  // native submit would otherwise GET this page with the credentials in the
-  // query string (leaking the password into the URL/history) and do nothing
-  // useful. `useEffect` only runs after hydration.
+  // Sign-up runs client-side (`auth.signUp`); disable submit until hydrated so
+  // a pre-hydration native submit can't GET this page with the password in the
+  // query string. `useEffect` only runs after hydration. (Mirrors login.tsx.)
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
@@ -32,14 +29,14 @@ export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const result = await auth.signIn.email({ email, password });
+      const result = await auth.signUp.email({ name, email, password });
       if (result?.error) {
-        setError(result.error.message ?? "Sign-in failed");
+        setError(result.error.message ?? "Sign-up failed");
         return;
       }
       void router.visit("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed");
+      setError(err instanceof Error ? err.message : "Sign-up failed");
     } finally {
       setBusy(false);
     }
@@ -48,9 +45,11 @@ export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-8 p-6">
       <header className="space-y-2 text-center">
-        <h1 className="text-2xl font-semibold">Sign in to Wrightful</h1>
+        <h1 className="text-2xl font-semibold">
+          Create your Wrightful account
+        </h1>
         <p className="text-muted-foreground text-sm">
-          Welcome back. Continue to the dashboard.
+          Get started in a few seconds.
         </p>
       </header>
 
@@ -60,6 +59,17 @@ export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
           void handleSubmit(e);
         }}
       >
+        <div className="space-y-2">
+          <Label htmlFor="name">Name</Label>
+          <Input
+            id="name"
+            type="text"
+            value={name}
+            required
+            autoComplete="name"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -78,7 +88,8 @@ export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
             type="password"
             value={password}
             required
-            autoComplete="current-password"
+            minLength={8}
+            autoComplete="new-password"
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
@@ -88,7 +99,7 @@ export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
           </p>
         )}
         <Button type="submit" disabled={busy || !hydrated} className="w-full">
-          {busy ? "Signing in…" : "Continue"}
+          {busy ? "Creating account…" : "Create account"}
         </Button>
       </form>
 
@@ -104,14 +115,12 @@ export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
         </div>
       )}
 
-      {signupAllowed && (
-        <p className="text-center text-sm">
-          No account yet?{" "}
-          <Link href="/signup" className="underline">
-            Create one
-          </Link>
-        </p>
-      )}
+      <p className="text-center text-sm">
+        Already have an account?{" "}
+        <Link href="/login" className="underline">
+          Sign in
+        </Link>
+      </p>
     </main>
   );
 }

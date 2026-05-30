@@ -8,29 +8,25 @@
  * drift between the two consumers.
  *
  * Lifecycle: `bootDashboard(...)` returns a `DashboardFixture` whose `.teardown()`
- * kills the dev server and restores the original `.dev.vars`. Always pair the
+ * kills the dev server and restores the original `.env.local`. Always pair the
  * call with a `finally`/teardown hook — the dashboard listens on a fixed port,
  * so a leaked process blocks the next run.
+ *
+ * Targets the Void dashboard at `apps/dashboard`: local config is `.env.local`
+ * (not the pre-Void `.dev.vars`) and the clean slate is `void db reset` (wipe
+ * the local D1 + reapply migrations), not a Durable-Object state wipe.
  */
 import { type ChildProcess, execSync, spawn } from "node:child_process";
-import {
-  existsSync,
-  renameSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../../..");
-const DASHBOARD_DIR = resolve(ROOT, "packages/dashboard");
+const DASHBOARD_DIR = resolve(ROOT, "apps/dashboard");
 const REPORTER_DIR = resolve(ROOT, "packages/reporter");
-const DEV_VARS_PATH = resolve(DASHBOARD_DIR, ".dev.vars");
-
-const REVEAL_COOKIE = "wrightful_reveal_key";
+const ENV_LOCAL_PATH = resolve(DASHBOARD_DIR, ".env.local");
 
 export interface BootOptions {
   /** TCP port the dev server should listen on. */
@@ -52,8 +48,8 @@ export interface BootOptions {
   email?: string;
   password?: string;
   userName?: string;
-  /** Distinct path so concurrent suites don't collide on .dev.vars backup. */
-  devVarsBackupSuffix?: string;
+  /** Distinct suffix so concurrent suites don't collide on the .env.local backup. */
+  envBackupSuffix?: string;
 }
 
 export interface DashboardFixture {
@@ -67,7 +63,7 @@ export interface DashboardFixture {
   betterAuthSecret: string;
   email: string;
   password: string;
-  /** Kills the dev server and restores `.dev.vars`. Idempotent. */
+  /** Kills the dev server and restores `.env.local`. Idempotent. */
   teardown: () => void;
 }
 
@@ -155,31 +151,38 @@ export async function bootDashboard(
     options.betterAuthSecret ??
     "e2e-local-only-not-a-secret-openssl-rand-base64-32ch";
 
-  const backupSuffix = options.devVarsBackupSuffix ?? "e2e-backup";
-  const devVarsBackupPath = resolve(DASHBOARD_DIR, `.dev.vars.${backupSuffix}`);
+  const backupSuffix = options.envBackupSuffix ?? "e2e-backup";
+  const envBackupPath = resolve(DASHBOARD_DIR, `.env.local.${backupSuffix}`);
 
   let devServer: ChildProcess | undefined;
-  let devVarsBackedUp = false;
+  let envBackedUp = false;
   let tornDown = false;
 
   const teardown = () => {
     if (tornDown) return;
     tornDown = true;
     if (devServer) {
-      devServer.kill("SIGTERM");
+      // Kill the whole process group (detached leader) so vp/vite/miniflare
+      // don't outlive the parent and hold the port. Fall back to a direct kill.
+      try {
+        if (devServer.pid) process.kill(-devServer.pid, "SIGTERM");
+        else devServer.kill("SIGTERM");
+      } catch {
+        devServer.kill("SIGTERM");
+      }
       devServer = undefined;
     }
-    if (!devVarsBackedUp) return;
+    if (!envBackedUp) return;
     try {
-      if (existsSync(devVarsBackupPath)) {
-        if (existsSync(DEV_VARS_PATH)) unlinkSync(DEV_VARS_PATH);
-        renameSync(devVarsBackupPath, DEV_VARS_PATH);
-      } else if (existsSync(DEV_VARS_PATH)) {
-        unlinkSync(DEV_VARS_PATH);
+      if (existsSync(envBackupPath)) {
+        if (existsSync(ENV_LOCAL_PATH)) unlinkSync(ENV_LOCAL_PATH);
+        renameSync(envBackupPath, ENV_LOCAL_PATH);
+      } else if (existsSync(ENV_LOCAL_PATH)) {
+        unlinkSync(ENV_LOCAL_PATH);
       }
-      devVarsBackedUp = false;
+      envBackedUp = false;
     } catch (err) {
-      console.error(`[dashboard-fixture] Failed to restore .dev.vars:`, err);
+      console.error(`[dashboard-fixture] Failed to restore .env.local:`, err);
     }
   };
 
@@ -187,44 +190,58 @@ export async function bootDashboard(
     log("Step 1: Build reporter");
     run("pnpm build", { cwd: REPORTER_DIR });
 
-    log("Step 2: Wipe Durable Object state");
-    for (const name of [
-      "wrightful-ControlDO",
-      "wrightful-TenantDO",
-      "wrightful-SyncedStateServer",
-    ]) {
-      rmSync(resolve(DASHBOARD_DIR, ".wrangler/state/v3/do", name), {
-        recursive: true,
-        force: true,
-      });
-    }
-
-    log("Step 3: Write .dev.vars (backup any existing)");
-    if (existsSync(devVarsBackupPath)) {
+    log("Step 2: Write .env.local (backup any existing)");
+    if (existsSync(envBackupPath)) {
       throw new Error(
-        `Refusing to start: ${devVarsBackupPath} already exists. A previous run likely crashed before teardown. Inspect it and restore/remove manually.`,
+        `Refusing to start: ${envBackupPath} already exists. A previous run likely crashed before teardown. Inspect it and restore/remove manually.`,
       );
     }
-    if (existsSync(DEV_VARS_PATH)) {
-      renameSync(DEV_VARS_PATH, devVarsBackupPath);
-      log("  Existing .dev.vars backed up.");
+    if (existsSync(ENV_LOCAL_PATH)) {
+      renameSync(ENV_LOCAL_PATH, envBackupPath);
+      log("  Existing .env.local backed up.");
     }
-    devVarsBackedUp = true;
-    const devVars =
+    envBackedUp = true;
+    const envLocal =
       [
         `BETTER_AUTH_SECRET=${betterAuthSecret}`,
         `WRIGHTFUL_PUBLIC_URL=${url}`,
         // Sign-up gate is locked in production; e2e provisions a user via
         // /api/auth/sign-up/email so we explicitly opt in here.
-        `ALLOW_OPEN_SIGNUP=1`,
+        `ALLOW_OPEN_SIGNUP=true`,
+        // void.json declares the `github` auth provider, and Void throws on
+        // every request if its credentials are absent. The e2e suite only uses
+        // email/password (no spec exercises GitHub OAuth), so dummy values
+        // satisfy the provider resolver without ever being used.
+        `AUTH_GITHUB_CLIENT_ID=e2e-unused-github-client-id`,
+        `AUTH_GITHUB_CLIENT_SECRET=e2e-unused-github-client-secret`,
       ].join("\n") + "\n";
-    writeFileSync(DEV_VARS_PATH, devVars, "utf8");
+    writeFileSync(ENV_LOCAL_PATH, envLocal, "utf8");
+
+    log("Step 3: Reset local D1 (clean slate + reapply migrations)");
+    run("npx void db reset", { cwd: DASHBOARD_DIR });
 
     log(`Step 4: Start dashboard dev server on :${port}`);
-    devServer = spawn("npx", ["vite", "dev", "--port", String(port)], {
+    // Boot the Void dashboard via the vite-plus toolchain (`vp dev`). There is
+    // no bare `vite` bin — the workspace aliases `vite` to vite-plus-core, whose
+    // CLI is `vp`. `pnpm exec` resolves it from apps/dashboard's node_modules.
+    // `detached` makes the child a process-group leader so teardown can kill the
+    // whole pnpm→vp→vite→miniflare tree instead of orphaning miniflare on the
+    // fixed port.
+    // Strip vitest's env markers from the spawned dev server. The vitest
+    // dogfood suite (`vp test run`) sets VITEST=true, and the dashboard's
+    // vite.config disables the Void plugin in test mode — which removes ALL
+    // /api/auth + D1 routes, so sign-up 404s. We want the FULL app here. (The
+    // Playwright suite doesn't set VITEST, so this is a no-op for it.)
+    const childEnv = { ...process.env };
+    delete childEnv.VITEST;
+    delete childEnv.VITEST_POOL_ID;
+    delete childEnv.VITEST_WORKER_ID;
+    delete childEnv.VITEST_MODE;
+    devServer = spawn("pnpm", ["exec", "vp", "dev", "--port", String(port)], {
       cwd: DASHBOARD_DIR,
       stdio: "pipe",
-      env: { ...process.env },
+      detached: true,
+      env: childEnv,
     });
     let serverLog = "";
     devServer.stdout?.on("data", (d) => (serverLog += d.toString()));
@@ -242,10 +259,25 @@ export async function bootDashboard(
     log("Step 5: Sign up + create team/project/key over HTTP");
     const request = makeRequester(url);
 
-    // sign-up
-    const signupRes = await request("POST", "/api/auth/sign-up/email", {
+    // sign-up. The dev server answers on "/" (so waitForServer returns) before
+    // its /api/auth/* routes finish mounting, so a signup fired immediately can
+    // 404. Retry on 404/5xx to ride out that boot window — but NOT on a 4xx
+    // user error (e.g. 422 "already exists"), which is a real failure.
+    let signupRes = await request("POST", "/api/auth/sign-up/email", {
       json: { email, password, name: userName },
     });
+    for (
+      let i = 0;
+      i < 15 &&
+      !signupRes.ok &&
+      (signupRes.status === 404 || signupRes.status >= 500);
+      i++
+    ) {
+      await sleep(1000);
+      signupRes = await request("POST", "/api/auth/sign-up/email", {
+        json: { email, password, name: userName },
+      });
+    }
     if (!signupRes.ok) {
       const body = await signupRes.text();
       throw new Error(`Sign-up failed (${signupRes.status}): ${body}`);
@@ -270,7 +302,7 @@ export async function bootDashboard(
     const teamMatch = teamLoc.match(/\/settings\/teams\/([^/?#]+)/);
     if (!teamMatch || teamMatch[1] !== teamSlug) {
       throw new Error(
-        `expected team slug "${teamSlug}", got Location "${teamLoc}" — DO state probably wasn't wiped`,
+        `expected team slug "${teamSlug}", got Location "${teamLoc}" — local D1 probably wasn't reset`,
       );
     }
 
@@ -299,30 +331,25 @@ export async function bootDashboard(
       );
     }
 
-    // api key
+    // api key — minted via the Void API route, which returns the plaintext
+    // token in the JSON body (the Void dashboard surfaces it client-side in a
+    // modal; there's no pre-Void server-action reveal cookie).
     const keyRes = await request(
       "POST",
-      `/settings/teams/${teamSlug}/p/${projectSlug}/keys`,
-      { cookies: sessionCookies, form: { action: "create", label: "e2e" } },
+      `/api/teams/${teamSlug}/p/${projectSlug}/keys`,
+      { cookies: sessionCookies, json: { label: "e2e" } },
     );
-    if (keyRes.status !== 302) {
+    if (!keyRes.ok) {
       throw new Error(
         `api key creation returned ${keyRes.status}: ${(await keyRes.text()) || "(empty body)"}`,
       );
     }
-    let apiKey: string | undefined;
-    for (const raw of keyRes.headers.getSetCookie()) {
-      const head = raw.split(";")[0];
-      const eq = head.indexOf("=");
-      if (eq < 0) continue;
-      if (head.slice(0, eq) === REVEAL_COOKIE) {
-        const value = head.slice(eq + 1);
-        if (value) apiKey = decodeURIComponent(value);
-      }
-    }
+    const keyBody = (await keyRes.json()) as { token?: unknown };
+    const apiKey =
+      typeof keyBody.token === "string" ? keyBody.token : undefined;
     if (!apiKey) {
       throw new Error(
-        "key creation succeeded but reveal cookie was missing — cannot recover the plaintext key.",
+        "key creation succeeded but no token was returned in the response body.",
       );
     }
 

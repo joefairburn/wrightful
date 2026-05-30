@@ -302,7 +302,19 @@ export default class WrightfulReporter implements Reporter {
             // dashboard watchdog picks up anything we didn't finalize.
           }
         }
-        process.exit(signal === "SIGTERM" ? 143 : 130);
+        // Deliberately do NOT call process.exit() here. We only piggy-back the
+        // signal to fire a best-effort /complete and then get out of the way:
+        //   - SIGINT (local Ctrl-C): Playwright installs its own handler and
+        //     receives the same signal — it does the graceful worker shutdown,
+        //     flushes every other reporter, and computes the exit code. Calling
+        //     process.exit() here would preempt all of that the instant our
+        //     /complete settles, truncating output and overriding Playwright's
+        //     exit code. So we let Playwright own termination.
+        //   - SIGTERM (CI cancellation): the runner is being torn down anyway,
+        //     usually followed by SIGKILL after a grace period. We mark the run
+        //     'interrupted' best-effort and let that teardown proceed; the
+        //     dashboard watchdog finalizes the run if we never got the chance.
+        // Our handler is `process.once`, so it can't re-fire or loop.
       };
       void task();
     };

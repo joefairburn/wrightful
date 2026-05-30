@@ -21,7 +21,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       # The dashboard's tsconfig extends the Void-generated .void/tsconfig.json;
       # generate it before any type-aware lint/typecheck.
@@ -45,7 +45,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       # The reporter's wire-contract test imports the dashboard's schemas,
       # whose tsconfig extends .void/tsconfig.json — generate it first.
@@ -80,7 +80,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Prepare Void codegen
         run: pnpm --filter @wrightful/dashboard exec void prepare
@@ -96,16 +96,41 @@ jobs:
           path: apps/dashboard/coverage
           if-no-files-found: ignore
 
+  build-dashboard:
+    name: Dashboard Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Void codegen
+        run: pnpm --filter @wrightful/dashboard exec void prepare
+
+      # Production build gate: catches SSR/worker-bundle breakage (server/client
+      # boundary errors, Rolldown bundling failures) that typecheck + unit tests
+      # can't see. Cheap relative to shipping a broken `void deploy`.
+      - name: Build dashboard
+        run: pnpm --filter @wrightful/dashboard build
+
   # Playwright version canary: exercises the reporter against a live dashboard
   # shape (via the dogfood e2e suite). When Renovate bumps @playwright/test,
   # this job surfaces any format / reporter-API incompatibilities early.
   #
-  # DISABLED: the e2e dashboard fixtures boot the pre-Void dashboard via
-  # .dev.vars/wrangler conventions that no longer exist. Re-enable once the
-  # suite is reworked to boot the Void dashboard (apps/dashboard).
+  # The fixtures boot the Void dashboard at apps/dashboard (.env.local +
+  # `void db reset`); the suite is green (12/12) locally. Note: the harness
+  # strips VITEST from the spawned dev server's env so the Void plugin (and
+  # thus /api/auth + D1) stays enabled — see src/dashboard-fixture.ts.
   test-e2e:
     name: E2E Tests
-    if: false
     runs-on: ubuntu-latest
     needs: [test-reporter, test-dashboard]
     steps:
@@ -119,7 +144,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build reporter
         run: pnpm --filter @wrightful/reporter build
@@ -132,13 +157,11 @@ jobs:
 
   # Browser-driven UI smoke against a locally booted dashboard. Catches
   # cross-cutting regressions (auth → navigation → run-detail) that the
-  # API-level e2e and component RTL tests can't see.
-  #
-  # DISABLED: same reason as test-e2e — the dashboard-boot fixtures target the
-  # pre-Void dashboard. Re-enable once reworked for the Void dashboard.
+  # API-level e2e and component RTL tests can't see. The fixtures boot the Void
+  # dashboard at apps/dashboard (.env.local + `void db reset`); the suite is
+  # green (35/35) locally. CI runs 3 workers + retries:2 to absorb timing flake.
   test-e2e-ui:
     name: E2E UI Tests (Playwright)
-    if: false
     runs-on: ubuntu-latest
     needs: [test-reporter, test-dashboard]
     steps:
@@ -152,7 +175,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
         run: pnpm --filter @wrightful/e2e exec playwright install --with-deps chromium

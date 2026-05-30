@@ -72,8 +72,10 @@ describe("WrightfulReporter signal handling", () => {
     delete process.env.WRIGHTFUL_URL;
     delete process.env.WRIGHTFUL_TOKEN;
 
-    // Critical: signal handler calls process.exit at the end. Mock it so
-    // the test process keeps running.
+    // The signal handler no longer calls process.exit — Playwright owns
+    // process termination. We still spy on it (so a regression that
+    // reintroduces the call can't kill the test runner) and assert it is
+    // NOT invoked.
     exitMock = vi.fn() as never;
     vi.spyOn(process, "exit").mockImplementation(exitMock);
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
@@ -108,7 +110,7 @@ describe("WrightfulReporter signal handling", () => {
     expect(process.listenerCount("SIGINT")).toBe(beforeInt + 1);
   });
 
-  it("on SIGTERM, fires a best-effort /complete with status='interrupted' and exit code 143", async () => {
+  it("on SIGTERM, fires a best-effort /complete with status='interrupted' and does not call process.exit", async () => {
     const { calls, fn } = makeFetch();
     vi.stubGlobal("fetch", vi.fn(fn));
 
@@ -137,11 +139,13 @@ describe("WrightfulReporter signal handling", () => {
     expect(body.status).toBe("interrupted");
     expect(typeof body.durationMs).toBe("number");
 
-    expect(exitMock).toHaveBeenCalledWith(143);
+    // Playwright (which receives the same signal) owns graceful shutdown and
+    // the exit code — we must NOT preempt it with process.exit.
+    expect(exitMock).not.toHaveBeenCalled();
   });
 
-  it("on SIGINT, exits with code 130", async () => {
-    const { fn } = makeFetch();
+  it("on SIGINT, fires best-effort /complete and lets Playwright own termination (no process.exit)", async () => {
+    const { calls, fn } = makeFetch();
     vi.stubGlobal("fetch", vi.fn(fn));
 
     const reporter = new WrightfulReporter({
@@ -149,13 +153,17 @@ describe("WrightfulReporter signal handling", () => {
       token: "tok",
       flushIntervalMs: 5,
     });
-    reporter.onBegin(makeConfig(), makeSuite([]));
+    reporter.onBegin(
+      makeConfig(),
+      makeSuite([makeTest({ outcome: "expected" })]),
+    );
     await new Promise((r) => setTimeout(r, 20));
 
     process.emit("SIGINT" as NodeJS.Signals, "SIGINT" as NodeJS.Signals);
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(exitMock).toHaveBeenCalledWith(130);
+    expect(calls.find((c) => c.url.endsWith("/complete"))).toBeDefined();
+    expect(exitMock).not.toHaveBeenCalled();
   });
 
   it("ignores subsequent signals once shutdown is in flight (single-shot)", async () => {
@@ -177,11 +185,11 @@ describe("WrightfulReporter signal handling", () => {
 
     const completeCalls = calls.filter((c) => c.url.endsWith("/complete"));
     expect(completeCalls).toHaveLength(1);
-    // process.exit fires exactly once.
-    expect(exitMock).toHaveBeenCalledTimes(1);
+    // Single-shot guard fires /complete once; we never call process.exit.
+    expect(exitMock).not.toHaveBeenCalled();
   });
 
-  it("swallows errors from the shutdown /complete and still exits", async () => {
+  it("swallows errors from the shutdown /complete without crashing", async () => {
     let openCalled = false;
     const fetchFn = async (url: string) => {
       if (url.endsWith("/api/runs") && !openCalled) {
@@ -207,8 +215,9 @@ describe("WrightfulReporter signal handling", () => {
     process.emit("SIGTERM" as NodeJS.Signals, "SIGTERM" as NodeJS.Signals);
     await new Promise((r) => setTimeout(r, 50));
 
-    // Even though /complete threw, the handler must still call exit.
-    expect(exitMock).toHaveBeenCalledWith(143);
+    // Even though /complete threw, the handler resolves cleanly and does not
+    // call process.exit (Playwright owns termination).
+    expect(exitMock).not.toHaveBeenCalled();
   });
 
   it("onEnd is a no-op once shutdown has fired (avoids double-complete)", async () => {

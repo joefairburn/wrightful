@@ -13,7 +13,9 @@ export default function NotFoundPage() {
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center p-6">
       <Empty>
         <EmptyHeader>
-          <EmptyTitle>Page not found</EmptyTitle>
+          <EmptyTitle aria-level={1} role="heading">
+            Page not found
+          </EmptyTitle>
           <EmptyDescription>
             We couldn&apos;t find what you were looking for. The link may be
             broken, or the page may have moved.

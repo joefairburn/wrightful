@@ -23,10 +23,29 @@ import { expect, test } from "./fixtures";
 const SUPPRESSED_RULES = ["color-contrast"];
 
 async function scanSerious(page: Page, label: string): Promise<void> {
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    .disableRules(SUPPRESSED_RULES)
-    .analyze();
+  // axe's analyze() runs page.evaluate; a client-side navigation/re-render in
+  // flight can destroy the execution context mid-scan ("Execution context was
+  // destroyed"). Settle on load and retry that transient before failing.
+  const results = await (async () => {
+    for (let attempt = 0; ; attempt++) {
+      await page.waitForLoadState("load");
+      try {
+        return await new AxeBuilder({ page })
+          .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+          .disableRules(SUPPRESSED_RULES)
+          .analyze();
+      } catch (err) {
+        if (
+          attempt < 2 &&
+          /execution context was destroyed/i.test(String(err))
+        ) {
+          await page.waitForTimeout(300);
+          continue;
+        }
+        throw err;
+      }
+    }
+  })();
   const blocking = results.violations.filter(
     (v) => v.impact === "serious" || v.impact === "critical",
   );

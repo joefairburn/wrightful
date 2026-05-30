@@ -90,6 +90,20 @@ export const loader = defineHandler.withValidator({
   const branchSql = branchFilter
     ? sql`and runs.branch = ${branchFilter}`
     : sql``;
+  // Only join `runs` when a branch filter needs `runs.branch`. Dropping it
+  // requires moving the time-window filter off `runs.createdAt` onto
+  // `tr.createdAt`, which lets the window prune via the testResults index
+  // instead of a full cross-project scan + a `runs` PK probe per row.
+  // Semantics note: `tr.createdAt` is the result's flush/completion time (set in
+  // ingest.ts when the /results batch lands), whereas `runs.createdAt` is the
+  // run's open time — so this keys the "tests seen in the last N days" window on
+  // completion rather than run start. Since completion >= open, the new window
+  // is a near-superset of the old, differing only for a run that opened just
+  // before the cutoff and finished after it (≤ one run's duration of boundary
+  // fuzz) — immaterial for this retrospective catalog.
+  const joinSql = branchFilter
+    ? sql`inner join runs on runs.id = tr."runId"`
+    : sql``;
   const qSql = pattern
     ? sql`and (tr.title like ${pattern} or tr.file like ${pattern})`
     : sql``;
@@ -98,6 +112,7 @@ export const loader = defineHandler.withValidator({
   let pageRows = await runPageQuery(
     scope.projectId,
     windowStartSec,
+    joinSql,
     branchSql,
     qSql,
     offset,
@@ -112,6 +127,7 @@ export const loader = defineHandler.withValidator({
     pageRows = await runPageQuery(
       scope.projectId,
       windowStartSec,
+      joinSql,
       branchSql,
       qSql,
       (currentPage - 1) * PAGE_SIZE,
@@ -127,6 +143,7 @@ export const loader = defineHandler.withValidator({
     const aggById = await runAggregateQuery(
       scope.projectId,
       windowStartSec,
+      joinSql,
       branchSql,
       testIds,
     );
@@ -186,6 +203,7 @@ export const loader = defineHandler.withValidator({
 async function runPageQuery(
   projectId: string,
   windowStartSec: number,
+  joinSql: ReturnType<typeof sql>,
   branchSql: ReturnType<typeof sql>,
   qSql: ReturnType<typeof sql>,
   offset: number,
@@ -197,9 +215,9 @@ async function runPageQuery(
         max(tr."createdAt") as "lastSeen",
         count(*) over () as "totalDistinct"
       from "testResults" tr
-      inner join runs on runs.id = tr."runId"
+      ${joinSql}
       where tr."projectId" = ${projectId}
-        and runs."createdAt" >= ${windowStartSec}
+        and tr."createdAt" >= ${windowStartSec}
         ${branchSql}
         ${qSql}
       group by tr."testId"
@@ -216,6 +234,7 @@ async function runPageQuery(
 async function runAggregateQuery(
   projectId: string,
   windowStartSec: number,
+  joinSql: ReturnType<typeof sql>,
   branchSql: ReturnType<typeof sql>,
   testIds: readonly string[],
 ): Promise<Map<string, AggregateRow>> {
@@ -235,9 +254,9 @@ async function runAggregateQuery(
           order by tr."createdAt" desc
         ) as "rnTime"
       from "testResults" tr
-      inner join runs on runs.id = tr."runId"
+      ${joinSql}
       where tr."projectId" = ${projectId}
-        and runs."createdAt" >= ${windowStartSec}
+        and tr."createdAt" >= ${windowStartSec}
         and tr."testId" in (${sql.join(
           testIds.map((id) => sql`${id}`),
           sql`, `,

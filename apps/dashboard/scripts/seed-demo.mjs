@@ -321,4 +321,4 @@ log(`  password: ${DEMO_PASSWORD}`);
 log(`  team:     ${teamSlug}`);
 log(`  project:  ${projectSlug}`);
 log(`  api key:  ${apiKey}`);
-log(`  (also written to packages/dashboard-void/.env.seed.json)`);
+log(`  (also written to apps/dashboard/.env.seed.json)`);

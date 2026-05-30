@@ -93,7 +93,17 @@ test.describe("Realtime UI updates (SyncedStateServer)", () => {
     const request = await playwright.request.newContext({ baseURL: ctx.url });
     try {
       const runId = await openRun(request, ctx.apiKey);
+      // Connect to the live stream BEFORE appending. The subscription is set up
+      // asynchronously after the page hydrates, and a progress event published
+      // before the topic subscribe lands is missed (no replay). Wait for the
+      // /live connection (set up pre-navigation so we can't miss it), then a
+      // brief settle for the async topic subscribe.
+      const liveConnected = runDetailPage.page
+        .waitForResponse((r) => r.url().includes("/live"), { timeout: 15_000 })
+        .catch(() => null);
       await runDetailPage.goto(runId);
+      await liveConnected;
+      await runDetailPage.page.waitForTimeout(500);
 
       const uniqueTitle = `live-test-${Date.now()}`;
       await appendResults(request, ctx.apiKey, runId, [
@@ -116,7 +126,17 @@ test.describe("Realtime UI updates (SyncedStateServer)", () => {
     const request = await playwright.request.newContext({ baseURL: ctx.url });
     try {
       const runId = await openRun(request, ctx.apiKey);
+      // Connect to the live stream BEFORE appending. The subscription is set up
+      // asynchronously after the page hydrates, and a progress event published
+      // before the topic subscribe lands is missed (no replay). Wait for the
+      // /live connection (set up pre-navigation so we can't miss it), then a
+      // brief settle for the async topic subscribe.
+      const liveConnected = runDetailPage.page
+        .waitForResponse((r) => r.url().includes("/live"), { timeout: 15_000 })
+        .catch(() => null);
       await runDetailPage.goto(runId);
+      await liveConnected;
+      await runDetailPage.page.waitForTimeout(500);
 
       await appendResults(request, ctx.apiKey, runId, [
         { testId: "p-1", title: "p1", status: "passed" },

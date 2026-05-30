@@ -8,7 +8,9 @@ import {
   teamInvites,
   teams as teamsTable,
 } from "@schema";
+import { logger } from "void/log";
 import { resolveTeamBySlug } from "@/lib/authz";
+import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
 import { redirectWithParam, requireOwnerScope } from "@/lib/settings-scope";
 import { isValidSlug, SLUG_ERROR } from "@/lib/slug";
@@ -82,10 +84,11 @@ export const actions = {
         .set({ name, slug })
         .where(eq(teamsTable.id, team.id));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      const friendly = msg.includes("UNIQUE")
-        ? "That slug is already taken."
-        : "Could not save changes.";
+      const friendly = mutationErrorMessage(err, {
+        context: "update team failed",
+        uniqueMessage: "That slug is already taken.",
+        genericMessage: "Could not save changes.",
+      });
       return redirectWithParam(c, here, "generalError", friendly);
     }
 
@@ -131,7 +134,11 @@ export const actions = {
 
     try {
       await db.batch(ops as never);
-    } catch {
+    } catch (err) {
+      logger.error("delete team failed", {
+        teamId: team.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
       return redirectWithParam(
         c,
         here,

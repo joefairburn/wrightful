@@ -22,7 +22,7 @@ import { bootDashboard, type DashboardFixture } from "./src/dashboard-fixture";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
-const DASHBOARD_DIR = resolve(ROOT, "packages/dashboard");
+const DASHBOARD_DIR = resolve(ROOT, "apps/dashboard");
 const E2E_DIR = resolve(ROOT, "packages/e2e");
 const REPORT_PATH = resolve(E2E_DIR, "playwright-report.json");
 

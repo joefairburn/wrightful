@@ -14,14 +14,20 @@ import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { seedSecondUser } from "./helpers/second-user";
 
+// Unique per worker process: Playwright runs `beforeAll` once per worker, so a
+// fixed email/slug collides ("user already exists") when the file's tests are
+// split across parallel workers. The pid suffix keeps each worker's second
+// user (and its derived team/project slugs) isolated. Names are chosen so the
+// dashboard's slugify yields exactly teamSlug/projectSlug below.
+const WORKER_SUFFIX = String(process.pid);
 const SECOND_USER = {
-  email: "second@wrightful.test",
+  email: `second-${WORKER_SUFFIX}@wrightful.test`,
   password: "second-second-password-1",
   name: "Second User",
-  teamSlug: "second-team",
-  teamName: "Second Team",
-  projectSlug: "second-proj",
-  projectName: "Second Proj",
+  teamSlug: `second-team-${WORKER_SUFFIX}`,
+  teamName: `Second Team ${WORKER_SUFFIX}`,
+  projectSlug: `second-proj-${WORKER_SUFFIX}`,
+  projectName: `Second Proj ${WORKER_SUFFIX}`,
 };
 
 // Only the seeded runId crosses test boundaries — User A needs a real
@@ -67,11 +73,13 @@ test.describe("UI isolation (User A's browser session)", () => {
       `/t/${SECOND_USER.teamSlug}/p/${SECOND_USER.projectSlug}`,
     );
     expect(res?.status()).toBe(404);
+    await expect(page.getByText(/page not found/i)).toBeVisible();
+    // A leaked runs-list would render the "Runs" <h1> (PageHeader). Assert the
+    // 404 shell does NOT, so this guard can actually fail if team B's chrome
+    // leaks. (/all runs/i matched no UI after the heading was renamed → it was
+    // a vacuous guard.)
     await expect(
-      page.getByRole("heading", { name: /not found/i }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: /all runs/i }),
+      page.getByRole("heading", { name: /^Runs$/ }),
     ).not.toBeVisible();
   });
 
@@ -83,8 +91,10 @@ test.describe("UI isolation (User A's browser session)", () => {
       `/t/${SECOND_USER.teamSlug}/p/${SECOND_USER.projectSlug}/runs/${teamBRunId}`,
     );
     expect(res?.status()).toBe(404);
-    // NotFoundPage shell renders no labelled test list.
-    await expect(page.getByRole("list", { name: /^Tests in / })).toHaveCount(0);
+    // A leaked run-detail would render test-row links (a[href*="/tests/"]); the
+    // 404 shell renders none, so this guard can fail if team B's run leaks.
+    // (The old /Tests in/ labelled-list locator matched no UI → vacuous.)
+    await expect(page.locator('a[href*="/tests/"]')).toHaveCount(0);
   });
 
   test("team B's settings page is not visible to User A", async ({ page }) => {

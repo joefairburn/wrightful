@@ -15,9 +15,10 @@ test.describe("API keys settings", () => {
     await expect(row).toBeVisible();
     await expect(row.getByText(/active/i)).toBeVisible();
 
-    // Reload: reveal cookie is one-shot. Plaintext must NOT reappear.
+    // Reload: the token lives only in transient client state, never
+    // persisted. The reveal dialog must NOT reappear.
     await apiKeysPage.goto();
-    await expect(apiKeysPage.revealAlert).not.toBeVisible();
+    await expect(apiKeysPage.revealDialog).not.toBeVisible();
   });
 
   test("revokes a key and the status flips to 'revoked'", async ({

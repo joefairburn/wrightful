@@ -18,7 +18,7 @@ const TEAM_SLUG = inject("teamSlug");
 const PROJECT_SLUG = inject("projectSlug");
 const BETTER_AUTH_SECRET = inject("betterAuthSecret");
 
-// Mirrors packages/dashboard/src/lib/artifact-tokens.ts#signArtifactToken.
+// Mirrors apps/dashboard/src/lib/artifact-tokens.ts#signArtifactToken.
 // Artifact downloads are gated by a short-lived HMAC token the dashboard mints
 // server-side on authenticated pages; the e2e suite holds the same secret, so
 // we can forge a valid token rather than scrape one out of the rendered HTML.
@@ -75,7 +75,10 @@ describe("Wrightful E2E", () => {
       const res = await fetchAuthed(PROJECT_URL);
       const html = await res.text();
       expect(res.status).toBe(200);
-      expect(html).toContain("All Runs");
+      // Assert on a marker UNIQUE to the runs-list page, not the bare word
+      // "Runs" (which the sidebar nav prints on every tenant page). The Void
+      // page-data component id is rendered only by this route.
+      expect(html).toContain('"component":"t/[teamSlug]/p/[projectSlug]"');
     });
   });
 

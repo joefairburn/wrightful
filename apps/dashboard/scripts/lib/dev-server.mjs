@@ -158,7 +158,7 @@ export async function ensureDashboardRunning(seed, opts = {}) {
     "pnpm",
     [
       "--filter",
-      "@wrightful/dashboard-void",
+      "@wrightful/dashboard",
       "exec",
       "vp",
       "dev",
@@ -257,7 +257,7 @@ export async function startDevServerForSeed(opts = {}) {
     "pnpm",
     [
       "--filter",
-      "@wrightful/dashboard-void",
+      "@wrightful/dashboard",
       "exec",
       "vp",
       "dev",

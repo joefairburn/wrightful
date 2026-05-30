@@ -3,10 +3,10 @@ import { type Locator, type Page, expect } from "@playwright/test";
 /**
  * Page object for `/t/:teamSlug/p/:projectSlug/runs/:runId`.
  *
- * Test-row anchors are recovered via the labelled list (`<ul
- * aria-label="Tests in foo.spec.ts">`) — leans on real a11y instead
- * of a test-only attribute. The back-link is recovered by URL suffix
- * since it's generic chrome.
+ * Test-row anchors are recovered by href suffix (`a[href*="/tests/"]`) —
+ * every row in the `RunProgress` Tests tab links to
+ * `…/runs/<runId>/tests/<id>`, and no other anchor on the page does. The
+ * back-link is recovered by URL suffix since it's generic chrome.
  */
 export class RunDetailPage {
   readonly page: Page;
@@ -20,11 +20,13 @@ export class RunDetailPage {
     this.page = page;
     this.teamSlug = teamSlug;
     this.projectSlug = projectSlug;
-    // Scope to the labelled test lists so we don't pick up unrelated
-    // anchors elsewhere on the page.
-    this.testRowLinks = page
-      .getByRole("list", { name: /^Tests in / })
-      .getByRole("link");
+    // Each test row in the Tests tab (`RunProgress` → `TestRow`) renders as
+    // a `<Link>` whose href is `…/runs/<runId>/tests/<id>?attempt=0`. Scope
+    // to those anchors by href: no other anchor on the run-detail page
+    // points at `/tests/` (tab links use `?tab=`, the branch/PR/commit pills
+    // are external github.com links, and the history-chart points link to
+    // `/runs/<id>` without `/tests/`).
+    this.testRowLinks = page.locator('a[href*="/tests/"]');
     this.attemptsHeading = page.getByRole("heading", {
       name: /attempts & errors/i,
     });
@@ -49,6 +51,11 @@ export class RunDetailPage {
     const link = this.testRowLinks.first();
     await expect(link).toBeVisible({ timeout: 10_000 });
     await link.click();
-    await this.page.waitForURL(/\/tests\//, { timeout: 10_000 });
+    // Wait for the navigation to SETTLE on a test-detail URL. We don't re-click
+    // on a slow nav (a second click can land on a stale element on the
+    // already-changed page); a generous wait + load-state ride out the
+    // hydration/SPA transition without racing a transient URL.
+    await this.page.waitForURL(/\/tests\//, { timeout: 15_000 });
+    await this.page.waitForLoadState("load");
   }
 }

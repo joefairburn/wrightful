@@ -20,13 +20,15 @@ export class LoginPage {
     this.nameInput = page.getByLabel(/^name$/i);
     this.emailInput = page.getByLabel(/email/i);
     this.passwordInput = page.getByLabel(/password/i);
-    this.signInButton = page.getByRole("button", { name: /sign in/i });
+    this.signInButton = page.getByRole("button", {
+      name: /continue|signing in/i,
+    });
     this.createAccountButton = page.getByRole("button", {
       name: /create account/i,
     });
     this.errorAlert = page.getByRole("alert");
     this.signUpHeading = page.getByRole("heading", {
-      name: /create your account/i,
+      name: /create your wrightful account/i,
     });
   }
 
@@ -40,6 +42,12 @@ export class LoginPage {
   }
 
   async signIn(email: string, password: string): Promise<void> {
+    // Wait for hydration BEFORE filling. The inputs are React-controlled; if we
+    // type before the island hydrates, hydration resets them to their empty
+    // initial state and we silently submit blank credentials (which hangs).
+    // The submit button stays `disabled` until the form's hydration effect
+    // runs, so its enabled state is a reliable hydration gate.
+    await expect(this.signInButton).toBeEnabled({ timeout: 15_000 });
     await this.emailInput.fill(email);
     await this.passwordInput.fill(password);
     await this.signInButton.click();
@@ -50,6 +58,11 @@ export class LoginPage {
     email: string;
     password: string;
   }): Promise<void> {
+    // Wait for hydration before filling (see signIn): typing into the
+    // controlled inputs pre-hydration lets React reset them to empty on
+    // hydration, submitting a blank form. The disabled-until-hydrated submit
+    // button is the gate.
+    await expect(this.createAccountButton).toBeEnabled({ timeout: 15_000 });
     await this.nameInput.fill(opts.name);
     await this.emailInput.fill(opts.email);
     await this.passwordInput.fill(opts.password);
@@ -58,8 +71,10 @@ export class LoginPage {
 
   /** Wait for navigation away from /login or /signup. */
   async waitForLandedOff(prefix: "/login" | "/signup"): Promise<void> {
+    // Generous timeout: email sign-in/up runs a scrypt password hash which is
+    // markedly slow on the local miniflare dev server the e2e harness boots.
     await this.page.waitForURL((url) => !url.pathname.startsWith(prefix), {
-      timeout: 15_000,
+      timeout: 30_000,
     });
   }
 }

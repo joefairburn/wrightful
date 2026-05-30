@@ -4,13 +4,11 @@
  * AND API key cannot reach User B's resources.
  *
  * Mirrors the same flow `bootDashboard` runs at suite start (sign-up via
- * Better Auth → form-POST to /settings/teams/new + projects/new + keys).
- * Kept in tests-dashboard because it's spec-specific — bootDashboard
- * stays scoped to the singleton "the suite's primary user" case.
+ * Better Auth → form-POST to /settings/teams/new + projects/new, then the
+ * Void key API route). Kept in tests-dashboard because it's spec-specific —
+ * bootDashboard stays scoped to the singleton "the suite's primary user" case.
  */
 import type { APIRequestContext, APIResponse } from "@playwright/test";
-
-const REVEAL_COOKIE = "wrightful_reveal_key";
 
 /**
  * Playwright's APIResponse exposes multi-valued headers via headersArray().
@@ -109,41 +107,31 @@ export async function seedSecondUser(
     );
   }
 
-  // Key (with reveal cookie).
-  const keyForm = new URLSearchParams({
-    action: "create",
-    label: "second-user-e2e",
-  }).toString();
+  // Key — minted via the Void API route, which returns the plaintext token in
+  // the JSON body (no pre-Void server-action reveal cookie).
   const keyRes = await request.post(
-    `/settings/teams/${creds.teamSlug}/p/${creds.projectSlug}/keys`,
+    `/api/teams/${creds.teamSlug}/p/${creds.projectSlug}/keys`,
     {
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Type": "application/json",
         Origin: baseUrl,
         Cookie: cookieHeader,
       },
-      data: keyForm,
+      data: { label: "second-user-e2e" },
       maxRedirects: 0,
       failOnStatusCode: false,
     },
   );
-  if (keyRes.status() !== 302) {
+  if (!keyRes.ok()) {
     throw new Error(
       `[second-user] key creation returned ${keyRes.status()}: ${await keyRes.text()}`,
     );
   }
-  let apiKey: string | undefined;
-  for (const raw of readSetCookies(keyRes)) {
-    const eq = raw.indexOf("=");
-    if (eq < 0) continue;
-    if (raw.slice(0, eq) === REVEAL_COOKIE) {
-      const value = raw.slice(eq + 1);
-      if (value) apiKey = decodeURIComponent(value);
-    }
-  }
+  const keyBody = (await keyRes.json()) as { token?: unknown };
+  const apiKey = typeof keyBody.token === "string" ? keyBody.token : undefined;
   if (!apiKey) {
     throw new Error(
-      "[second-user] key creation succeeded but reveal cookie missing",
+      "[second-user] key creation succeeded but no token in response body",
     );
   }
 

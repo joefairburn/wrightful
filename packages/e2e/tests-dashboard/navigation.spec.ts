@@ -1,7 +1,7 @@
 import { expect, test } from "./fixtures";
 
 test.describe("Authed navigation", () => {
-  test("project page renders the All Runs heading and at least one run row", async ({
+  test("project page renders the Runs heading and at least one run row", async ({
     runsListPage,
   }) => {
     await runsListPage.goto();
@@ -27,9 +27,7 @@ test.describe("Authed navigation", () => {
     const res = await page.goto(`/t/${runsListPage.teamSlug}/p/does-not-exist`);
     expect(res?.status()).toBe(404);
     // NotFoundPage renders, not the runs-list page chrome.
-    await expect(
-      page.getByRole("heading", { name: /not found/i }),
-    ).toBeVisible();
+    await expect(page.getByText(/page not found/i)).toBeVisible();
     await expect(runsListPage.heading).not.toBeVisible();
   });
 });

@@ -138,8 +138,13 @@ export function buildQueuePrefillStatements(
     workerIndex: null,
     createdAt: nowSeconds,
   }));
+  // `onConflictDoNothing` on the (runId, testId) unique index makes prefill
+  // safe to run from every shard of a sharded suite: shards share one
+  // idempotencyKey (so they re-open the same run), and each shard prefills its
+  // own slice of planned tests without clobbering rows another shard already
+  // created or completed.
   return chunkByParams(rows, TEST_RESULTS_COLUMNS).map((chunk) =>
-    db.insert(testResults).values(chunk),
+    db.insert(testResults).values(chunk).onConflictDoNothing(),
   );
 }
 
@@ -421,7 +426,10 @@ export function aggregateDeltaStatement(
     .returning(AGGREGATE_SUMMARY_COLUMNS);
 }
 
-export function aggregateRecomputeStatement(scope: TenantScope, runId: string) {
+export function aggregateRecomputeStatement(
+  scope: { projectId: string },
+  runId: string,
+) {
   const projectId = scope.projectId;
   return db
     .update(runs)
@@ -552,6 +560,16 @@ export async function openRun(
     )
     .limit(1);
   if (existing[0]) {
+    // Sharded suites share one idempotencyKey, so shards 2..N land here and
+    // return the existing run without re-prefilling. We deliberately do NOT
+    // prefill their planned tests as 'queued' rows: a prefilled row carries a
+    // prev-status that suppresses the +totalTests delta when that shard's real
+    // result streams in (computeAggregateDelta only bumps totalTests for a
+    // genuinely new testId), which would pin totalTests at shard 1's count
+    // mid-flight. Letting shards 2..N's results arrive as fresh rows keeps
+    // totalTests climbing correctly; completeRun's recompute reconciles finals.
+    // The serious sharding bug (a later passing shard overwriting an earlier
+    // failure) is handled by completeRun's atomic monotonic status merge.
     return { runId: existing[0].id, duplicate: true };
   }
 
@@ -676,15 +694,64 @@ export async function appendRunResults(
 }
 
 export type CompleteRunOutcome =
-  | { kind: "ok"; status: CompleteRunPayload["status"] }
+  | { kind: "ok"; status: string }
   | { kind: "notFound" };
+
+/**
+ * Severity ranking for merging terminal run statuses across shards. A sharded
+ * suite calls /complete once per shard against the SAME run (shared
+ * idempotencyKey), and the shards can finish in any order. Without a merge the
+ * last shard wins, so a run where one shard failed could be recorded "passed"
+ * just because an all-passing shard happened to complete last. Higher = worse;
+ * the worst outcome across shards is the run's outcome.
+ */
+const RUN_STATUS_SEVERITY: Record<string, number> = {
+  skipped: 0,
+  passed: 1,
+  flaky: 2,
+  interrupted: 3,
+  timedout: 4,
+  failed: 4,
+};
+
+/**
+ * Merge an incoming /complete status into the run's current status. The first
+ * shard to complete a still-"running" run sets the status verbatim; any later
+ * shard can only escalate to a more-severe outcome, never downgrade it.
+ */
+export function mergeRunStatus(current: string, incoming: string): string {
+  if (current === "running") return incoming;
+  const cur = RUN_STATUS_SEVERITY[current] ?? 0;
+  const inc = RUN_STATUS_SEVERITY[incoming] ?? 0;
+  return inc > cur ? incoming : current;
+}
+
+/**
+ * SQL `CASE` mapping the current `runs.status` column to its severity rank,
+ * built from RUN_STATUS_SEVERITY so it can't drift from `mergeRunStatus` (the
+ * JS reference, exercised by merge-run-status.test.ts). `completeRun` uses this
+ * to merge status ATOMICALLY inside one UPDATE — reading and writing `status`
+ * in a single statement closes the read-modify-write race that a separate
+ * SELECT-then-UPDATE leaves open when two shards complete concurrently.
+ */
+function currentStatusSeveritySql() {
+  let expr = sql`case ${runs.status}`;
+  for (const [status, severity] of Object.entries(RUN_STATUS_SEVERITY)) {
+    expr = sql`${expr} when ${status} then ${severity}`;
+  }
+  return sql`(${expr} else 0 end)`;
+}
 
 /**
  * Finalize a streaming run. Verifies ownership, then in one batch sets the
  * terminal status / durationMs / completedAt and runs one aggregate
  * recompute to reconcile any straggler /results writes that raced this
- * call. Broadcasts the final summary. Idempotent — a second shard calling
- * `complete` re-sets the same values.
+ * call. Broadcasts the final summary.
+ *
+ * Sharding-safe: the terminal status is merged ATOMICALLY in SQL — a single
+ * UPDATE keeps the more-severe outcome (a later all-passing shard can't
+ * overwrite an earlier failure even if two shards' /complete calls overlap),
+ * and durationMs/completedAt take the max across shards rather than last-write.
  */
 export async function completeRun(
   scope: TenantScope,
@@ -699,14 +766,22 @@ export async function completeRun(
     .limit(1);
   if (!owner[0]) return { kind: "notFound" };
 
+  // Monotonic status merge expressed entirely in SQL so the read (current
+  // status) and write happen in one atomic statement — no TOCTOU window
+  // between a SELECT and a separate UPDATE. Mirrors `mergeRunStatus`: a still-
+  // running run takes the incoming status; otherwise only a more-severe
+  // outcome wins.
+  const incomingSeverity = RUN_STATUS_SEVERITY[payload.status] ?? 0;
+  const statusExpr = sql`case when ${runs.status} = 'running' then ${payload.status} when ${currentStatusSeveritySql()} < ${incomingSeverity} then ${payload.status} else ${runs.status} end`;
+
   const nowSeconds = Math.floor(Date.now() / 1000);
   const batchResults = (await db.batch([
     db
       .update(runs)
       .set({
-        status: payload.status,
-        durationMs: payload.durationMs,
-        completedAt,
+        status: statusExpr,
+        durationMs: sql`max(${runs.durationMs}, ${payload.durationMs})`,
+        completedAt: sql`max(coalesce(${runs.completedAt}, 0), ${completedAt})`,
       })
       .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId))),
     aggregateRecomputeStatement(scope, runId),
@@ -721,5 +796,46 @@ export async function completeRun(
     await broadcastRunUpdate(runId, [], summary);
   }
 
-  return { kind: "ok", status: payload.status };
+  return { kind: "ok", status: summary?.status ?? payload.status };
+}
+
+/**
+ * Finalize a run the watchdog cron found stuck at status="running" past the
+ * stale window (e.g. the CI job was SIGKILL'd and never called /complete).
+ *
+ * Mirrors `completeRun`'s reconcile-and-broadcast so an abandoned run lands on
+ * accurate aggregates (recomputed from the testResults rows actually present —
+ * not frozen at whatever the last /results delta left) AND live viewers receive
+ * a terminal event instead of spinning on "running" forever. The status flip is
+ * guarded on status="running" so it can't downgrade a run that completed
+ * normally between the cron's scan and this write.
+ *
+ * `run` ids come from a trusted DB row (not user input), so no Authorized* brand
+ * is required here — the recompute is keyed by the run's own projectId.
+ */
+export async function finalizeStaleRun(
+  run: { id: string; projectId: string; teamId: string },
+  completedAt: number,
+): Promise<void> {
+  const batchResults = (await db.batch([
+    db
+      .update(runs)
+      .set({ status: "interrupted", completedAt })
+      .where(
+        and(
+          eq(runs.projectId, run.projectId),
+          eq(runs.id, run.id),
+          eq(runs.status, "running"),
+        ),
+      ),
+    aggregateRecomputeStatement({ projectId: run.projectId }, run.id),
+  ] as never)) as readonly unknown[];
+
+  const summaryRows = batchResults[batchResults.length - 1] as
+    | readonly RunAggregateSummary[]
+    | undefined;
+  const summary = summaryRows?.[0];
+  if (summary) {
+    await broadcastRunUpdate(run.id, [], summary);
+  }
 }

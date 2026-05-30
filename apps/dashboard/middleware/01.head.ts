@@ -16,7 +16,12 @@ import { defineMiddleware } from "void";
  */
 export default defineMiddleware(async (c, next) => {
   c.set("headDefaults", {
-    htmlAttrs: { class: "dark" },
+    // Default document title — fixes axe `document-title` (serious). Pages can
+    // override via a `head()` export (page > middleware precedence).
+    title: "Wrightful",
+    // `lang` on <html> — fixes axe `html-has-lang` (serious). Like `class`, it
+    // persists across SPA transitions even though htmlAttrs is SSR-only.
+    htmlAttrs: { class: "dark", lang: "en" },
     script: [
       {
         innerHTML:

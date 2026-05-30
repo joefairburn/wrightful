@@ -26,7 +26,9 @@ test.describe("Auth", () => {
     }) => {
       await loginPage.gotoSignIn();
       await loginPage.signIn(ctx.email, "not-the-real-password");
-      await expect(loginPage.errorAlert).toBeVisible();
+      // Generous timeout — the failed sign-in still runs the slow scrypt
+      // verify on the local miniflare server before the error comes back.
+      await expect(loginPage.errorAlert).toBeVisible({ timeout: 30_000 });
       await expect(loginPage.page).toHaveURL(/\/login/);
     });
 

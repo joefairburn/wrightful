@@ -51,11 +51,37 @@ export default defineMiddleware(async (c, next) => {
   try {
     await next();
   } catch (err) {
-    if (isApi || alreadyErrorPage) throw err;
+    if (isApi) {
+      // /api/* responses stay machine-readable (reporters + trace viewer), so
+      // we never rewrite them to HTML — but unexpected failures on the ingest
+      // hot path MUST surface in Cloudflare Tail. Log genuine errors (raw
+      // throws and 5xx) before re-throwing; intentional 4xx control-flow
+      // Responses (404/400/409 the handlers throw) stay quiet.
+      const apiStatus = extractStatus(err);
+      if (apiStatus === null || apiStatus >= 500) {
+        logger.error("unhandled error on api request", {
+          path,
+          status: apiStatus ?? 500,
+          message: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
+      }
+      throw err;
+    }
+    if (alreadyErrorPage) throw err;
 
     const status = extractStatus(err);
     if (status === 401) return c.redirect("/login");
-    if (status === 404) return c.rewrite(NOT_FOUND_PATH);
+    if (status === 404) {
+      // Rewrite to the not-found page but preserve the 404 status — a missing
+      // resource must answer 404, not 200 (correct semantics + no
+      // existence-leak signal for foreign tenants).
+      const rewritten = await c.rewrite(NOT_FOUND_PATH);
+      return new Response(rewritten.body, {
+        status: 404,
+        headers: rewritten.headers,
+      });
+    }
 
     logger.error("unhandled error in request pipeline", {
       path,
@@ -65,7 +91,25 @@ export default defineMiddleware(async (c, next) => {
     return c.rewrite(OOPS_PATH);
   }
 
-  if (isApi || alreadyErrorPage || FILE_EXT_RE.test(path)) return;
+  if (isApi) {
+    // Hono converts a thrown Error (e.g. a failed `db.batch` in the ingest
+    // pipeline) into a 500 Response BEFORE `next()` unwinds, so the catch
+    // above never sees it — the throw doesn't propagate. Catch that case here:
+    // log API 5xx (with the stashed `c.error`) so ingest failures surface in
+    // Cloudflare Tail. We still never rewrite /api/* responses — reporters and
+    // the trace viewer keep the machine-readable body.
+    const apiStatus = c.res?.status;
+    if (apiStatus !== undefined && apiStatus >= 500) {
+      logger.error("api 5xx response", {
+        path,
+        status: apiStatus,
+        message: c.error instanceof Error ? c.error.message : undefined,
+        stack: c.error instanceof Error ? c.error.stack : undefined,
+      });
+    }
+    return;
+  }
+  if (alreadyErrorPage || FILE_EXT_RE.test(path)) return;
 
   // HTTPException paths land here: `await next()` returned normally, but
   // Hono's default errorHandler turned the exception into a Response and
@@ -88,7 +132,15 @@ export default defineMiddleware(async (c, next) => {
   }
   if (responseStatus === 404) {
     const rewritten = await c.rewrite(NOT_FOUND_PATH);
-    replaceResponse(c, rewritten);
+    // Preserve the 404 status (the rewrite target renders 200) so a missing
+    // resource answers 404, not 200.
+    replaceResponse(
+      c,
+      new Response(rewritten.body, {
+        status: 404,
+        headers: rewritten.headers,
+      }),
+    );
     return;
   }
   if (responseStatus !== undefined && responseStatus >= 500) {
