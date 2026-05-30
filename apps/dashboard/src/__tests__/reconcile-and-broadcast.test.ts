@@ -19,7 +19,10 @@ import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
  *   - the summary broadcast to `run:<runId>` is the LAST batch result's first row
  *     (transactionally consistent with the recompute), with empty changedTests,
  *   - no broadcast when the recompute matched no row (run vanished mid-flight),
- *   - the merged summary is returned to the caller either way.
+ *   - the merged summary is returned to the caller either way,
+ *   - with `requireStatusFlip`, a no-op finalize (FIRST element's
+ *     `meta.changes === 0`) is silent — no redundant broadcast — while a real
+ *     flip still broadcasts, and the guard is OFF for completeRun.
  * The atomicity guarantee itself lives at the D1 boundary and is out of scope.
  */
 
@@ -150,5 +153,60 @@ describe("reconcileAndBroadcast", () => {
     );
 
     expect(summary?.status).toBe("failed");
+  });
+
+  // `requireStatusFlip` is the finalizeStaleRun no-op guard. The guarded flip is
+  // the FIRST batch element; its `meta.changes` says whether the run was still
+  // "running" when the sweep wrote. A real D1 `run` statement returns a D1Result
+  // ({ meta: { changes } }) for the non-.returning() flip — so the head element
+  // here is that shape, not a rows array.
+  describe("requireStatusFlip (finalizeStaleRun no-op guard)", () => {
+    it("suppresses the broadcast when the guarded flip matched 0 rows", async () => {
+      // Cron overlap / a winning /complete left the run off "running"; the flip
+      // no-ops, but the (unguarded) recompute still returns the row's terminal
+      // summary. The duplicate progress event is suppressed; DB is untouched.
+      batchSpy.mockResolvedValue([{ meta: { changes: 0 } }, [SUMMARY]]);
+
+      const summary = await reconcileAndBroadcast(
+        "run-raced",
+        { __stmt: "status-flip" } as unknown as PromiseLike<unknown>,
+        { projectId: "proj-1" },
+        { requireStatusFlip: true },
+      );
+
+      // Summary is still returned (callers may read it back), broadcast is not.
+      expect(summary).toEqual(SUMMARY);
+      expect(publishSpy).not.toHaveBeenCalled();
+    });
+
+    it("broadcasts when the guarded flip changed a row (the run was live)", async () => {
+      batchSpy.mockResolvedValue([{ meta: { changes: 1 } }, [SUMMARY]]);
+
+      const summary = await reconcileAndBroadcast(
+        "run-stuck",
+        { __stmt: "status-flip" } as unknown as PromiseLike<unknown>,
+        { projectId: "proj-1" },
+        { requireStatusFlip: true },
+      );
+
+      expect(summary).toEqual(SUMMARY);
+      expect(publishSpy).toHaveBeenCalledTimes(1);
+      expect(publishSpy.mock.calls[0]![0]).toBe("run-stuck");
+    });
+
+    it("still broadcasts on a 0-row flip when requireStatusFlip is OFF (completeRun)", async () => {
+      // completeRun's merge UPDATE has no status guard — it always matches the
+      // owned row — so it never opts into the guard and always broadcasts. Even
+      // a (hypothetical) 0-change head must not suppress its broadcast.
+      batchSpy.mockResolvedValue([{ meta: { changes: 0 } }, [SUMMARY]]);
+
+      await reconcileAndBroadcast(
+        "run-complete",
+        { __stmt: "status-flip" } as unknown as PromiseLike<unknown>,
+        { projectId: "proj-1" },
+      );
+
+      expect(publishSpy).toHaveBeenCalledTimes(1);
+    });
   });
 });

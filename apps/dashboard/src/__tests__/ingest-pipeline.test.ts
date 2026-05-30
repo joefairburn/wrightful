@@ -19,8 +19,8 @@ import type {
  * broadcast. The leaf pure helpers (computeAggregateDelta, mergeRunStatus,
  * buildChangedTests, summaryFromBatchResults, reconcileAndBroadcast) each have
  * their own unit suite, but the *orchestration glue that wires them together*
- * — that the no-delta path swaps the delta UPDATE for a SELECT, that ownership
- * returns notFound, that the duplicate-open path still prefills this shard's
+ * — that the no-delta path swaps the delta UPDATE for a liveness-bump UPDATE,
+ * that ownership returns notFound, that the duplicate-open path still prefills this shard's
  * queued rows, that appendRunResults feeds prevStatus -> delta -> the broadcast
  * summary — was reachable only by booting a real run end-to-end.
  *
@@ -35,7 +35,7 @@ import type {
  *   - openRun: duplicate idempotencyKey returns { duplicate: true } WITHOUT a
  *     fresh runs insert, but still prefills this shard's planned rows;
  *   - appendRunResults: the delta UPDATE is appended LAST in the batch on a
- *     real delta, swapped for a summary SELECT on a no-op delta, and the
+ *     real delta, swapped for a liveness-bump UPDATE on a no-op delta, and the
  *     broadcast summary is exactly batchResults[last][0];
  *   - completeRun / appendRunResults: ownership miss returns { kind: "notFound" }
  *     with no batch and no broadcast.
@@ -303,10 +303,12 @@ describe("appendRunResults", () => {
     expect(event.changedTests).toHaveLength(1);
   });
 
-  it("on a no-op delta (re-send of an unchanged status): swaps the delta UPDATE for a summary SELECT as the LAST statement", async () => {
+  it("on a no-op delta (re-send of an unchanged status): swaps the delta UPDATE for a liveness-bump UPDATE as the LAST statement", async () => {
     // [0] ownership SELECT → owned; [1] resolveTestResultIds SELECT → the test
     // already exists at the SAME status, so computeAggregateDelta is all-zero
-    // and aggregateDeltaStatement returns null → the no-delta SELECT swap.
+    // and aggregateDeltaStatement returns null → the no-delta branch swaps in
+    // `activityBumpStatement` (a liveness-only UPDATE, not a read-only SELECT)
+    // so even a zero-bucket-change flush advances `lastActivityAt`.
     awaitResults = [
       [{ id: "run-1" }],
       [{ id: "tr-1", testId: "t1", status: "passed" }],
@@ -321,8 +323,9 @@ describe("appendRunResults", () => {
 
     expect(out.kind).toBe("ok");
     const batched = batchSpy.mock.calls[0]![0] as BuilderNode[];
-    // No delta → the summary is a plain SELECT appended last, not an UPDATE.
-    expect(batched.at(-1)!.__kind).toBe("select");
+    // No delta → the summary statement is the liveness-bump UPDATE appended
+    // last (it still `.returning()`s the summary), NOT a read-only SELECT.
+    expect(batched.at(-1)!.__kind).toBe("update");
     expect(publishSpy).toHaveBeenCalledTimes(1);
     const [, event] = publishSpy.mock.calls[0]! as [
       string,

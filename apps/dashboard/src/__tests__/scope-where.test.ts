@@ -5,6 +5,7 @@ import {
   makeTenantScope,
   runByIdWhere,
   runScopeWhere,
+  staleRunFilter,
   type TenantScope,
 } from "@/lib/scope";
 
@@ -168,5 +169,76 @@ describe("makeTenantScope", () => {
       teamId: "team_abc",
       projectId: "proj_xyz",
     });
+  });
+});
+
+/**
+ * `staleRunFilter` is the single definition of "this run is stuck" for the cron
+ * watchdog (and any future admin force-complete / "stalled?" badge). The whole
+ * point of the finding is that this predicate keys off the `lastActivityAt`
+ * LIVENESS signal — not `createdAt` — so an actively-streaming long suite is no
+ * longer force-flipped to 'interrupted'. These tests pin that shape so a future
+ * edit can't silently revert to `lt(createdAt)` (which would re-introduce the
+ * false positive) or forget the `status = 'running'` guard (which would let it
+ * "finalize" already-terminal runs).
+ *
+ * Operators record their arguments under the `void/db` stub, so we read back
+ * the exact predicate the helper emits.
+ */
+describe("staleRunFilter", () => {
+  type RecordedSql = {
+    __op: string;
+    strings: TemplateStringsArray;
+    args: readonly unknown[];
+  };
+
+  /** The `eq`/`lt` children of the top-level `and(...)`, by operator name. */
+  function readStaleChildren(node: unknown) {
+    const op = node as RecordedOp;
+    expect(op.__op).toBe("and");
+    const byOp: Record<string, RecordedOp> = {};
+    for (const child of op.args) {
+      const c = child as RecordedOp;
+      byOp[c.__op] = c;
+    }
+    return byOp;
+  }
+
+  it("guards on status = 'running' so it can't finalize already-terminal runs", () => {
+    const children = readStaleChildren(staleRunFilter(1000));
+    expect(children.eq).toBeDefined();
+    const { column, value } = readEq(children.eq);
+    expect(column).toBe("status");
+    expect(value).toBe("running");
+  });
+
+  it("compares the lastActivityAt liveness signal (not createdAt) against the cutoff", () => {
+    const cutoff = 1_700_000_000;
+    const children = readStaleChildren(staleRunFilter(cutoff));
+    // The temporal half is an `lt(<sql coalesce(...)>, cutoff)`.
+    expect(children.lt).toBeDefined();
+    const [lhs, rhs] = children.lt.args;
+    expect(rhs).toBe(cutoff);
+    // The left operand is a coalesce SQL fragment that references BOTH
+    // lastActivityAt (the liveness column) AND createdAt (the NULL fallback),
+    // never createdAt alone — that is the entire correctness of the finding.
+    const fragment = lhs as RecordedSql;
+    expect(fragment.__op).toBe("sql");
+    const columnNames = fragment.args.map(
+      (a) => (a as { name?: unknown })?.name,
+    );
+    expect(columnNames).toContain("lastActivityAt");
+    expect(columnNames).toContain("createdAt");
+    // The liveness column is the primary operand; createdAt is only the
+    // coalesce fallback (i.e. lastActivityAt comes first).
+    expect(columnNames.indexOf("lastActivityAt")).toBeLessThan(
+      columnNames.indexOf("createdAt"),
+    );
+  });
+
+  it("ANDs exactly two predicates — the status guard and the staleness compare", () => {
+    const op = staleRunFilter(0) as unknown as RecordedOp;
+    expect(op.__op).toBe("and");
+    expect(op.args).toHaveLength(2);
   });
 });

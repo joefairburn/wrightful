@@ -212,6 +212,22 @@ export const runs = sqliteTable(
     reporterVersion: text("reporterVersion"),
     playwrightVersion: text("playwrightVersion"),
     createdAt: integer("createdAt").notNull(),
+    /**
+     * Liveness signal: the epoch-seconds timestamp of the most recent ingest
+     * write to this run. Initialized to `createdAt` at open (so an onBegin-only
+     * dead run is still sweepable) and bumped to "now" in the SAME D1 batch as
+     * every subsequent /results, /complete, and watchdog write — never a
+     * separate round-trip.
+     *
+     * The cron watchdog (`crons/sweep-stuck-runs.ts`) keys off THIS, not
+     * `createdAt`, via `staleRunFilter` (src/lib/scope.ts): "no write activity
+     * for N minutes" is what 'stuck' actually means, so a legitimately long
+     * suite that is still streaming results is no longer force-flipped to
+     * 'interrupted'. Nullable for migration safety on rows that predate the
+     * column; readers `coalesce(lastActivityAt, createdAt)` so a NULL is never
+     * treated as "infinitely stale".
+     */
+    lastActivityAt: integer("lastActivityAt"),
     completedAt: integer("completedAt"),
   },
   (t) => [
@@ -231,6 +247,14 @@ export const runs = sqliteTable(
       t.createdAt,
     ),
     index("runs_project_actor_idx").on(t.projectId, t.actor),
+    /**
+     * Serves the watchdog sweep SELECT (`sweepStaleRuns` / `staleRunFilter`):
+     * `status = 'running' AND coalesce(lastActivityAt, createdAt) < cutoff`.
+     * Without it the sweep is a status-filtered table scan; this lets D1 seek
+     * straight to the 'running' rows (a small slice in steady state) and walk
+     * them in lastActivityAt order so the bounded `.limit` slice is cheap.
+     */
+    index("runs_status_lastActivityAt_idx").on(t.status, t.lastActivityAt),
   ],
 );
 

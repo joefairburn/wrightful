@@ -1,5 +1,6 @@
 import { ulid } from "ulid";
 import { and, db, eq, inArray, sql } from "void/db";
+import { logger } from "void/log";
 import {
   runs,
   testAnnotations,
@@ -9,7 +10,7 @@ import {
   teams,
 } from "@schema";
 import { runBatch } from "@/lib/db-batch";
-import { runByIdWhere, type TenantScope } from "@/lib/scope";
+import { runByIdWhere, staleRunFilter, type TenantScope } from "@/lib/scope";
 import type {
   AppendResultsPayload,
   CompleteRunPayload,
@@ -51,6 +52,22 @@ export type RunAggregateSummary = RunProgressEvent["summary"];
 const MAX_PARAMS_PER_STATEMENT = 99;
 
 /**
+ * Slice `items` into consecutive sub-arrays of at most `size` (always ≥1, so a
+ * pathological `size <= 0` still makes progress one item at a time rather than
+ * looping forever). The single home for fixed-size chunking — both the D1
+ * param-cap chunker (`chunkByParams`) and the watchdog's bounded-concurrency
+ * drain (`drainStaleRuns`) compute their per-chunk count and hand it here.
+ */
+export function chunkBySize<T>(items: T[], size: number): T[][] {
+  const step = Math.max(1, size);
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += step) {
+    chunks.push(items.slice(i, i + step));
+  }
+  return chunks;
+}
+
+/**
  * Split `rows` into sub-arrays whose `.values(chunk)` multi-row insert stays
  * under D1's per-statement parameter ceiling, given the number of columns each
  * row binds. Hides the `Math.floor(99 / columnsPerRow)` arithmetic behind one
@@ -61,15 +78,10 @@ const MAX_PARAMS_PER_STATEMENT = 99;
  * form is kept for the unit test that asserts the chunking math directly.
  */
 export function chunkByParams<T>(rows: T[], columnsPerRow: number): T[][] {
-  const rowsPerStatement = Math.max(
-    1,
+  return chunkBySize(
+    rows,
     Math.floor(MAX_PARAMS_PER_STATEMENT / columnsPerRow),
   );
-  const chunks: T[][] = [];
-  for (let i = 0; i < rows.length; i += rowsPerStatement) {
-    chunks.push(rows.slice(i, i + rowsPerStatement));
-  }
-  return chunks;
 }
 
 /**
@@ -440,6 +452,7 @@ export function aggregateDeltaStatement(
   scope: TenantScope,
   runId: string,
   delta: AggregateDelta,
+  nowSeconds: number,
 ) {
   if (
     delta.totalTests === 0 &&
@@ -458,7 +471,31 @@ export function aggregateDeltaStatement(
       failed: sql`${runs.failed} + ${delta.failed}`,
       flaky: sql`${runs.flaky} + ${delta.flaky}`,
       skipped: sql`${runs.skipped} + ${delta.skipped}`,
+      // Bump the liveness signal in the SAME statement as the counter deltas —
+      // no extra round-trip. `staleRunFilter` reads this so the watchdog can't
+      // mistake an actively-streaming suite for a dead one.
+      lastActivityAt: nowSeconds,
     })
+    .where(runByIdWhere(scope, runId))
+    .returning(AGGREGATE_SUMMARY_COLUMNS);
+}
+
+/**
+ * The no-delta /results path still represents live activity (a flush whose
+ * statuses net to zero bucket changes), so it must advance `lastActivityAt`
+ * too — otherwise a suite that only ever re-sends already-counted results would
+ * look dead to `staleRunFilter`. This bumps the liveness signal and projects
+ * the broadcast summary via `.returning()`, replacing the read-only summary
+ * SELECT in that branch so the bump and the snapshot stay in one statement.
+ */
+export function activityBumpStatement(
+  scope: TenantScope,
+  runId: string,
+  nowSeconds: number,
+) {
+  return db
+    .update(runs)
+    .set({ lastActivityAt: nowSeconds })
     .where(runByIdWhere(scope, runId))
     .returning(AGGREGATE_SUMMARY_COLUMNS);
 }
@@ -499,10 +536,15 @@ export function aggregateRecomputeStatement(
 }
 
 /**
- * SELECT the publishable summary inside a batch. Used in the no-delta path of
- * `/results` where the aggregate UPDATE is skipped but we still need a
- * transactionally-consistent snapshot to broadcast alongside the per-test
- * changes.
+ * SELECT the publishable summary inside a batch, for any caller that needs a
+ * transactionally-consistent snapshot to broadcast WITHOUT writing the run row.
+ *
+ * The /results no-delta path used to use this, but now bumps `lastActivityAt`
+ * via `activityBumpStatement` (an UPDATE with the same `.returning()` shape) so
+ * even a zero-bucket-change flush registers as liveness — see
+ * `appendRunResults`. This read-only variant is retained as the SELECT form of
+ * a summary-producing statement (the counterpart `summaryFromBatchResults`
+ * documents) for a future batch that genuinely must not touch the row.
  */
 export function aggregateSummarySelectStatement(
   scope: TenantScope,
@@ -538,19 +580,43 @@ export function summaryFromBatchResults(
 }
 
 /**
+ * Read how many rows a non-`.returning()` statement changed, from its element in
+ * a `db.batch` result. Drizzle passes a `run`-method statement's raw D1 result
+ * straight through, so the element is a `D1Result` whose `meta.changes` is the
+ * affected-row count (0 when a guarded `WHERE` matched nothing). Defaults to 0
+ * for any shape that doesn't carry `meta.changes` — a missing count reads as
+ * "nothing changed", the conservative answer for the no-op guard.
+ *
+ * This is the head-of-batch counterpart to `summaryFromBatchResults` (which owns
+ * the tail-row cast): the single typed home for "did the guarded UPDATE flip a
+ * row?", so `reconcileAndBroadcast` can suppress the follow-up broadcast on a
+ * no-op finalize without each terminal path hand-poking at `meta.changes`.
+ */
+export function statementChangedRows(batchResult: unknown): number {
+  const meta = (batchResult as { meta?: { changes?: number } } | undefined)
+    ?.meta;
+  return typeof meta?.changes === "number" ? meta.changes : 0;
+}
+
+/**
  * Run a heterogeneous write batch whose LAST statement produces the broadcast
  * summary, and return that transactionally-consistent summary (or `null` if the
  * final statement returned no row).
  *
- * Owns the convention shared by `appendRunResults` / `completeRun` /
- * `finalizeStaleRun`: append the summary-producing statement last, run them all
- * in one D1 transaction (`db.batch`), then read back the final result via
- * `summaryFromBatchResults`. `summary` may be any summary-producing statement —
- * a `.returning()` UPDATE or a `.select()` — both project
- * `AGGREGATE_SUMMARY_COLUMNS`, so both yield `RunAggregateSummary[]`. Concentrating
- * the append-last + run + read-last positional contract here means callers can't
- * silently break the broadcast by inserting a trailing statement or by counting
- * array positions wrong.
+ * Owns the convention used by `appendRunResults`: append the summary-producing
+ * statement last, run them all in one D1 transaction (`db.batch`), then read back
+ * the final result via `summaryFromBatchResults`. `summary` may be any
+ * summary-producing statement — a `.returning()` UPDATE or a `.select()` — both
+ * project `AGGREGATE_SUMMARY_COLUMNS`, so both yield `RunAggregateSummary[]`.
+ * Concentrating the append-last + run + read-last positional contract here means
+ * callers can't silently break the broadcast by inserting a trailing statement or
+ * by counting array positions wrong.
+ *
+ * The terminal paths (`completeRun` / `finalizeStaleRun`) follow the same
+ * append-summary-last convention but go through `reconcileAndBroadcast`, which
+ * runs the batch directly so it can ALSO read the head element (the status flip's
+ * `meta.changes`) to suppress a no-op finalize's broadcast — a read this
+ * summary-only helper doesn't surface.
  *
  * The batch is `PromiseLike<unknown>[]` for the same reason as
  * `buildResultInsertStatements`: Drizzle's batch accepts a heterogeneous tuple
@@ -571,9 +637,10 @@ export async function runBatchWithSummary(
  * `finalizeStaleRun`: run the caller's status-flip UPDATE together with a single
  * `aggregateRecomputeStatement` (which projects the broadcast summary via its
  * `.returning()`) in one D1 batch, then broadcast that transactionally-consistent
- * summary to `run:<runId>` subscribers — but only when the recompute matched a
- * row. The recompute is appended LAST so `runBatchWithSummary` reads its
- * `.returning()` row back as the summary.
+ * summary to `run:<runId>` subscribers. The status-flip is FIRST and the
+ * recompute is LAST, so `statementChangedRows(batchResults[0])` reads the flip's
+ * affected-row count and `summaryFromBatchResults` reads the recompute's
+ * `.returning()` row as the summary.
  *
  * Both terminal paths differ ONLY in the status-flip statement (completeRun
  * merges severity in SQL + max()'s duration/completedAt; finalizeStaleRun flips
@@ -584,6 +651,16 @@ export async function runBatchWithSummary(
  * cron docstring). Returns the summary so callers can read back the merged
  * `status` (or ignore it).
  *
+ * `requireStatusFlip` gates the broadcast on the status-flip UPDATE having
+ * changed a row. `finalizeStaleRun`'s flip is guarded on status="running", so a
+ * cron pass that overlaps another (or races a real /complete) finds the run
+ * already off "running", matches 0 rows, and — with this set — stays silent
+ * instead of emitting a redundant progress event. This is purely an efficiency
+ * guard: the recompute is idempotent and its `.returning()` carries the row's
+ * true (already-terminal) status, so the suppressed broadcast would have been
+ * correct, just duplicate. completeRun's flip has no status guard (it always
+ * matches the owned row), so it leaves this OFF and always broadcasts.
+ *
  * Note `bumpTeamActivity` is deliberately NOT part of this tail: completeRun
  * bumps team activity (a user-driven /complete), finalizeStaleRun does not (a
  * cron sweep is not user activity). It stays at the caller.
@@ -592,11 +669,20 @@ export async function reconcileAndBroadcast(
   runId: string,
   statusUpdate: PromiseLike<unknown>,
   recomputeScope: { projectId: string },
+  opts?: { requireStatusFlip?: boolean },
 ): Promise<RunAggregateSummary | null> {
-  const summary = await runBatchWithSummary(
-    [statusUpdate],
+  const batchResults = await runBatch([
+    statusUpdate,
     aggregateRecomputeStatement(recomputeScope, runId),
-  );
+  ]);
+  const summary = summaryFromBatchResults(batchResults);
+
+  // A no-op finalize (guarded flip matched 0 rows) skips the second round-trip:
+  // the run already left "running", so the broadcast would only duplicate the
+  // terminal event a winning /complete or earlier sweep already sent.
+  if (opts?.requireStatusFlip && statementChangedRows(batchResults[0]) === 0) {
+    return summary;
+  }
   if (summary) {
     await broadcastRunUpdate(runId, [], summary);
   }
@@ -640,7 +726,8 @@ export function buildChangedTests(
  * Publish a progress event to `run:<runId>` subscribers. Pure pub — the caller
  * is responsible for producing a `summary` that is transactionally consistent
  * with `changedTests` (typically via `.returning()` on the aggregate UPDATE in
- * the same batch, or `aggregateSummarySelectStatement` when no UPDATE runs).
+ * the same batch, or the liveness-only `activityBumpStatement` when there's no
+ * counter delta to apply).
  * Awaited because the publish RPC mustn't be dropped by workerd termination.
  */
 export async function broadcastRunUpdate(
@@ -752,6 +839,9 @@ export async function openRun(
     reporterVersion: payload.run.reporterVersion ?? null,
     playwrightVersion: payload.run.playwrightVersion ?? null,
     createdAt: nowSeconds,
+    // Seed the liveness signal at open so an onBegin-only dead run (one that
+    // never streams a single /results) is still sweepable by `staleRunFilter`.
+    lastActivityAt: nowSeconds,
     completedAt: null,
   });
 
@@ -822,9 +912,14 @@ export async function appendRunResults(
     scope,
     runId,
     computeAggregateDelta(payload.results, prevStatusByTestId),
+    nowSeconds,
   );
+  // Both branches still advance `lastActivityAt`: the delta UPDATE sets it
+  // alongside the counters; the no-delta branch is a liveness-only UPDATE
+  // (not a read-only SELECT) so a zero-bucket-change flush still counts as
+  // activity for `staleRunFilter`.
   const summaryStmt =
-    deltaStmt ?? aggregateSummarySelectStatement(scope, runId);
+    deltaStmt ?? activityBumpStatement(scope, runId, nowSeconds);
 
   const summary = await runBatchWithSummary(statements, summaryStmt);
   await bumpTeamActivity(scope.teamId, nowSeconds);
@@ -962,6 +1057,10 @@ export async function completeRun(
       status: statusExpr,
       durationMs: sql`max(${runs.durationMs}, ${payload.durationMs})`,
       completedAt: sql`max(coalesce(${runs.completedAt}, 0), ${completedAt})`,
+      // /complete is an ingest write too — keep the liveness signal monotonic
+      // so a late straggler /results racing this can't look stale to the
+      // watchdog. Set in the same statement; no extra round-trip.
+      lastActivityAt: nowSeconds,
     })
     .where(runByIdWhere(scope, runId));
 
@@ -982,6 +1081,11 @@ export async function completeRun(
  * guarded on status="running" so it can't downgrade a run that completed
  * normally between the cron's scan and this write.
  *
+ * `requireStatusFlip` makes a no-op finalize fully silent: when the guarded flip
+ * matches 0 rows (an overlapping cron pass, or a /complete that won the race),
+ * the redundant terminal broadcast is suppressed. The DB stays correct either
+ * way — this just spares the duplicate live event + its round-trip.
+ *
  * `run` ids come from a trusted DB row (not user input), so no Authorized* brand
  * is required here — the recompute is keyed by the run's own projectId.
  */
@@ -991,7 +1095,7 @@ export async function finalizeStaleRun(
 ): Promise<void> {
   const statusUpdate = db
     .update(runs)
-    .set({ status: "interrupted", completedAt })
+    .set({ status: "interrupted", completedAt, lastActivityAt: completedAt })
     .where(
       and(
         eq(runs.projectId, run.projectId),
@@ -1000,7 +1104,108 @@ export async function finalizeStaleRun(
       ),
     );
 
-  await reconcileAndBroadcast(run.id, statusUpdate, {
-    projectId: run.projectId,
+  await reconcileAndBroadcast(
+    run.id,
+    statusUpdate,
+    { projectId: run.projectId },
+    { requireStatusFlip: true },
+  );
+}
+
+/** Counts a watchdog sweep emits: rows seen, finalized, and failed. */
+export interface SweepStaleRunsResult {
+  found: number;
+  finalized: number;
+  failed: number;
+}
+
+/**
+ * Max stale runs finalized concurrently within a sweep pass. `.limit` caps the
+ * TOTAL subrequests per invocation (limit × ~2); this caps how many of those are
+ * in flight at once so we don't open the whole slice's worth of D1/RPC
+ * connections simultaneously. Small constant — parallel enough to keep wall-time
+ * down, conservative enough to stay friendly to the runtime's connection limits.
+ */
+const STALE_RUN_FINALIZE_CONCURRENCY = 10;
+
+/**
+ * Drain a batch of stale runs through `finalize` with bounded concurrency and
+ * partial-failure tolerance, tallying the outcome.
+ *
+ * This is the watchdog's budget policy as a PURE orchestrator: it takes the
+ * already-selected rows and the per-run finalizer as parameters, so it never
+ * touches D1 itself and is unit-testable against a fake finalizer. The D1 SELECT
+ * (with its `.limit`) lives in `sweepStaleRuns` above it.
+ *
+ * Why chunked `Promise.allSettled` rather than the old strict-serial loop: each
+ * `finalize` is ~2 serial round-trips (a `db.batch` recompute + a `void/live`
+ * broadcast), so draining an unbounded backlog one run at a time inside a single
+ * scheduled invocation is exactly how the watchdog self-DoSes under its design
+ * load — the Workers subrequest/CPU budget runs out mid-drain and the invocation
+ * is killed. Running each chunk concurrently keeps wall-time bounded; `allSettled`
+ * means one stuck run's failure never aborts the pass (the survivors still flip,
+ * drop out of the next SELECT, and the backlog keeps shrinking).
+ *
+ * `chunkSize` goes through the same `chunkBySize` slicer the D1 param-cap
+ * chunker uses, so the fixed-size chunking lives in one place; here it bounds
+ * in-flight finalizations per `allSettled` wave rather than D1 params-per-statement.
+ */
+export async function drainStaleRuns<T extends { id: string }>(
+  staleRuns: T[],
+  finalize: (run: T) => Promise<void>,
+  opts: { chunkSize: number; onError?: (run: T, err: unknown) => void },
+): Promise<SweepStaleRunsResult> {
+  let finalized = 0;
+  let failed = 0;
+
+  for (const chunk of chunkBySize(staleRuns, opts.chunkSize)) {
+    const settled = await Promise.allSettled(chunk.map((run) => finalize(run)));
+    settled.forEach((result, i) => {
+      if (result.status === "fulfilled") {
+        finalized++;
+      } else {
+        failed++;
+        opts.onError?.(chunk[i]!, result.reason);
+      }
+    });
+  }
+
+  return { found: staleRuns.length, finalized, failed };
+}
+
+/**
+ * Watchdog entry point: select at most `limit` runs the `staleRunFilter` deems
+ * stuck and finalize them with bounded concurrency, returning the pass's tally.
+ *
+ * The `.limit(limit)` is the load-bearing budget: each invocation drains a capped
+ * slice so the cron makes guaranteed forward progress and stays well under the
+ * Workers subrequest/CPU budget even when a mass-stranding event has left a huge
+ * backlog at status='running'. Finalized runs flip to 'interrupted' (the UPDATE
+ * is guarded on status='running' in `finalizeStaleRun`), so they drop out of the
+ * next pass's SELECT and the backlog drains incrementally across invocations.
+ *
+ * One tidy home for the limit + concurrency + counting policy: the cron is a thin
+ * adapter that maps env config in and logs the tally out.
+ */
+export async function sweepStaleRuns(opts: {
+  cutoffSeconds: number;
+  limit: number;
+  now: number;
+}): Promise<SweepStaleRunsResult> {
+  const stale = await db
+    .select({ id: runs.id, projectId: runs.projectId, teamId: runs.teamId })
+    .from(runs)
+    .where(staleRunFilter(opts.cutoffSeconds))
+    .limit(opts.limit);
+
+  return drainStaleRuns(stale, (run) => finalizeStaleRun(run, opts.now), {
+    chunkSize: STALE_RUN_FINALIZE_CONCURRENCY,
+    onError: (run, err) => {
+      logger.error("failed to finalize stale run", {
+        runId: run.id,
+        projectId: run.projectId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    },
   });
 }

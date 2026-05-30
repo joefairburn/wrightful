@@ -53,6 +53,18 @@ export default defineEnv({
   WRIGHTFUL_RUN_STALE_MINUTES: number().default(30),
 
   /**
+   * Max stale runs the watchdog cron finalizes per invocation. Caps the sweep so
+   * a mass-stranding event (an ingest outage leaving thousands of runs stuck at
+   * status='running') can't make the cron self-DoS: each finalize is ~2 serial
+   * D1/RPC round-trips, so an unbounded drain blows the Workers subrequest/CPU
+   * budget and gets killed mid-pass. With a bounded slice each pass makes
+   * guaranteed forward progress and the backlog drains across successive runs
+   * (each pass re-scans only still-'running' rows). Default 200 — well under the
+   * subrequest cap at ~2 round-trips/run, with headroom for the SELECT itself.
+   */
+  WRIGHTFUL_SWEEP_BATCH_SIZE: number().default(200),
+
+  /**
    * Enable open email/password signup. Off by default — email verification
    * isn't wired yet, so self-hosters running multi-user need to leave this
    * `false` and create users via invites.

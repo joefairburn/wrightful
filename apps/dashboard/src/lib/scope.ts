@@ -1,4 +1,4 @@
-import { and, db, eq } from "void/db";
+import { and, db, eq, lt, sql } from "void/db";
 import { projects, runs, teams } from "@schema";
 import type { ApiKey } from "@schema";
 
@@ -150,4 +150,28 @@ export function runScopeWhere(scope: TenantScope): SqlFragment {
  */
 export function runByIdWhere(scope: TenantScope, runId: string): SqlFragment {
   return and(eq(runs.projectId, scope.projectId), eq(runs.id, runId))!;
+}
+
+/**
+ * The single definition of "this run is stuck" for the cron watchdog (and any
+ * future admin force-complete / "stalled?" badge): a run still at
+ * `status = 'running'` whose last ingest write predates `cutoffSeconds`.
+ *
+ * Keys off the `runs.lastActivityAt` liveness signal — bumped on every ingest
+ * write — NOT `createdAt`, which is fixed at open. The old createdAt-only
+ * predicate could not tell a long-but-live suite (still POSTing /results every
+ * few seconds) from a process that died at onBegin, so it force-interrupted
+ * live runs once they crossed the wall-clock window. Concentrating the
+ * definition here means the next reader of "is this run dead?" can't re-derive
+ * it from `createdAt` and re-introduce that false positive.
+ *
+ * `coalesce(lastActivityAt, createdAt)` keeps a run whose `lastActivityAt` is
+ * somehow NULL (e.g. a row written before this column existed) comparable, so a
+ * truly-dead onBegin-only run is still swept rather than skipped forever.
+ */
+export function staleRunFilter(cutoffSeconds: number): SqlFragment {
+  return and(
+    eq(runs.status, "running"),
+    lt(sql`coalesce(${runs.lastActivityAt}, ${runs.createdAt})`, cutoffSeconds),
+  )!;
 }

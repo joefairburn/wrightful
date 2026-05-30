@@ -1,0 +1,1 @@
+CREATE INDEX `runs_status_lastActivityAt_idx` ON `runs` (`status`,`lastActivityAt`);

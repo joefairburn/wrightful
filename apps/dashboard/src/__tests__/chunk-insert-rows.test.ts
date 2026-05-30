@@ -6,7 +6,7 @@ import {
   testResults,
   testTags,
 } from "@schema";
-import { chunkByParams, chunkInsertRows } from "@/lib/ingest";
+import { chunkBySize, chunkByParams, chunkInsertRows } from "@/lib/ingest";
 
 /**
  * Guards F02: the param-chunk column count used to be a hand-typed literal per
@@ -146,5 +146,24 @@ describe("chunkByParams", () => {
     // chunker must not loop forever on a 0 step).
     const rows = [1, 2, 3];
     expect(chunkByParams(rows, 200)).toEqual([[1], [2], [3]]);
+  });
+});
+
+describe("chunkBySize", () => {
+  it("slices into consecutive chunks of at most `size`", () => {
+    expect(chunkBySize([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+  });
+
+  it("returns no chunks for an empty array", () => {
+    expect(chunkBySize([], 4)).toEqual([]);
+  });
+
+  it("fits everything in one chunk when size >= length", () => {
+    expect(chunkBySize([1, 2, 3], 10)).toEqual([[1, 2, 3]]);
+  });
+
+  it("never loops forever on a non-positive size — steps one item at a time", () => {
+    expect(chunkBySize([1, 2, 3], 0)).toEqual([[1], [2], [3]]);
+    expect(chunkBySize([1, 2], -5)).toEqual([[1], [2]]);
   });
 });
