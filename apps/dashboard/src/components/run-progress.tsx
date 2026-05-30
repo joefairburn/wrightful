@@ -1,6 +1,7 @@
-import { ChevronDown, ChevronRight, SearchIcon } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "@void/react";
 import { useEffect, useMemo, useState } from "react";
+import { SearchFilterInput } from "@/components/search-filter-input";
 import {
   SegmentedControl,
   type SegmentedOption,
@@ -132,20 +133,13 @@ export function RunProgress({
      * sit just below them rather than overlapping. */
     <div className="flex flex-col">
       <div className="sticky top-[84px] z-10 flex flex-wrap items-center gap-2 border-b border-line-1 bg-background px-6 py-2.5">
-        <div className="relative w-[260px]">
-          <SearchIcon
-            aria-hidden
-            className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-          />
-          <input
-            aria-label="Filter tests"
-            className="h-7 w-full rounded-md border border-line-1 bg-card pl-8 pr-2.5 text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter tests…"
-            type="search"
-            value={search}
-          />
-        </div>
+        <SearchFilterInput
+          aria-label="Filter tests"
+          className="w-[260px]"
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter tests…"
+          value={search}
+        />
 
         <SegmentedControl
           onChange={setStatusFilter}

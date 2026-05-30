@@ -1,7 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { and, db, eq, gte, sql } from "void/db";
 import { runs } from "@schema";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { parseBranchParam } from "@/components/run-history-branch-filter.shared";
 import { DAY_SEC, parseSegment, SEGMENTS } from "@/lib/analytics/bucketing";
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
@@ -26,8 +26,7 @@ export const loader = defineHandler(async (c) => {
   const range = parseRange(url.searchParams.get("range"));
   const segment = parseSegment(url.searchParams.get("segment"), "day");
   const branchParam = url.searchParams.get("branch");
-  const branchFilter =
-    !branchParam || branchParam === ALL_BRANCHES ? null : branchParam;
+  const branchFilter = parseBranchParam(branchParam);
   const rangeSec = rangeToSeconds(range);
   const days = rangeSec ? rangeSec / DAY_SEC : 30;
 

@@ -1,8 +1,9 @@
 import { defineHandler, type InferProps } from "void";
 import { db, sql } from "void/db";
 import { z } from "zod";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { parseBranchParam } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { branchFragment, searchFragment } from "@/lib/analytics/filters";
 import { rangeToSeconds } from "@/lib/analytics/range";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -76,8 +77,7 @@ export const loader = defineHandler.withValidator({
 
   const range: RangeKey = query.range ?? "14d";
   const branchParam = query.branch ?? null;
-  const branchFilter =
-    !branchParam || branchParam === ALL_BRANCHES ? null : branchParam;
+  const branchFilter = parseBranchParam(branchParam);
   const q = (query.q ?? "").trim();
   const requestedPage = query.page ?? 1;
 
@@ -86,13 +86,8 @@ export const loader = defineHandler.withValidator({
   const rangeSec = rangeToSeconds(range) ?? 0;
   const windowStartSec = nowSec - rangeSec;
 
-  const pattern = q ? `%${q}%` : null;
-  const branchSql = branchFilter
-    ? sql`and runs.branch = ${branchFilter}`
-    : sql``;
-  const qSql = pattern
-    ? sql`and (tr.title like ${pattern} or tr.file like ${pattern})`
-    : sql``;
+  const branchSql = branchFragment(branchFilter);
+  const qSql = searchFragment(q || null);
 
   const offset = (requestedPage - 1) * PAGE_SIZE;
   let pageRows = await runPageQuery(

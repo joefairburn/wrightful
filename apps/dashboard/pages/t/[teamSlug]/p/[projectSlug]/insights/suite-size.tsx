@@ -12,6 +12,7 @@ import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { Card, CardPanel } from "@/components/ui/card";
 import { bucketKey, buildEmptyBuckets } from "@/lib/analytics/bucketing";
 import { cn } from "@/lib/cn";
+import { makeHrefBuilder } from "@/lib/page-links";
 import type { Props } from "./suite-size.server";
 
 const COUNT_SERIES: LineChartSeries[] = [
@@ -86,14 +87,11 @@ export default function SuiteSizePage({
   const growthPct =
     firstPeak === 0 ? 0 : ((lastPeak - firstPeak) / firstPeak) * 100;
 
-  const hrefWith = (overrides: Record<string, string>): string => {
-    const p = new URLSearchParams();
-    p.set("range", range);
-    p.set("segment", segment);
-    if (branchParam) p.set("branch", branchParam);
-    for (const [k, v] of Object.entries(overrides)) p.set(k, v);
-    return `${pathname}?${p.toString()}`;
-  };
+  const { with: hrefWith } = makeHrefBuilder(pathname, {
+    range,
+    segment,
+    branch: branchParam,
+  });
 
   return (
     <>

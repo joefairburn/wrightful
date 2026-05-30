@@ -1,7 +1,8 @@
 import { defineHandler, type InferProps } from "void";
 import { and, db, eq, gte, inArray, sql } from "void/db";
 import { runs, testResults, testTags } from "@schema";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { parseBranchParam } from "@/components/run-history-branch-filter.shared";
+import { branchFragment, branchJoinFragment } from "@/lib/analytics/filters";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -63,8 +64,8 @@ export const loader = defineHandler(async (c) => {
   const url = new URL(c.req.url);
   const range = parseRange(url.searchParams.get("range"));
   const branchParam = url.searchParams.get("branch");
-  const branchAll = !branchParam || branchParam === ALL_BRANCHES;
-  const branchFilter = branchAll ? null : branchParam;
+  const branchFilter = parseBranchParam(branchParam);
+  const branchAll = branchFilter === null;
 
   const windowStartSec =
     Math.floor(Date.now() / 1000) - rangeToDays(range) * 24 * 60 * 60;
@@ -207,8 +208,8 @@ async function loadSparklinesAndMeta(
   branch: string | null,
   sparklineSize: number,
 ): Promise<SparklineMetaRow[]> {
-  const branchSql = branch ? sql`and runs.branch = ${branch}` : sql``;
-  const joinSql = branch ? sql`inner join runs on runs.id = tr."runId"` : sql``;
+  const branchSql = branchFragment(branch);
+  const joinSql = branchJoinFragment(branch);
 
   const result = await db.run(sql`
     with ranked as (
@@ -258,7 +259,7 @@ async function loadRecentFailures(
   branch: string | null,
   count: number,
 ): Promise<RecentFailureSqlRow[]> {
-  const branchSql = branch ? sql`and runs.branch = ${branch}` : sql``;
+  const branchSql = branchFragment(branch);
 
   const result = await db.run(sql`
     with ranked as (

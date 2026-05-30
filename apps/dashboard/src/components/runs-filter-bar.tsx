@@ -3,7 +3,6 @@ import {
   CalendarIcon,
   CircleDotIcon,
   GitBranchIcon,
-  SearchIcon,
   ServerIcon,
   UserIcon,
 } from "lucide-react";
@@ -14,6 +13,7 @@ import {
   FilterTriggerButton,
   MultiComboboxFilter,
 } from "@/components/filter-controls";
+import { SearchFilterInput } from "@/components/search-filter-input";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
@@ -85,20 +85,14 @@ export function RunsSearchInput({
   }, [filters.q]);
 
   return (
-    <div className="relative w-[240px] shrink-0">
-      <SearchIcon
-        aria-hidden
-        className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"
-      />
-      <input
-        aria-label="Search runs"
-        className="h-8 w-full rounded-md border border-line-1 bg-card pl-8 pr-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 [&::-webkit-search-cancel-button]:appearance-none"
-        onChange={(e) => setQLocal(e.target.value)}
-        placeholder="Search commits…"
-        type="search"
-        value={qLocal}
-      />
-    </div>
+    <SearchFilterInput
+      aria-label="Search runs"
+      className="w-[240px] shrink-0"
+      inputClassName="h-8 text-[13px] placeholder:text-muted-foreground/72 [&::-webkit-search-cancel-button]:appearance-none"
+      onChange={(e) => setQLocal(e.target.value)}
+      placeholder="Search commits…"
+      value={qLocal}
+    />
   );
 }
 

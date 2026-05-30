@@ -10,6 +10,7 @@ import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { Card, CardPanel } from "@/components/ui/card";
 import { bucketKey, buildEmptyBuckets } from "@/lib/analytics/bucketing";
+import { makeHrefBuilder } from "@/lib/page-links";
 import { statusToken } from "@/lib/status";
 import type { Props } from "./index.server";
 
@@ -115,14 +116,11 @@ export default function InsightsPage({
 
   const segmentNoun = SEGMENT_NOUN[segment] ?? segment;
 
-  const hrefWith = (overrides: Record<string, string>): string => {
-    const p = new URLSearchParams();
-    p.set("range", range);
-    p.set("segment", segment);
-    if (branchParam) p.set("branch", branchParam);
-    for (const [k, v] of Object.entries(overrides)) p.set(k, v);
-    return `${pathname}?${p.toString()}`;
-  };
+  const { with: hrefWith } = makeHrefBuilder(pathname, {
+    range,
+    segment,
+    branch: branchParam,
+  });
 
   return (
     <>

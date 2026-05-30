@@ -12,6 +12,7 @@ import {
 import { RunProgress } from "@/components/run-progress";
 import { StatusGlyph } from "@/components/status-glyph";
 import { cn } from "@/lib/cn";
+import { makeHrefBuilder } from "@/lib/page-links";
 import { prUrl } from "@/lib/pr-url";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { Props } from "./index.server";
@@ -107,13 +108,11 @@ export default function RunDetailPage({
     completedAt: run.completedAt,
   };
 
-  const tabHref = (next: TabKey): string => {
-    const p = new URLSearchParams();
-    if (branchParam) p.set("branch", branchParam);
-    if (next !== "tests") p.set("tab", next);
-    const qs = p.toString();
-    return qs ? `${pathname}?${qs}` : pathname;
-  };
+  const { with: hrefWith } = makeHrefBuilder(pathname, {
+    branch: branchParam,
+  });
+  const tabHref = (next: TabKey): string =>
+    hrefWith({ tab: next === "tests" ? null : next });
 
   return (
     /* Single page-level scroller. The H1 row + tab bar are sticky inside this

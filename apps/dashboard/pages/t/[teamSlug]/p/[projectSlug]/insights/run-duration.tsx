@@ -11,6 +11,7 @@ import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { Card, CardPanel } from "@/components/ui/card";
 import { bucketKey, buildEmptyBuckets } from "@/lib/analytics/bucketing";
+import { makeHrefBuilder } from "@/lib/page-links";
 import { formatDuration } from "@/lib/time-format";
 import type { Props } from "./run-duration.server";
 
@@ -104,14 +105,11 @@ export default function RunDurationPage({
     .map((b) => b.values[2])
     .filter((v): v is number => v != null);
 
-  const hrefWith = (overrides: Record<string, string>): string => {
-    const p = new URLSearchParams();
-    p.set("range", range);
-    p.set("segment", segment);
-    if (branchParam) p.set("branch", branchParam);
-    for (const [k, v] of Object.entries(overrides)) p.set(k, v);
-    return `${pathname}?${p.toString()}`;
-  };
+  const { with: hrefWith } = makeHrefBuilder(pathname, {
+    range,
+    segment,
+    branch: branchParam,
+  });
 
   return (
     <>

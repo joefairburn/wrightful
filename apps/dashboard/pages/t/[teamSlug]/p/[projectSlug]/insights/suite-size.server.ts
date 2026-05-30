@@ -1,7 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { and, db, desc, eq, gte, sql } from "void/db";
 import { runs, testResults, testTags } from "@schema";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { parseBranchParam } from "@/components/run-history-branch-filter.shared";
 import {
   DAY_SEC,
   parseSegment,
@@ -48,8 +48,7 @@ export const loader = defineHandler(async (c) => {
     defaultSegmentForRange(range),
   );
   const branchParam = url.searchParams.get("branch");
-  const branchFilter =
-    !branchParam || branchParam === ALL_BRANCHES ? null : branchParam;
+  const branchFilter = parseBranchParam(branchParam);
 
   const branches = await loadProjectBranches(scope);
 

@@ -1,7 +1,8 @@
 import { defineHandler, type InferProps } from "void";
 import { db, sql } from "void/db";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { parseBranchParam } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { branchFragment, searchFragment } from "@/lib/analytics/filters";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -70,8 +71,7 @@ export const loader = defineHandler(async (c) => {
   const url = new URL(c.req.url);
   const range = parseRange(url.searchParams.get("range"));
   const branchParam = url.searchParams.get("branch");
-  const branchFilter =
-    !branchParam || branchParam === ALL_BRANCHES ? null : branchParam;
+  const branchFilter = parseBranchParam(branchParam);
   const q = (url.searchParams.get("q") ?? "").trim();
   const pageParam = parseInt(url.searchParams.get("page") ?? "1", 10);
   const requestedPage =
@@ -82,13 +82,8 @@ export const loader = defineHandler(async (c) => {
   const windowStartSec = rangeSec ? nowSec - rangeSec : 0;
   const branches = await loadProjectBranches(scope);
 
-  const pattern = q ? `%${q}%` : null;
-  const branchSql = branchFilter
-    ? sql`and runs.branch = ${branchFilter}`
-    : sql``;
-  const qSql = pattern
-    ? sql`and (tr.title like ${pattern} or tr.file like ${pattern})`
-    : sql``;
+  const branchSql = branchFragment(branchFilter);
+  const qSql = searchFragment(q || null);
 
   // Totals: max duration + count of non-skipped + distinct testIds.
   const totalsResult = await db.run(sql`
@@ -199,9 +194,7 @@ export const loader = defineHandler(async (c) => {
   const sparklinesEntries: [string, SparklinePoint[]][] = [];
   if (pageTestIds.length > 0) {
     const sparkStart = nowSec - SPARKLINE_DAYS * DAY_SEC;
-    const branchSparkSql = branchFilter
-      ? sql`and runs.branch = ${branchFilter}`
-      : sql``;
+    const branchSparkSql = branchFragment(branchFilter);
     const sparkResult = await db.run(sql`
       select
         tr."testId" as "testId",

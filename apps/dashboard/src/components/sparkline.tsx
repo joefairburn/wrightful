@@ -26,9 +26,9 @@ export interface SparklineProps {
  * attempts rather than a continuous edge-to-edge bar.
  *
  * (The component is still named `Sparkline` for historical reasons —
- * callers across the app reference it under that name, and there's a
- * separate `DurationSparkline` in `insights/slowest-tests.tsx` that does
- * actual line-chart sparkline work.)
+ * callers across the app reference it under that name. Numeric line-chart
+ * sparkline work lives in the separate `MetricSparkline`
+ * (`analytics/metric-sparkline.tsx`).)
  */
 export function Sparkline({
   points,

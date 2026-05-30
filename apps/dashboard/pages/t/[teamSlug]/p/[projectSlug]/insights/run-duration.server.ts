@@ -1,6 +1,6 @@
 import { defineHandler, type InferProps } from "void";
 import { db, sql } from "void/db";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { parseBranchParam } from "@/components/run-history-branch-filter.shared";
 import {
   DAY_SEC,
   parseSegment,
@@ -8,6 +8,7 @@ import {
   type Segment,
 } from "@/lib/analytics/bucketing";
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
+import { branchFragment } from "@/lib/analytics/filters";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { requireTenantContext } from "@/lib/tenant-context";
@@ -55,8 +56,7 @@ export const loader = defineHandler(async (c) => {
     defaultSegmentForRange(range),
   );
   const branchParam = url.searchParams.get("branch");
-  const branchFilter =
-    !branchParam || branchParam === ALL_BRANCHES ? null : branchParam;
+  const branchFilter = parseBranchParam(branchParam);
   const rangeSec = rangeToSeconds(range);
   const days = rangeSec ? rangeSec / DAY_SEC : 30;
 
@@ -65,9 +65,7 @@ export const loader = defineHandler(async (c) => {
   const expr = bucketExpr(segment);
 
   const branches = await loadProjectBranches(scope);
-  const branchSql = branchFilter
-    ? sql`and runs.branch = ${branchFilter}`
-    : sql``;
+  const branchSql = branchFragment(branchFilter);
 
   const perBucketResult = await db.run(sql`
     with ranked as (
