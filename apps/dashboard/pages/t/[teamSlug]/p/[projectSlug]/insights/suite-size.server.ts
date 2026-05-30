@@ -1,7 +1,6 @@
 import { defineHandler, type InferProps } from "void";
 import { and, db, desc, eq, gte, sql } from "void/db";
 import { runs, testResults, testTags } from "@schema";
-import { parseBranchParam } from "@/components/run-history-branch-filter.shared";
 import {
   DAY_SEC,
   parseSegment,
@@ -9,7 +8,11 @@ import {
   type Segment,
 } from "@/lib/analytics/bucketing";
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
-import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
+import {
+  normalizeBranchFilter,
+  resolveAnalyticsWindow,
+} from "@/lib/analytics/params";
+import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
@@ -47,14 +50,13 @@ export const loader = defineHandler(async (c) => {
     url.searchParams.get("segment"),
     defaultSegmentForRange(range),
   );
-  const branchParam = url.searchParams.get("branch");
-  const branchFilter = parseBranchParam(branchParam);
+  const { branchParam, branchFilter } = normalizeBranchFilter(
+    url.searchParams.get("branch"),
+  );
 
   const branches = await loadProjectBranches(scope);
 
-  const nowSec = Math.floor(Date.now() / 1000);
-  const rangeSec = rangeToSeconds(range);
-  const windowStartSec = rangeSec ? nowSec - rangeSec : 0;
+  const { nowSec, windowStartSec, rangeSec } = resolveAnalyticsWindow(range);
   const expr = bucketExpr(segment);
 
   const trendConditions = [

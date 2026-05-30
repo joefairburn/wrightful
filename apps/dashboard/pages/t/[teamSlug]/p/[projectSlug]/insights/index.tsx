@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { Card, CardPanel } from "@/components/ui/card";
-import { bucketKey, buildEmptyBuckets } from "@/lib/analytics/bucketing";
+import { alignBuckets } from "@/lib/analytics/bucketing";
 import { makeHrefBuilder } from "@/lib/page-links";
 import { statusToken } from "@/lib/status";
 import type { Props } from "./index.server";
@@ -38,16 +38,15 @@ export default function InsightsPage({
   aggRows,
   ranges,
 }: Props) {
-  const shells = buildEmptyBuckets(segment, windowStartSec, nowSec);
-  const byKey = new Map(aggRows.map((r) => [bucketKey(r.bucket), r]));
+  const aligned = alignBuckets(segment, windowStartSec, nowSec, aggRows);
 
   const passedColor = statusToken("passed");
   const failedColor = statusToken("failed");
   const flakyColor = statusToken("flaky");
   const skippedColor = statusToken("skipped");
 
-  const buckets: BucketBarChartBucket[] = shells.map((s) => {
-    const row = byKey.get(s.key);
+  const buckets: BucketBarChartBucket[] = aligned.map((s) => {
+    const row = s.row;
     const passed = row?.passed ?? 0;
     const failed = row?.failed ?? 0;
     const flaky = row?.flaky ?? 0;
@@ -99,15 +98,15 @@ export default function InsightsPage({
   const flakyRate = executed === 0 ? 0 : (totalFlaky / executed) * 100;
   const avgRunsPerDay = totalRuns / days;
 
-  // Per-bucket trend data for the KPI sparklines. Iterates the populated
-  // buckets in chronological order (shells.map preserves order) and
+  // Per-bucket trend data for the KPI sparklines. Iterates the aligned
+  // buckets in chronological order (alignBuckets preserves shell order) and
   // computes the rate or count per bucket; falls back to 0 for empty
   // buckets so the line stays continuous.
   const passRateSpark: number[] = [];
   const flakyRateSpark: number[] = [];
   const runsSpark: number[] = [];
-  for (const s of shells) {
-    const row = byKey.get(s.key);
+  for (const s of aligned) {
+    const row = s.row;
     const exec = (row?.passed ?? 0) + (row?.failed ?? 0) + (row?.flaky ?? 0);
     passRateSpark.push(exec === 0 ? 0 : ((row?.passed ?? 0) / exec) * 100);
     flakyRateSpark.push(exec === 0 ? 0 : ((row?.flaky ?? 0) / exec) * 100);

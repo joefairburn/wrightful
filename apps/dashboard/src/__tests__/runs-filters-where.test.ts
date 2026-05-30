@@ -66,10 +66,12 @@ describe("buildRunsWhere search escaping", () => {
  * `bucketExpr` inlines its divisor as a SQL literal (not a bound parameter) to
  * dodge D1's text-affinity coercion of numeric params — a runtime property no
  * unit test can prove. What a test CAN pin is the structural precondition for
- * it: the divisor lives in the template string with zero bound arguments. If
- * someone "tidies" the divisor into an interpolated `${86400}`, args becomes
- * non-empty and this fails — flagging the exact change that would reintroduce
- * the param-affinity landmine.
+ * it: the divisor lives in the template string and is never a bound PRIMITIVE
+ * arg. The bucketed column is interpolated as a nested `sql` fragment (the only
+ * arg) so it renders as raw identifier text, not a param — so we assert no arg
+ * is a primitive number/string. If someone "tidies" the divisor into an
+ * interpolated `${86400}`, a numeric arg appears and this fails — flagging the
+ * exact change that would reintroduce the param-affinity landmine.
  */
 describe("bucketExpr literal inlining", () => {
   type SqlChunk = {
@@ -83,21 +85,34 @@ describe("bucketExpr literal inlining", () => {
     return expr as SqlChunk;
   }
 
-  it("inlines the day divisor (86400) with no bound args", () => {
+  function expectNoBoundPrimitive(chunk: SqlChunk) {
+    for (const a of chunk.args) {
+      expect(typeof a).not.toBe("number");
+      expect(typeof a).not.toBe("string");
+    }
+  }
+
+  it("inlines the day divisor (86400) with no bound primitive", () => {
     const chunk = asChunk(bucketExpr("day"));
-    expect(chunk.args).toHaveLength(0);
+    expectNoBoundPrimitive(chunk);
     expect(chunk.strings.join("")).toContain("/ 86400");
   });
 
-  it("inlines the week divisor (604800) with no bound args", () => {
+  it("inlines the week divisor (604800) with no bound primitive", () => {
     const chunk = asChunk(bucketExpr("week"));
-    expect(chunk.args).toHaveLength(0);
+    expectNoBoundPrimitive(chunk);
     expect(chunk.strings.join("")).toContain("/ 604800");
   });
 
-  it("renders the month bucket via strftime with no bound args", () => {
+  it("renders the month bucket via strftime with no bound primitive", () => {
     const chunk = asChunk(bucketExpr("month"));
-    expect(chunk.args).toHaveLength(0);
+    expectNoBoundPrimitive(chunk);
     expect(chunk.strings.join("")).toContain("strftime('%Y-%m'");
+  });
+
+  it('defaults the bucketed column to runs."createdAt"', () => {
+    const chunk = asChunk(bucketExpr("day"));
+    const col = chunk.args[0] as SqlChunk;
+    expect(col.strings.join("")).toContain('runs."createdAt"');
   });
 });

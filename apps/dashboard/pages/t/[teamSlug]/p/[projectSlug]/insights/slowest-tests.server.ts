@@ -1,9 +1,23 @@
 import { defineHandler, type InferProps } from "void";
 import { db, sql } from "void/db";
-import { parseBranchParam } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { branchFragment, searchFragment } from "@/lib/analytics/filters";
-import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
+import { DAY_SEC } from "@/lib/analytics/bucketing";
+import { bucketExpr, percentilePick } from "@/lib/analytics/bucketing-sql";
+import {
+  branchFragment,
+  searchFragment,
+  testResultsScopeJoin,
+} from "@/lib/analytics/filters";
+import {
+  normalizeBranchFilter,
+  resolveAnalyticsWindow,
+} from "@/lib/analytics/params";
+import {
+  latestPerTestRn,
+  latestPerTestValue,
+  statusCounter,
+} from "@/lib/analytics/per-test";
+import { makeRangeParser } from "@/lib/analytics/range";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -14,7 +28,6 @@ const parseRange = makeRangeParser<RangeKey>(RANGES, "30d");
 
 const HIST_BINS = 20;
 const PAGE_SIZE = 20;
-const DAY_SEC = 86_400;
 const SPARKLINE_DAYS = 7;
 
 export interface HistogramRow {
@@ -70,16 +83,15 @@ export const loader = defineHandler(async (c) => {
 
   const url = new URL(c.req.url);
   const range = parseRange(url.searchParams.get("range"));
-  const branchParam = url.searchParams.get("branch");
-  const branchFilter = parseBranchParam(branchParam);
+  const { branchParam, branchFilter } = normalizeBranchFilter(
+    url.searchParams.get("branch"),
+  );
   const q = (url.searchParams.get("q") ?? "").trim();
   const pageParam = parseInt(url.searchParams.get("page") ?? "1", 10);
   const requestedPage =
     Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
 
-  const nowSec = Math.floor(Date.now() / 1000);
-  const rangeSec = rangeToSeconds(range);
-  const windowStartSec = rangeSec ? nowSec - rangeSec : 0;
+  const { nowSec, windowStartSec } = resolveAnalyticsWindow(range);
   const branches = await loadProjectBranches(scope);
 
   const branchSql = branchFragment(branchFilter);
@@ -92,8 +104,7 @@ export const loader = defineHandler(async (c) => {
       count(*) as n,
       count(distinct tr."testId") as "unique"
     from "testResults" tr
-    inner join runs on runs.id = tr."runId"
-    where tr."projectId" = ${scope.projectId}
+    ${testResultsScopeJoin(scope)}
       and tr."createdAt" >= ${windowStartSec}
       and tr.status != 'skipped'
       ${branchSql}
@@ -124,8 +135,7 @@ export const loader = defineHandler(async (c) => {
         ) as bin,
         count(*) as cnt
       from "testResults" tr
-      inner join runs on runs.id = tr."runId"
-      where tr."projectId" = ${scope.projectId}
+      ${testResultsScopeJoin(scope)}
         and tr."createdAt" >= ${windowStartSec}
         and tr.status != 'skipped'
         ${branchSql}
@@ -156,8 +166,7 @@ export const loader = defineHandler(async (c) => {
           tr."runId" as "runId",
           tr.id as "testResultId"
         from "testResults" tr
-        inner join runs on runs.id = tr."runId"
-        where tr."projectId" = ${scope.projectId}
+        ${testResultsScopeJoin(scope)}
           and tr."createdAt" >= ${windowStartSec}
           and tr.status != 'skipped'
           ${branchSql}
@@ -166,7 +175,10 @@ export const loader = defineHandler(async (c) => {
       ranked as (
         select *,
           row_number() over (partition by "testId" order by "durationMs") as "rnDur",
-          row_number() over (partition by "testId" order by "createdAt" desc) as "rnTime",
+          ${latestPerTestRn(`"rnTime"`, {
+            testIdCol: `"testId"`,
+            orderByCol: `"createdAt"`,
+          })},
           count(*) over (partition by "testId") as cnt
         from filtered
       )
@@ -174,13 +186,13 @@ export const loader = defineHandler(async (c) => {
         "testId",
         max(cnt) as n,
         avg("durationMs") as "avgDur",
-        min(case when "rnDur" = max(1, cast(round(cnt * 0.95) as integer)) then "durationMs" end) as p95,
-        max(case when "rnTime" = 1 then title end) as title,
-        max(case when "rnTime" = 1 then file end) as file,
-        max(case when "rnTime" = 1 then "runId" end) as "latestRunId",
-        max(case when "rnTime" = 1 then "testResultId" end) as "latestTestResultId",
-        sum(case when status in ('failed', 'timedout') then 1 else 0 end) as "failCount",
-        sum(case when status = 'flaky' then 1 else 0 end) as "flakyCount"
+        ${percentilePick(0.95, { rn: `"rnDur"`, cnt: "cnt", value: `"durationMs"` })} as p95,
+        ${latestPerTestValue("title", { alias: "title" })},
+        ${latestPerTestValue("file", { alias: "file" })},
+        ${latestPerTestValue(`"runId"`, { alias: `"latestRunId"` })},
+        ${latestPerTestValue(`"testResultId"`, { alias: `"latestTestResultId"` })},
+        ${statusCounter("fail", { alias: `"failCount"` })},
+        ${statusCounter("flaky", { alias: `"flakyCount"` })}
       from ranked
       group by "testId"
       order by p95 desc
@@ -198,11 +210,10 @@ export const loader = defineHandler(async (c) => {
     const sparkResult = await db.run(sql`
       select
         tr."testId" as "testId",
-        cast(tr."createdAt" / 86400 as integer) as day,
+        cast(${bucketExpr("day", sql`tr."createdAt"`)} as integer) as day,
         avg(tr."durationMs") as avg
       from "testResults" tr
-      inner join runs on runs.id = tr."runId"
-      where tr."projectId" = ${scope.projectId}
+      ${testResultsScopeJoin(scope)}
         and tr."createdAt" >= ${sparkStart}
         and tr.status != 'skipped'
         and tr."testId" in (${sql.join(

@@ -1,7 +1,35 @@
 import { sql } from "void/db";
+import type { TenantScope } from "@/lib/scope";
 
 /** Drizzle `SQL` fragment — the exact return type of a `sql\`…\`` template literal. */
 export type SqlFilterFragment = ReturnType<typeof sql>;
+
+/**
+ * The `testResults`→`runs` scope-join + tenant predicate the raw-SQL analytics
+ * loaders all open with: `inner join runs on runs.id = tr."runId"` followed by
+ * `where tr."projectId" = <projectId>`. This exact pair was hand-rebuilt at ~8
+ * call sites across tests / slowest-tests / flaky — the most-smeared raw-SQL
+ * idiom in the analytics loaders, and the one with the highest blast radius: a
+ * dropped or misspelled `tr."projectId"` predicate is a cross-tenant data leak
+ * that the raw `db.run(sql\`\`)` path hides from Drizzle's type checker.
+ *
+ * Concentrating it here makes the tenant boundary impossible to omit by accident
+ * AND enforces the F13/scope.ts invariant — the parameter is a branded
+ * {@link TenantScope}, so a raw `string` projectId can no longer reach a loader;
+ * the auth-checked `scope.projectId` is the only thing that types. The id is
+ * emitted as a BOUND parameter (`sql\`${scope.projectId}\``), never interpolated.
+ *
+ * Emits the join clause AND the leading `where tr."projectId" = ?` so callers
+ * continue the WHERE with `and …` fragments (time window, branch, search,
+ * testId-IN). The `runs` join is unconditional here — every caller that uses
+ * this needs `runs` for its branch filter or a `runs.createdAt` window. The
+ * sparkline pass in flaky.server.ts, which omits the join when no branch filter
+ * is active, keeps its own {@link branchJoinFragment} pairing instead.
+ */
+export function testResultsScopeJoin(scope: TenantScope): SqlFilterFragment {
+  return sql`inner join runs on runs.id = tr."runId"
+      where tr."projectId" = ${scope.projectId}`;
+}
 
 /**
  * Optional `and runs.branch = <branch>` predicate for the raw-SQL analytics

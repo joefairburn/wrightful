@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { Card, CardPanel } from "@/components/ui/card";
-import { bucketKey, buildEmptyBuckets } from "@/lib/analytics/bucketing";
+import { alignBuckets } from "@/lib/analytics/bucketing";
 import { makeHrefBuilder } from "@/lib/page-links";
 import { formatDuration } from "@/lib/time-format";
 import type { Props } from "./run-duration.server";
@@ -39,16 +39,19 @@ export default function RunDurationPage({
   pathname,
   ranges,
 }: Props) {
-  const shells = buildEmptyBuckets(segment, windowStartSec, nowSec);
   const series: LineChartSeries[] = [
     { key: "p50", label: "p50", color: SERIES_COLORS.p50 },
     { key: "p90", label: "p90", color: SERIES_COLORS.p90 },
     { key: "p95", label: "p95", color: SERIES_COLORS.p95 },
   ];
 
-  const byKey = new Map(perBucket.map((r) => [bucketKey(r.bucket), r]));
-  const buckets: LineChartBucket[] = shells.map((s) => {
-    const row = byKey.get(s.key);
+  const buckets: LineChartBucket[] = alignBuckets(
+    segment,
+    windowStartSec,
+    nowSec,
+    perBucket,
+  ).map((s) => {
+    const row = s.row;
     const p50 = row?.p50 ?? null;
     const p90 = row?.p90 ?? null;
     const p95 = row?.p95 ?? null;

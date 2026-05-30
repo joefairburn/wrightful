@@ -1,10 +1,22 @@
 import { defineHandler, type InferProps } from "void";
 import { db, sql } from "void/db";
 import { z } from "zod";
-import { parseBranchParam } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { branchFragment, searchFragment } from "@/lib/analytics/filters";
-import { rangeToSeconds } from "@/lib/analytics/range";
+import {
+  branchFragment,
+  searchFragment,
+  testResultsScopeJoin,
+} from "@/lib/analytics/filters";
+import {
+  normalizeBranchFilter,
+  resolveAnalyticsWindow,
+} from "@/lib/analytics/params";
+import {
+  latestPerTestRn,
+  latestPerTestValue,
+  statusCounter,
+} from "@/lib/analytics/per-test";
+import type { TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 // withValidator's TypedHandler doesn't auto-await the handler return like
@@ -76,22 +88,19 @@ export const loader = defineHandler.withValidator({
   const { project, scope } = requireTenantContext(c);
 
   const range: RangeKey = query.range ?? "14d";
-  const branchParam = query.branch ?? null;
-  const branchFilter = parseBranchParam(branchParam);
+  const { branchParam, branchFilter } = normalizeBranchFilter(query.branch);
   const q = (query.q ?? "").trim();
   const requestedPage = query.page ?? 1;
 
   const branches = await loadProjectBranches(scope);
-  const nowSec = Math.floor(Date.now() / 1000);
-  const rangeSec = rangeToSeconds(range) ?? 0;
-  const windowStartSec = nowSec - rangeSec;
+  const { windowStartSec } = resolveAnalyticsWindow(range);
 
   const branchSql = branchFragment(branchFilter);
   const qSql = searchFragment(q || null);
 
   const offset = (requestedPage - 1) * PAGE_SIZE;
   let pageRows = await runPageQuery(
-    scope.projectId,
+    scope,
     windowStartSec,
     branchSql,
     qSql,
@@ -105,7 +114,7 @@ export const loader = defineHandler.withValidator({
   if (pageRows.length === 0 && totalUniqueTests > 0 && requestedPage > 1) {
     currentPage = totalPages;
     pageRows = await runPageQuery(
-      scope.projectId,
+      scope,
       windowStartSec,
       branchSql,
       qSql,
@@ -120,7 +129,7 @@ export const loader = defineHandler.withValidator({
     const lastSeenById = new Map(pageRows.map((r) => [r.testId, r.lastSeen]));
     const testIds = pageRows.map((r) => r.testId);
     const aggById = await runAggregateQuery(
-      scope.projectId,
+      scope,
       windowStartSec,
       branchSql,
       testIds,
@@ -179,7 +188,7 @@ export const loader = defineHandler.withValidator({
 });
 
 async function runPageQuery(
-  projectId: string,
+  scope: TenantScope,
   windowStartSec: number,
   branchSql: ReturnType<typeof sql>,
   qSql: ReturnType<typeof sql>,
@@ -192,8 +201,7 @@ async function runPageQuery(
         max(tr."createdAt") as "lastSeen",
         count(*) over () as "totalDistinct"
       from "testResults" tr
-      inner join runs on runs.id = tr."runId"
-      where tr."projectId" = ${projectId}
+      ${testResultsScopeJoin(scope)}
         and runs."createdAt" >= ${windowStartSec}
         ${branchSql}
         ${qSql}
@@ -209,7 +217,7 @@ async function runPageQuery(
 }
 
 async function runAggregateQuery(
-  projectId: string,
+  scope: TenantScope,
   windowStartSec: number,
   branchSql: ReturnType<typeof sql>,
   testIds: readonly string[],
@@ -225,13 +233,9 @@ async function runAggregateQuery(
         tr."createdAt" as "createdAt",
         tr."runId" as "runId",
         tr.id as "testResultId",
-        row_number() over (
-          partition by tr."testId"
-          order by tr."createdAt" desc
-        ) as "rnTime"
+        ${latestPerTestRn(`"rnTime"`)}
       from "testResults" tr
-      inner join runs on runs.id = tr."runId"
-      where tr."projectId" = ${projectId}
+      ${testResultsScopeJoin(scope)}
         and runs."createdAt" >= ${windowStartSec}
         and tr."testId" in (${sql.join(
           testIds.map((id) => sql`${id}`),
@@ -243,15 +247,15 @@ async function runAggregateQuery(
       "testId",
       count(*) as n,
       avg("durationMs") as "avgDurationMs",
-      max(case when "rnTime" = 1 then title end) as title,
-      max(case when "rnTime" = 1 then file end) as file,
-      max(case when "rnTime" = 1 then status end) as "latestStatus",
-      max(case when "rnTime" = 1 then "runId" end) as "latestRunId",
-      max(case when "rnTime" = 1 then "testResultId" end) as "latestTestResultId",
-      sum(case when status = 'passed' then 1 else 0 end) as "passedCount",
-      sum(case when status = 'flaky' then 1 else 0 end) as "flakyCount",
-      sum(case when status in ('failed','timedout') then 1 else 0 end) as "failCount",
-      sum(case when status = 'skipped' then 1 else 0 end) as "skippedCount"
+      ${latestPerTestValue("title", { alias: "title" })},
+      ${latestPerTestValue("file", { alias: "file" })},
+      ${latestPerTestValue("status", { alias: `"latestStatus"` })},
+      ${latestPerTestValue(`"runId"`, { alias: `"latestRunId"` })},
+      ${latestPerTestValue(`"testResultId"`, { alias: `"latestTestResultId"` })},
+      ${statusCounter("passed", { alias: `"passedCount"` })},
+      ${statusCounter("flaky", { alias: `"flakyCount"` })},
+      ${statusCounter("fail", { alias: `"failCount"` })},
+      ${statusCounter("skipped", { alias: `"skippedCount"` })}
     from ranked
     group by "testId"
   `);

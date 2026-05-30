@@ -3,7 +3,9 @@ import {
   branchFragment,
   branchJoinFragment,
   searchFragment,
+  testResultsScopeJoin,
 } from "@/lib/analytics/filters";
+import { makeTenantScope } from "@/lib/scope";
 
 /**
  * `branchFragment` / `branchJoinFragment` / `searchFragment` are the single home
@@ -65,6 +67,40 @@ describe("branchJoinFragment", () => {
     const op = readSql(branchJoinFragment("main"));
     expect(op.strings.join("")).toBe('inner join runs on runs.id = tr."runId"');
     expect(op.args).toEqual([]);
+  });
+});
+
+describe("testResultsScopeJoin", () => {
+  const scope = makeTenantScope({
+    teamId: "team_01",
+    projectId: "proj_42",
+    teamSlug: "acme",
+    projectSlug: "web",
+  });
+
+  it("emits the testResults→runs join plus the tenant WHERE clause", () => {
+    const op = readSql(testResultsScopeJoin(scope));
+    const text = op.strings.join("").replace(/\s+/g, " ").trim();
+    // The join + leading `where tr."projectId" =` the loaders all open with.
+    expect(text).toBe(
+      'inner join runs on runs.id = tr."runId" where tr."projectId" =',
+    );
+  });
+
+  it("binds the auth-checked projectId as a parameter, never interpolating it", () => {
+    const op = readSql(testResultsScopeJoin(scope));
+    // The tenant boundary lives in `args` (a bound param), not the SQL text —
+    // injection-safe, and the single source of the cross-tenant predicate.
+    expect(op.args).toEqual(["proj_42"]);
+    expect(op.strings.join("")).not.toContain("proj_42");
+  });
+
+  it("scopes by projectId only — never leaks teamId into the predicate", () => {
+    // The named scope-join filters `testResults` by projectId (testResults has
+    // no teamId column); the teamId on the branded scope must not appear.
+    const op = readSql(testResultsScopeJoin(scope));
+    expect(op.args).not.toContain("team_01");
+    expect(op.strings.join("")).not.toContain("teamId");
   });
 });
 
