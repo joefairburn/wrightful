@@ -1,10 +1,9 @@
 import { defineHandler } from "void";
-import { requireAuth } from "void/auth";
 import { db } from "void/db";
 import { ulid } from "ulid";
 import { apiKeys } from "@schema";
-import { resolveProjectBySlugs } from "@/lib/authz";
-import { readField } from "@/lib/form";
+import { AuthzError, resolveOwnedProject } from "@/lib/settings-scope";
+import { readBodyField } from "@/lib/form";
 import { mintToken, sha256Hex } from "@/lib/token-crypto";
 
 /**
@@ -19,27 +18,15 @@ import { mintToken, sha256Hex } from "@/lib/token-crypto";
  * UI can stay on the page without a full reload.
  */
 export const POST = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  const projectSlug = c.req.param("projectSlug");
-  if (!teamSlug || !projectSlug) {
-    return c.json({ error: "Not found" }, 404);
+  let project: Awaited<ReturnType<typeof resolveOwnedProject>>;
+  try {
+    project = await resolveOwnedProject(c);
+  } catch (err) {
+    if (err instanceof AuthzError) return c.json({ error: "Forbidden" }, 403);
+    throw err;
   }
 
-  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  if (!project || project.role !== "owner") {
-    return c.json({ error: "Forbidden" }, 403);
-  }
-
-  let label: string;
-  const ctype = c.req.header("content-type") ?? "";
-  if (ctype.includes("application/json")) {
-    const body = (await c.req.json()) as { label?: unknown };
-    label = typeof body.label === "string" ? body.label.trim() : "";
-  } else {
-    const form = await c.req.formData();
-    label = readField(form, "label").trim();
-  }
+  const label = await readBodyField(c, { jsonKey: "label", formKey: "label" });
   if (!label) {
     return c.json({ error: "Label is required" }, 400);
   }

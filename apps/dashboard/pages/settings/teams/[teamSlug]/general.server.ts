@@ -1,5 +1,4 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { and, db, eq, inArray, ne } from "void/db";
 import {
   apiKeys,
@@ -10,10 +9,13 @@ import {
 } from "@schema";
 import { logger } from "void/log";
 import { runBatch } from "@/lib/db-batch";
-import { resolveTeamBySlug } from "@/lib/authz";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
-import { redirectWithParam, requireOwnerScope } from "@/lib/settings-scope";
+import {
+  redirectWithParam,
+  requireMemberScope,
+  requireOwnerScope,
+} from "@/lib/settings-scope";
 import { isValidSlug, SLUG_ERROR } from "@/lib/slug";
 
 export type Props = InferProps<typeof loader>;
@@ -26,11 +28,7 @@ const hereFor = (team: { slug: string }) =>
  * (delete team). Members + Projects + API keys live on sibling routes.
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  if (!teamSlug) throw new Response("Not Found", { status: 404 });
-  const team = await resolveTeamBySlug(user.id, teamSlug);
-  if (!team) throw new Response("Not Found", { status: 404 });
+  const { team } = await requireMemberScope(c);
 
   const url = new URL(c.req.url);
 

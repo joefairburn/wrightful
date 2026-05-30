@@ -14,6 +14,16 @@ import {
 
 export type TeamRole = MembershipRole;
 
+/**
+ * A team/project entry in the workspace-switcher lists (`userTeams` /
+ * `teamProjects`). The minimal `{ slug, name }` shape used to be spelled
+ * inline in every producer and consumer; this is the single source of truth.
+ */
+export interface WorkspaceListItem {
+  slug: string;
+  name: string;
+}
+
 /** Returns the user's role within the team, or null if they're not a member. */
 export async function getTeamRole(
   userId: string,
@@ -62,7 +72,7 @@ export async function resolveTeamBySlug(
 
 export async function getTeamProjects(
   teamId: string,
-): Promise<{ slug: string; name: string }[]> {
+): Promise<WorkspaceListItem[]> {
   return db
     .select({ slug: projects.slug, name: projects.name })
     .from(projects)
@@ -71,7 +81,7 @@ export async function getTeamProjects(
 
 export async function getUserTeams(
   userId: string,
-): Promise<{ slug: string; name: string }[]> {
+): Promise<WorkspaceListItem[]> {
   return db
     .select({ slug: teams.slug, name: teams.name })
     .from(teams)
@@ -133,17 +143,6 @@ export async function getPendingInvitesForUser(
   }));
 }
 
-export async function requireTeamOwner(
-  userId: string,
-  teamSlug: string,
-): Promise<{ id: string; slug: string; name: string }> {
-  const team = await resolveTeamBySlug(userId, teamSlug);
-  if (!team || team.role !== "owner") {
-    throw new Error("forbidden");
-  }
-  return { id: team.id, slug: team.slug, name: team.name };
-}
-
 export interface ResolvedActiveTeam {
   id: string;
   slug: string;
@@ -162,9 +161,9 @@ export interface ResolvedActiveProject {
 }
 
 export interface TenantBundle {
-  userTeams: { slug: string; name: string }[];
+  userTeams: WorkspaceListItem[];
   activeTeam: ResolvedActiveTeam | null;
-  teamProjects: { slug: string; name: string }[];
+  teamProjects: WorkspaceListItem[];
   activeProject: ResolvedActiveProject | null;
 }
 
@@ -199,10 +198,10 @@ export async function resolveTenantBundleForUser(
     .leftJoin(projects, eq(projects.teamId, teams.id))
     .where(eq(memberships.userId, userId));
 
-  const userTeamsBySlug = new Map<string, { slug: string; name: string }>();
+  const userTeamsBySlug = new Map<string, WorkspaceListItem>();
   let activeTeam: ResolvedActiveTeam | null = null;
   let activeProject: ResolvedActiveProject | null = null;
-  const teamProjectsBySlug = new Map<string, { slug: string; name: string }>();
+  const teamProjectsBySlug = new Map<string, WorkspaceListItem>();
 
   for (const r of rows) {
     if (!userTeamsBySlug.has(r.teamSlug)) {

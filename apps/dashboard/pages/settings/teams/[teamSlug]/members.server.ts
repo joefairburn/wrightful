@@ -1,11 +1,10 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { and, db, desc, eq, gt } from "void/db";
 import { memberships, teamInvites } from "@schema";
 import { getUsersByIds } from "@/lib/auth-users";
-import { resolveTeamBySlug, type TeamRole } from "@/lib/authz";
+import { type TeamRole } from "@/lib/authz";
 import { readField } from "@/lib/form";
-import { requireOwnerScope } from "@/lib/settings-scope";
+import { requireMemberScope, requireOwnerScope } from "@/lib/settings-scope";
 
 export type Props = InferProps<typeof loader>;
 
@@ -28,11 +27,7 @@ interface MemberRow {
  * The remaining server action handles the slow-path revoke (no-JS).
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  if (!teamSlug) throw new Response("Not Found", { status: 404 });
-  const team = await resolveTeamBySlug(user.id, teamSlug);
-  if (!team) throw new Response("Not Found", { status: 404 });
+  const { team } = await requireMemberScope(c);
 
   const [membershipRows, inviteRows] = await Promise.all([
     db

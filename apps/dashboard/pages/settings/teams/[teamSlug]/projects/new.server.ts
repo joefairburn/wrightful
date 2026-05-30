@@ -1,15 +1,17 @@
 import { defineHandler, type InferProps } from "void";
-import { requireAuth } from "void/auth";
 import { db, eq } from "void/db";
 import { ulid } from "ulid";
 import { projects } from "@schema";
-import { requireTeamOwner } from "@/lib/authz";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
+import { requireOwnerScope } from "@/lib/settings-scope";
 
 export type Props = InferProps<typeof loader>;
 
 const SLUG_MAX_LEN = 40;
+
+const hereFor = (team: { slug: string }) =>
+  `/settings/teams/${team.slug}/projects/new`;
 
 function slugifyName(name: string): string | null {
   const base = name
@@ -43,15 +45,7 @@ function pickUniqueSlug(base: string, taken: Set<string>): string {
  * state forward via `?error=...`.
  */
 export const loader = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  if (!teamSlug) throw new Response("Not Found", { status: 404 });
-  let team: { id: string; slug: string; name: string };
-  try {
-    team = await requireTeamOwner(user.id, teamSlug);
-  } catch {
-    throw new Response("Not Found", { status: 404 });
-  }
+  const { team } = await requireOwnerScope(c, hereFor);
   const error = new URL(c.req.url).searchParams.get("error");
   return { team, error };
 });
@@ -62,19 +56,10 @@ export const loader = defineHandler(async (c) => {
  * `(teamId, slug)` uniqueness).
  */
 export const action = defineHandler(async (c) => {
-  const user = requireAuth(c);
-  const teamSlug = c.req.param("teamSlug");
-  if (!teamSlug) throw new Response("Not Found", { status: 404 });
-  let team: { id: string; slug: string; name: string };
-  try {
-    team = await requireTeamOwner(user.id, teamSlug);
-  } catch {
-    throw new Response("Not Found", { status: 404 });
-  }
+  const { team, here: formUrl } = await requireOwnerScope(c, hereFor);
 
   const form = await c.req.formData();
   const name = readField(form, "name").trim();
-  const formUrl = `/settings/teams/${team.slug}/projects/new`;
 
   if (!name) {
     return c.redirect(
