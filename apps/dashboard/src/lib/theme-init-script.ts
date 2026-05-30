@@ -1,3 +1,10 @@
+import {
+  DARK_CLASS,
+  DEFAULT_DARK,
+  THEME_STORAGE_KEY,
+  THEME_VALUE_DARK,
+} from "@/lib/theme";
+
 /**
  * The FOUC-killer theme-init script — and the one place that records why the
  * dashboard's CSP runs `script-src 'self' 'unsafe-inline'` instead of a
@@ -47,7 +54,7 @@
  * layer for the ansi sink and this comment can be revised.
  */
 export const themeInitScript: string =
-  `try{var t=localStorage.getItem("theme");` +
-  `var d=t?t==="dark":true;` +
-  `document.documentElement.classList.toggle("dark",d);` +
+  `try{var t=localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});` +
+  `var d=t?t===${JSON.stringify(THEME_VALUE_DARK)}:${JSON.stringify(DEFAULT_DARK)};` +
+  `document.documentElement.classList.toggle(${JSON.stringify(DARK_CLASS)},d);` +
   `}catch(_){}`;
