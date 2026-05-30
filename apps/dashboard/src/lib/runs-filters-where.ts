@@ -5,7 +5,14 @@ import type { RunsFilters } from "@/lib/runs-filters";
 
 type SqlFragment = NonNullable<ReturnType<typeof and>>;
 
-function escapeLike(value: string): string {
+/**
+ * Escape the LIKE wildcard metacharacters (`\`, `%`, `_`) in a user-supplied
+ * search term so they match literally inside the `%…%` pattern this module
+ * builds — a typed `like()` call can't do this, so it's hand-written and
+ * therefore unit-tested (`runs-filters-where.test.ts`). Each metacharacter is
+ * doubled with a leading backslash; ordinary characters pass through unchanged.
+ */
+export function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 

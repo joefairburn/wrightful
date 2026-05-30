@@ -376,20 +376,34 @@ export interface AggregateDelta {
   skipped: number;
 }
 
+/**
+ * The single source of truth for the test-status → aggregate-bucket mapping:
+ * for each non-`totalTests` column, the test statuses that feed it. Both the JS
+ * delta path (`statusBucket` → `computeAggregateDelta`) and the SQL recompute
+ * path (`aggregateRecomputeStatement`) derive from this one table, so the two
+ * encodings cannot drift — adding a status to a bucket (or splitting one out)
+ * is a one-line edit here that both sides pick up. `status-bucketing.test.ts`
+ * asserts the parity structurally.
+ */
+export const STATUS_BUCKET_MEMBERS = {
+  passed: ["passed"],
+  failed: ["failed", "timedout"],
+  flaky: ["flaky"],
+  skipped: ["skipped"],
+} as const satisfies Record<
+  Exclude<keyof AggregateDelta, "totalTests">,
+  readonly string[]
+>;
+
+/** Statuses → their aggregate bucket, derived from {@link STATUS_BUCKET_MEMBERS}. */
+const STATUS_TO_BUCKET: ReadonlyMap<string, keyof AggregateDelta> = new Map(
+  Object.entries(STATUS_BUCKET_MEMBERS).flatMap(([bucket, statuses]) =>
+    statuses.map((status) => [status, bucket as keyof AggregateDelta] as const),
+  ),
+);
+
 export function statusBucket(status: string): keyof AggregateDelta | null {
-  switch (status) {
-    case "passed":
-      return "passed";
-    case "failed":
-    case "timedout":
-      return "failed";
-    case "flaky":
-      return "flaky";
-    case "skipped":
-      return "skipped";
-    default:
-      return null;
-  }
+  return STATUS_TO_BUCKET.get(status) ?? null;
 }
 
 /**
@@ -451,19 +465,36 @@ export function aggregateDeltaStatement(
     .returning(AGGREGATE_SUMMARY_COLUMNS);
 }
 
+/**
+ * SQL fragment matching `testResults.status` against a bucket's member
+ * statuses. Single-status buckets render `"status" = 'x'`; multi-status buckets
+ * render `"status" IN ('x', 'y')`. Statuses come from {@link STATUS_BUCKET_MEMBERS}
+ * — a fixed in-code allowlist, never user input — so inlining the quoted
+ * literals is safe (and, like {@link bucketExpr}, sidesteps D1's bound-param
+ * text affinity).
+ */
+function statusMatchSql(statuses: readonly string[]) {
+  const list = statuses.map((s) => `'${s}'`).join(", ");
+  return statuses.length === 1
+    ? sql.raw(`"status" = ${list}`)
+    : sql.raw(`"status" IN (${list})`);
+}
+
 export function aggregateRecomputeStatement(
   scope: { projectId: string },
   runId: string,
 ) {
   const projectId = scope.projectId;
+  const bucketCount = (statuses: readonly string[]) =>
+    sql`(SELECT COUNT(*) FROM "testResults" WHERE "projectId" = ${projectId} AND "runId" = ${runId} AND ${statusMatchSql(statuses)})`;
   return db
     .update(runs)
     .set({
       totalTests: sql`(SELECT COUNT(*) FROM "testResults" WHERE "projectId" = ${projectId} AND "runId" = ${runId})`,
-      passed: sql`(SELECT COUNT(*) FROM "testResults" WHERE "projectId" = ${projectId} AND "runId" = ${runId} AND "status" = 'passed')`,
-      failed: sql`(SELECT COUNT(*) FROM "testResults" WHERE "projectId" = ${projectId} AND "runId" = ${runId} AND "status" IN ('failed', 'timedout'))`,
-      flaky: sql`(SELECT COUNT(*) FROM "testResults" WHERE "projectId" = ${projectId} AND "runId" = ${runId} AND "status" = 'flaky')`,
-      skipped: sql`(SELECT COUNT(*) FROM "testResults" WHERE "projectId" = ${projectId} AND "runId" = ${runId} AND "status" = 'skipped')`,
+      passed: bucketCount(STATUS_BUCKET_MEMBERS.passed),
+      failed: bucketCount(STATUS_BUCKET_MEMBERS.failed),
+      flaky: bucketCount(STATUS_BUCKET_MEMBERS.flaky),
+      skipped: bucketCount(STATUS_BUCKET_MEMBERS.skipped),
     })
     .where(and(eq(runs.projectId, projectId), eq(runs.id, runId)))
     .returning(AGGREGATE_SUMMARY_COLUMNS);
