@@ -1,6 +1,6 @@
-import { and, db, eq, isNotNull, sql } from "void/db";
+import { and, db, isNotNull, sql } from "void/db";
 import { runs } from "@schema";
-import type { TenantScope } from "@/lib/scope";
+import { runScopeWhere, type TenantScope } from "@/lib/scope";
 
 /**
  * Distinct, sorted branch list of runs in a project. Used by the run-history
@@ -16,13 +16,7 @@ export async function loadProjectBranches(
   const rows = await db
     .selectDistinct({ value: runs.branch })
     .from(runs)
-    .where(
-      and(
-        eq(runs.teamId, scope.teamId),
-        eq(runs.projectId, scope.projectId),
-        isNotNull(runs.branch),
-      ),
-    )
+    .where(and(runScopeWhere(scope), isNotNull(runs.branch)))
     .orderBy(sql`${runs.branch} asc`);
   return rows.map((r) => r.value).filter((v): v is string => !!v);
 }

@@ -1,8 +1,8 @@
 import { defineHandler } from "void";
 import { requireAuth } from "void/auth";
-import { and, db, eq } from "void/db";
+import { db } from "void/db";
 import { runs } from "@schema";
-import { tenantScopeForUserBySlugs } from "@/lib/scope";
+import { runByIdWhere, tenantScopeForUserBySlugs } from "@/lib/scope";
 
 export type RunSummaryResponse = {
   id: string;
@@ -58,7 +58,7 @@ export const GET = defineHandler(async (c) => {
       completedAt: runs.completedAt,
     })
     .from(runs)
-    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)))
+    .where(runByIdWhere(scope, runId))
     .limit(1);
 
   const run = rows[0];

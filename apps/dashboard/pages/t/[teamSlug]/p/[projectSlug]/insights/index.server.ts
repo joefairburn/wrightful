@@ -6,6 +6,7 @@ import { DAY_SEC, parseSegment, SEGMENTS } from "@/lib/analytics/bucketing";
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -38,8 +39,7 @@ export const loader = defineHandler(async (c) => {
   const expr = bucketExpr(segment);
 
   const aggConditions = [
-    eq(runs.teamId, scope.teamId),
-    eq(runs.projectId, scope.projectId),
+    runScopeWhere(scope),
     gte(runs.createdAt, windowStartSec),
   ];
   if (branchFilter) aggConditions.push(eq(runs.branch, branchFilter));

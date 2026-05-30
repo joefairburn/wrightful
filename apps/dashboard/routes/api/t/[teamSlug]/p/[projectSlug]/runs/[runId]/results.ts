@@ -3,7 +3,11 @@ import { requireAuth } from "void/auth";
 import { and, db, desc, eq, lt, or } from "void/db";
 import { z } from "zod";
 import { runs, testResults } from "@schema";
-import { tenantScopeForUserBySlugs, type TenantScope } from "@/lib/scope";
+import {
+  runByIdWhere,
+  tenantScopeForUserBySlugs,
+  type TenantScope,
+} from "@/lib/scope";
 import type { RunProgressTest } from "@/lib/live-client";
 
 const DEFAULT_LIMIT = 200;
@@ -86,7 +90,7 @@ export async function loadRunResultsPage(
   const owner = await db
     .select({ id: runs.id })
     .from(runs)
-    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)))
+    .where(runByIdWhere(scope, runId))
     .limit(1);
   if (!owner[0]) return null;
 

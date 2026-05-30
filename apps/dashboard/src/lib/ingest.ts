@@ -9,7 +9,7 @@ import {
   teams,
 } from "@schema";
 import { runBatch } from "@/lib/db-batch";
-import type { TenantScope } from "@/lib/scope";
+import { runByIdWhere, type TenantScope } from "@/lib/scope";
 import type {
   AppendResultsPayload,
   CompleteRunPayload,
@@ -461,7 +461,7 @@ export function aggregateDeltaStatement(
       flaky: sql`${runs.flaky} + ${delta.flaky}`,
       skipped: sql`${runs.skipped} + ${delta.skipped}`,
     })
-    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)))
+    .where(runByIdWhere(scope, runId))
     .returning(AGGREGATE_SUMMARY_COLUMNS);
 }
 
@@ -513,7 +513,7 @@ export function aggregateSummarySelectStatement(
   return db
     .select(AGGREGATE_SUMMARY_COLUMNS)
     .from(runs)
-    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)));
+    .where(runByIdWhere(scope, runId));
 }
 
 /**
@@ -805,7 +805,7 @@ export async function appendRunResults(
   const owner = await db
     .select({ id: runs.id })
     .from(runs)
-    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)))
+    .where(runByIdWhere(scope, runId))
     .limit(1);
   if (!owner[0]) return { kind: "notFound" };
 
@@ -947,7 +947,7 @@ export async function completeRun(
   const owner = await db
     .select({ id: runs.id })
     .from(runs)
-    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)))
+    .where(runByIdWhere(scope, runId))
     .limit(1);
   if (!owner[0]) return { kind: "notFound" };
 
@@ -965,7 +965,7 @@ export async function completeRun(
       durationMs: sql`max(${runs.durationMs}, ${payload.durationMs})`,
       completedAt: sql`max(coalesce(${runs.completedAt}, 0), ${completedAt})`,
     })
-    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)));
+    .where(runByIdWhere(scope, runId));
 
   const summary = await reconcileAndBroadcast(runId, statusUpdate, scope);
   await bumpTeamActivity(scope.teamId, nowSeconds);

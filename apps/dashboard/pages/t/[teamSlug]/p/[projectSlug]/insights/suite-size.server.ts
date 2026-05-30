@@ -11,6 +11,7 @@ import {
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
 import { makeRangeParser, rangeToSeconds } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -58,8 +59,7 @@ export const loader = defineHandler(async (c) => {
   const expr = bucketExpr(segment);
 
   const trendConditions = [
-    eq(runs.teamId, scope.teamId),
-    eq(runs.projectId, scope.projectId),
+    runScopeWhere(scope),
     gte(runs.createdAt, windowStartSec),
   ];
   if (branchFilter) trendConditions.push(eq(runs.branch, branchFilter));
@@ -79,9 +79,7 @@ export const loader = defineHandler(async (c) => {
     const earliest = await db
       .select({ first: sql<number | null>`min(${runs.createdAt})` })
       .from(runs)
-      .where(
-        and(eq(runs.teamId, scope.teamId), eq(runs.projectId, scope.projectId)),
-      );
+      .where(runScopeWhere(scope));
     shellStartSec = earliest[0]?.first ?? nowSec;
   }
 

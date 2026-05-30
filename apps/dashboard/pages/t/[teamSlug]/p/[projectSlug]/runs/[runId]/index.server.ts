@@ -3,6 +3,7 @@ import { and, db, desc, eq } from "void/db";
 import { runs, testResults } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { runByIdWhere, runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 import { loadFailingArtifactActions } from "@/lib/test-artifact-actions";
 
@@ -26,7 +27,7 @@ export const loader = defineHandler(async (c) => {
   const runRows = await db
     .select()
     .from(runs)
-    .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, runId)))
+    .where(runByIdWhere(scope, runId))
     .limit(1);
   const run = runRows[0];
   if (!run) throw new Response("Not Found", { status: 404 });
@@ -41,10 +42,7 @@ export const loader = defineHandler(async (c) => {
   const origin = url.origin;
 
   // History: last HISTORY_LIMIT runs, optionally filtered by branch.
-  const historyConditions = [
-    eq(runs.teamId, scope.teamId),
-    eq(runs.projectId, scope.projectId),
-  ];
+  const historyConditions = [runScopeWhere(scope)];
   if (effectiveBranch !== ALL_BRANCHES) {
     historyConditions.push(eq(runs.branch, effectiveBranch));
   }
