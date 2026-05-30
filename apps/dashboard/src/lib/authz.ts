@@ -1,12 +1,16 @@
-import { db, and, eq, gt, or, sql } from "void/db";
+import { db, and, eq, gt, sql } from "void/db";
 import {
   memberships,
   projects,
   teamInvites,
   teams,
-  userGithubAccounts,
   type MembershipRole,
 } from "@schema";
+import {
+  buildInviteMatchConds,
+  getUserIdentity,
+  inviteMatchedBy,
+} from "@/lib/auth-users";
 
 export type TeamRole = MembershipRole;
 
@@ -91,32 +95,17 @@ export interface PendingInvite {
  * (`userGithubAccounts.githubLogin`). Used by the team picker to surface
  * "you've been invited" cards on first login.
  *
- * Reads `user.email` via raw SQL because the void-managed user table isn't
- * in our Drizzle schema (see db/schema.ts header comment).
+ * Resolves the user's `{ email, githubLogin }` identity through the
+ * `auth-users` seam (which owns the raw `"user"` read + email lowercasing).
  */
 export async function getPendingInvitesForUser(
   userId: string,
 ): Promise<PendingInvite[]> {
-  const [userRow, githubRow] = await Promise.all([
-    db.run(sql`select email from "user" where id = ${userId} limit 1`),
-    db
-      .select({ githubLogin: userGithubAccounts.githubLogin })
-      .from(userGithubAccounts)
-      .where(eq(userGithubAccounts.userId, userId))
-      .limit(1),
-  ]);
-
-  const userEmail = (userRow.results?.[0] as { email?: string } | undefined)
-    ?.email;
-  const email = userEmail ? userEmail.toLowerCase() : null;
-  const githubLogin = githubRow[0]?.githubLogin ?? null;
-  if (!email && !githubLogin) return [];
+  const identity = await getUserIdentity(userId);
+  const matchConds = buildInviteMatchConds(identity);
+  if (!matchConds) return [];
 
   const now = Math.floor(Date.now() / 1000);
-  const conds: ReturnType<typeof eq>[] = [];
-  if (email) conds.push(eq(teamInvites.email, email));
-  if (githubLogin) conds.push(eq(teamInvites.githubLogin, githubLogin));
-
   const rows = await db
     .select({
       id: teamInvites.id,
@@ -130,7 +119,7 @@ export async function getPendingInvitesForUser(
     })
     .from(teamInvites)
     .innerJoin(teams, eq(teams.id, teamInvites.teamId))
-    .where(and(or(...conds), gt(teamInvites.expiresAt, now)))
+    .where(and(matchConds, gt(teamInvites.expiresAt, now)))
     .orderBy(sql`${teamInvites.createdAt} desc`);
 
   return rows.map((r) => ({
@@ -140,7 +129,7 @@ export async function getPendingInvitesForUser(
     teamName: r.teamName,
     role: r.role,
     expiresAt: r.expiresAt,
-    matchedBy: email && r.email === email ? "email" : "githubLogin",
+    matchedBy: inviteMatchedBy(identity, r.email),
   }));
 }
 

@@ -1,5 +1,6 @@
 import { defineAuth, type VoidAuthConfigContext } from "void/auth";
 import { ulid } from "ulid";
+import type { MirrorableAccount } from "@/lib/github-account-mirror";
 
 // Derive hook signatures from void/auth's defaults shape so we don't have
 // to add a direct dependency on `better-auth` (it's transitive via `void`).
@@ -26,44 +27,15 @@ type AccountContext = Parameters<AccountAfter>[1];
  * We extend that surface with:
  *   - ULID ids for auth rows (matches the rest of the schema).
  *   - `requireEmailVerification: false` until an email sender is wired up.
- *   - A post-create hook on the `account` row that mirrors the GitHub login
- *     into `userGithubAccounts` so directed-by-github-handle invites can
+ *   - A post-create/update hook on the `account` row that mirrors the GitHub
+ *     login into `userGithubAccounts` so directed-by-github-handle invites can
  *     resolve. Better Auth only stores the numeric `accountId`; we need the
- *     human-readable login as well.
- *
- * NOTE: dynamic imports are used inside the hook so `void prepare` can load
- * this file at config time (when the runtime db/schema aren't bound yet).
+ *     human-readable login as well. The capture-and-upsert (and its
+ *     config-time-safe dynamic imports) lives in
+ *     `@/lib/github-account-mirror`; both hooks delegate to
+ *     `runGithubAccountMirror`, which owns the chain-default-then-guard
+ *     ordering and logs (rather than swallows) capture failures.
  */
-async function captureGithubLogin(
-  userId: string,
-  accessToken: string | null | undefined,
-): Promise<void> {
-  if (!accessToken) return;
-  const res = await fetch("https://api.github.com/user", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "wrightful-dashboard",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-  });
-  if (!res.ok) return;
-  const body = (await res.json()) as { login?: unknown };
-  if (typeof body.login !== "string" || body.login === "") return;
-  const login = body.login.toLowerCase();
-  const now = Date.now();
-  const [{ db }, { userGithubAccounts }] = await Promise.all([
-    import("void/db"),
-    import("@schema"),
-  ]);
-  await db
-    .insert(userGithubAccounts)
-    .values({ userId, githubLogin: login, updatedAt: now })
-    .onConflictDoUpdate({
-      target: userGithubAccounts.userId,
-      set: { githubLogin: login, updatedAt: now },
-    });
-}
 
 // Read GitHub OAuth creds via Node's `process.env` so this works both at
 // `void prepare` (config-evaluation time, before void's typed `env` proxy is
@@ -80,6 +52,21 @@ const githubProviderEnabled = Boolean(githubClientId && githubClientSecret);
 const openSignupAllowed = /^(true|1)$/i.test(
   process.env.ALLOW_OPEN_SIGNUP ?? "",
 );
+
+// The github-login mirror is imported dynamically (deferred to request time)
+// for the same config-time-loadability reason as the dynamic `void/db` /
+// `@schema` imports inside the mirror itself: `void prepare` evaluates this
+// file in a bare Node context that can't resolve a static `.ts` source import.
+// Both account hooks delegate here; the chain-default-then-guard ordering and
+// log-on-failure live in `runGithubAccountMirror`.
+function mirrorGithubAccount(
+  account: MirrorableAccount,
+  chainDefault: () => Promise<void> | void,
+): Promise<void> {
+  return import("@/lib/github-account-mirror").then((m) =>
+    m.runGithubAccountMirror(account, chainDefault),
+  );
+}
 
 export default defineAuth(({ defaults }) => ({
   ...defaults,
@@ -117,35 +104,17 @@ export default defineAuth(({ defaults }) => ({
       ...defaults.databaseHooks?.account,
       create: {
         ...defaults.databaseHooks?.account?.create,
-        // Chain to any default `create.after` first so void's bookkeeping
-        // isn't disturbed, then mirror the GitHub login into our own table.
-        after: async (account: AccountRow, context: AccountContext) => {
-          await defaults.databaseHooks?.account?.create?.after?.(
-            account,
-            context,
-          );
-          if (account.providerId !== "github") return;
-          try {
-            await captureGithubLogin(account.userId, account.accessToken);
-          } catch {
-            // Best effort.
-          }
-        },
+        after: (account: AccountRow, context: AccountContext) =>
+          mirrorGithubAccount(account, () =>
+            defaults.databaseHooks?.account?.create?.after?.(account, context),
+          ),
       },
       update: {
         ...defaults.databaseHooks?.account?.update,
-        after: async (account: AccountRow, context: AccountContext) => {
-          await defaults.databaseHooks?.account?.update?.after?.(
-            account,
-            context,
-          );
-          if (account.providerId !== "github") return;
-          try {
-            await captureGithubLogin(account.userId, account.accessToken);
-          } catch {
-            // Best effort.
-          }
-        },
+        after: (account: AccountRow, context: AccountContext) =>
+          mirrorGithubAccount(account, () =>
+            defaults.databaseHooks?.account?.update?.after?.(account, context),
+          ),
       },
     },
   },

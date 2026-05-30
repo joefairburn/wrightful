@@ -1,7 +1,8 @@
 import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
-import { and, db, desc, eq, gt, sql } from "void/db";
-import { teamInvites } from "@schema";
+import { and, db, desc, eq, gt } from "void/db";
+import { memberships, teamInvites } from "@schema";
+import { getUsersByIds } from "@/lib/auth-users";
 import { resolveTeamBySlug, type TeamRole } from "@/lib/authz";
 import { readField } from "@/lib/form";
 import { requireOwnerScope } from "@/lib/settings-scope";
@@ -33,13 +34,11 @@ export const loader = defineHandler(async (c) => {
   const team = await resolveTeamBySlug(user.id, teamSlug);
   if (!team) throw new Response("Not Found", { status: 404 });
 
-  const [memberRowsRaw, inviteRows] = await Promise.all([
-    db.run(sql`
-      SELECT m.userId AS userId, m.role AS role, u.email AS email, u.name AS name, u.image AS image
-        FROM memberships m
-        INNER JOIN "user" u ON u.id = m.userId
-        WHERE m.teamId = ${team.id}
-    `),
+  const [membershipRows, inviteRows] = await Promise.all([
+    db
+      .select({ userId: memberships.userId, role: memberships.role })
+      .from(memberships)
+      .where(eq(memberships.teamId, team.id)),
     db
       .select({
         id: teamInvites.id,
@@ -59,23 +58,24 @@ export const loader = defineHandler(async (c) => {
       .orderBy(desc(teamInvites.createdAt)),
   ]);
 
-  const members = (
-    (memberRowsRaw.results ?? []) as Array<{
-      userId: string;
-      role: string;
-      email: string;
-      name: string;
-      image: string | null;
-    }>
-  ).map(
-    (r): MemberRow => ({
-      userId: r.userId,
-      role: r.role as TeamRole,
-      email: r.email,
-      name: r.name,
-      image: r.image,
-    }),
-  );
+  // Hydrate member profiles from the void-owned `user` table via the
+  // auth-users seam (the only owner of that raw read), keyed by user id.
+  // Drop memberships without a matching `user` row to preserve the original
+  // INNER JOIN semantics (a missing user row should be impossible anyway).
+  const profiles = await getUsersByIds(membershipRows.map((m) => m.userId));
+  const members: MemberRow[] = membershipRows.flatMap((m) => {
+    const profile = profiles.get(m.userId);
+    if (!profile) return [];
+    return [
+      {
+        userId: m.userId,
+        role: m.role,
+        email: profile.email,
+        name: profile.name,
+        image: profile.image,
+      },
+    ];
+  });
 
   return {
     team,
