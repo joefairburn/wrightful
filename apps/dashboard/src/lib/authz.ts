@@ -2,6 +2,7 @@ import { db, and, eq, gt, sql } from "void/db";
 import {
   memberships,
   projects,
+  runs,
   teamInvites,
   teams,
   type MembershipRole,
@@ -286,4 +287,67 @@ export async function resolveProjectBySlugs(
   const row = rows[0];
   if (!row) return null;
   return row;
+}
+
+// ---------- Realtime subscription authorization ----------
+
+/**
+ * The DB-bound half of the realtime isolation gate: does `userId` belong to
+ * the team that owns run `runId`? One indexed `runs ⋈ memberships` join — the
+ * realtime analogue of the `AuthorizedProjectId` scope predicate (a logged-in
+ * member of team A must not be able to subscribe to team B's run stream).
+ *
+ * Injected into {@link authorizeTopicSubscription} as `RunMembershipLookup`
+ * so the pure authorization DECISION (topic parse + null-user / empty-rows
+ * rejection) can be unit-tested with a fake lookup — no `void/live` handshake
+ * and no real D1 required.
+ */
+export type RunMembershipLookup = (
+  runId: string,
+  userId: string,
+) => Promise<boolean>;
+
+const lookupRunMembership: RunMembershipLookup = async (runId, userId) => {
+  const rows = await db
+    .select({ teamId: runs.teamId })
+    .from(runs)
+    .innerJoin(
+      memberships,
+      and(eq(memberships.teamId, runs.teamId), eq(memberships.userId, userId)),
+    )
+    .where(eq(runs.id, runId))
+    .limit(1);
+  return rows.length > 0;
+};
+
+/** Topics the realtime stream knows how to authorize. */
+const RUN_TOPIC_RE = /^run:([^:]+)$/;
+
+/**
+ * Decide whether a connection may subscribe to a `void/live` topic. This is
+ * the single tenant-isolation gate for the realtime stream — the one isolation
+ * check that does NOT route through `scope.ts` / a branded id, because the
+ * stream handshake hands us a raw topic string.
+ *
+ * Owns the whole decision so it is unit-testable in isolation:
+ *   - `userId === null` → 403 (anonymous connection; the lookup never runs);
+ *   - the topic must match `run:<runId>` exactly — `run:`, `run:a:b`, and any
+ *     non-run topic are rejected 403 (the lookup never runs);
+ *   - a well-formed `run:<runId>` topic is allowed only when the injected
+ *     {@link RunMembershipLookup} confirms membership; an empty result is the
+ *     cross-team denial → 403.
+ *
+ * The `lookup` parameter defaults to the real `runs ⋈ memberships` join; tests
+ * pass a fake to exercise every branch without touching D1.
+ */
+export async function authorizeTopicSubscription(
+  userId: string | null,
+  topic: string,
+  lookup: RunMembershipLookup = lookupRunMembership,
+): Promise<{ ok: true } | { ok: false; status: 403 }> {
+  if (!userId) return { ok: false, status: 403 };
+  const runMatch = RUN_TOPIC_RE.exec(topic);
+  if (!runMatch) return { ok: false, status: 403 };
+  const isMember = await lookup(runMatch[1], userId);
+  return isMember ? { ok: true } : { ok: false, status: 403 };
 }

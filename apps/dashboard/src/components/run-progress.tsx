@@ -15,11 +15,7 @@ import {
   type StatusFilter,
 } from "@/lib/group-tests-by-file";
 import { statusToken } from "@/lib/status";
-import {
-  useRunProgress,
-  type RunProgressSummary,
-  type RunProgressTest,
-} from "@/lib/live-client";
+import { useRunProgress, type RunProgressTest } from "@/lib/live-client";
 import { formatDuration } from "@/lib/time-format";
 
 interface RunProgressProps {
@@ -31,14 +27,15 @@ interface RunProgressProps {
   projectSlug: string;
   /** SSR-loaded test rows. Forwarded to the hook to seed its accumulator. */
   initialTests?: RunProgressTest[];
-  /** SSR-loaded aggregate. Forwarded to the hook so counts render pre-event. */
-  initialSummary?: RunProgressSummary;
 }
 
 /**
  * Run-detail Tests tab. Subscribes to live progress events for `run:<runId>`
  * via `useRunProgress`, merging streaming updates on top of the SSR-loaded
- * `initialTests`/`initialSummary`.
+ * `initialTests`. Owns only the per-test list; the aggregate summary (header
+ * tiles + OutcomeBar) is rendered live by the separate `<RunSummaryLive>`
+ * island, so this component derives every count it shows from its own `byId`
+ * accumulator (`statusCounts` below) rather than reading the published summary.
  *
  * Layout mirrors the design bundle's `screen-run-detail.jsx`:
  *   - Sticky filter bar — search input, status SegmentedControl with per-status
@@ -58,12 +55,8 @@ export function RunProgress({
   teamSlug,
   projectSlug,
   initialTests,
-  initialSummary,
 }: RunProgressProps) {
-  const { byId, summary: _summary } = useRunProgress(runId, {
-    initialTests,
-    initialSummary,
-  });
+  const { byId } = useRunProgress(runId, { initialTests });
   const tests = useMemo(() => Object.values(byId), [byId]);
 
   const [search, setSearch] = useState("");

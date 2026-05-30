@@ -37,15 +37,13 @@ export const AGGREGATE_SUMMARY_COLUMNS = {
 export type RunAggregateSummary = RunProgressEvent["summary"];
 
 /**
- * Drizzle/D1 port of the rwsdk ingest pipeline. Same shape, same atomicity
- * guarantees (D1 `batch` runs every statement inside a single transaction
- * on the writer node).
+ * Streaming ingest pipeline. Every write carries `teamId AND projectId` for
+ * logical tenant isolation, and `db.batch` is the atomicity boundary (Drizzle
+ * wraps D1's batch API, running every statement in a single transaction on the
+ * writer node). Realtime broadcasts go through `void/live` topic `run:<runId>`.
  *
- * Notable differences from the DO version:
- *   - One D1 instead of per-team DO; every write carries `teamId AND projectId`.
- *   - `db.batch` is the atomicity boundary (Drizzle wraps D1's batch API).
- *   - Realtime broadcasts go through `void/live` topic `run:<runId>` not a
- *     stateful SyncedStateServer room.
+ * See `docs/worklog/void-migration-consolidated.md` for the architecture
+ * decisions behind the single-D1 + `void/live` model.
  */
 
 // D1 caps the parameter count per statement at 100. Match the previous DO
