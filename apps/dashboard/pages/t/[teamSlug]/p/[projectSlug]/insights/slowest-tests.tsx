@@ -27,7 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
-import { STATUS_COLORS } from "@/lib/status";
+import { statusToken } from "@/lib/status";
 import { formatDuration } from "@/lib/time-format";
 import type {
   BottleneckRow,
@@ -365,27 +365,27 @@ function rowTone(row: BottleneckRow): RowTone {
   if (row.failCount > 0) {
     return {
       Icon: XCircle,
-      iconColor: STATUS_COLORS.failed,
+      iconColor: statusToken("failed"),
       border: "border-l-destructive",
       p95Text: "text-destructive-foreground",
-      sparkColor: STATUS_COLORS.failed,
+      sparkColor: statusToken("failed"),
     };
   }
   if (row.flakyCount > 0) {
     return {
       Icon: TriangleAlert,
-      iconColor: STATUS_COLORS.flaky,
+      iconColor: statusToken("flaky"),
       border: "border-l-warning",
       p95Text: "text-warning-foreground",
-      sparkColor: STATUS_COLORS.flaky,
+      sparkColor: statusToken("flaky"),
     };
   }
   return {
     Icon: CheckCircle2,
-    iconColor: STATUS_COLORS.passed,
+    iconColor: statusToken("passed"),
     border: "border-l-border",
     p95Text: "text-muted-foreground",
-    sparkColor: STATUS_COLORS.passed,
+    sparkColor: statusToken("passed"),
   };
 }
 
@@ -409,16 +409,18 @@ function DurationSparkline({
       />
     );
   }
+  // `color` is a CSS `var(...)` reference, which SVG paint attributes can't
+  // take — apply it as the element's CSS `color` and paint with currentColor.
   if (points.length === 1) {
     return (
       <svg
         width={w}
         height={h}
-        style={{ display: "block", margin: "0 auto" }}
+        style={{ display: "block", margin: "0 auto", color }}
         role="img"
         aria-label="Single data point"
       >
-        <circle cx={w / 2} cy={h / 2} r={1.5} fill={color} />
+        <circle cx={w / 2} cy={h / 2} r={1.5} fill="currentColor" />
       </svg>
     );
   }
@@ -443,11 +445,11 @@ function DurationSparkline({
     <svg
       width={w}
       height={h}
-      style={{ display: "block", margin: "0 auto" }}
+      style={{ display: "block", margin: "0 auto", color }}
       role="img"
       aria-label="7-day duration trend"
     >
-      <path d={path} stroke={color} strokeWidth={1.25} fill="none" />
+      <path d={path} stroke="currentColor" strokeWidth={1.25} fill="none" />
     </svg>
   );
 }

@@ -1,6 +1,7 @@
 import { SearchIcon } from "lucide-react";
 import { Link } from "@void/react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
+import { OutcomeBar } from "@/components/outcome-bar";
 import { PageHeader } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
@@ -19,8 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/cn";
-import { STATUS_COLORS } from "@/lib/status";
+import { statusToken } from "@/lib/status";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { Props } from "./tests.server";
 
@@ -198,9 +198,13 @@ export default function TestsPage({
                         {row.n.toLocaleString()}
                       </TableCell>
                       <TableCell className="w-[200px] px-4 py-3 align-middle">
-                        <OutcomeMix
+                        <OutcomeBar
+                          emptyDash
                           failed={row.failCount}
                           flaky={row.flakyCount}
+                          height={6}
+                          maxWidth={180}
+                          minWidth={0}
                           passed={row.passedCount}
                           skipped={row.skippedCount}
                         />
@@ -245,52 +249,8 @@ function mixToneColor(row: {
   flakyCount: number;
   passedCount: number;
 }): string {
-  if (row.failCount > 0) return STATUS_COLORS.failed;
-  if (row.flakyCount > 0) return STATUS_COLORS.flaky;
-  if (row.passedCount > 0) return STATUS_COLORS.passed;
-  return STATUS_COLORS.skipped;
-}
-
-function OutcomeMix({
-  passed,
-  flaky,
-  failed,
-  skipped,
-}: {
-  passed: number;
-  flaky: number;
-  failed: number;
-  skipped: number;
-}): React.ReactElement {
-  const total = passed + flaky + failed + skipped;
-  if (total === 0) {
-    return <div className="font-mono text-[10px] text-muted-foreground">—</div>;
-  }
-  const segments: { count: number; color: string; label: string }[] = [
-    { count: passed, color: STATUS_COLORS.passed, label: "passed" },
-    { count: flaky, color: STATUS_COLORS.flaky, label: "flaky" },
-    { count: failed, color: STATUS_COLORS.failed, label: "failed" },
-    { count: skipped, color: STATUS_COLORS.skipped, label: "skipped" },
-  ];
-  return (
-    <div
-      aria-label={`${passed} passed, ${flaky} flaky, ${failed} failed, ${skipped} skipped`}
-      className={cn(
-        "flex h-1.5 w-full max-w-[180px] overflow-hidden rounded-full bg-muted",
-      )}
-      role="img"
-    >
-      {segments.map((s) =>
-        s.count > 0 ? (
-          <span
-            key={s.label}
-            style={{
-              width: `${(s.count / total) * 100}%`,
-              backgroundColor: s.color,
-            }}
-          />
-        ) : null,
-      )}
-    </div>
-  );
+  if (row.failCount > 0) return statusToken("failed");
+  if (row.flakyCount > 0) return statusToken("flaky");
+  if (row.passedCount > 0) return statusToken("passed");
+  return statusToken("skipped");
 }

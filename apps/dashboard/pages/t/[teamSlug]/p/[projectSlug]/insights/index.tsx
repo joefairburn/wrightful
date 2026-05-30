@@ -10,7 +10,7 @@ import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { Card, CardPanel } from "@/components/ui/card";
 import { bucketKey, buildEmptyBuckets } from "@/lib/analytics/bucketing";
-import { statusColor } from "@/lib/status";
+import { statusToken } from "@/lib/status";
 import type { Props } from "./index.server";
 
 const SEGMENT_NOUN: Record<string, string> = {
@@ -40,10 +40,10 @@ export default function InsightsPage({
   const shells = buildEmptyBuckets(segment, windowStartSec, nowSec);
   const byKey = new Map(aggRows.map((r) => [bucketKey(r.bucket), r]));
 
-  const passedColor = statusColor("passed");
-  const failedColor = statusColor("failed");
-  const flakyColor = statusColor("flaky");
-  const skippedColor = statusColor("skipped");
+  const passedColor = statusToken("passed");
+  const failedColor = statusToken("failed");
+  const flakyColor = statusToken("flaky");
+  const skippedColor = statusToken("skipped");
 
   const buckets: BucketBarChartBucket[] = shells.map((s) => {
     const row = byKey.get(s.key);
