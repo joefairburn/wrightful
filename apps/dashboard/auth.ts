@@ -37,18 +37,19 @@ type AccountContext = Parameters<AccountAfter>[1];
  *     ordering and logs (rather than swallows) capture failures.
  */
 
-// Read GitHub OAuth creds via Node's `process.env` so this works both at
-// `void prepare` (config-evaluation time, before void's typed `env` proxy is
-// bound) and at request time. Treat them as optional — only register the
-// provider when BOTH are set, so a clean checkout works without forcing
-// the user to set up a GitHub OAuth app first.
+// GitHub OAuth creds + open-signup flag are read via Node's `process.env` so
+// this works at `void prepare` (config-evaluation time, before void's typed
+// `env` proxy is bound). The same decode rules — register the GitHub provider
+// only when BOTH creds are set (so a clean checkout works without a GitHub
+// OAuth app), and open signup off unless explicitly truthy — are owned for the
+// request-time loaders by `@/lib/config` (`githubOAuthEnabled` /
+// `openSignupAllowed`). They're inlined HERE, not imported, because `void
+// prepare` evaluates this file in a bare Node context that can't resolve the
+// `@/lib` alias for a static value import (the same reason the github mirror
+// below is loaded via a deferred dynamic import). Keep the two in sync.
 const githubClientId = process.env.AUTH_GITHUB_CLIENT_ID;
 const githubClientSecret = process.env.AUTH_GITHUB_CLIENT_SECRET;
 const githubProviderEnabled = Boolean(githubClientId && githubClientSecret);
-
-// Open signup is off by default — self-hosters add users via invites until
-// email verification is wired up. Read via `process.env` for the same
-// config-time-evaluation reason as the GitHub creds above.
 const openSignupAllowed = /^(true|1)$/i.test(
   process.env.ALLOW_OPEN_SIGNUP ?? "",
 );

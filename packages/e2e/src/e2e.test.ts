@@ -16,7 +16,13 @@ const REPORT_PATH = inject("reportPath");
 const SESSION_COOKIE = inject("sessionCookie");
 const TEAM_SLUG = inject("teamSlug");
 const PROJECT_SLUG = inject("projectSlug");
-const BETTER_AUTH_SECRET = inject("betterAuthSecret");
+// The secret the booted dashboard actually signs artifact-download tokens with,
+// already resolved by the fixture (dedicated ARTIFACT_TOKEN_SECRET when set,
+// else BETTER_AUTH_SECRET). We sign with THIS rather than re-deriving the
+// `?? BETTER_AUTH_SECRET` precedence here, so the forge can never silently
+// diverge from the dashboard's resolveArtifactTokenSecret the moment a
+// dedicated secret is introduced.
+const ARTIFACT_TOKEN_SECRET = inject("artifactTokenSecret");
 
 // Mirrors apps/dashboard/src/lib/artifact-tokens.ts#signArtifactToken.
 // Artifact downloads are gated by a short-lived HMAC token the dashboard mints
@@ -29,10 +35,6 @@ const BETTER_AUTH_SECRET = inject("betterAuthSecret");
 // body-shape + HMAC/base64url contract is guarded by a canary in the dashboard
 // suite — apps/dashboard/src/__tests__/artifact-tokens.test.ts ("e2e token
 // forging contract"). Keep this in sync with that canary; a drift fails there.
-// NOTE: this signs with BETTER_AUTH_SECRET only. The dashboard signer keys on
-// `ARTIFACT_TOKEN_SECRET ?? BETTER_AUTH_SECRET` (artifact-tokens.ts), so if the
-// dashboard env ever provisions a distinct ARTIFACT_TOKEN_SECRET, this forge
-// must adopt it too (and dashboard-fixture.ts must inject it).
 function base64url(input: Buffer): string {
   return input
     .toString("base64")
@@ -51,7 +53,7 @@ function signArtifactToken(
     Buffer.from(JSON.stringify({ r2Key, contentType, exp })),
   );
   const sig = base64url(
-    createHmac("sha256", BETTER_AUTH_SECRET).update(body).digest(),
+    createHmac("sha256", ARTIFACT_TOKEN_SECRET).update(body).digest(),
   );
   return `${body}.${sig}`;
 }

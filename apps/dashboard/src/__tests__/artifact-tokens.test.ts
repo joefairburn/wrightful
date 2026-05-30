@@ -106,10 +106,13 @@ describe("artifact download URL builders", () => {
  * reproduces that exact minting algorithm and round-trips it through the REAL
  * `verifyArtifactToken`, so any change to the token body shape, field set, or
  * HMAC/base64url scheme fails HERE (the dashboard's gated CI) instead of
- * silently in the e2e suite. The e2e clone keys the HMAC on `BETTER_AUTH_SECRET`
- * and the dashboard falls back to it when `ARTIFACT_TOKEN_SECRET` is unset
- * (the mock above), so the secret-selection rule is exercised too: provision a
- * distinct `ARTIFACT_TOKEN_SECRET` and this round-trip must break.
+ * silently in the e2e suite. The e2e clone signs with the dashboard's *resolved*
+ * artifact-signing secret (`resolveArtifactTokenSecret`, exercised under the
+ * fallback here because the mock leaves `ARTIFACT_TOKEN_SECRET` unset), so the
+ * forger can never re-derive a different precedence than the producer. Provision
+ * a distinct `ARTIFACT_TOKEN_SECRET` and the producer/forger pair stays aligned
+ * because both read the same resolver — see config.test.ts for that rule's unit
+ * coverage.
  */
 describe("e2e token forging contract", () => {
   function base64url(input: Buffer): string {

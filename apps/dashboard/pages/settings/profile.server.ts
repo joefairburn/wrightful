@@ -1,6 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
 import { getUserAuthProfile } from "@/lib/auth-users";
+import { githubOAuthEnabled } from "@/lib/config";
 
 export type Props = InferProps<typeof loader>;
 
@@ -19,9 +20,7 @@ export const loader = defineHandler(async (c) => {
 
   const { hasPassword, github } = await getUserAuthProfile(sessionUser.id);
 
-  const githubEnabled = Boolean(
-    process.env.AUTH_GITHUB_CLIENT_ID && process.env.AUTH_GITHUB_CLIENT_SECRET,
-  );
+  const githubEnabled = githubOAuthEnabled(process.env);
 
   return {
     user: {

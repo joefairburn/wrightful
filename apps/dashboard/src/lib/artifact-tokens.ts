@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { env } from "void/env";
+import { resolveArtifactTokenSecret } from "@/lib/config";
 import {
   base64urlDecode,
   base64urlEncode,
@@ -32,8 +33,10 @@ type SignedPayload = z.infer<typeof signedPayloadSchema>;
 async function getKey(): Promise<CryptoKey> {
   // Prefer a dedicated artifact-token secret so these short-lived, broadly
   // minted download capabilities can be rotated independently of the session
-  // secret. Falls back to BETTER_AUTH_SECRET when unset (backward compatible).
-  const secret = env.ARTIFACT_TOKEN_SECRET ?? env.BETTER_AUTH_SECRET;
+  // secret. The `ARTIFACT_TOKEN_SECRET ?? BETTER_AUTH_SECRET` precedence is
+  // owned by resolveArtifactTokenSecret() in @/lib/config so the e2e HMAC
+  // forger signs under provably the same rule (see its docstring).
+  const secret = resolveArtifactTokenSecret(env);
   return crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),

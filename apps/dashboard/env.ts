@@ -21,6 +21,8 @@ export default defineEnv({
    * from the session-signing BETTER_AUTH_SECRET: with it set, a leaked artifact
    * token is revoked by rotating THIS secret without logging out every user.
    * Falls back to BETTER_AUTH_SECRET when unset (backward compatible). ≥32 chars.
+   * The fallback precedence is owned by `resolveArtifactTokenSecret` in
+   * src/lib/config.ts — see it before changing this rule.
    */
   ARTIFACT_TOKEN_SECRET: string().secret().optional(),
 
