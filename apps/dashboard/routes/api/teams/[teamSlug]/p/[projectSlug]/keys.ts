@@ -5,23 +5,7 @@ import { ulid } from "ulid";
 import { apiKeys } from "@schema";
 import { resolveProjectBySlugs } from "@/lib/authz";
 import { readField } from "@/lib/form";
-
-async function sha256Hex(input: string): Promise<string> {
-  const data = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function generateApiKey(): string {
-  const rand = crypto.getRandomValues(new Uint8Array(24));
-  const b64 = btoa(String.fromCharCode(...rand))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-  return `wrf_${b64}`;
-}
+import { mintToken, sha256Hex } from "@/lib/token-crypto";
 
 /**
  * POST /api/teams/:teamSlug/p/:projectSlug/keys
@@ -63,7 +47,7 @@ export const POST = defineHandler(async (c) => {
     return c.json({ error: "Label is too long" }, 400);
   }
 
-  const token = generateApiKey();
+  const token = mintToken(24, "wrf_");
   const id = ulid();
   const createdAt = Math.floor(Date.now() / 1000);
   const keyPrefix = token.slice(0, 8);

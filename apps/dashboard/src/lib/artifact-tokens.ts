@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { env } from "void/env";
+import {
+  base64urlDecode,
+  base64urlEncode,
+  timingSafeEqualBytes,
+} from "@/lib/token-crypto";
 
 const DEFAULT_TTL_SECONDS = 60 * 60; // 1 hour
 
@@ -24,25 +29,6 @@ const signedPayloadSchema = z.object({
 
 type SignedPayload = z.infer<typeof signedPayloadSchema>;
 
-function base64urlEncode(bytes: Uint8Array): string {
-  let str = "";
-  for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64urlDecode(str: string): Uint8Array | null {
-  try {
-    const padded = str.replace(/-/g, "+").replace(/_/g, "/");
-    const pad = padded.length % 4;
-    const binary = atob(pad ? padded + "=".repeat(4 - pad) : padded);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes;
-  } catch {
-    return null;
-  }
-}
-
 async function getKey(): Promise<CryptoKey> {
   // Prefer a dedicated artifact-token secret so these short-lived, broadly
   // minted download capabilities can be rotated independently of the session
@@ -55,13 +41,6 @@ async function getKey(): Promise<CryptoKey> {
     false,
     ["sign", "verify"],
   );
-}
-
-function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
 }
 
 export async function signArtifactToken(
@@ -101,7 +80,7 @@ export async function verifyArtifactToken(
     key,
     new TextEncoder().encode(body),
   );
-  if (!timingSafeEqual(new Uint8Array(expected), provided)) return null;
+  if (!timingSafeEqualBytes(new Uint8Array(expected), provided)) return null;
 
   const bodyBytes = base64urlDecode(body);
   if (!bodyBytes) return null;
