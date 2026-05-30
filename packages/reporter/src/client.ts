@@ -199,14 +199,19 @@ export class StreamClient {
   }
 
   /**
-   * Stream a local file to the presigned upload URL. Retries on 5xx/network
-   * errors (each attempt capped at 120s — videos can take a moment). The
-   * Blob is re-opened per attempt because a consumed stream can't be replayed.
+   * Stream a local file to the upload URL returned by
+   * `/api/artifacts/register`. Today that is always a worker-proxied route on
+   * the dashboard origin (`/api/artifacts/:id/upload`) — the bytes pass through
+   * the worker into R2, there is no presigned R2 endpoint. Retries on
+   * 5xx/network errors (each attempt capped at 120s — videos can take a
+   * moment). The Blob is re-opened per attempt because a consumed stream can't
+   * be replayed.
    *
-   * The Bearer token is attached only when the upload URL is on the same
-   * origin as the dashboard (i.e. the dashboard is proxying the upload).
-   * Presigned R2/S3 URLs carry their own signature and live on a different
-   * host; sending the Wrightful token to them would leak it to a third party.
+   * The Bearer token is attached only when the upload URL is on the same origin
+   * as the dashboard (i.e. the worker is proxying the upload, the current path).
+   * This stays forward-compatible with a hypothetical presigned R2/S3 URL on a
+   * different host, which would carry its own signature; sending the Wrightful
+   * token there would leak it to a third party.
    */
   async uploadArtifact(
     uploadUrl: string,

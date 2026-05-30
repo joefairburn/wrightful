@@ -14,6 +14,10 @@ import {
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { TestErrorAlert } from "@/components/test-error-alert";
+import {
+  signedDownloadHref,
+  signedTraceViewerUrl,
+} from "@/lib/artifact-tokens";
 import { cn } from "@/lib/cn";
 import { parseTitleSegments } from "@/lib/group-tests-by-file";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
@@ -89,15 +93,6 @@ function overallStatusTextColor(status: string): string {
 function overallStatusLabel(status: string): string {
   if (status === "timedout") return "Timed out";
   return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-function traceViewerUrl(
-  origin: string,
-  artifactId: string,
-  token: string,
-): string {
-  const downloadUrl = `${origin}/api/artifacts/${artifactId}/download?t=${encodeURIComponent(token)}`;
-  return `https://trace.playwright.dev/?trace=${encodeURIComponent(downloadUrl)}`;
 }
 
 /**
@@ -182,7 +177,7 @@ export default function TestDetailPage(props: Props) {
   }
 
   const downloadHref = (artifactId: string): string =>
-    `/api/artifacts/${artifactId}/download?t=${encodeURIComponent(artifactTokens[artifactId] ?? "")}`;
+    signedDownloadHref(artifactId, artifactTokens[artifactId] ?? "");
 
   const allAttempts = Array.from({ length: totalAttempts }, (_, i) => i);
   const fallbackErrorOn: number | null =
@@ -202,7 +197,7 @@ export default function TestDetailPage(props: Props) {
     downloadHref: downloadHref(a.id),
     traceViewerUrl:
       a.type === "trace"
-        ? traceViewerUrl(origin, a.id, artifactTokens[a.id] ?? "")
+        ? signedTraceViewerUrl(origin, a.id, artifactTokens[a.id] ?? "")
         : undefined,
   });
 

@@ -43,6 +43,33 @@ async function getKey(): Promise<CryptoKey> {
   );
 }
 
+/**
+ * The one place that owns the artifact-download URL shape
+ * (`/api/artifacts/:id/download?t=<token>`). Pure + exported so every caller —
+ * the server-side action builder, the test-detail page island, and (by
+ * contract) the e2e suite — pairs an artifact id with a signed token the same
+ * way. Deleting this re-scatters the literal across both loaders and the page.
+ */
+export function signedDownloadHref(artifactId: string, token: string): string {
+  return `/api/artifacts/${artifactId}/download?t=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Wrap a signed download URL in a trace.playwright.dev link. The trace viewer
+ * fetches the absolute download URL, so this needs the request `origin`. Pure
+ * + exported alongside `signedDownloadHref` so the trace-viewer wrap lives next
+ * to the download-URL shape it depends on (the viewer URL embeds the download
+ * URL verbatim).
+ */
+export function signedTraceViewerUrl(
+  origin: string,
+  artifactId: string,
+  token: string,
+): string {
+  const downloadUrl = `${origin}${signedDownloadHref(artifactId, token)}`;
+  return `https://trace.playwright.dev/?trace=${encodeURIComponent(downloadUrl)}`;
+}
+
 export async function signArtifactToken(
   payload: ArtifactDownloadPayload,
   ttlSeconds: number = DEFAULT_TTL_SECONDS,

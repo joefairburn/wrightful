@@ -34,8 +34,14 @@ export default defineEnv({
   AUTH_GITHUB_CLIENT_SECRET: string().secret().optional(),
 
   /**
-   * Per-artifact upload size cap. Enforced in /api/artifacts/register and
-   * again as Content-Length in /api/artifacts/:id/upload. Default 50 MiB.
+   * Per-artifact upload size cap. The cap binds in exactly one place:
+   * /api/artifacts/register rejects any artifact whose declared sizeBytes
+   * exceeds it with a 413. /api/artifacts/:id/upload does NOT re-read the cap —
+   * it only asserts the incoming Content-Length equals the already-registered
+   * sizeBytes, which is transitively cap-bound because an oversized artifact
+   * never gets a row at register. Lowering the cap therefore only affects
+   * future registrations, not already-registered in-flight uploads. Default
+   * 50 MiB.
    */
   WRIGHTFUL_MAX_ARTIFACT_BYTES: number().default(52428800),
 

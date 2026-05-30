@@ -1,3 +1,4 @@
+import { sql } from "void/_db";
 import { index, integer, sqliteTable, text, uniqueIndex } from "void/schema-d1";
 
 export type MembershipRole = "owner" | "member";
@@ -342,7 +343,10 @@ export const artifacts = sqliteTable(
     name: text("name").notNull(),
     contentType: text("contentType").notNull(),
     sizeBytes: integer("sizeBytes").notNull(),
-    /** R2 object key. Convention: `artifacts/<artifactId>/<safe-filename>`. */
+    /**
+     * R2 object key. Built by `buildArtifactR2Key` in `src/lib/artifacts.ts`:
+     * `t/<teamId>/p/<projectId>/runs/<runId>/<testResultId>/<artifactId>/<safe-filename>`.
+     */
     r2Key: text("r2Key").notNull(),
     attempt: integer("attempt").notNull().default(0),
     /**
@@ -352,12 +356,37 @@ export const artifacts = sqliteTable(
     role: text("role"),
     /**
      * Shared name used to group the three sibling images of a visual
-     * regression failure. Indexed via the partial index below.
+     * regression failure (sent alongside `role`); null for non-snapshot
+     * artifacts. Not part of the idempotency identity below.
      */
     snapshotName: text("snapshotName"),
     createdAt: integer("createdAt").notNull(),
   },
-  (t) => [index("artifacts_testResultId_idx").on(t.testResultId)],
+  (t) => [
+    index("artifacts_testResultId_idx").on(t.testResultId),
+    /**
+     * Artifact idempotency identity. A retried `/results` flush re-registers
+     * the same artifact set; this tuple is what makes two registrations "the
+     * same artifact" so the reporter's PUT overwrites one R2 object instead of
+     * minting a duplicate row + double-billing storage/egress. It is the DB
+     * mirror of `artifactIdentity()` in `src/lib/artifacts.ts` — keep the two
+     * in sync (e.g. if `snapshotName` ever joins the identity for visual diffs,
+     * add it to BOTH). `role` is nullable and SQLite treats NULLs as distinct
+     * in unique indexes, which would let role-less artifacts (the common case)
+     * dodge the constraint; `COALESCE(role, '')` collapses NULL to the empty
+     * string exactly as `artifactIdentity` does (`role ?? ""`) so the index
+     * enforces the same identity the application dedupes on and closes the
+     * lookup-before-insert race window.
+     */
+    uniqueIndex("artifacts_identity_uq").on(
+      t.projectId,
+      t.testResultId,
+      t.type,
+      t.name,
+      t.attempt,
+      sql`COALESCE(${t.role}, '')`,
+    ),
+  ],
 );
 
 // ---------- Type aliases for downstream code ----------

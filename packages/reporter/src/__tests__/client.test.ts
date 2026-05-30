@@ -331,7 +331,7 @@ describe("StreamClient", () => {
   });
 
   describe("uploadArtifact", () => {
-    it("omits the Authorization header for cross-origin (presigned) URLs", async () => {
+    it("omits the Authorization header for cross-origin (hypothetical presigned) URLs", async () => {
       const fetchMock = vi.fn().mockResolvedValueOnce(emptyResponse(200));
       vi.stubGlobal("fetch", fetchMock);
 

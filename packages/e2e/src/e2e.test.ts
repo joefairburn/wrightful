@@ -23,6 +23,16 @@ const BETTER_AUTH_SECRET = inject("betterAuthSecret");
 // server-side on authenticated pages; the e2e suite holds the same secret, so
 // we can forge a valid token rather than scrape one out of the rendered HTML.
 // Token format: `${base64url(JSON({r2Key, contentType, exp}))}.${base64url(HMAC(body))}`.
+//
+// This is a deliberate cross-package clone (the canonical signer is async
+// WebCrypto running in workerd; this runs sync in the Node Vitest harness). The
+// body-shape + HMAC/base64url contract is guarded by a canary in the dashboard
+// suite — apps/dashboard/src/__tests__/artifact-tokens.test.ts ("e2e token
+// forging contract"). Keep this in sync with that canary; a drift fails there.
+// NOTE: this signs with BETTER_AUTH_SECRET only. The dashboard signer keys on
+// `ARTIFACT_TOKEN_SECRET ?? BETTER_AUTH_SECRET` (artifact-tokens.ts), so if the
+// dashboard env ever provisions a distinct ARTIFACT_TOKEN_SECRET, this forge
+// must adopt it too (and dashboard-fixture.ts must inject it).
 function base64url(input: Buffer): string {
   return input
     .toString("base64")

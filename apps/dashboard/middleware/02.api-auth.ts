@@ -11,8 +11,8 @@ import {
  *   - POST /api/runs                       (open a run)
  *   - POST /api/runs/:id/results           (append a batch)
  *   - POST /api/runs/:id/complete          (finalize)
- *   - POST /api/artifacts/register         (reserve + presign)
- *   - PUT  /api/artifacts/:id/upload       (stream into R2)
+ *   - POST /api/artifacts/register         (reserve row + return worker upload URL)
+ *   - PUT  /api/artifacts/:id/upload       (stream into R2 through the worker)
  *
  * Explicitly NOT applied to:
  *   - /api/artifacts/:id/download — signed HMAC token in `?t=`, not bearer keys
