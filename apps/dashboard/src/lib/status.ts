@@ -128,9 +128,14 @@ export function statusSortKey(status: string): number {
 
 /**
  * Bucket a status collapses into for counts/filtering:
- * `timedout → failed`, `interrupted → flaky`. Unknown → `passed` (the most
- * benign bucket, so an unexpected status never inflates failure counts).
+ * `timedout → failed`, `interrupted → flaky`.
+ *
+ * Returns `null` for any status that is NOT in the registry — importantly,
+ * `"queued"` (the in-flight placeholder prefilled by ingest before a test
+ * starts) returns `null` so that in-progress runs never inflate any of the
+ * four user-facing chips. Callers skip null when accumulating counts or
+ * applying a status filter.
  */
-export function statusGroupKey(status: string): StatusGroupKey {
-  return isStatus(status) ? STATUS[status].groupKey : "passed";
+export function statusGroupKey(status: string): StatusGroupKey | null {
+  return isStatus(status) ? STATUS[status].groupKey : null;
 }

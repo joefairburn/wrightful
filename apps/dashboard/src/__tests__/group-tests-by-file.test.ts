@@ -364,9 +364,11 @@ describe("countByStatusGroup", () => {
     });
   });
 
-  it("folds `queued` (live-only, unknown to the registry) into the benign passed bucket", () => {
+  it("excludes `queued` (in-flight placeholder) from all four chips", () => {
+    // queued rows must NOT inflate any chip — the Passed chip should stay at 0
+    // for a run where every test is still pending execution.
     expect(countByStatusGroup([t("a.spec.ts", "queued")])).toEqual({
-      passed: 1,
+      passed: 0,
       failed: 0,
       flaky: 0,
       skipped: 0,

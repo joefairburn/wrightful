@@ -106,22 +106,27 @@ export async function getUsersByIds(
   const out = new Map<string, UserProfile>();
   if (ids.length === 0) return out;
 
-  // Bind each id as its own parameter (never string-interpolate ids into SQL).
-  const idList = sql.join(
-    ids.map((id) => sql`${id}`),
-    sql`, `,
-  );
-  const rows = await db.run(
-    sql`select id, email, name, image from "user" where id in (${idList})`,
-  );
-  const results = (rows.results ?? []) as Array<{
-    id: string;
-    email: string;
-    name: string;
-    image: string | null;
-  }>;
-  for (const r of results) {
-    out.set(r.id, { email: r.email, name: r.name, image: r.image });
+  // D1 caps bound parameters at 100 per statement. Chunk at 99 to stay under
+  // the limit regardless of team size (the rest of the codebase does the same).
+  const CHUNK = 99;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const idList = sql.join(
+      chunk.map((id) => sql`${id}`),
+      sql`, `,
+    );
+    const rows = await db.run(
+      sql`select id, email, name, image from "user" where id in (${idList})`,
+    );
+    const results = (rows.results ?? []) as Array<{
+      id: string;
+      email: string;
+      name: string;
+      image: string | null;
+    }>;
+    for (const r of results) {
+      out.set(r.id, { email: r.email, name: r.name, image: r.image });
+    }
   }
   return out;
 }

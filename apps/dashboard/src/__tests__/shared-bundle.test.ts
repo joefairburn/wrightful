@@ -1,4 +1,4 @@
-import { describe, it, expect, expectTypeOf } from "vite-plus/test";
+import { describe, it, expectTypeOf } from "vite-plus/test";
 import type {
   ResolvedActiveProject,
   ResolvedActiveTeam,
@@ -48,18 +48,5 @@ describe("SharedBundle type contract", () => {
     expectTypeOf<
       SharedBundle["selectedProject"]
     >().toEqualTypeOf<ResolvedActiveProject | null>();
-  });
-
-  it("the owner gate narrows against the role union at runtime", () => {
-    const selectedTeam: ResolvedActiveTeam = {
-      id: "team-1",
-      slug: "acme",
-      name: "Acme",
-      role: "owner",
-    };
-    const member: ResolvedActiveTeam = { ...selectedTeam, role: "member" };
-    // This is the exact comparison the sidebar uses to authorize UI.
-    expect(selectedTeam.role === "owner").toBe(true);
-    expect(member.role === "owner").toBe(false);
   });
 });

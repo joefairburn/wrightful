@@ -246,7 +246,8 @@ export function countByStatusGroup(
     skipped: 0,
   };
   for (const test of tests) {
-    counts[statusGroupKey(test.status)] += 1;
+    const bucket = statusGroupKey(test.status);
+    if (bucket) counts[bucket] += 1;
   }
   return counts;
 }
@@ -263,11 +264,10 @@ export function filterTests(
 ): RunProgressTest[] {
   const needle = opts.search.trim().toLowerCase();
   return tests.filter((test) => {
-    if (
-      opts.statusFilter !== "all" &&
-      statusGroupKey(test.status) !== opts.statusFilter
-    ) {
-      return false;
+    if (opts.statusFilter !== "all") {
+      const bucket = statusGroupKey(test.status);
+      // null bucket (e.g. "queued") is excluded from every named filter
+      if (bucket !== opts.statusFilter) return false;
     }
     if (
       needle &&
@@ -290,7 +290,7 @@ export function filterTests(
 function groupSeverityScore(rows: readonly RunProgressTest[]): number {
   let score = 0;
   for (const test of rows) {
-    const bucket = statusGroupKey(test.status);
+    const bucket = statusGroupKey(test.status); // null for queued — skip
     if (bucket === "failed") score += 4;
     else if (bucket === "flaky") score += 2;
   }
@@ -351,7 +351,7 @@ export function selectDefaultExpandedKeys(
   for (const [key, rows] of groups.slice(0, 6)) {
     if (
       rows.some((test) => {
-        const bucket = statusGroupKey(test.status);
+        const bucket = statusGroupKey(test.status); // null for queued — skip
         return bucket === "failed" || bucket === "flaky";
       })
     ) {

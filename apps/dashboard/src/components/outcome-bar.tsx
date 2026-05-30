@@ -107,7 +107,7 @@ export function OutcomeBar({
   });
   return (
     <div
-      className="flex overflow-hidden rounded-full bg-bg-3"
+      className="flex w-full overflow-hidden rounded-full bg-bg-3"
       role="img"
       aria-label={`${passed} passed, ${failed} failed, ${flaky} flaky, ${skipped} skipped`}
       style={{ height, minWidth, maxWidth }}

@@ -116,10 +116,12 @@ describe("statusGroupKey", () => {
     expect(statusGroupKey("interrupted")).toBe("flaky");
   });
 
-  it("routes unknown statuses into the benign passed bucket", () => {
-    // An unexpected status must never inflate failure/flaky counts.
-    expect(statusGroupKey("queued")).toBe("passed");
-    expect(statusGroupKey("totally-unknown")).toBe("passed");
+  it("returns null for statuses not in the registry (queued, unknown)", () => {
+    // queued is the in-flight placeholder ingest prefills; it must NOT count
+    // in any of the four user-facing chips (Passed/Failed/Flaky/Skipped).
+    // Unknown future statuses also get null so callers can skip them cleanly.
+    expect(statusGroupKey("queued")).toBeNull();
+    expect(statusGroupKey("totally-unknown")).toBeNull();
   });
 
   it("every registry entry's groupKey is one of the four buckets", () => {
