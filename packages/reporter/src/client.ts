@@ -1,13 +1,18 @@
 import { openAsBlob } from "node:fs";
-import type {
-  ArtifactRegistration,
-  ArtifactUpload,
-  CompleteRunPayload,
-  OpenRunPayload,
-  TestResultPayload,
+import {
+  PROTOCOL_VERSION,
+  WRIGHTFUL_VERSION_HEADER,
+  type AppendResultsResponse,
+  type ArtifactRegistration,
+  type ArtifactUpload,
+  type CompleteRunPayload,
+  type OpenRunPayload,
+  type OpenRunResponse,
+  type RegisterArtifactsResponse,
+  type ResultMapping,
+  type TestResultPayload,
 } from "./types.js";
 
-const PROTOCOL_VERSION = 3;
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const ARTIFACT_PUT_TIMEOUT_MS = 120_000;
@@ -86,7 +91,7 @@ export class StreamClient {
     return {
       Authorization: `Bearer ${this.token}`,
       "Content-Type": "application/json",
-      "X-Wrightful-Version": String(PROTOCOL_VERSION),
+      [WRIGHTFUL_VERSION_HEADER]: String(PROTOCOL_VERSION),
     };
   }
 
@@ -98,11 +103,9 @@ export class StreamClient {
       headers: this.headers,
       body: JSON.stringify(payload),
     });
-    const body = (await response.json().catch(() => ({}))) as {
-      runId?: string;
-      runUrl?: string;
-      error?: string;
-    };
+    const body = (await response
+      .json()
+      .catch(() => ({}))) as Partial<OpenRunResponse> & { error?: string };
     if (!response.ok || !body.runId) {
       const hint = authHint("openRun", response.status);
       if (hint) throw new AuthError(hint);
@@ -116,7 +119,7 @@ export class StreamClient {
   async appendResults(
     runId: string,
     results: TestResultPayload[],
-  ): Promise<Array<{ clientKey: string; testResultId: string }>> {
+  ): Promise<ResultMapping[]> {
     const response = await fetchWithRetry(
       `${this.baseUrl}/api/runs/${runId}/results`,
       {
@@ -125,8 +128,9 @@ export class StreamClient {
         body: JSON.stringify({ results }),
       },
     );
-    const body = (await response.json().catch(() => ({}))) as {
-      results?: Array<{ clientKey: string; testResultId: string }>;
+    const body = (await response
+      .json()
+      .catch(() => ({}))) as Partial<AppendResultsResponse> & {
       error?: string;
     };
     if (!response.ok) {
@@ -181,8 +185,9 @@ export class StreamClient {
         body: JSON.stringify({ runId, artifacts }),
       },
     );
-    const body = (await response.json().catch(() => ({}))) as {
-      uploads?: ArtifactUpload[];
+    const body = (await response
+      .json()
+      .catch(() => ({}))) as Partial<RegisterArtifactsResponse> & {
       error?: string;
     };
     if (!response.ok) {
@@ -213,7 +218,7 @@ export class StreamClient {
     const baseHost = new URL(this.baseUrl).host;
     const resolved = resolvedUrl.toString();
     const headers: Record<string, string> = {
-      "X-Wrightful-Version": String(PROTOCOL_VERSION),
+      [WRIGHTFUL_VERSION_HEADER]: String(PROTOCOL_VERSION),
       "Content-Length": String(sizeBytes),
     };
     if (resolvedUrl.host === baseHost) {

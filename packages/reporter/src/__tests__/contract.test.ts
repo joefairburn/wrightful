@@ -1,12 +1,26 @@
 import { describe, it, expect } from "vite-plus/test";
 import {
   AppendResultsPayloadSchema,
+  AppendResultsResponseSchema,
   CompleteRunPayloadSchema,
   OpenRunPayloadSchema,
+  OpenRunResponseSchema,
   RegisterArtifactsPayloadSchema,
+  RegisterArtifactsResponseSchema,
+  SUPPORTED_VERSIONS,
+  TestAttemptSchema,
+  WRIGHTFUL_VERSION_HEADER as DASHBOARD_VERSION_HEADER,
 } from "../../../../apps/dashboard/src/lib/schemas.js";
 import { buildPayload, buildTestDescriptor } from "../index.js";
-import type { ArtifactRegistration, TestResultPayload } from "../types.js";
+import {
+  PROTOCOL_VERSION,
+  WRIGHTFUL_VERSION_HEADER as REPORTER_VERSION_HEADER,
+  type AppendResultsResponse,
+  type ArtifactRegistration,
+  type OpenRunResponse,
+  type RegisterArtifactsResponse,
+  type TestResultPayload,
+} from "../types.js";
 import { makeResult, makeTest } from "./fixtures.js";
 
 // This test is the canary against silent drift between the reporter's
@@ -229,5 +243,188 @@ describe("reporter ↔ dashboard wire contract", () => {
       ],
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+// The response side (server → reporter) is the other half of the wire
+// contract: the reporter reads `runId`/`runUrl`, the `clientKey → testResultId`
+// mapping, and the artifact uploads off these JSON bodies (see client.ts). The
+// fields are typed as the reporter's `*Response` interfaces here, so a
+// reporter-side rename is a compile error; the values are then parsed through
+// the dashboard's `*ResponseSchema`, so a dashboard-side rename is a runtime
+// failure. This mirrors the request-side canary for the previously-unguarded
+// response shapes.
+describe("dashboard ↔ reporter response contract", () => {
+  it("POST /api/runs response parses through OpenRunResponseSchema", () => {
+    // Shape returned by routes/api/runs/index.ts.
+    const response: OpenRunResponse = {
+      runId: "run_abc",
+      runUrl: "/t/acme/p/web/runs/run_abc",
+    };
+    const parsed = OpenRunResponseSchema.safeParse(response);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("OpenRunResponseSchema tolerates the handler's extra `duplicate` field", () => {
+    // The idempotent-replay path adds `duplicate: true`; the reporter ignores
+    // it. Passthrough keeps it from being flagged as drift.
+    const parsed = OpenRunResponseSchema.safeParse({
+      runId: "run_abc",
+      runUrl: "/t/acme/p/web/runs/run_abc",
+      duplicate: true,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("OpenRunResponseSchema accepts a missing runUrl (reporter treats it as null)", () => {
+    const parsed = OpenRunResponseSchema.safeParse({ runId: "run_abc" });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("OpenRunResponseSchema rejects a missing runId (the field the reporter requires)", () => {
+    const parsed = OpenRunResponseSchema.safeParse({
+      runUrl: "/t/acme/p/web/runs/run_abc",
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("POST /api/runs/:id/results response parses through AppendResultsResponseSchema", () => {
+    // Shape returned by routes/api/runs/[id]/results.ts ({ results: mapping }).
+    const response: AppendResultsResponse = {
+      results: [
+        { clientKey: "ck_1", testResultId: "tr_1" },
+        { clientKey: "ck_2", testResultId: "tr_2" },
+      ],
+    };
+    const parsed = AppendResultsResponseSchema.safeParse(response);
+    expect(parsed.success).toBe(true);
+    // The reporter keys artifact uploads off this exact pair — guard the names.
+    expect(parsed.success && parsed.data.results[0]).toEqual({
+      clientKey: "ck_1",
+      testResultId: "tr_1",
+    });
+  });
+
+  it("AppendResultsResponseSchema accepts an empty mapping (no client-keyed results)", () => {
+    const parsed = AppendResultsResponseSchema.safeParse({ results: [] });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("AppendResultsResponseSchema rejects a mapping with a renamed key (catches drift)", () => {
+    const parsed = AppendResultsResponseSchema.safeParse({
+      results: [{ clientKey: "ck_1", testResultIdentifier: "tr_1" }],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("POST /api/artifacts/register response parses through RegisterArtifactsResponseSchema", () => {
+    // Shape returned by routes/api/artifacts/register.ts ({ uploads }).
+    const response: RegisterArtifactsResponse = {
+      uploads: [
+        {
+          artifactId: "art_1",
+          uploadUrl: "/api/artifacts/art_1/upload",
+          r2Key: "t/team/p/proj/runs/run/tr/art_1/trace.zip",
+        },
+      ],
+    };
+    const parsed = RegisterArtifactsResponseSchema.safeParse(response);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("RegisterArtifactsResponseSchema rejects an upload missing uploadUrl (the field the reporter PUTs to)", () => {
+    const parsed = RegisterArtifactsResponseSchema.safeParse({
+      uploads: [{ artifactId: "art_1", r2Key: "k" }],
+    });
+    expect(parsed.success).toBe(false);
+  });
+});
+
+// The protocol version is a third hand-maintained copy of the contract: the
+// reporter stamps `PROTOCOL_VERSION` on every ingest request (client.ts), and
+// the dashboard independently maintains the `SUPPORTED_VERSIONS` accept-set it
+// 409s against (api-auth.ts → schemas.ts). Nothing but discipline kept the two
+// literals in step. These assertions make the existing cross-package canary
+// the enforcement point: bump the reporter's version without the dashboard
+// learning to accept it (or vice versa) and the build goes red.
+describe("reporter ↔ dashboard protocol version", () => {
+  it("the reporter's PROTOCOL_VERSION is in the dashboard's SUPPORTED_VERSIONS", () => {
+    expect(SUPPORTED_VERSIONS.has(String(PROTOCOL_VERSION))).toBe(true);
+  });
+
+  it("both packages name the version header identically", () => {
+    expect(REPORTER_VERSION_HEADER).toBe(DASHBOARD_VERSION_HEADER);
+  });
+});
+
+// The request-side parse tests above prove the reporter's payloads are
+// *accepted* by the dashboard schemas, but acceptance is one-directional: a
+// new optional field added to the dashboard schema (and never emitted) or a
+// field the reporter emits that the schema strips would both parse clean and
+// drift silently. This block closes that gap by comparing the key SETS — the
+// schema's declared keys vs. the keys the reporter actually emits — so a
+// one-sided field shows up as an exact-equality failure here.
+describe("reporter ↔ dashboard wire shape (structural equivalence)", () => {
+  const schemaKeys = (shape: Record<string, unknown>): string[] =>
+    Object.keys(shape).sort();
+
+  it("emitted TestResultPayload keys match the dashboard's TestResultSchema", () => {
+    const test = makeTest({ id: "t1", outcome: "expected", title: "passes" });
+    const payload = buildPayload({
+      test,
+      results: [makeResult({ status: "passed", duration: 12, retry: 0 })],
+    });
+
+    // The TestResult shape lives inside AppendResultsPayloadSchema.results.
+    // The reporter emits every field (nullable ones as `null`), so the key
+    // sets must match exactly — a one-sided add on either side fails here.
+    const resultElement = AppendResultsPayloadSchema.shape.results.element;
+    const expected = schemaKeys(resultElement.shape);
+    const emitted = Object.keys(payload).sort();
+
+    expect(emitted).toEqual(expected);
+  });
+
+  it("emitted TestAttemptPayload keys match the dashboard's TestAttemptSchema", () => {
+    const test = makeTest({ id: "t1", outcome: "unexpected", title: "fails" });
+    const payload = buildPayload({
+      test,
+      results: [
+        makeResult({
+          status: "failed",
+          duration: 50,
+          retry: 0,
+          errorMessage: "boom",
+        }),
+      ],
+    });
+
+    const expected = schemaKeys(TestAttemptSchema.shape);
+    const attempt = payload.attempts[0];
+    expect(attempt).toBeDefined();
+    const emitted = Object.keys(attempt as object).sort();
+
+    expect(emitted).toEqual(expected);
+  });
+
+  it("planned-test descriptor keys match the dashboard's run.plannedTests element", () => {
+    const descriptor = buildTestDescriptor(
+      makeTest({
+        id: "t1",
+        outcome: "expected",
+        title: "a",
+        file: "a.spec.ts",
+      }),
+      null,
+    );
+
+    // `plannedTests` is `z.array(...).default([])` — unwrap the default to
+    // reach the array, then its element shape.
+    const plannedArray =
+      OpenRunPayloadSchema.shape.run.shape.plannedTests.unwrap();
+    const expected = schemaKeys(plannedArray.element.shape);
+    const emitted = Object.keys(descriptor).sort();
+
+    expect(emitted).toEqual(expected);
   });
 });
