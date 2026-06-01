@@ -19,10 +19,15 @@ type AccountContext = Parameters<AccountAfter>[1];
 /**
  * Customize the void-managed Better Auth instance.
  *
- * Void owns the mount path (`/api/auth/*`), the D1 adapter, the
- * `BETTER_AUTH_SECRET` lifecycle, and the email + GitHub provider wiring
- * (declared in `void.json#auth.providers`, credentials read from
- * `AUTH_GITHUB_CLIENT_ID` / `AUTH_GITHUB_CLIENT_SECRET`).
+ * Void owns the mount path (`/api/auth/*`), the D1 adapter, and the
+ * `BETTER_AUTH_SECRET` lifecycle. `void.json#auth.providers` declares only
+ * `["email"]` — GitHub is registered HERE, conditionally, only when both
+ * `AUTH_GITHUB_CLIENT_ID` / `AUTH_GITHUB_CLIENT_SECRET` are set. (Declaring
+ * `github` in `void.json` would make void hard-require those creds at startup
+ * — `resolveSocialProviderCredentials` throws on empty creds — which breaks a
+ * clean checkout that has no GitHub OAuth app. Keeping the gate in this file
+ * matches the request-time `githubOAuthEnabled` predicate the login/signup
+ * pages already use.)
  *
  * We extend that surface with:
  *   - ULID ids for auth rows (matches the rest of the schema).
