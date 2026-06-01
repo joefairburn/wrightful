@@ -66,11 +66,22 @@ export type ErrorOutcome =
  * arm (status from `extractStatus(err)`) and the post-next() HTML arm (status
  * from `c.res?.status`). API paths and the error pages themselves never reach
  * here — the middleware short-circuits them before mapping.
+ *
+ * Only genuine failures are transformed: 401 → login, 404 → not-found, and
+ * uncaught throws (`null`) / 5xx → /oops. EVERYTHING ELSE PASSES THROUGH
+ * UNTOUCHED — most importantly successful 2xx pages and 3xx redirects (the
+ * logged-out `/` → `/login` redirect is a thrown 302 Response, and a normal
+ * page render lands here as a 200 on the post-next() arm), plus intentional
+ * 4xx control-flow Responses (403/400/409) a handler may return. Folding any
+ * of those into /oops would rewrite normal traffic to the error page.
  */
 export function mapErrorOutcome(status: number | null): ErrorOutcome {
   if (status === 401) return { kind: "redirect-login" };
   if (status === 404) return { kind: "rewrite-404", status: 404 };
-  return { kind: "log-and-oops", status: status ?? 500 };
+  if (status === null || status >= 500) {
+    return { kind: "log-and-oops", status: status ?? 500 };
+  }
+  return { kind: "pass" };
 }
 
 /**

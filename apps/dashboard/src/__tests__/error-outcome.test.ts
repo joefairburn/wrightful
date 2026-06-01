@@ -68,12 +68,27 @@ describe("mapErrorOutcome", () => {
     });
   });
 
-  it("routes other 4xx through log-and-oops (no dedicated arm)", () => {
-    // 403/400 etc. are not handled by a dedicated case today; they fall to the
-    // oops arm. Locking this so a future 403 case is a deliberate change here,
-    // not an accidental drift across the two middleware arms.
-    expect(mapErrorOutcome(403)).toEqual({ kind: "log-and-oops", status: 403 });
-    expect(mapErrorOutcome(400)).toEqual({ kind: "log-and-oops", status: 400 });
+  it("passes successful 2xx responses through untouched", () => {
+    // A normal page render reaches the post-next() arm as a 200. It must NOT be
+    // rewritten to /oops — that would turn every working page into the error
+    // page. (This is the regression the dev server surfaced.)
+    expect(mapErrorOutcome(200)).toEqual({ kind: "pass" });
+    expect(mapErrorOutcome(204)).toEqual({ kind: "pass" });
+  });
+
+  it("passes 3xx redirects through untouched", () => {
+    // The logged-out `/` → /login redirect is a thrown 302 Response; folding it
+    // into log-and-oops breaks the entire auth-redirect flow.
+    expect(mapErrorOutcome(302)).toEqual({ kind: "pass" });
+    expect(mapErrorOutcome(307)).toEqual({ kind: "pass" });
+  });
+
+  it("passes intentional non-401/404 4xx control-flow through untouched", () => {
+    // 403/400/409 are deliberate handler responses, not pipeline failures, and
+    // must not be logged as errors or rewritten to /oops.
+    expect(mapErrorOutcome(403)).toEqual({ kind: "pass" });
+    expect(mapErrorOutcome(400)).toEqual({ kind: "pass" });
+    expect(mapErrorOutcome(409)).toEqual({ kind: "pass" });
   });
 });
 

@@ -75,12 +75,16 @@ export default defineMiddleware(async (c, next) => {
     }
     if (alreadyErrorPage) throw err;
 
-    return await applyOutcome(
-      c,
-      mapErrorOutcome(extractStatus(err)),
-      path,
-      err,
-    );
+    const outcome = mapErrorOutcome(extractStatus(err));
+    // A thrown Response we don't transform — a 3xx redirect (the logged-out
+    // `/` → /login redirect is a thrown 302) or an intentional 4xx — must be
+    // delivered as-is. It was thrown, never assigned to `c.res`, so the `pass`
+    // branch of applyOutcome (which returns `c.res`) can't recover it here.
+    if (outcome.kind === "pass") {
+      if (err instanceof Response) return err;
+      throw err;
+    }
+    return await applyOutcome(c, outcome, path, err);
   }
 
   if (isApi) {
