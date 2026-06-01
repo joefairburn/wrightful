@@ -1,3 +1,9 @@
+-- void:allow-destructive
+-- This is the initial schema-creation migration (CREATE TABLE only). Void's
+-- isDestructive() check false-positives on the `ON DELETE cascade` FK clauses
+-- below; creating tables is not destructive. Pragma is safe — the Void
+-- dashboard has never deployed, so this migration has never been applied to a
+-- production database. (Known upstream quirk; see void-migration-consolidated worklog.)
 CREATE TABLE `apiKeys` (
 	`id` text PRIMARY KEY NOT NULL,
 	`projectId` text NOT NULL,
