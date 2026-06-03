@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX `artifacts_identity_uq` ON `artifacts` (`projectId`,`testResultId`,`type`,`name`,`attempt`,COALESCE("role", ''));

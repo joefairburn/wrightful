@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "aa256403-3fd7-49c6-a197-6daea0010ea1",
+  "id": "b26b2854-b426-4bd1-90b7-83c6eba52e1d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "apiKeys": {
@@ -185,6 +185,18 @@
           "name": "artifacts_testResultId_idx",
           "columns": ["testResultId"],
           "isUnique": false
+        },
+        "artifacts_identity_uq": {
+          "name": "artifacts_identity_uq",
+          "columns": [
+            "projectId",
+            "testResultId",
+            "type",
+            "name",
+            "attempt",
+            "COALESCE(\"role\", '')"
+          ],
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -509,6 +521,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "lastActivityAt": {
+          "name": "lastActivityAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "completedAt": {
           "name": "completedAt",
           "type": "integer",
@@ -541,6 +560,11 @@
         "runs_project_actor_idx": {
           "name": "runs_project_actor_idx",
           "columns": ["projectId", "actor"],
+          "isUnique": false
+        },
+        "runs_status_lastActivityAt_idx": {
+          "name": "runs_status_lastActivityAt_idx",
+          "columns": ["status", "lastActivityAt"],
           "isUnique": false
         }
       },
@@ -1029,6 +1053,11 @@
           "name": "testResults_project_runId_idx",
           "columns": ["projectId", "runId"],
           "isUnique": false
+        },
+        "testResults_project_createdAt_idx": {
+          "name": "testResults_project_createdAt_idx",
+          "columns": ["projectId", "createdAt"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1226,6 +1255,14 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {}
+    "indexes": {
+      "artifacts_identity_uq": {
+        "columns": {
+          "COALESCE(\"role\", '')": {
+            "isExpression": true
+          }
+        }
+      }
+    }
   }
 }

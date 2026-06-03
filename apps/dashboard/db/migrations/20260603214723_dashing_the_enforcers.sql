@@ -36,6 +36,7 @@ CREATE TABLE `artifacts` (
 );
 --> statement-breakpoint
 CREATE INDEX `artifacts_testResultId_idx` ON `artifacts` (`testResultId`);--> statement-breakpoint
+CREATE UNIQUE INDEX `artifacts_identity_uq` ON `artifacts` (`projectId`,`testResultId`,`type`,`name`,`attempt`,COALESCE("role", ''));--> statement-breakpoint
 CREATE TABLE `memberships` (
 	`id` text PRIMARY KEY NOT NULL,
 	`userId` text NOT NULL,
@@ -82,6 +83,7 @@ CREATE TABLE `runs` (
 	`reporterVersion` text,
 	`playwrightVersion` text,
 	`createdAt` integer NOT NULL,
+	`lastActivityAt` integer,
 	`completedAt` integer,
 	FOREIGN KEY (`teamId`) REFERENCES `teams`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`projectId`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
@@ -92,6 +94,7 @@ CREATE INDEX `runs_project_created_at_idx` ON `runs` (`projectId`,`createdAt`);-
 CREATE INDEX `runs_project_branch_created_at_idx` ON `runs` (`projectId`,`branch`,`createdAt`);--> statement-breakpoint
 CREATE INDEX `runs_project_environment_created_at_idx` ON `runs` (`projectId`,`environment`,`createdAt`);--> statement-breakpoint
 CREATE INDEX `runs_project_actor_idx` ON `runs` (`projectId`,`actor`);--> statement-breakpoint
+CREATE INDEX `runs_status_lastActivityAt_idx` ON `runs` (`status`,`lastActivityAt`);--> statement-breakpoint
 CREATE TABLE `teamInvites` (
 	`id` text PRIMARY KEY NOT NULL,
 	`teamId` text NOT NULL,
@@ -170,6 +173,7 @@ CREATE INDEX `testResults_runId_idx` ON `testResults` (`runId`);--> statement-br
 CREATE INDEX `testResults_status_createdAt_idx` ON `testResults` (`status`,`createdAt`);--> statement-breakpoint
 CREATE UNIQUE INDEX `testResults_runId_testId_idx` ON `testResults` (`runId`,`testId`);--> statement-breakpoint
 CREATE INDEX `testResults_project_runId_idx` ON `testResults` (`projectId`,`runId`);--> statement-breakpoint
+CREATE INDEX `testResults_project_createdAt_idx` ON `testResults` (`projectId`,`createdAt`);--> statement-breakpoint
 CREATE TABLE `testTags` (
 	`id` text PRIMARY KEY NOT NULL,
 	`projectId` text NOT NULL,

@@ -5,36 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1779540096718,
-      "tag": "20260523124136_dizzy_wong",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1780081908709,
-      "tag": "20260529191148_true_blue_shield",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1780161685065,
-      "tag": "20260530172125_deep_next_avengers",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1780164325022,
-      "tag": "20260530180525_naive_proudstar",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1780164717865,
-      "tag": "20260530181157_fancy_screwball",
+      "when": 1780523243979,
+      "tag": "20260603214723_dashing_the_enforcers",
       "breakpoints": true
     }
   ]
