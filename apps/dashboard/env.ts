@@ -27,10 +27,12 @@ export default defineEnv({
   ARTIFACT_TOKEN_SECRET: string().secret().optional(),
 
   /**
-   * GitHub OAuth credentials. Void's auth layer expects the `AUTH_GITHUB_*`
-   * naming convention — `AUTH_<PROVIDER>_CLIENT_{ID,SECRET}` — and wires
-   * them through automatically when "github" is in `void.json#auth.providers`.
-   * Optional: leave both unset to hide the "Continue with GitHub" button.
+   * GitHub OAuth credentials, in Void's `AUTH_<PROVIDER>_CLIENT_{ID,SECRET}`
+   * naming convention. The github social provider is enabled in `auth.ts` at
+   * startup only when BOTH are set — deliberately NOT declared in
+   * `void.json#auth.providers` (which lists only "email"), because declaring it
+   * there would make Void hard-require these creds on every deploy. Leave both
+   * unset to hide the "Continue with GitHub" button.
    */
   AUTH_GITHUB_CLIENT_ID: string().optional(),
   AUTH_GITHUB_CLIENT_SECRET: string().secret().optional(),
