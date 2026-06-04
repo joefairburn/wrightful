@@ -147,7 +147,6 @@ CREATE TABLE `testResultAttempts` (
 	FOREIGN KEY (`testResultId`) REFERENCES `testResults`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `testResultAttempts_testResultId_idx` ON `testResultAttempts` (`testResultId`);--> statement-breakpoint
 CREATE UNIQUE INDEX `testResultAttempts_testResultId_attempt_uq` ON `testResultAttempts` (`testResultId`,`attempt`);--> statement-breakpoint
 CREATE TABLE `testResults` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -169,11 +168,10 @@ CREATE TABLE `testResults` (
 );
 --> statement-breakpoint
 CREATE INDEX `testResults_testId_createdAt_idx` ON `testResults` (`testId`,`createdAt`);--> statement-breakpoint
-CREATE INDEX `testResults_runId_idx` ON `testResults` (`runId`);--> statement-breakpoint
-CREATE INDEX `testResults_status_createdAt_idx` ON `testResults` (`status`,`createdAt`);--> statement-breakpoint
 CREATE UNIQUE INDEX `testResults_runId_testId_idx` ON `testResults` (`runId`,`testId`);--> statement-breakpoint
 CREATE INDEX `testResults_project_runId_idx` ON `testResults` (`projectId`,`runId`);--> statement-breakpoint
 CREATE INDEX `testResults_project_createdAt_idx` ON `testResults` (`projectId`,`createdAt`);--> statement-breakpoint
+CREATE INDEX `testResults_project_testId_createdAt_idx` ON `testResults` (`projectId`,`testId`,`createdAt`);--> statement-breakpoint
 CREATE TABLE `testTags` (
 	`id` text PRIMARY KEY NOT NULL,
 	`projectId` text NOT NULL,
@@ -183,7 +181,6 @@ CREATE TABLE `testTags` (
 	FOREIGN KEY (`testResultId`) REFERENCES `testResults`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `testTags_tag_idx` ON `testTags` (`tag`);--> statement-breakpoint
 CREATE INDEX `testTags_testResultId_idx` ON `testTags` (`testResultId`);--> statement-breakpoint
 CREATE TABLE `userGithubAccounts` (
 	`userId` text PRIMARY KEY NOT NULL,

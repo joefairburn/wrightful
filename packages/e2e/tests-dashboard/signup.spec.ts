@@ -39,11 +39,17 @@ test.describe("Sign-up flow (anonymous)", () => {
       password: "short1!",
     });
 
+    // Positive signal that native validation actually fired (not just that the
+    // URL happened not to change): the password field reports invalid under the
+    // minLength=8 constraint.
+    const passwordValid = await loginPage.passwordInput.evaluate(
+      (el) => (el as HTMLInputElement).validity.valid,
+    );
+    expect(passwordValid).toBe(false);
     // The shipped UI enforces only minLength=8 (Better Auth's default policy);
-    // a sub-8 password is blocked client-side by native constraint validation
-    // and the page stays on /signup. (See note in the resolution doc — the
-    // original spec asserted a stricter ≥12-chars+number policy that the
-    // product doesn't currently implement.)
+    // a sub-8 password is blocked client-side and the page stays on /signup.
+    // (See the resolution doc — the original spec asserted a stricter
+    // ≥12-chars+number policy that the product doesn't currently implement.)
     await expect(loginPage.page).toHaveURL(/\/signup/);
   });
 

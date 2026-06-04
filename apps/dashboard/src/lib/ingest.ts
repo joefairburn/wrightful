@@ -790,25 +790,17 @@ export async function openRun(
     )
     .limit(1);
   if (existing[0]) {
-    // Sharded suites share one idempotencyKey, so shards 2..N land here. Still
-    // prefill THIS shard's planned tests (onConflictDoNothing, so it can't
-    // clobber rows the winning shard already wrote) instead of dropping them —
-    // otherwise shards 2..N never get their 'queued' rows and the run undercounts
-    // mid-flight (the authoritative recompute at completeRun corrects the final
-    // totals regardless).
-    const runId = existing[0].id;
-    const prefill = buildQueuePrefillStatements(
-      scope,
-      runId,
-      payload.run.plannedTests ?? [],
-      nowSeconds,
-    );
-    if (prefill.length === 1) {
-      await prefill[0];
-    } else if (prefill.length > 1) {
-      await runBatch(prefill);
-    }
-    return { runId, duplicate: true };
+    // Sharded suites share one idempotencyKey, so shards 2..N land here and
+    // return the existing run without re-prefilling. We deliberately do NOT
+    // prefill their planned tests as 'queued' rows: a prefilled row carries a
+    // prev-status that suppresses the +totalTests delta when that shard's real
+    // result streams in (computeAggregateDelta only bumps totalTests for a
+    // genuinely new testId), which would pin totalTests at shard 1's count
+    // mid-flight. Letting shards 2..N's results arrive as fresh rows keeps
+    // totalTests climbing correctly; completeRun's recompute reconciles finals.
+    // The serious sharding bug (a later passing shard overwriting an earlier
+    // failure) is handled by completeRun's atomic monotonic status merge.
+    return { runId: existing[0].id, duplicate: true };
   }
 
   const runId = ulid();

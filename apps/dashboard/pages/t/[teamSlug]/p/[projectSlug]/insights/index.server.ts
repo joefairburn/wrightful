@@ -63,6 +63,9 @@ export const loader = defineHandler(async (c) => {
     .where(and(...aggConditions))
     .groupBy(expr);
 
+  // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
+  // `private` keeps tenant-scoped data out of shared/edge caches.
+  c.header("Cache-Control", "private, max-age=300, stale-while-revalidate=900");
   return {
     project: {
       id: project.id,

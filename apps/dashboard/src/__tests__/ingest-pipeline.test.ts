@@ -209,10 +209,12 @@ describe("openRun", () => {
     });
   });
 
-  it("on a duplicate idempotencyKey: returns the existing runId without re-inserting, but still prefills this shard's queued rows", async () => {
-    // [0] idempotency SELECT → existing run; [1] the single-chunk prefill INSERT
-    // is awaited directly (prefill.length === 1 path).
-    awaitResults = [[{ id: "run-existing" }], []];
+  it("on a duplicate idempotencyKey: returns the existing runId without re-inserting or re-prefilling", async () => {
+    // [0] idempotency SELECT → existing run. Shards 2..N take the duplicate
+    // branch and return immediately — they do NOT prefill their planned tests
+    // (a prefilled 'queued' row would carry a prev-status that suppresses the
+    // +totalTests delta when that shard's real result streams in; see ingest.ts).
+    awaitResults = [[{ id: "run-existing" }]];
     const payload: OpenRunPayload = {
       idempotencyKey: "key-shared",
       run: {
@@ -223,17 +225,17 @@ describe("openRun", () => {
     const out = await openRun(scope, payload, NOW);
 
     expect(out).toEqual({ runId: "run-existing", duplicate: true });
-    // No fresh run insert and no broadcast on the duplicate path — the winning
-    // shard already created the run and sent the initial snapshot.
+    // No fresh run insert, no prefill batch, and no broadcast on the duplicate
+    // path — the winning shard already created the run and sent the snapshot.
     expect(batchSpy).not.toHaveBeenCalled();
     expect(publishSpy).not.toHaveBeenCalled();
   });
 
-  it("on a duplicate with multiple prefill chunks: batches the prefill (onConflictDoNothing, no clobber)", async () => {
-    // 60 planned tests => >1 prefill chunk (13 cols/row → 7 rows/chunk) so the
-    // duplicate path takes the runBatch branch instead of awaiting one INSERT.
+  it("on a duplicate with many planned tests: still does not prefill (guards against re-introducing the totalTests-suppressing prefill)", async () => {
+    // Even with enough planned tests to span multiple chunks, the duplicate
+    // branch must not prefill — letting shards 2..N's results arrive as fresh
+    // rows keeps totalTests climbing; completeRun's recompute reconciles finals.
     awaitResults = [[{ id: "run-existing" }]];
-    batchSpy.mockResolvedValue([]);
     const plannedTests = Array.from({ length: 60 }, (_, i) => ({
       testId: `t${i}`,
       title: `case ${i}`,
@@ -247,10 +249,7 @@ describe("openRun", () => {
     const out = await openRun(scope, payload, NOW);
 
     expect(out).toEqual({ runId: "run-existing", duplicate: true });
-    expect(batchSpy).toHaveBeenCalledTimes(1);
-    const batched = batchSpy.mock.calls[0]![0] as BuilderNode[];
-    expect(batched.length).toBeGreaterThan(1);
-    expect(batched.every((s) => s.__kind === "insert")).toBe(true);
+    expect(batchSpy).not.toHaveBeenCalled();
     expect(publishSpy).not.toHaveBeenCalled();
   });
 });

@@ -9,9 +9,10 @@ const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
  * GET/HEAD /api/artifacts/:id/download?t=<token>
  *
  * Token-authenticated artifact stream. The HMAC token (signed with
- * `BETTER_AUTH_SECRET`) carries the R2 key + content-type directly, so we
- * skip the DB on the hot path. CORS narrowed to the dashboard + the
- * Playwright trace viewer.
+ * `ARTIFACT_TOKEN_SECRET`, falling back to `BETTER_AUTH_SECRET` when unset —
+ * see `lib/artifact-tokens.ts#getKey`) carries the R2 key + content-type
+ * directly, so we skip the DB on the hot path. CORS narrowed to the dashboard
+ * + the Playwright trace viewer.
  */
 async function handle(c: Context): Promise<Response> {
   const url = new URL(c.req.url);

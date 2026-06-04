@@ -71,8 +71,11 @@ errors and all unit tests pass (dashboard + reporter, incl. new tests).
   missed: 404 pages returned HTTP 200; missing `<html lang>` / `<title>` /
   `aria` attributes (axe serious); anonymous deep-page visits 404'd instead of
   redirecting to `/login`; and the login/signup forms native-submitted
-  (leaking credentials into the URL) before hydration. Still TODO: re-enable
-  the CI job, and validate/rework the separate vitest dogfood `test:e2e` suite.
+  (leaking credentials into the URL) before hydration. Both CI e2e jobs
+  (`test-e2e`, `test-e2e-ui`) are now re-enabled, and the separate vitest
+  dogfood `test:e2e` suite was validated + reconciled (12/12 green) — its
+  harness needed the `VITEST` env stripped from the spawned dev server so the
+  Void plugin (auth + D1) stays enabled.
 - **Explicit CSRF Origin-allowlist middleware** — `SameSite=Lax` +
   `frame-ancestors 'none'` + Better Auth's built-in checks cover the threat; a
   misconfigured allowlist risks breaking self-host.

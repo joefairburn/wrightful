@@ -1,7 +1,7 @@
 import { expect, test } from "./fixtures";
 
 test.describe("Authed navigation", () => {
-  test("project page renders the All Runs heading and at least one run row", async ({
+  test("project page renders the Runs heading and at least one run row", async ({
     runsListPage,
   }) => {
     await runsListPage.goto();

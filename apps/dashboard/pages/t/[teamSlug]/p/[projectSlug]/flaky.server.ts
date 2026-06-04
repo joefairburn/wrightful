@@ -80,7 +80,11 @@ export const loader = defineHandler(async (c) => {
   ];
   if (branchFilter) aggConditions.push(eq(runs.branch, branchFilter));
 
-  const aggRows = await db
+  // Join `runs` only when a branch filter needs `runs.branch`. Otherwise the
+  // join is a no-op (`runId` is a NOT NULL FK) that adds a `runs` PK probe per
+  // scanned testResults row; `(projectId, createdAt)` already prunes the window
+  // and `(testId, createdAt)` serves the GROUP BY without a sort.
+  const aggBase = db
     .select({
       testId: testResults.testId,
       total: sql<number>`sum(case when ${testResults.status} != 'skipped' then 1 else 0 end)`,
@@ -88,7 +92,13 @@ export const loader = defineHandler(async (c) => {
       passedCount: sql<number>`sum(case when ${testResults.status} = 'passed' then 1 else 0 end)`,
     })
     .from(testResults)
-    .innerJoin(runs, eq(runs.id, testResults.runId))
+    .$dynamic();
+
+  const aggRows = await (
+    branchFilter
+      ? aggBase.innerJoin(runs, eq(runs.id, testResults.runId))
+      : aggBase
+  )
     .where(and(...aggConditions))
     .groupBy(testResults.testId)
     .having(
@@ -155,6 +165,9 @@ export const loader = defineHandler(async (c) => {
     }
   }
 
+  // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
+  // `private` keeps tenant-scoped data out of shared/edge caches.
+  c.header("Cache-Control", "private, max-age=300, stale-while-revalidate=900");
   return {
     project: {
       id: project.id,

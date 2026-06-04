@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b26b2854-b426-4bd1-90b7-83c6eba52e1d",
+  "id": "1a77cafa-8041-43d8-9706-472b64c2ba05",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "apiKeys": {
@@ -890,11 +890,6 @@
         }
       },
       "indexes": {
-        "testResultAttempts_testResultId_idx": {
-          "name": "testResultAttempts_testResultId_idx",
-          "columns": ["testResultId"],
-          "isUnique": false
-        },
         "testResultAttempts_testResultId_attempt_uq": {
           "name": "testResultAttempts_testResultId_attempt_uq",
           "columns": ["testResultId", "attempt"],
@@ -1034,16 +1029,6 @@
           "columns": ["testId", "createdAt"],
           "isUnique": false
         },
-        "testResults_runId_idx": {
-          "name": "testResults_runId_idx",
-          "columns": ["runId"],
-          "isUnique": false
-        },
-        "testResults_status_createdAt_idx": {
-          "name": "testResults_status_createdAt_idx",
-          "columns": ["status", "createdAt"],
-          "isUnique": false
-        },
         "testResults_runId_testId_idx": {
           "name": "testResults_runId_testId_idx",
           "columns": ["runId", "testId"],
@@ -1057,6 +1042,11 @@
         "testResults_project_createdAt_idx": {
           "name": "testResults_project_createdAt_idx",
           "columns": ["projectId", "createdAt"],
+          "isUnique": false
+        },
+        "testResults_project_testId_createdAt_idx": {
+          "name": "testResults_project_testId_createdAt_idx",
+          "columns": ["projectId", "testId", "createdAt"],
           "isUnique": false
         }
       },
@@ -1117,11 +1107,6 @@
         }
       },
       "indexes": {
-        "testTags_tag_idx": {
-          "name": "testTags_tag_idx",
-          "columns": ["tag"],
-          "isUnique": false
-        },
         "testTags_testResultId_idx": {
           "name": "testTags_testResultId_idx",
           "columns": ["testResultId"],
