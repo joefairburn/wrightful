@@ -766,6 +766,67 @@ export interface OpenRunResult {
 }
 
 /**
+ * Build the `runs` row for an open. PURE — the single place the run-row shape is
+ * derived from the open payload, so the field mapping is unit-testable without a
+ * live D1 (the `db.insert` call site can't run under the vitest harness). The
+ * synthetic-monitoring provenance (`origin` / `monitorId`) lives here too: it
+ * was silently dropped before — the validator accepted both on `payload.run` and
+ * the reporter/stub sent them, but this row never copied them, so every
+ * synthetic run persisted as `origin = 'ci'` (the column default) with a null
+ * `monitorId`, leaving the provenance columns + their index inert. The
+ * `runs.$inferInsert` return type keeps the shape honest for REQUIRED columns —
+ * but note `origin` (has a `.default()`) and `monitorId` (nullable) are OPTIONAL
+ * in `$inferInsert`, so re-dropping THOSE two lines would NOT be a type error.
+ * Their regression guard is the unit test (`build-run-insert-values.test.ts`),
+ * which asserts the persisted values directly.
+ */
+export function buildRunInsertValues(
+  runId: string,
+  scope: TenantScope,
+  payload: OpenRunPayload,
+  nowSeconds: number,
+): typeof runs.$inferInsert {
+  const plannedTests = payload.run.plannedTests ?? [];
+  return {
+    id: runId,
+    teamId: scope.teamId,
+    projectId: scope.projectId,
+    idempotencyKey: payload.idempotencyKey,
+    ciProvider: payload.run.ciProvider ?? null,
+    ciBuildId: payload.run.ciBuildId ?? null,
+    branch: payload.run.branch ?? null,
+    environment: payload.run.environment ?? null,
+    commitSha: payload.run.commitSha ?? null,
+    commitMessage: payload.run.commitMessage ?? null,
+    prNumber: payload.run.prNumber ?? null,
+    repo: payload.run.repo ?? null,
+    actor: payload.run.actor ?? null,
+    totalTests: plannedTests.length,
+    expectedTotalTests: payload.run.expectedTotalTests ?? plannedTests.length,
+    passed: 0,
+    failed: 0,
+    flaky: 0,
+    skipped: 0,
+    durationMs: 0,
+    status: "running",
+    reporterVersion: payload.run.reporterVersion ?? null,
+    playwrightVersion: payload.run.playwrightVersion ?? null,
+    // Synthetic-monitoring provenance. Absent → 'ci'/null (the column defaults),
+    // so a normal CI reporter run is unchanged; a synthetic run is tagged
+    // `origin = 'synthetic'` + carries its `monitorId` so the runs list/insights
+    // can separate synthetic traffic and `runs_project_monitor_created_at_idx`
+    // resolves "runs for this monitor".
+    origin: payload.run.origin ?? "ci",
+    monitorId: payload.run.monitorId ?? null,
+    createdAt: nowSeconds,
+    // Seed the liveness signal at open so an onBegin-only dead run (one that
+    // never streams a single /results) is still sweepable by `staleRunFilter`.
+    lastActivityAt: nowSeconds,
+    completedAt: null,
+  };
+}
+
+/**
  * Open a streaming run. Idempotent on `(projectId, idempotencyKey)`: a second
  * call with the same key returns the existing runId without writing.
  *
@@ -806,36 +867,9 @@ export async function openRun(
   const runId = ulid();
   const plannedTests = payload.run.plannedTests ?? [];
 
-  const runInsert = db.insert(runs).values({
-    id: runId,
-    teamId: scope.teamId,
-    projectId: scope.projectId,
-    idempotencyKey: payload.idempotencyKey,
-    ciProvider: payload.run.ciProvider ?? null,
-    ciBuildId: payload.run.ciBuildId ?? null,
-    branch: payload.run.branch ?? null,
-    environment: payload.run.environment ?? null,
-    commitSha: payload.run.commitSha ?? null,
-    commitMessage: payload.run.commitMessage ?? null,
-    prNumber: payload.run.prNumber ?? null,
-    repo: payload.run.repo ?? null,
-    actor: payload.run.actor ?? null,
-    totalTests: plannedTests.length,
-    expectedTotalTests: payload.run.expectedTotalTests ?? plannedTests.length,
-    passed: 0,
-    failed: 0,
-    flaky: 0,
-    skipped: 0,
-    durationMs: 0,
-    status: "running",
-    reporterVersion: payload.run.reporterVersion ?? null,
-    playwrightVersion: payload.run.playwrightVersion ?? null,
-    createdAt: nowSeconds,
-    // Seed the liveness signal at open so an onBegin-only dead run (one that
-    // never streams a single /results) is still sweepable by `staleRunFilter`.
-    lastActivityAt: nowSeconds,
-    completedAt: null,
-  });
+  const runInsert = db
+    .insert(runs)
+    .values(buildRunInsertValues(runId, scope, payload, nowSeconds));
 
   const stmts = [
     runInsert,
