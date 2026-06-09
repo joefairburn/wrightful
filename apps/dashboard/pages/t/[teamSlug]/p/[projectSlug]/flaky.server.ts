@@ -13,6 +13,7 @@ import {
 import { latestPerTestRn } from "@/lib/analytics/per-test";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { runRows } from "@/lib/db-run";
 import type { TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -219,7 +220,7 @@ async function loadSparklinesAndMeta(
   // branded scope still bakes the auth-checked projectId in as a bound param.
   const joinSql = branchJoinFragment(branch);
 
-  const result = await db.run(sql`
+  return runRows<SparklineMetaRow>(sql`
     with ranked as (
       select
         tr."testId" as "testId",
@@ -241,8 +242,6 @@ async function loadSparklinesAndMeta(
     where rn <= ${sparklineSize}
     order by "testId" asc, rn desc
   `);
-
-  return (result.results as SparklineMetaRow[]) ?? [];
 }
 
 interface RecentFailureSqlRow {
@@ -266,7 +265,7 @@ async function loadRecentFailures(
 ): Promise<RecentFailureSqlRow[]> {
   const branchSql = branchFragment(branch);
 
-  const result = await db.run(sql`
+  const rows = await runRows<RecentFailureSqlRow>(sql`
     with ranked as (
       select
         tr."testId" as "testId",
@@ -299,7 +298,7 @@ async function loadRecentFailures(
   // of the `testId in (...)` clause if we weren't going through `sql.join`.
   void inArray;
 
-  return (result.results as RecentFailureSqlRow[]) ?? [];
+  return rows;
 }
 
 interface TagRow {
@@ -316,7 +315,7 @@ async function loadTagsByTestId(
   projectId: string,
   testIds: readonly string[],
 ): Promise<TagRow[]> {
-  const result = await db.run(sql`
+  return runRows<TagRow>(sql`
     select distinct tr."testId" as "testId", tt.tag as tag
     from ${testTags} tt
     inner join ${testResults} tr on tr.id = tt."testResultId"
@@ -326,6 +325,4 @@ async function loadTagsByTestId(
         sql`, `,
       )})
   `);
-
-  return (result.results as TagRow[]) ?? [];
 }

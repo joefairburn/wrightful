@@ -94,6 +94,7 @@ export function percentilePick(
 ): SqlBucketExpr {
   const { rn = "rn", cnt = "cnt", value = "duration" } = cols;
   const q = quantile.toFixed(2);
+  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- retypes sql.raw's `SQL<unknown>` to the bucket-expr generic; keeps the raw text byte-for-byte (a `sql\`${raw}\`` wrapper would change the emitted SQL)
   return sql.raw(
     `min(case when ${rn} = max(1, cast(round(${cnt} * ${q}) as integer)) then ${value} end)`,
   ) as SqlBucketExpr;

@@ -48,8 +48,12 @@ export const MON_STATUS: Record<MonitorStatusState, StatusConfig> = {
   never: { label: "Never run", token: "queued", glyph: "dash" },
 };
 
+function isMonitorStatusState(state: string): state is MonitorStatusState {
+  return state in MON_STATUS;
+}
+
 function cfgFor(state: string): StatusConfig {
-  return MON_STATUS[state as MonitorStatusState] ?? MON_STATUS.queued;
+  return isMonitorStatusState(state) ? MON_STATUS[state] : MON_STATUS.queued;
 }
 
 /**
@@ -63,7 +67,9 @@ export function monitorDisplayStatus(monitor: {
   lastRunAt: number | null;
 }): MonitorStatusState {
   if (monitor.enabled !== 1) return "paused";
-  if (monitor.lastStatus) return monitor.lastStatus as MonitorStatusState;
+  if (monitor.lastStatus && isMonitorStatusState(monitor.lastStatus)) {
+    return monitor.lastStatus;
+  }
   return monitor.lastRunAt ? "queued" : "never";
 }
 

@@ -281,7 +281,7 @@ export function buildResultInsertStatements(
               eq(testResults.projectId, scope.projectId),
               eq(testResults.id, testResultId),
             ),
-          ) as never,
+          ),
       );
       statements.push(
         db
@@ -291,7 +291,7 @@ export function buildResultInsertStatements(
               eq(testTags.projectId, scope.projectId),
               eq(testTags.testResultId, testResultId),
             ),
-          ) as never,
+          ),
       );
       statements.push(
         db
@@ -301,7 +301,7 @@ export function buildResultInsertStatements(
               eq(testAnnotations.projectId, scope.projectId),
               eq(testAnnotations.testResultId, testResultId),
             ),
-          ) as never,
+          ),
       );
     } else {
       insertRows.push({
@@ -332,7 +332,7 @@ export function buildResultInsertStatements(
             eq(testResultAttempts.projectId, scope.projectId),
             eq(testResultAttempts.testResultId, testResultId),
           ),
-        ) as never,
+        ),
     );
     for (const attempt of result.attempts) {
       attemptRows.push({
@@ -411,6 +411,7 @@ export const STATUS_BUCKET_MEMBERS = {
 /** Statuses → their aggregate bucket, derived from {@link STATUS_BUCKET_MEMBERS}. */
 const STATUS_TO_BUCKET: ReadonlyMap<string, keyof AggregateDelta> = new Map(
   Object.entries(STATUS_BUCKET_MEMBERS).flatMap(([bucket, statuses]) =>
+    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- Object.entries erases literal key types; `bucket` is provably a key of STATUS_BUCKET_MEMBERS
     statuses.map((status) => [status, bucket as keyof AggregateDelta] as const),
   ),
 );
@@ -576,6 +577,7 @@ export function aggregateSummarySelectStatement(
 export function summaryFromBatchResults(
   batchResults: readonly unknown[],
 ): RunAggregateSummary | null {
+  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- D1 batch results are `unknown[]`; the tail statement's `.returning()` shape is the documented contract (single typed home, see fn doc)
   const summaryRows = batchResults[batchResults.length - 1] as
     | readonly RunAggregateSummary[]
     | undefined;
@@ -596,6 +598,7 @@ export function summaryFromBatchResults(
  * no-op finalize without each terminal path hand-poking at `meta.changes`.
  */
 export function statementChangedRows(batchResult: unknown): number {
+  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- D1 batch element is `unknown`; read `meta.changes` defensively (single typed home, see fn doc)
   const meta = (batchResult as { meta?: { changes?: number } } | undefined)
     ?.meta;
   return typeof meta?.changes === "number" ? meta.changes : 0;
