@@ -62,27 +62,20 @@ describe("buildChangedTests", () => {
     });
   });
 
-  it("normalises absent projectName/errorMessage/errorStack to null (not undefined)", () => {
+  it("normalises an absent projectName to null (not undefined)", () => {
     const out = buildChangedTests([input({})], new Map([["t-1", "tr-1"]]));
     expect(out[0].projectName).toBeNull();
-    expect(out[0].errorMessage).toBeNull();
-    expect(out[0].errorStack).toBeNull();
   });
 
-  it("preserves non-null projectName / error fields", () => {
+  it("preserves a non-null projectName (error text is intentionally NOT carried on the live wire row — loaded from D1 on the test-detail page)", () => {
     const out = buildChangedTests(
-      [
-        input({
-          projectName: "chromium",
-          errorMessage: "boom",
-          errorStack: "Error: boom\n    at …",
-        }),
-      ],
+      [input({ projectName: "chromium", errorMessage: "boom" })],
       new Map([["t-1", "tr-1"]]),
     );
     expect(out[0].projectName).toBe("chromium");
-    expect(out[0].errorMessage).toBe("boom");
-    expect(out[0].errorStack).toContain("at");
+    // RunProgressTest no longer has errorMessage/errorStack — assert they're gone.
+    expect("errorMessage" in out[0]!).toBe(false);
+    expect("errorStack" in out[0]!).toBe(false);
   });
 
   it("returns an empty array for an empty batch (no DB lookup)", () => {

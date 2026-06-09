@@ -11,7 +11,10 @@ import {
   type DescribeBranch,
   type DescribeTestLeaf,
 } from "@/lib/group-tests-by-file";
-import type { RunProgressTest, RunProgressTestStatus } from "@/lib/live-client";
+import type {
+  RunProgressTest,
+  RunProgressTestStatus,
+} from "@/realtime/run-progress";
 
 let idSeq = 0;
 function t(
@@ -29,8 +32,6 @@ function t(
     status,
     durationMs: 0,
     retryCount: 0,
-    errorMessage: null,
-    errorStack: null,
     ...overrides,
   };
 }

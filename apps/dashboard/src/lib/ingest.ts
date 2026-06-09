@@ -11,17 +11,18 @@ import {
 } from "@schema";
 import { runBatch } from "@/lib/db-batch";
 import { runByIdWhere, staleRunFilter, type TenantScope } from "@/lib/scope";
+import { broadcastProjectRoom, broadcastRunRoom } from "@/realtime/publish";
 import type {
   AppendResultsPayload,
   CompleteRunPayload,
   OpenRunPayload,
   TestResultInput,
 } from "@/lib/schemas";
-import {
-  publishRunUpdate,
-  type RunProgressEvent,
-  type RunProgressTest,
-} from "@/live";
+import type {
+  ProjectFeedEvent,
+  RunProgressEvent,
+  RunProgressTest,
+} from "@/realtime/events";
 
 /** Columns published in every `RunProgressEvent.summary`. */
 export const AGGREGATE_SUMMARY_COLUMNS = {
@@ -41,10 +42,12 @@ export type RunAggregateSummary = RunProgressEvent["summary"];
  * Streaming ingest pipeline. Every write carries `teamId AND projectId` for
  * logical tenant isolation, and `db.batch` is the atomicity boundary (Drizzle
  * wraps D1's batch API, running every statement in a single transaction on the
- * writer node). Realtime broadcasts go through `void/live` topic `run:<runId>`.
+ * writer node). Realtime broadcasts go through the `void/ws` rooms — the run
+ * room (`run:<runId>`) and the project room (`project:<projectId>`) — via
+ * `@/realtime/publish` (ADR 0001).
  *
  * See `docs/worklog/void-migration-consolidated.md` for the architecture
- * decisions behind the single-D1 + `void/live` model.
+ * decisions behind the single-D1 model.
  */
 
 // D1 caps the parameter count per statement at 100. Match the previous DO
@@ -685,6 +688,9 @@ export async function reconcileAndBroadcast(
   }
   if (summary) {
     await broadcastRunUpdate(runId, [], summary);
+    // Flip the run's row to its terminal status on any open runs list.
+    const event: ProjectFeedEvent = { type: "run-progress", runId, summary };
+    await broadcastProjectRoom(recomputeScope.projectId, event);
   }
   return summary;
 }
@@ -717,8 +723,6 @@ export function buildChangedTests(
     status: r.status,
     durationMs: r.durationMs,
     retryCount: r.retryCount,
-    errorMessage: r.errorMessage ?? null,
-    errorStack: r.errorStack ?? null,
   }));
 }
 
@@ -735,11 +739,10 @@ export async function broadcastRunUpdate(
   changedTests: RunProgressTest[],
   summary: RunAggregateSummary,
 ): Promise<void> {
-  await publishRunUpdate(runId, {
-    type: "progress",
-    changedTests,
-    summary,
-  });
+  const event: RunProgressEvent = { type: "progress", changedTests, summary };
+  // Single point — every run broadcast (open / append / complete-reconcile)
+  // flows through here to the WS run room (the run-detail page).
+  await broadcastRunRoom(runId, event);
 }
 
 /**
@@ -895,6 +898,34 @@ export async function openRun(
   };
   await broadcastRunUpdate(runId, [], summary);
 
+  // Tell the runs list a brand-new run exists so it can prepend the row live
+  // (the run-room broadcast above only reaches the run-detail page; a viewer on
+  // the list isn't subscribed to a run that didn't exist at load).
+  const createdEvent: ProjectFeedEvent = {
+    type: "run-created",
+    run: {
+      id: runId,
+      status: "running",
+      passed: 0,
+      failed: 0,
+      flaky: 0,
+      skipped: 0,
+      totalTests: plannedTests.length,
+      durationMs: 0,
+      completedAt: null,
+      createdAt: nowSeconds,
+      branch: payload.run.branch ?? null,
+      prNumber: payload.run.prNumber ?? null,
+      commitSha: payload.run.commitSha ?? null,
+      commitMessage: payload.run.commitMessage ?? null,
+      environment: payload.run.environment ?? null,
+      actor: payload.run.actor ?? null,
+      ciProvider: payload.run.ciProvider ?? null,
+      repo: payload.run.repo ?? null,
+    },
+  };
+  await broadcastProjectRoom(scope.projectId, createdEvent);
+
   return { runId, duplicate: false };
 }
 
@@ -954,6 +985,13 @@ export async function appendRunResults(
 
   const changedTests = buildChangedTests(payload.results, assignedIds);
   await broadcastRunUpdate(runId, changedTests, summary);
+  // Advance the run's row on any open runs list (project-wide feed).
+  const progressEvent: ProjectFeedEvent = {
+    type: "run-progress",
+    runId,
+    summary,
+  };
+  await broadcastProjectRoom(scope.projectId, progressEvent);
 
   return { kind: "ok", mapping };
 }
@@ -1164,7 +1202,7 @@ const STALE_RUN_FINALIZE_CONCURRENCY = 10;
  * (with its `.limit`) lives in `sweepStaleRuns` above it.
  *
  * Why chunked `Promise.allSettled` rather than the old strict-serial loop: each
- * `finalize` is ~2 serial round-trips (a `db.batch` recompute + a `void/live`
+ * `finalize` is ~2 serial round-trips (a `db.batch` recompute + a `void/ws` room
  * broadcast), so draining an unbounded backlog one run at a time inside a single
  * scheduled invocation is exactly how the watchdog self-DoSes under its design
  * load — the Workers subrequest/CPU budget runs out mid-drain and the invocation

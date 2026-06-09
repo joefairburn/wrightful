@@ -1,6 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { connectLiveStream } from "void/live/client";
-import type { RunProgressEvent, RunProgressTest } from "@/live";
+import type { RunProgressEvent, RunProgressTest } from "@/realtime/events";
 
 /** Wire-format aliases re-exported for downstream consumers. */
 export type { RunProgressTest, RunProgressEvent };
@@ -11,10 +9,21 @@ export type RunProgressSummary = RunProgressEvent["summary"];
  * Accumulated state derived from a stream of `RunProgressEvent`s plus the
  * SSR-loaded seed. `byId` maps `testResultId → latest row`; `summary` is the
  * most recent aggregate snapshot (or `null` before the first event / seed).
+ *
+ * The run-detail analogue of `applyProjectFeedEvent` (`project-feed.ts`): a pure
+ * reducer the WS run-room hook (`useRunRoom`) folds each event through, kept
+ * React-free so the merge rules are unit-testable without a live connection.
  */
 export interface RunProgressState {
   byId: Record<string, RunProgressTest>;
   summary: RunProgressSummary | null;
+}
+
+export interface UseRunProgressOptions {
+  /** SSR-loaded test rows used to seed the accumulator before the first event. */
+  initialTests?: readonly RunProgressTest[];
+  /** SSR-loaded aggregate so consumers can render counts before the first event. */
+  initialSummary?: RunProgressSummary | null;
 }
 
 /**
@@ -86,73 +95,4 @@ export function currentSummary(
   fallback: RunProgressSummary,
 ): RunProgressSummary {
   return state.summary ?? fallback;
-}
-
-export interface UseRunProgressOptions {
-  /** SSR-loaded test rows used to seed the accumulator before the first event. */
-  initialTests?: readonly RunProgressTest[];
-  /** SSR-loaded aggregate so consumers can render counts before the first event. */
-  initialSummary?: RunProgressSummary | null;
-}
-
-/**
- * Subscribe to live updates for a single run. Returns the current
- * accumulator (map of testResultId → latest row) plus the most recent
- * summary snapshot. Thin glue over the pure reducer: seed once at mount,
- * subscribe to `void/live`, and fold each event through
- * `applyRunProgressEvent`.
- *
- * Topic is `run:<runId>` — see `src/live.ts#onSubscribe` for the per-topic
- * auth (team membership required). Stream auto-reconnects on transient
- * network failures.
- *
- * Pass `initialTests` / `initialSummary` from the page loader so finished
- * runs and pre-hydration first-paint render with data instead of waiting
- * for the first event (which never arrives for a completed run).
- */
-export function useRunProgress(
-  runId: string,
-  options: UseRunProgressOptions = {},
-) {
-  const { initialTests, initialSummary } = options;
-
-  const seed = useMemo(
-    () => seedRunProgressState(initialTests, initialSummary),
-    // Seed is taken at mount; subsequent prop changes are intentionally
-    // ignored so live events aren't overwritten by stale SSR data.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [runId],
-  );
-
-  const [state, setState] = useState<RunProgressState>(seed);
-
-  useEffect(() => {
-    const stream = connectLiveStream("/live", {
-      withCredentials: true,
-      retryDelay: 1000,
-    });
-    let cancelled = false;
-    let unsubscribe: (() => Promise<void>) | null = null;
-
-    void (async () => {
-      const off = await stream.subscribe({
-        id: `run:${runId}`,
-        topic: `run:${runId}`,
-        onEvent(event) {
-          if (cancelled) return;
-          const data = event.data as RunProgressEvent;
-          setState((prev) => applyRunProgressEvent(prev, data));
-        },
-      });
-      unsubscribe = off;
-    })();
-
-    return () => {
-      cancelled = true;
-      void unsubscribe?.();
-      stream.close();
-    };
-  }, [runId]);
-
-  return state;
 }

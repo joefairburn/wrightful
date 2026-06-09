@@ -4,8 +4,8 @@ import {
   currentSummary,
   seedRunProgressState,
   type RunProgressState,
-} from "@/lib/live-client";
-import type { RunProgressEvent, RunProgressTest } from "@/live";
+} from "@/realtime/run-progress";
+import type { RunProgressEvent, RunProgressTest } from "@/realtime/events";
 
 function test(overrides: Partial<RunProgressTest> = {}): RunProgressTest {
   return {
@@ -17,8 +17,6 @@ function test(overrides: Partial<RunProgressTest> = {}): RunProgressTest {
     status: "passed",
     durationMs: 100,
     retryCount: 0,
-    errorMessage: null,
-    errorStack: null,
     ...overrides,
   };
 }

@@ -128,4 +128,19 @@ export default defineEnv({
    * `WRIGHTFUL_RUN_STALE_MINUTES`, and well past 3 × 5 min.
    */
   WRIGHTFUL_MONITOR_EXECUTION_STALE_MINUTES: number().default(30),
+
+  /**
+   * OPTIONAL override for the secret authenticating the server's internal
+   * DO-to-DO room-publish POST (ingest → `void/ws` room `onRequest` → broadcast).
+   * Normally you do NOT set this: a per-build random is baked into the server
+   * bundle at build time (`vite.config.ts` → `__WRIGHTFUL_INTERNAL_SECRET__`),
+   * which the publisher worker + the room DOs share because they're one
+   * deployment — zero config, auto-rotates per deploy, decoupled from
+   * BETTER_AUTH_SECRET. Set this only to PIN a stable value across deploys.
+   * Precedence (this → build secret; it deliberately NEVER falls back to
+   * BETTER_AUTH_SECRET) lives in `resolveInternalSecret`
+   * (src/realtime/room-server.ts). Server-only; travels DO-to-DO over
+   * Cloudflare's internal RPC, never the public internet. ≥32 chars.
+   */
+  REALTIME_INTERNAL_SECRET: string().secret().optional(),
 });

@@ -1,4 +1,8 @@
 import { test, expect } from "@playwright/test";
+import { pace } from "./pace";
+
+// Optional per-test delay so `seed:stream` runs slow enough to watch live.
+test.afterEach(pace);
 
 // These tests only run when WRIGHTFUL_FIXTURE_FAILURES=1 — they deliberately
 // fail / flake to exercise the dashboard's error UI, so they're gated off by

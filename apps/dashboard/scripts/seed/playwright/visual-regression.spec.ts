@@ -1,4 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { pace } from "./pace";
+
+// Optional per-test delay so `seed:stream` runs slow enough to watch live.
+test.afterEach(pace);
 
 // Visual regression seeder. NOT a test — engineered to fail every run so
 // the demo dashboard ends up with a populated visual-diff entry. Lives

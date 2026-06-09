@@ -299,8 +299,8 @@ export async function resolveProjectBySlugs(
  *
  * Injected into {@link authorizeTopicSubscription} as `RunMembershipLookup`
  * so the pure authorization DECISION (topic parse + null-user / empty-rows
- * rejection) can be unit-tested with a fake lookup — no `void/live` handshake
- * and no real D1 required.
+ * rejection) can be unit-tested with a fake lookup — no room connect and no
+ * real D1 required.
  */
 export type RunMembershipLookup = (
   runId: string,
@@ -320,34 +320,76 @@ const lookupRunMembership: RunMembershipLookup = async (runId, userId) => {
   return rows.length > 0;
 };
 
-/** Topics the realtime stream knows how to authorize. */
+/**
+ * The DB-bound half of the PROJECT topic gate: does `userId` belong to the team
+ * that owns `projectId`? One indexed `projects ⋈ memberships` join. The runs
+ * list subscribes to `project:<projectId>` for live `run-created` /
+ * `run-progress` events, so a member of team A must not subscribe to team B's
+ * project feed.
+ */
+export type ProjectMembershipLookup = (
+  projectId: string,
+  userId: string,
+) => Promise<boolean>;
+
+const lookupProjectMembership: ProjectMembershipLookup = async (
+  projectId,
+  userId,
+) => {
+  const rows = await db
+    .select({ teamId: projects.teamId })
+    .from(projects)
+    .innerJoin(
+      memberships,
+      and(
+        eq(memberships.teamId, projects.teamId),
+        eq(memberships.userId, userId),
+      ),
+    )
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  return rows.length > 0;
+};
+
+/** Topics the realtime rooms know how to authorize. */
 const RUN_TOPIC_RE = /^run:([^:]+)$/;
+const PROJECT_TOPIC_RE = /^project:([^:]+)$/;
 
 /**
- * Decide whether a connection may subscribe to a `void/live` topic. This is
- * the single tenant-isolation gate for the realtime stream — the one isolation
- * check that does NOT route through `scope.ts` / a branded id, because the
- * stream handshake hands us a raw topic string.
+ * Decide whether a connection may subscribe to a `void/ws` room topic. This is
+ * the single tenant-isolation gate for realtime — the one isolation check that
+ * does NOT route through `scope.ts` / a branded id, because the room connect
+ * hands us a raw topic string.
  *
  * Owns the whole decision so it is unit-testable in isolation:
- *   - `userId === null` → 403 (anonymous connection; the lookup never runs);
- *   - the topic must match `run:<runId>` exactly — `run:`, `run:a:b`, and any
- *     non-run topic are rejected 403 (the lookup never runs);
- *   - a well-formed `run:<runId>` topic is allowed only when the injected
- *     {@link RunMembershipLookup} confirms membership; an empty result is the
- *     cross-team denial → 403.
+ *   - `userId === null` → 403 (anonymous connection; no lookup runs);
+ *   - the topic must match `run:<runId>` or `project:<projectId>` exactly —
+ *     `run:`, `run:a:b`, `project:`, and any other topic are rejected 403 (no
+ *     lookup runs);
+ *   - a well-formed topic is allowed only when the matching injected lookup
+ *     confirms membership (run → owning team; project → owning team); an empty
+ *     result is the cross-team denial → 403.
  *
- * The `lookup` parameter defaults to the real `runs ⋈ memberships` join; tests
- * pass a fake to exercise every branch without touching D1.
+ * The `runLookup` / `projectLookup` parameters default to the real
+ * `… ⋈ memberships` joins; tests pass fakes to exercise every branch without
+ * touching D1.
  */
 export async function authorizeTopicSubscription(
   userId: string | null,
   topic: string,
-  lookup: RunMembershipLookup = lookupRunMembership,
+  runLookup: RunMembershipLookup = lookupRunMembership,
+  projectLookup: ProjectMembershipLookup = lookupProjectMembership,
 ): Promise<{ ok: true } | { ok: false; status: 403 }> {
   if (!userId) return { ok: false, status: 403 };
   const runMatch = RUN_TOPIC_RE.exec(topic);
-  if (!runMatch) return { ok: false, status: 403 };
-  const isMember = await lookup(runMatch[1], userId);
-  return isMember ? { ok: true } : { ok: false, status: 403 };
+  if (runMatch) {
+    const isMember = await runLookup(runMatch[1], userId);
+    return isMember ? { ok: true } : { ok: false, status: 403 };
+  }
+  const projectMatch = PROJECT_TOPIC_RE.exec(topic);
+  if (projectMatch) {
+    const isMember = await projectLookup(projectMatch[1], userId);
+    return isMember ? { ok: true } : { ok: false, status: 403 };
+  }
+  return { ok: false, status: 403 };
 }
