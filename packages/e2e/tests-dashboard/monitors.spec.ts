@@ -64,10 +64,10 @@ test("synthetic smoke", async ({ page }) => {
     await monitorsPage.gotoList();
     const row = monitorsPage.listRowFor(name);
     await expect(row).toBeVisible();
-    // The interval column humanizes 60s as "1m"; the list also shows the
-    // browser type + an "Enabled" state dot for a freshly-armed monitor.
+    // The interval column humanizes 60s as "1m"; the Enabled column shows a
+    // toggle that is on for a freshly-armed monitor.
     await expect(row.getByText(/^1m$/)).toBeVisible();
-    await expect(row.getByText(/enabled/i)).toBeVisible();
+    await expect(row.getByRole("switch")).toBeChecked();
 
     // 2. Detail page: empty executions state before the scheduler runs.
     await monitorsPage.gotoDetail(monitorId);

@@ -92,8 +92,12 @@ export class MonitorsPage {
     // The form is a client island; before React hydrates a click does a native
     // POST (which is also handled by the action and redirects), but to be
     // robust against the SPA-action takeover mid-click, re-submit until the URL
-    // lands on the detail page.
-    const detailUrlRe = new RegExp(`/monitors/[^/?#]+(?:[?#]|$)`);
+    // lands on the detail page. The id is a ULID — exclude the `/monitors/new`
+    // sentinel we post FROM, otherwise `waitForURL` matches the still-current
+    // pre-redirect URL immediately and we'd capture "new" as the monitor id.
+    const detailUrlRe = new RegExp(
+      `/monitors/(?!new(?:[/?#]|$))[^/?#]+(?:[?#]|$)`,
+    );
     await expect(async () => {
       await this.createButton.click();
       await this.page.waitForURL(detailUrlRe, { timeout: 3_000 });
