@@ -294,10 +294,6 @@ async function loadRecentFailures(
     order by "testId" asc, rn asc
   `);
 
-  // Silence unused-import warnings — `inArray` would be the Drizzle equivalent
-  // of the `testId in (...)` clause if we weren't going through `sql.join`.
-  void inArray;
-
   return rows;
 }
 
@@ -315,14 +311,17 @@ async function loadTagsByTestId(
   projectId: string,
   testIds: readonly string[],
 ): Promise<TagRow[]> {
-  return runRows<TagRow>(sql`
-    select distinct tr."testId" as "testId", tt.tag as tag
-    from ${testTags} tt
-    inner join ${testResults} tr on tr.id = tt."testResultId"
-    where tr."projectId" = ${projectId}
-      and tr."testId" in (${sql.join(
-        testIds.map((id) => sql`${id}`),
-        sql`, `,
-      )})
-  `);
+  // Plain join — no window functions or percentiles here, so the typed query
+  // builder expresses it directly (and `inArray` replaces the manual `sql.join`
+  // IN-list). Caller guards `testIds.length > 0`.
+  return db
+    .selectDistinct({ testId: testResults.testId, tag: testTags.tag })
+    .from(testTags)
+    .innerJoin(testResults, eq(testResults.id, testTags.testResultId))
+    .where(
+      and(
+        eq(testResults.projectId, projectId),
+        inArray(testResults.testId, [...testIds]),
+      ),
+    );
 }
