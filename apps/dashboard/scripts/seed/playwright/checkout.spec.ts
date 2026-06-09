@@ -1,4 +1,8 @@
 import { test, expect } from "@playwright/test";
+import { pace } from "./pace";
+
+// Optional per-test delay so `seed:stream` runs slow enough to watch live.
+test.afterEach(pace);
 
 const CHECKOUT_PAGE = (opts: { promoValid?: boolean } = {}) => `
 <!doctype html>
