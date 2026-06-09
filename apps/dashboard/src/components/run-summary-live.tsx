@@ -4,12 +4,12 @@ import type React from "react";
 import { OutcomeBar } from "@/components/outcome-bar";
 import {
   currentSummary,
-  useRunProgress,
   type RunProgressSummary,
-} from "@/lib/live-client";
+} from "@/realtime/run-progress";
+import { useRunRoom } from "@/realtime/use-run-room";
 
 interface RunSummaryLiveProps {
-  /** Run id used as the `void/live` topic suffix (`run:<runId>`). */
+  /** Run id used as the `void/ws` run-room key (`run:<runId>`). */
   runId: string;
   /** SSR-loaded aggregate. Seeds the live accumulator + first paint. */
   initialSummary: RunProgressSummary;
@@ -37,7 +37,7 @@ export function RunSummaryLive({
   runId,
   initialSummary,
 }: RunSummaryLiveProps): React.ReactElement {
-  const state = useRunProgress(runId, { initialSummary });
+  const state = useRunRoom(runId, { initialSummary });
   const summary = currentSummary(state, initialSummary);
   const total =
     summary.passed + summary.failed + summary.flaky + summary.skipped ||

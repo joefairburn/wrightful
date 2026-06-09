@@ -229,6 +229,9 @@ async function runScenario(scenario, index, total) {
   const pwEnv = {
     ...envWithoutGithub,
     WRIGHTFUL_FIXTURE_FAILURES: scenario.includeFailures ? "1" : "0",
+    // Bulk seeding is always unpaced — pin this so an ambient SEED_DELAY_MS
+    // (the `seed:stream` pacing knob) can't silently turn the seeder into a crawl.
+    SEED_DELAY_MS: "0",
     PLAYWRIGHT_OUTPUT_DIR: resultsDir,
     WRIGHTFUL_URL: baseUrl,
     WRIGHTFUL_TOKEN: apiKey,

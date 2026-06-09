@@ -15,11 +15,12 @@ import {
   type StatusFilter,
 } from "@/lib/group-tests-by-file";
 import { statusToken } from "@/lib/status";
-import { useRunProgress, type RunProgressTest } from "@/lib/live-client";
+import { type RunProgressTest } from "@/realtime/run-progress";
+import { useRunRoom } from "@/realtime/use-run-room";
 import { formatDuration } from "@/lib/time-format";
 
 interface RunProgressProps {
-  /** Run id used as the `void/live` topic suffix (`run:<runId>`). */
+  /** Run id used as the `void/ws` run-room key (`run:<runId>`). */
   runId: string;
   /** Team slug — used to build test-detail href on row click. */
   teamSlug: string;
@@ -31,7 +32,7 @@ interface RunProgressProps {
 
 /**
  * Run-detail Tests tab. Subscribes to live progress events for `run:<runId>`
- * via `useRunProgress`, merging streaming updates on top of the SSR-loaded
+ * via `useRunRoom` (the `void/ws` run room), merging streaming updates on top of the SSR-loaded
  * `initialTests`. Owns only the per-test list; the aggregate summary (header
  * tiles + OutcomeBar) is rendered live by the separate `<RunSummaryLive>`
  * island, so this component derives every count it shows from its own `byId`
@@ -56,7 +57,7 @@ export function RunProgress({
   projectSlug,
   initialTests,
 }: RunProgressProps) {
-  const { byId } = useRunProgress(runId, { initialTests });
+  const { byId } = useRunRoom(runId, { initialTests });
   const tests = useMemo(() => Object.values(byId), [byId]);
 
   const [search, setSearch] = useState("");

@@ -1,4 +1,7 @@
-import type { RunProgressTest, RunProgressTestStatus } from "@/lib/live-client";
+import type {
+  RunProgressTest,
+  RunProgressTestStatus,
+} from "@/realtime/run-progress";
 import {
   statusGroupKey,
   statusSortKey,

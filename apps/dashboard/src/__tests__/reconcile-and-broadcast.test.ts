@@ -14,10 +14,12 @@ import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
  *
  * The real D1 transaction is unmockable in the vitest harness (the `void/db`
  * stub's `db` Proxy throws on access), so we mock `db.batch` + the query builders
- * and `@/live`'s `publishRunUpdate` to assert the pure orchestration contract:
+ * and `@/realtime/publish` (the `void/ws` room broadcasters) to assert the pure
+ * orchestration contract:
  *   - the caller's status-update is FIRST and the recompute is appended LAST,
- *   - the summary broadcast to `run:<runId>` is the LAST batch result's first row
- *     (transactionally consistent with the recompute), with empty changedTests,
+ *   - the summary broadcast to the run room (`run:<runId>`) is the LAST batch
+ *     result's first row (transactionally consistent with the recompute), with
+ *     empty changedTests, and the same summary flips the project-room row,
  *   - no broadcast when the recompute matched no row (run vanished mid-flight),
  *   - the merged summary is returned to the caller either way,
  *   - with `requireStatusFlip`, a no-op finalize (FIRST element's
@@ -63,11 +65,18 @@ vi.mock("void/db", () => ({
   ),
 }));
 
-const publishSpy = vi.fn<(runId: string, event: unknown) => Promise<void>>(() =>
-  Promise.resolve(),
+// The `void/ws` room broadcasters — the single realtime publish path. The run
+// room gets the per-run `progress` event (via `broadcastRunUpdate`); the project
+// room gets the `run-progress` lifecycle event.
+const broadcastProjectSpy = vi.fn<
+  (projectId: string, event: unknown) => Promise<void>
+>(() => Promise.resolve());
+const broadcastRunSpy = vi.fn<(runId: string, event: unknown) => Promise<void>>(
+  () => Promise.resolve(),
 );
-vi.mock("@/live", () => ({
-  publishRunUpdate: publishSpy,
+vi.mock("@/realtime/publish", () => ({
+  broadcastProjectRoom: broadcastProjectSpy,
+  broadcastRunRoom: broadcastRunSpy,
 }));
 
 const { reconcileAndBroadcast } = await import("@/lib/ingest");
@@ -85,8 +94,10 @@ const SUMMARY = {
 
 beforeEach(() => {
   batchSpy.mockReset();
-  publishSpy.mockReset();
-  publishSpy.mockResolvedValue(undefined);
+  broadcastProjectSpy.mockReset();
+  broadcastProjectSpy.mockResolvedValue(undefined);
+  broadcastRunSpy.mockReset();
+  broadcastRunSpy.mockResolvedValue(undefined);
 });
 
 describe("reconcileAndBroadcast", () => {
@@ -108,7 +119,7 @@ describe("reconcileAndBroadcast", () => {
     expect(batched[1]).toMatchObject({ __stmt: "recompute" });
   });
 
-  it("broadcasts the LAST batch row's summary to run:<id> with empty changedTests", async () => {
+  it("broadcasts the LAST batch row's summary to the run room with empty changedTests, and flips the project row", async () => {
     batchSpy.mockResolvedValue([[{ updated: 1 }], [SUMMARY]]);
 
     const summary = await reconcileAndBroadcast(
@@ -118,14 +129,20 @@ describe("reconcileAndBroadcast", () => {
     );
 
     expect(summary).toEqual(SUMMARY);
-    expect(publishSpy).toHaveBeenCalledTimes(1);
-    const [runId, event] = publishSpy.mock.calls[0]!;
-    expect(runId).toBe("run-42");
-    expect(event).toEqual({
-      type: "progress",
-      changedTests: [],
-      summary: SUMMARY,
-    });
+    // The run room gets the per-run progress event (via broadcastRunUpdate's
+    // single publish point) — summary is exactly the LAST batch row.
+    expect(broadcastRunSpy).toHaveBeenCalledTimes(1);
+    expect(broadcastRunSpy.mock.calls[0]).toEqual([
+      "run-42",
+      { type: "progress", changedTests: [], summary: SUMMARY },
+    ]);
+    // The terminal summary is mirrored to the project room (run-progress) so the
+    // run's row on any open list flips to its final status without a reload.
+    expect(broadcastProjectSpy).toHaveBeenCalledTimes(1);
+    expect(broadcastProjectSpy.mock.calls[0]).toEqual([
+      "proj-1",
+      { type: "run-progress", runId: "run-42", summary: SUMMARY },
+    ]);
   });
 
   it("does NOT broadcast when the recompute matched no row (run vanished)", async () => {
@@ -140,7 +157,8 @@ describe("reconcileAndBroadcast", () => {
     );
 
     expect(summary).toBeNull();
-    expect(publishSpy).not.toHaveBeenCalled();
+    expect(broadcastRunSpy).not.toHaveBeenCalled();
+    expect(broadcastProjectSpy).not.toHaveBeenCalled();
   });
 
   it("returns the merged summary so the caller can read back status", async () => {
@@ -176,7 +194,8 @@ describe("reconcileAndBroadcast", () => {
 
       // Summary is still returned (callers may read it back), broadcast is not.
       expect(summary).toEqual(SUMMARY);
-      expect(publishSpy).not.toHaveBeenCalled();
+      expect(broadcastRunSpy).not.toHaveBeenCalled();
+      expect(broadcastProjectSpy).not.toHaveBeenCalled();
     });
 
     it("broadcasts when the guarded flip changed a row (the run was live)", async () => {
@@ -190,8 +209,8 @@ describe("reconcileAndBroadcast", () => {
       );
 
       expect(summary).toEqual(SUMMARY);
-      expect(publishSpy).toHaveBeenCalledTimes(1);
-      expect(publishSpy.mock.calls[0]![0]).toBe("run-stuck");
+      expect(broadcastRunSpy).toHaveBeenCalledTimes(1);
+      expect(broadcastRunSpy.mock.calls[0]![0]).toBe("run-stuck");
     });
 
     it("still broadcasts on a 0-row flip when requireStatusFlip is OFF (completeRun)", async () => {
@@ -206,7 +225,7 @@ describe("reconcileAndBroadcast", () => {
         { projectId: "proj-1" },
       );
 
-      expect(publishSpy).toHaveBeenCalledTimes(1);
+      expect(broadcastRunSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

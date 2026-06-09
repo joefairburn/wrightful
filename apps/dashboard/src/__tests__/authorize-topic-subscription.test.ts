@@ -1,28 +1,36 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   authorizeTopicSubscription,
+  type ProjectMembershipLookup,
   type RunMembershipLookup,
 } from "@/lib/authz";
 
 /**
  * `authorizeTopicSubscription` is the single tenant-isolation gate for the
- * `void/live` realtime stream — the one isolation check NOT routed through a
- * branded `AuthorizedProjectId`, because the stream handshake hands us a raw
- * topic string. It was previously an inline closure inside `defineLiveStream`,
- * runnable only inside a real handshake against real D1; extracting it (with an
- * injected `RunMembershipLookup`) makes the DECISION testable here:
+ * `void/ws` rooms (`onBeforeConnect`) — the one isolation check NOT routed
+ * through a branded `AuthorizedProjectId`, because the room connect hands us a
+ * raw topic string. Extracted from the room handlers (with an injected
+ * `RunMembershipLookup`) so the DECISION is testable here without a live socket:
  *
  *   - the topic regex (does `run:`, `run:a:b`, or a non-run topic get rejected?)
  *   - the no-user 403
  *   - the empty-rows 403 (the cross-team denial — a logged-in member of team A
- *     must not subscribe to team B's run stream)
+ *     must not subscribe to team B's run room)
  *
- * The lookup is faked so no `void/live` handshake and no real D1 are needed.
+ * The lookup is faked so no room connect and no real D1 are needed.
  */
 
 /** A lookup that grants membership only for the given (runId → userId) pair. */
 function lookupFor(authorized: Record<string, string>): RunMembershipLookup {
   return (runId, userId) => Promise.resolve(authorized[runId] === userId);
+}
+
+/** Same, for the project topic gate (projectId → userId). */
+function projectLookupFor(
+  authorized: Record<string, string>,
+): ProjectMembershipLookup {
+  return (projectId, userId) =>
+    Promise.resolve(authorized[projectId] === userId);
 }
 
 describe("authorizeTopicSubscription", () => {
@@ -138,6 +146,72 @@ describe("authorizeTopicSubscription", () => {
         lookupFor({}),
       );
       expect(result).toEqual({ ok: false, status: 403 });
+    });
+  });
+
+  describe("project topics", () => {
+    it("accepts a well-formed project:<projectId> topic for a member", async () => {
+      const runLookup = vi.fn<RunMembershipLookup>(() => Promise.resolve(true));
+      const result = await authorizeTopicSubscription(
+        "user_a",
+        "project:proj_1",
+        runLookup,
+        projectLookupFor({ proj_1: "user_a" }),
+      );
+      expect(result).toEqual({ ok: true });
+      // A project topic must never consult the run lookup.
+      expect(runLookup).not.toHaveBeenCalled();
+    });
+
+    it("parses the projectId and passes it to the project lookup", async () => {
+      const lookup = vi.fn<ProjectMembershipLookup>(() =>
+        Promise.resolve(true),
+      );
+      await authorizeTopicSubscription(
+        "user_a",
+        "project:01PROJ",
+        undefined,
+        lookup,
+      );
+      expect(lookup).toHaveBeenCalledWith("01PROJ", "user_a");
+    });
+
+    it("denies a non-member of the project's team (cross-team isolation)", async () => {
+      const result = await authorizeTopicSubscription(
+        "user_a",
+        "project:proj_b",
+        undefined,
+        projectLookupFor({ proj_a: "user_a", proj_b: "user_b" }),
+      );
+      expect(result).toEqual({ ok: false, status: 403 });
+    });
+
+    it("rejects a bare `project:` topic and skips the lookup", async () => {
+      const lookup = vi.fn<ProjectMembershipLookup>(() =>
+        Promise.resolve(true),
+      );
+      const result = await authorizeTopicSubscription(
+        "user_a",
+        "project:",
+        undefined,
+        lookup,
+      );
+      expect(result).toEqual({ ok: false, status: 403 });
+      expect(lookup).not.toHaveBeenCalled();
+    });
+
+    it("rejects an extra colon segment (`project:a:b`)", async () => {
+      const lookup = vi.fn<ProjectMembershipLookup>(() =>
+        Promise.resolve(true),
+      );
+      const result = await authorizeTopicSubscription(
+        "user_a",
+        "project:a:b",
+        undefined,
+        lookup,
+      );
+      expect(result).toEqual({ ok: false, status: 403 });
+      expect(lookup).not.toHaveBeenCalled();
     });
   });
 });

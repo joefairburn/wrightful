@@ -22,6 +22,7 @@
     "test:coverage": "vp test run --coverage",
     "db:seed-demo": "node scripts/seed-demo.mjs",
     "fixtures:generate": "node scripts/upload-fixtures.mjs",
+    "seed:stream": "node scripts/seed-stream.mjs",
     "setup:local": "node scripts/setup-local.mjs"
   },
   "dependencies": {

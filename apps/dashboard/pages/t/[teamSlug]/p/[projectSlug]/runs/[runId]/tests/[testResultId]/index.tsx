@@ -1,6 +1,7 @@
 import { Link } from "@void/react";
 import type { ArtifactAction } from "@/components/artifact-actions";
 import { ArtifactsRail } from "@/components/artifacts-rail";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import {
   AttemptPanel,
   AttemptTabsBar,
@@ -281,15 +282,14 @@ export default function TestDetailPage(props: Props) {
 
   return (
     <div className="flex flex-col">
+      <Breadcrumbs
+        items={[
+          { label: "Runs", href: base },
+          { label: `#${runId.slice(-7)}`, href: `${base}/runs/${runId}` },
+          { label: testTitle },
+        ]}
+      />
       <div className="border-b border-border px-6 py-4 shrink-0">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-          <Link
-            href={`${base}/runs/${runId}`}
-            className="hover:text-foreground transition-colors"
-          >
-            &larr; Back to run
-          </Link>
-        </div>
         <div className="flex items-center gap-3 mb-1 flex-wrap">
           <StatusBadge status={result.status} />
           <h1 className="font-semibold text-xl">{testTitle}</h1>

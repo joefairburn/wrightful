@@ -30,7 +30,7 @@ import type {
  * the pipeline's atomicity boundary), we reuse the project's established
  * mock-the-D1-boundary idiom (see db-batch.test.ts / reconcile-and-broadcast.
  * test.ts): mock `void/db` so the query builders are controllable thenables and
- * `db.batch` is a spy, and mock `@/live`'s `publishRunUpdate`. That makes the
+ * `db.batch` is a spy, and mock `@/realtime/publish`'s room broadcasters. That makes the
  * orchestration reachable and pins these invariants:
  *   - openRun: duplicate idempotencyKey returns { duplicate: true } WITHOUT a
  *     fresh runs insert, but still prefills this shard's planned rows;
@@ -111,11 +111,18 @@ vi.mock("void/db", () => ({
   ),
 }));
 
-const publishSpy = vi.fn<(runId: string, event: unknown) => Promise<void>>(() =>
-  Promise.resolve(),
+// The `void/ws` room broadcasters — the single realtime publish path. The run
+// room gets the per-run `progress` event (via `broadcastRunUpdate`); the project
+// room gets the run lifecycle events (`run-created` / `run-progress`).
+const broadcastProjectSpy = vi.fn<
+  (projectId: string, event: unknown) => Promise<void>
+>(() => Promise.resolve());
+const broadcastRunSpy = vi.fn<(runId: string, event: unknown) => Promise<void>>(
+  () => Promise.resolve(),
 );
-vi.mock("@/live", () => ({
-  publishRunUpdate: publishSpy,
+vi.mock("@/realtime/publish", () => ({
+  broadcastProjectRoom: broadcastProjectSpy,
+  broadcastRunRoom: broadcastRunSpy,
 }));
 
 const { openRun, appendRunResults, completeRun } = await import("@/lib/ingest");
@@ -161,8 +168,10 @@ function result(over: Partial<TestResultInput> = {}): TestResultInput {
 
 beforeEach(() => {
   batchSpy.mockReset();
-  publishSpy.mockReset();
-  publishSpy.mockResolvedValue(undefined);
+  broadcastProjectSpy.mockReset();
+  broadcastProjectSpy.mockResolvedValue(undefined);
+  broadcastRunSpy.mockReset();
+  broadcastRunSpy.mockResolvedValue(undefined);
   awaitResults = [];
 });
 
@@ -188,10 +197,10 @@ describe("openRun", () => {
     const batched = batchSpy.mock.calls[0]![0] as BuilderNode[];
     expect(batched).toHaveLength(2);
     expect(batched.every((s) => s.__kind === "insert")).toBe(true);
-    // Initial snapshot is synthesized inline (no DB read) — totals reflect the
-    // planned-test count, status "running".
-    expect(publishSpy).toHaveBeenCalledTimes(1);
-    const [runId, event] = publishSpy.mock.calls[0]!;
+    // Initial snapshot is synthesized inline (no DB read) and broadcast to the
+    // run room — totals reflect the planned-test count, status "running".
+    expect(broadcastRunSpy).toHaveBeenCalledTimes(1);
+    const [runId, event] = broadcastRunSpy.mock.calls[0]!;
     expect(runId).toBe(out.runId);
     expect(event).toEqual({
       type: "progress",
@@ -207,6 +216,18 @@ describe("openRun", () => {
         completedAt: null,
       },
     });
+
+    // The runs list is told a brand-new run exists (run-created) on the project
+    // room, so it can prepend the row without a refresh.
+    expect(broadcastProjectSpy).toHaveBeenCalledTimes(1);
+    const [projectId, projectEvent] = broadcastProjectSpy.mock.calls[0]! as [
+      string,
+      { type: string; run: { id: string; status: string } },
+    ];
+    expect(projectId).toBe("proj-1");
+    expect(projectEvent.type).toBe("run-created");
+    expect(projectEvent.run.id).toBe(out.runId);
+    expect(projectEvent.run.status).toBe("running");
   });
 
   it("on a duplicate idempotencyKey: returns the existing runId without re-inserting or re-prefilling", async () => {
@@ -228,7 +249,7 @@ describe("openRun", () => {
     // No fresh run insert, no prefill batch, and no broadcast on the duplicate
     // path — the winning shard already created the run and sent the snapshot.
     expect(batchSpy).not.toHaveBeenCalled();
-    expect(publishSpy).not.toHaveBeenCalled();
+    expect(broadcastRunSpy).not.toHaveBeenCalled();
   });
 
   it("on a duplicate with many planned tests: still does not prefill (guards against re-introducing the totalTests-suppressing prefill)", async () => {
@@ -250,7 +271,7 @@ describe("openRun", () => {
 
     expect(out).toEqual({ runId: "run-existing", duplicate: true });
     expect(batchSpy).not.toHaveBeenCalled();
-    expect(publishSpy).not.toHaveBeenCalled();
+    expect(broadcastRunSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -264,7 +285,7 @@ describe("appendRunResults", () => {
 
     expect(out).toEqual({ kind: "notFound" });
     expect(batchSpy).not.toHaveBeenCalled();
-    expect(publishSpy).not.toHaveBeenCalled();
+    expect(broadcastRunSpy).not.toHaveBeenCalled();
   });
 
   it("on a real delta: appends the delta UPDATE LAST and broadcasts batchResults[last][0]", async () => {
@@ -290,9 +311,10 @@ describe("appendRunResults", () => {
     expect(batched.at(-1)!.__kind).toBe("update");
 
     // The broadcast summary is exactly the LAST batch row — proving the
-    // batchResults[last][0] contract end-to-end through the entry point.
-    expect(publishSpy).toHaveBeenCalledTimes(1);
-    const [runId, event] = publishSpy.mock.calls[0]! as [
+    // batchResults[last][0] contract end-to-end through the entry point. It goes
+    // to the run room via broadcastRunUpdate's single publish point.
+    expect(broadcastRunSpy).toHaveBeenCalledTimes(1);
+    const [runId, event] = broadcastRunSpy.mock.calls[0]! as [
       string,
       { summary: unknown; changedTests: unknown[] },
     ];
@@ -300,6 +322,14 @@ describe("appendRunResults", () => {
     expect(event.summary).toEqual(persisted);
     // changedTests carries the per-test row with the assigned id.
     expect(event.changedTests).toHaveLength(1);
+
+    // The same summary advances the run's row on any open list (project room),
+    // in lockstep with the detail page.
+    expect(broadcastProjectSpy).toHaveBeenCalledTimes(1);
+    expect(broadcastProjectSpy.mock.calls[0]).toEqual([
+      "proj-1",
+      { type: "run-progress", runId: "run-1", summary: persisted },
+    ]);
   });
 
   it("on a no-op delta (re-send of an unchanged status): swaps the delta UPDATE for a liveness-bump UPDATE as the LAST statement", async () => {
@@ -325,8 +355,8 @@ describe("appendRunResults", () => {
     // No delta → the summary statement is the liveness-bump UPDATE appended
     // last (it still `.returning()`s the summary), NOT a read-only SELECT.
     expect(batched.at(-1)!.__kind).toBe("update");
-    expect(publishSpy).toHaveBeenCalledTimes(1);
-    const [, event] = publishSpy.mock.calls[0]! as [
+    expect(broadcastRunSpy).toHaveBeenCalledTimes(1);
+    const [, event] = broadcastRunSpy.mock.calls[0]! as [
       string,
       { summary: unknown },
     ];
@@ -342,7 +372,7 @@ describe("appendRunResults", () => {
     const out = await appendRunResults(scope, "run-1", payload, NOW);
 
     expect(out).toEqual({ kind: "notFound" });
-    expect(publishSpy).not.toHaveBeenCalled();
+    expect(broadcastRunSpy).not.toHaveBeenCalled();
   });
 
   it("threads clientKey → assigned id into the returned mapping", async () => {
@@ -371,7 +401,7 @@ describe("completeRun", () => {
 
     expect(out).toEqual({ kind: "notFound" });
     expect(batchSpy).not.toHaveBeenCalled();
-    expect(publishSpy).not.toHaveBeenCalled();
+    expect(broadcastRunSpy).not.toHaveBeenCalled();
   });
 
   it("runs the status-flip + recompute in one batch and returns the merged status from the summary", async () => {
@@ -391,8 +421,8 @@ describe("completeRun", () => {
     expect(batched).toHaveLength(2);
     expect(batched[0]!.__kind).toBe("update");
     expect(batched[1]!.__kind).toBe("update");
-    expect(publishSpy).toHaveBeenCalledTimes(1);
-    const [, event] = publishSpy.mock.calls[0]! as [
+    expect(broadcastRunSpy).toHaveBeenCalledTimes(1);
+    const [, event] = broadcastRunSpy.mock.calls[0]! as [
       string,
       { summary: unknown; changedTests: unknown[] },
     ];
@@ -409,6 +439,6 @@ describe("completeRun", () => {
     const out = await completeRun(scope, "run-1", payload, NOW);
 
     expect(out).toEqual({ kind: "ok", status: "passed" });
-    expect(publishSpy).not.toHaveBeenCalled();
+    expect(broadcastRunSpy).not.toHaveBeenCalled();
   });
 });

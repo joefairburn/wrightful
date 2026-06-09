@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
@@ -15,6 +16,17 @@ const voidDbStubPath = fileURLToPath(
 // Workers. Tests run in plain Node (vitest default pool) against the same
 // alias map as production.
 const isTest = process.env.VITEST === "true" || process.argv.includes("test");
+
+// Build-time internal-RPC secret, baked into the SERVER bundle as the global
+// `__WRIGHTFUL_INTERNAL_SECRET__` (see src/realtime/room-server.ts). The
+// publisher worker and the room Durable Objects are ONE Cloudflare deployment /
+// one bundle, so this single value is identical on both sides — exactly what the
+// DO-to-DO room-publish gate needs (it only proves "same deployment"), with zero
+// secret to provision and automatic rotation per deploy. Computed once per build
+// process, so the worker + DO code agree. Omitted under test — `resolveInternal
+// Secret` falls back to BETTER_AUTH_SECRET there. It's only referenced by
+// server-only modules, so it never lands in the client bundle.
+const buildInternalSecret = randomBytes(32).toString("base64url");
 
 export default defineConfig({
   // Pin to 5173 and fail fast. WRIGHTFUL_PUBLIC_URL is hard-coded to :5173
@@ -57,6 +69,11 @@ export default defineConfig({
   plugins: isTest
     ? [tailwindcss()]
     : [voidPlugin(), voidReact(), tailwindcss()],
+  // Bake the per-build internal-RPC secret into the (server) bundle. Under test
+  // we omit it so the resolver's BETTER_AUTH_SECRET fallback is exercised.
+  define: isTest
+    ? {}
+    : { __WRIGHTFUL_INTERNAL_SECRET__: JSON.stringify(buildInternalSecret) },
   test: {
     environment: "happy-dom",
     include: ["src/**/__tests__/**/*.test.{ts,tsx}"],

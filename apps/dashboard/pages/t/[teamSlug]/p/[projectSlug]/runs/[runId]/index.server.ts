@@ -16,7 +16,7 @@ const TESTS_LIMIT = 200;
 /**
  * Run detail loader. Resolves the active run + its history strip + the
  * first page of tests + per-test artifact actions in a single batch. The
- * page component uses `useRunProgress(runId)` for live updates merged on
+ * page component subscribes via `useRunRoom(runId)` for live updates merged on
  * top of these SSR-seeded rows.
  */
 export const loader = defineHandler(async (c) => {

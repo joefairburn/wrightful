@@ -11,6 +11,7 @@
     "check:fix": "vp check --fix",
     "setup:local": "pnpm --filter @wrightful/dashboard setup:local",
     "fixtures:generate": "pnpm --filter @wrightful/dashboard fixtures:generate",
+    "seed:stream": "pnpm --filter @wrightful/dashboard seed:stream",
     "ci:local": "npx @redwoodjs/agent-ci run --workflow .github/workflows/ci.yml",
     "changeset": "changeset",
     "version-packages": "changeset version",
