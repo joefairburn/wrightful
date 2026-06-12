@@ -71,7 +71,15 @@ test.describe("HTTP uptime monitors", () => {
     await expect(monitorsPage.emptyExecutions).toBeVisible();
 
     // 2. Sweep until the monitor is due and the uptime consumer records a
-    // result. Each tick is a no-op until `nextRunAt` passes.
+    // TERMINAL result. Each tick is a no-op until `nextRunAt` passes; once due,
+    // the sweep enqueues to `queues/uptime` and Miniflare delivers it to the
+    // consumer, which runs the fetch and records the result inline. That settle
+    // is async — it completes AFTER the cron call returns — and the row is
+    // briefly `queued` before it does. So poll for the result-state badge
+    // itself, not merely "not empty": a transient `queued` row would satisfy
+    // `emptyExecutions` being hidden before the check has actually run (mirrors
+    // how `monitors.spec` waits for the terminal "View run" link, not the row).
+    const stateBadge = page.getByText(/^(pass|degraded|fail|error)$/i).first();
     await expect(async () => {
       await triggerScheduled(
         page.request,
@@ -80,15 +88,11 @@ test.describe("HTTP uptime monitors", () => {
         SWEEP_CRON,
       );
       await monitorsPage.gotoDetail(monitorId);
-      await expect(monitorsPage.emptyExecutions).toBeHidden({ timeout: 5_000 });
+      await expect(stateBadge).toBeVisible({ timeout: 5_000 });
     }).toPass({ timeout: 130_000 });
 
     // An http execution carries an inline result — NOT a run report. The
     // "View run" deep-link must never appear for an uptime check.
     await expect(monitorsPage.runLinks).toHaveCount(0);
-    // The execution row surfaces a result state badge (pass / degraded / fail).
-    await expect(
-      page.getByText(/^(pass|degraded|fail|error)$/i).first(),
-    ).toBeVisible();
   });
 });
