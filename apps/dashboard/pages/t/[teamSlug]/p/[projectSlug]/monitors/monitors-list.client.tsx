@@ -8,6 +8,7 @@ import {
   MonBadge,
   MonGlyph,
   monitorDisplayStatus,
+  MonTypeGlyph,
   SummaryPill,
 } from "@/components/monitors/monitor-status";
 import { SearchFilterInput } from "@/components/search-filter-input";
@@ -27,7 +28,7 @@ import { useRoom } from "@/realtime/use-room";
 import { useSeededState } from "@/realtime/use-seeded-state";
 import { formatRelativeTime } from "@/lib/time-format";
 import { applyMonitorFeedEvent } from "./monitor-feed";
-import { humanizeInterval } from "./monitors-ui.shared";
+import { humanizeInterval, monitorTypeLabel } from "./monitors-ui.shared";
 import type { Props } from "./index.server";
 
 type Monitor = Props["monitors"][number];
@@ -285,8 +286,8 @@ function MonitorRow({
               {m.name}
             </span>
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-bg-3 px-[7px] py-px font-mono text-[10.5px] text-fg-2">
-              <BeakerGlyph />
-              {m.type}
+              <MonTypeGlyph type={m.type} />
+              {monitorTypeLabel(m.type)}
             </span>
           </span>
           <span className="mt-px">
@@ -328,25 +329,5 @@ function MonitorRow({
         </div>
       </TableCell>
     </TableRow>
-  );
-}
-
-/** `beaker` glyph from the design, mapped to a small inline SVG on the same
- * 16-grid stroke set the other monitor visuals use. */
-function BeakerGlyph() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-2.5"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.5"
-      viewBox="0 0 16 16"
-    >
-      <path d="M6 2.5 V 7 L 3 13 H 13 L 10 7 V 2.5" />
-      <path d="M5.5 2.5 H 10.5" />
-    </svg>
   );
 }

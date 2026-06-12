@@ -1,4 +1,7 @@
-import { MONITOR_INTERVAL_PRESETS } from "@/lib/monitors/monitor-schemas";
+import {
+  HTTP_INTERVAL_PRESETS_V1,
+  MONITOR_INTERVAL_PRESETS,
+} from "@/lib/monitors/monitor-schemas";
 
 /**
  * Presentation helpers shared by the monitors list + detail pages. Kept in a
@@ -16,6 +19,11 @@ import { MONITOR_INTERVAL_PRESETS } from "@/lib/monitors/monitor-schemas";
  */
 export const RECENT_EXECUTION_WINDOW = 24;
 
+/** Short label for a monitor type, in the product's vocabulary. */
+export function monitorTypeLabel(type: string): string {
+  return type === "http" ? "uptime" : "browser";
+}
+
 /** Human label for a monitor interval: `1m`, `5m`, `30m`, `1h`. */
 export function humanizeInterval(seconds: number): string {
   if (seconds % 3600 === 0) return `${seconds / 3600}h`;
@@ -24,11 +32,11 @@ export function humanizeInterval(seconds: number): string {
 }
 
 /**
- * 24h-style uptime % from a window of recent executions: passes ÷ countable
- * executions × 100. Mirrors the design — `running` (not finished) and `error`
- * (infra couldn't run the check, not an app outage) are excluded from the
- * denominator so an `error` doesn't read as downtime. Returns null when there's
- * nothing countable yet.
+ * Uptime % from a window of recent executions: "up" ÷ countable × 100. Both
+ * `pass` AND `degraded` count as UP (Checkly's model — degraded is
+ * available-but-slow, not downtime). `running` (not finished) and `error` (infra
+ * couldn't run the check, not an app outage) are excluded from the denominator
+ * so neither reads as downtime. Returns null when there's nothing countable yet.
  */
 export function uptimeFromExecutions(
   executions: ReadonlyArray<{ state: string }>,
@@ -37,15 +45,29 @@ export function uptimeFromExecutions(
     (e) => e.state !== "running" && e.state !== "error",
   );
   if (countable.length === 0) return null;
-  const passes = countable.filter((e) => e.state === "pass").length;
-  return (passes / countable.length) * 100;
+  const up = countable.filter(
+    (e) => e.state === "pass" || e.state === "degraded",
+  ).length;
+  return (up / countable.length) * 100;
 }
 
-/** `{ value, label }` options for the interval `<select>`, in preset order. */
+/** `{ value, label }` options for the browser interval `<select>`, preset order. */
 export const INTERVAL_OPTIONS = MONITOR_INTERVAL_PRESETS.map((seconds) => ({
   value: seconds,
   label: `Every ${humanizeInterval(seconds)}`,
 }));
+
+/**
+ * Interval options for the HTTP (uptime) form. The v1 subset (`>= 60s`) only —
+ * sub-minute cadences are a later scheduling phase, so they're not offered yet
+ * even though the schema would accept them.
+ */
+export const HTTP_INTERVAL_OPTIONS = HTTP_INTERVAL_PRESETS_V1.map(
+  (seconds) => ({
+    value: seconds,
+    label: `Every ${humanizeInterval(seconds)}`,
+  }),
+);
 
 /**
  * The Badge variant + dot tint for a monitor / execution status. `lastStatus`

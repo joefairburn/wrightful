@@ -8,7 +8,7 @@ import type {
   CreateMonitorInput,
   UpdateMonitorInput,
 } from "@/lib/monitors/monitor-schemas";
-import type { ExecutionResult } from "@/lib/monitors/types";
+import type { ExecutionResult, MonitorType } from "@/lib/monitors/types";
 
 /**
  * The D1 data layer for synthetic monitoring — the deep module the page actions
@@ -94,8 +94,10 @@ export async function createMonitor(
     name: input.name,
     type: input.type,
     enabled: input.enabled ? 1 : 0,
-    source: input.source,
-    config: null,
+    // `source` carries the browser spec; `config` the http URL/assertions JSON.
+    // Each type writes its own field and leaves the other null.
+    source: input.type === "browser" ? input.source : null,
+    config: input.type === "http" ? JSON.stringify(input.config) : null,
     intervalSeconds: input.intervalSeconds,
     schedulingStrategy: "round_robin",
     retryConfig: null,
@@ -149,14 +151,27 @@ export async function updateMonitor(
   monitorId: string,
   patch: UpdateMonitorInput,
   now: number,
+  // The caller (the edit action) already loaded the row for type dispatch; pass
+  // it to skip a redundant SELECT. Omitted callers still get the lookup.
+  loaded?: Monitor,
 ): Promise<Monitor | null> {
-  const current = await getMonitor(scope, monitorId);
+  const current = loaded ?? (await getMonitor(scope, monitorId));
   if (!current) return null;
 
+  // `type` is intentionally NOT patchable — it's immutable after creation, so
+  // the update schemas omit it and this never reassigns it.
   const set: Partial<typeof monitors.$inferInsert> = { updatedAt: now };
   if (patch.name !== undefined) set.name = patch.name;
-  if (patch.type !== undefined) set.type = patch.type;
-  if (patch.source !== undefined) set.source = patch.source;
+  // `source` is browser-only, `config` http-only — gate each by the stored type
+  // so a stray cross-type field can't contaminate the row. The action's per-type
+  // dispatch already prevents this; this is the repo-level backstop for a direct
+  // or future caller (`UpdateMonitorInput` permits both fields).
+  if (current.type === "browser" && patch.source !== undefined) {
+    set.source = patch.source;
+  }
+  if (current.type === "http" && patch.config !== undefined) {
+    set.config = JSON.stringify(patch.config);
+  }
   if (patch.intervalSeconds !== undefined) {
     set.intervalSeconds = patch.intervalSeconds;
   }
@@ -210,12 +225,26 @@ export async function setMonitorEnabled(
     .where(monitorByIdWhere(scope, monitorId));
 }
 
-/** Count of monitors in the project — for the per-project cap enforcement. */
-export async function countMonitors(scope: TenantScope): Promise<number> {
+/**
+ * Count of monitors in the project — for per-project cap enforcement. With a
+ * `type`, counts only that kind: browser and http have SEPARATE caps
+ * (`WRIGHTFUL_MONITOR_MAX_PER_PROJECT` vs `WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT`)
+ * because a container run and a plain `fetch()` have very different costs, so a
+ * project can hold many cheap uptime checks without eating its browser budget.
+ * Without a `type` (the list header) it counts all monitors in the project.
+ */
+export async function countMonitors(
+  scope: TenantScope,
+  type?: MonitorType,
+): Promise<number> {
   const rows = await db
     .select({ count: sql<number>`count(*)` })
     .from(monitors)
-    .where(eq(monitors.projectId, scope.projectId));
+    .where(
+      type
+        ? and(eq(monitors.projectId, scope.projectId), eq(monitors.type, type))
+        : eq(monitors.projectId, scope.projectId),
+    );
   return rows[0]?.count ?? 0;
 }
 
@@ -381,6 +410,11 @@ export async function recordExecutionResult(
         state: result.state,
         runId: result.runId,
         durationMs: result.durationMs,
+        // http inline result fields; null for browser executions.
+        statusCode: result.statusCode,
+        resultDetail: result.resultDetail
+          ? JSON.stringify(result.resultDetail)
+          : null,
         errorMessage: result.errorMessage,
         completedAt: now,
       })

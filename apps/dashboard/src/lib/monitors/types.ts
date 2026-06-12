@@ -37,6 +37,47 @@ export interface MonitorJob {
 }
 
 /**
+ * One assertion's evaluated outcome, stored in {@link HttpResultDetail}. `actual`
+ * is the observed value stringified for display (e.g. the status code, a header
+ * value, a response time in ms); `null` when the source had nothing to read
+ * (e.g. a missing header / JSON path). `source`/`comparison` are kept as plain
+ * strings (not the zod enums) so this storage/display type carries no dependency
+ * on the validation module.
+ */
+export interface AssertionResult {
+  source: string;
+  property: string | null;
+  comparison: string;
+  target: string;
+  actual: string | null;
+  pass: boolean;
+}
+
+/**
+ * Inline result detail for an `http` (uptime) execution — serialized as JSON
+ * into `monitorExecutions.resultDetail`. A browser execution stores `null` here
+ * (its detail lives in the linked `runs` row). The detail page parses this back
+ * to render per-assertion results, timing phases, and the redirect chain.
+ *
+ * `bodyExcerpt` is present only when a body assertion FAILED (so a user can see
+ * what came back) and is capped to ≤2 KiB by the executor — never the full body.
+ */
+export interface HttpResultDetail {
+  assertions: AssertionResult[];
+  timings: {
+    /** Time to first byte (headers received), ms. Null if not measurable. */
+    ttfbMs: number | null;
+    /** Body download time after headers, ms. Null if not measurable. */
+    downloadMs: number | null;
+    /** Total wall-clock of the check, ms. */
+    totalMs: number;
+  };
+  redirected: boolean;
+  finalUrl: string;
+  bodyExcerpt?: string;
+}
+
+/**
  * Outcome of executing one monitor attempt, returned by a {@link MonitorExecutor}.
  *
  * `infraError` is the load-bearing distinction for the queue consumer:
@@ -45,6 +86,9 @@ export interface MonitorJob {
  *     result, not a delivery failure.
  *   - `true` → we could not execute the monitor (sandbox unavailable, token
  *     mint failed, transient infra). The consumer should `retry()` the message.
+ *
+ * `statusCode` / `resultDetail` are filled by the `http` executor and are `null`
+ * for `browser` executions (whose rich detail lives in the linked run).
  */
 export interface ExecutionResult {
   state: TerminalExecutionState;
@@ -53,6 +97,10 @@ export interface ExecutionResult {
   durationMs: number | null;
   errorMessage: string | null;
   infraError: boolean;
+  /** HTTP response status code (http type); null for browser / no response. */
+  statusCode: number | null;
+  /** Inline HTTP result detail (http type); null for browser. */
+  resultDetail: HttpResultDetail | null;
 }
 
 /**

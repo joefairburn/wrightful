@@ -114,6 +114,9 @@ export class StubExecutor implements MonitorExecutor {
       durationMs: run?.durationMs ?? wallMs,
       errorMessage: shouldFail ? "stub monitor forced failure" : null,
       infraError: false,
+      // Browser executions carry no inline http result fields.
+      statusCode: null,
+      resultDetail: null,
     };
   }
 }

@@ -107,6 +107,9 @@ function infraError(err: unknown, durationMs: number): ExecutionResult {
     durationMs,
     errorMessage: err instanceof Error ? err.message : String(err),
     infraError: true,
+    // Browser executions carry no inline http result fields.
+    statusCode: null,
+    resultDetail: null,
   };
 }
 
@@ -138,6 +141,8 @@ export async function runSandboxExecution(
       durationMs: deps.now() - startedAt,
       errorMessage: "monitor has no Playwright source",
       infraError: false,
+      statusCode: null,
+      resultDetail: null,
     };
   }
 
@@ -225,6 +230,8 @@ export async function runSandboxExecution(
           "execution budget (script hung outside a test or teardown stalled; " +
           "less commonly, the runner was interrupted at the deadline)",
         infraError: false,
+        statusCode: null,
+        resultDetail: null,
       };
     }
     if (!run) {
@@ -235,6 +242,8 @@ export async function runSandboxExecution(
         errorMessage:
           "container ran but no run was streamed (reporter never opened a run)",
         infraError: true,
+        statusCode: null,
+        resultDetail: null,
       };
     }
     return {
@@ -243,6 +252,8 @@ export async function runSandboxExecution(
       durationMs: run.durationMs || wallMs,
       errorMessage: null,
       infraError: false,
+      statusCode: null,
+      resultDetail: null,
     };
   } catch (err) {
     // A capacity/budget denial or any transport/setup throw is an infra error
@@ -256,6 +267,8 @@ export async function runSandboxExecution(
         durationMs: deps.now() - startedAt,
         errorMessage: `sandbox unavailable (${limit.reason})`,
         infraError: true,
+        statusCode: null,
+        resultDetail: null,
       };
     }
     return infraError(err, deps.now() - startedAt);

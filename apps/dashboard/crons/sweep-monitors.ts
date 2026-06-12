@@ -6,9 +6,11 @@ import { sweepDueMonitors } from "@/lib/monitors/scheduler";
 
 /**
  * Synthetic-monitor scheduler: every minute, find the enabled monitors whose
- * `nextRunAt` is due and enqueue one `MonitorJob` per due monitor onto the
- * `monitors` queue. The queue consumer (`queues/monitors.ts`) then executes
- * each one in a Void Sandbox (or the in-process stub in dev).
+ * `nextRunAt` is due and enqueue one `MonitorJob` per due monitor — ROUTED by
+ * the monitor's type: `http` (uptime) jobs go to the `uptime` queue (plain
+ * `fetch`, batched), browser jobs to the `monitors` queue (one Void Sandbox
+ * container per job). The job body is IDs-only either way; the sweep already
+ * holds the monitor row, so the type-routing is free.
  *
  * Minute granularity is the floor Cloudflare cron offers and matches the
  * 60-second floor of `MONITOR_INTERVAL_PRESETS` (the hardcoded allowed
@@ -32,8 +34,14 @@ export default defineScheduled(async () => {
   const { found, enqueued } = await sweepDueMonitors({
     now: nowSeconds,
     limit: env.WRIGHTFUL_MONITOR_SWEEP_BATCH_SIZE,
-    enqueue: async (job) => {
-      await queues.monitors.send(job);
+    // Route by type: http checks to the batched `uptime` queue, browser checks
+    // to the container-tuned `monitors` queue.
+    enqueue: async (job, monitor) => {
+      if (monitor.type === "http") {
+        await queues.uptime.send(job);
+      } else {
+        await queues.monitors.send(job);
+      }
     },
   });
 

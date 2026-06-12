@@ -15,12 +15,7 @@ import type { Props } from "./index.server";
  * filter/search + table with per-row pause toggle). Rows deep-link to the
  * monitor detail; the header / empty-state CTAs point at `./monitors/new`.
  */
-export default function MonitorsListPage({
-  project,
-  monitors,
-  count,
-  limit,
-}: Props) {
+export default function MonitorsListPage({ project, monitors, count }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
   const monitorsBase = `${base}/monitors`;
   // Authoring monitors is owner-only (see the action gate + `index.server.ts`);
@@ -57,8 +52,8 @@ export default function MonitorsListPage({
         }
         subtitle={
           <>
-            <span className="font-mono">{project.slug}</span> · {count} of{" "}
-            {limit} monitors
+            <span className="font-mono">{project.slug}</span> · {count}{" "}
+            {count === 1 ? "monitor" : "monitors"}
             {failing > 0 && (
               <>
                 {" · "}
