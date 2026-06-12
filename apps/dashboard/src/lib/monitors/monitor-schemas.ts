@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { checkUrlPolicy } from "@/lib/monitors/http/url-policy";
+import type { AssertionResult, HttpResultDetail } from "@/lib/monitors/types";
 
 /**
  * Validation contract for monitor create/edit. Shared by the page actions
@@ -284,6 +285,61 @@ export function parseHttpMonitorConfig(
   return parsed.success ? parsed.data : null;
 }
 
+// ─── HTTP result detail (stored execution result — read-path validation) ─────
+
+/**
+ * Zod mirror of {@link AssertionResult} (`types.ts`). `satisfies z.ZodType<…>`
+ * pins it to the interface so the schema and the type can't drift.
+ */
+const AssertionResultSchema = z.object({
+  source: z.string(),
+  property: z.string().nullable(),
+  comparison: z.string(),
+  target: z.string(),
+  actual: z.string().nullable(),
+  pass: z.boolean(),
+}) satisfies z.ZodType<AssertionResult>;
+
+/**
+ * Zod mirror of {@link HttpResultDetail}. The detail page reads back the JSON the
+ * executor stored on `monitorExecutions.resultDetail`; validating it here (rather
+ * than blind-casting the parse) means a malformed or schema-evolved row degrades
+ * to `null` instead of throwing when the page dereferences a missing nested
+ * field — the same read-path discipline {@link parseHttpMonitorConfig} applies to
+ * the stored config.
+ */
+export const HttpResultDetailSchema = z.object({
+  assertions: z.array(AssertionResultSchema),
+  timings: z.object({
+    ttfbMs: z.number().nullable(),
+    downloadMs: z.number().nullable(),
+    totalMs: z.number(),
+  }),
+  redirected: z.boolean(),
+  finalUrl: z.string(),
+  bodyExcerpt: z.string().optional(),
+}) satisfies z.ZodType<HttpResultDetail>;
+
+/**
+ * Parse + validate a stored `monitorExecutions.resultDetail` JSON string into an
+ * {@link HttpResultDetail}, or `null` if absent / malformed / structurally
+ * invalid. The single read-path parser the detail page uses — the result-detail
+ * twin of {@link parseHttpMonitorConfig} — so a bad row never crashes the render.
+ */
+export function parseHttpResultDetail(
+  raw: string | null,
+): HttpResultDetail | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const result = HttpResultDetailSchema.safeParse(parsed);
+  return result.success ? result.data : null;
+}
+
 // ─── Create schemas (discriminated on `type`) ───────────────────────────────
 
 export const CreateBrowserMonitorSchema = z.object({
@@ -350,14 +406,23 @@ export type UpdateHttpMonitorInput = z.infer<typeof UpdateHttpMonitorSchema>;
 
 /**
  * The combined patch shape the repo's `updateMonitor` accepts — every field
- * optional; `source` is browser-only, `config` http-only. Both per-type update
- * schemas' inferred outputs are assignable to this, so the action validates with
+ * optional; `source` is browser-only, `config` http-only. Derived from the two
+ * per-type update schemas (so adding/renaming a field on either flows through
+ * here automatically) rather than hand-listed, which kept it free to drift. Both
+ * per-type inferred outputs are assignable to it, so the action validates with
  * the type-specific schema and hands the result straight to the repo.
+ *
+ * `intervalSeconds` is the one field NOT taken from the schemas: the browser and
+ * http schemas carry DIFFERENT interval-preset unions, whose intersection would
+ * wrongly narrow this to their common members (rejecting a valid http-only
+ * sub-minute preset). The column is a plain integer the repo re-derives the
+ * schedule from, so `number` is the correct combined type — hence it's omitted
+ * from both halves and re-added as `number`.
  */
-export interface UpdateMonitorInput {
-  name?: string;
-  intervalSeconds?: number;
-  enabled?: boolean;
-  source?: string;
-  config?: HttpMonitorConfig;
-}
+export type UpdateMonitorInput = Omit<
+  UpdateBrowserMonitorInput,
+  "intervalSeconds"
+> &
+  Omit<UpdateHttpMonitorInput, "intervalSeconds"> & {
+    intervalSeconds?: number;
+  };

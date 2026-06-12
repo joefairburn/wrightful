@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardPanel } from "@/components/ui/card";
 import { CodeEditor } from "@/components/ui/code-editor";
 import { cn } from "@/lib/cn";
+import { parseHttpResultDetail } from "@/lib/monitors/monitor-schemas";
 import type { HttpResultDetail } from "@/lib/monitors/types";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { MonitorExecution } from "@schema";
@@ -749,18 +750,6 @@ function ExecRow({
   );
 }
 
-/** Parse the stored `resultDetail` JSON for an http execution, or null. */
-function parseResultDetail(raw: string | null): HttpResultDetail | null {
-  if (!raw) return null;
-  try {
-    // Trusted: written by the executor as a serialized `HttpResultDetail`.
-    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- own serialized JSON
-    return JSON.parse(raw) as HttpResultDetail;
-  } catch {
-    return null;
-  }
-}
-
 /** Color a status-code chip by its class (2xx/3xx ok, 4xx/5xx bad). */
 function statusCodeClass(code: number): string {
   return code < 400 ? "text-pass" : "text-fail";
@@ -779,7 +768,7 @@ function HttpExecRow({
   last: boolean;
 }) {
   const isRunning = exec.state === "running";
-  const detail = parseResultDetail(exec.resultDetail);
+  const detail = parseHttpResultDetail(exec.resultDetail);
   const expandable =
     detail != null &&
     (detail.assertions.length > 0 ||
