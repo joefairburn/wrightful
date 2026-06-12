@@ -58,6 +58,13 @@ export interface RunProgressEvent {
  */
 export interface RunListRowData {
   id: string;
+  /**
+   * Run provenance — `"ci"` | `"synthetic"` (typed `string` to match the
+   * `runs.origin` column). The server broadcasts `run-created` for ALL runs;
+   * the runs-list reducer matches this against the active origin view
+   * (`RunOriginFilter`) so each view prepends only its own provenance.
+   */
+  origin: string;
   status: string;
   passed: number;
   failed: number;
@@ -78,11 +85,33 @@ export interface RunListRowData {
 }
 
 /**
- * Project-wide feed (`project:<projectId>`) powering the runs list:
+ * One settled monitor execution, carried on a `monitor-result` event so the
+ * monitors list can advance the affected row's history strip without a
+ * re-fetch. A SUBSET of the persisted `monitorExecutions` row — only what the
+ * list's `ExecStrip` + dedupe need. `id` is the execution id (dedupes a
+ * redelivered settle: an `error` execution can be re-claimed + re-run per the
+ * repo's claim contract).
+ */
+export interface MonitorExecutionRow {
+  id: string;
+  state: string;
+  runId: string | null;
+  createdAt: number;
+}
+
+/**
+ * Project-wide feed (`project:<projectId>`) powering the runs list AND the
+ * monitors list (both subscribe to the one per-project room):
  *   - `run-created` — a run just opened; the list prepends its row.
  *   - `run-progress` — an existing run's aggregate advanced (or it finalized);
  *     the list updates that row's status / counts / duration.
+ *   - `monitor-result` — a monitor execution settled; the monitors list updates
+ *     that monitor's last status / last-run time and prepends the execution to
+ *     its history strip. (Synthetic monitor RUNS already flow as `run-created` /
+ *     `run-progress`; this is the monitor-centric row, not the run.)
  * Authorized per topic by `authorizeTopicSubscription` (project membership).
+ * Each consumer folds only its own variants — the runs-list reducer ignores
+ * `monitor-result`, the monitors-list reducer ignores the `run-*` events.
  */
 export type ProjectFeedEvent =
   | { type: "run-created"; run: RunListRowData }
@@ -90,6 +119,15 @@ export type ProjectFeedEvent =
       type: "run-progress";
       runId: string;
       summary: RunProgressEvent["summary"];
+    }
+  | {
+      type: "monitor-result";
+      monitorId: string;
+      /** The monitor's new denormalized last result (mirrors `recordExecutionResult`). */
+      lastStatus: string;
+      /** Epoch seconds of this settle — the monitor's new `lastRunAt`. */
+      lastRunAt: number;
+      execution: MonitorExecutionRow;
     };
 
 /**
@@ -139,6 +177,15 @@ export const projectRoomServerSchema = z.discriminatedUnion("type", [
     type: z.literal("run-progress"),
     runId: z.string(),
     summary: summarySchema,
+  }),
+  z.object({
+    type: z.literal("monitor-result"),
+    monitorId: z.string(),
+    lastStatus: z.string(),
+    lastRunAt: z.number(),
+    execution: z.custom<MonitorExecutionRow>(
+      (v) => isRecord(v) && typeof v.id === "string",
+    ),
   }),
 ]);
 

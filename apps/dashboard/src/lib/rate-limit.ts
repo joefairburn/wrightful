@@ -22,6 +22,7 @@ export const RATE_LIMITER_BINDING_NAMES = [
   "AUTH_RATE_LIMITER",
   "API_RATE_LIMITER",
   "ARTIFACT_RATE_LIMITER",
+  "INGEST_IP_RATE_LIMITER",
 ] as const;
 
 type RateLimiterBindingName = (typeof RATE_LIMITER_BINDING_NAMES)[number];
@@ -50,6 +51,22 @@ export async function checkRateLimit(
   if (!limiter) return true;
   const { success } = await limiter.limit({ key });
   return success;
+}
+
+/**
+ * The shared 429 response for every rate-limit gate (the pre-auth ingest IP
+ * backstop in `02.api-auth.ts` and the post-auth gates in `03.rate-limit.ts`).
+ * One body/header shape so a throttled client sees the same payload whichever
+ * gate fired.
+ */
+export function tooManyRequests(retryAfterSeconds: number): Response {
+  return new Response(JSON.stringify({ error: "Too many requests" }), {
+    status: 429,
+    headers: {
+      "content-type": "application/json",
+      "retry-after": String(retryAfterSeconds),
+    },
+  });
 }
 
 /**

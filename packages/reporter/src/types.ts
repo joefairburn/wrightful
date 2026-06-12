@@ -164,6 +164,14 @@ export interface ReporterOptions {
    */
   artifacts?: ArtifactMode;
   /**
+   * Wall-clock budget (ms) for the whole onEnd drain — pending result
+   * batches plus in-flight artifact uploads — with a slice reserved for the
+   * final `/complete` call. On expiry the reporter abandons whatever is
+   * still in flight, warns, and completes the run anyway, so a slow
+   * dashboard can never hang the suite indefinitely. Defaults to 10 minutes.
+   */
+  shutdownTimeoutMs?: number;
+  /**
    * Post a sticky summary comment to the GitHub PR when the run completes.
    *
    * Requires GitHub Actions context (`GITHUB_ACTIONS=true`), a PR-triggered

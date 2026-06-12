@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { ProjectFeedEvent, RunListRowData } from "@/realtime/events";
-import { applyProjectFeedEvent } from "@/realtime/project-feed";
+import {
+  applyProjectFeedEvent,
+  type ProjectFeedView,
+} from "@/realtime/project-feed";
 import {
   projectRoomClientSchema,
   projectRoomServerSchema,
@@ -8,13 +11,16 @@ import {
 
 /**
  * `applyProjectFeedEvent` is the reducer the runs-list WS room (`useProjectRoom`)
- * uses, so it's the one place run-created/run-progress merge rules live. Tested
- * here without React or a live connection.
+ * uses, so it's the one place run-created/run-progress merge rules live —
+ * including the CLIENT-side origin-view policy (the server broadcasts
+ * `run-created` for ALL runs, synthetic included). Tested here without React or
+ * a live connection.
  */
 
 function row(over: Partial<RunListRowData> = {}): RunListRowData {
   return {
     id: "r1",
+    origin: "ci",
     status: "running",
     passed: 0,
     failed: 0,
@@ -34,6 +40,11 @@ function row(over: Partial<RunListRowData> = {}): RunListRowData {
     repo: null,
     ...over,
   };
+}
+
+/** Default view: first unfiltered page, CI origin (the list's default). */
+function view(over: Partial<ProjectFeedView> = {}): ProjectFeedView {
+  return { acceptNewRuns: true, origin: "ci", ...over };
 }
 
 const summary = {
@@ -56,7 +67,7 @@ describe("applyProjectFeedEvent", () => {
         runId: "r1",
         summary,
       };
-      const next = applyProjectFeedEvent(rows, event, true);
+      const next = applyProjectFeedEvent(rows, event, view());
       expect(next[0]).toMatchObject({
         id: "r1",
         passed: 4,
@@ -66,38 +77,41 @@ describe("applyProjectFeedEvent", () => {
       });
       // Static metadata is preserved; other rows untouched.
       expect(next[0].branch).toBe("main");
+      expect(next[0].origin).toBe("ci");
       expect(next[1]).toBe(rows[1]);
     });
 
     it("is a no-op (same array reference) when the runId isn't displayed", () => {
+      // An unknown id has nowhere to land — covers a synthetic run's progress
+      // reaching a CI view that never prepended its row.
       const rows = [row({ id: "r1" })];
       const next = applyProjectFeedEvent(
         rows,
         { type: "run-progress", runId: "ghost", summary },
-        true,
+        view(),
       );
       expect(next).toBe(rows);
     });
   });
 
   describe("run-created", () => {
-    it("prepends a brand-new run when acceptNewRuns", () => {
+    it("prepends a brand-new run when acceptNewRuns and origins match", () => {
       const rows = [row({ id: "r1" })];
       const created = row({ id: "r2" });
       const next = applyProjectFeedEvent(
         rows,
         { type: "run-created", run: created },
-        true,
+        view(),
       );
       expect(next.map((r) => r.id)).toEqual(["r2", "r1"]);
     });
 
-    it("ignores run-created when acceptNewRuns is false (filtered/paginated view)", () => {
+    it("ignores run-created when acceptNewRuns is false (filtered/paginated view), even on a matching origin", () => {
       const rows = [row({ id: "r1" })];
       const next = applyProjectFeedEvent(
         rows,
         { type: "run-created", run: row({ id: "r2" }) },
-        false,
+        view({ acceptNewRuns: false }),
       );
       expect(next).toBe(rows);
     });
@@ -107,10 +121,69 @@ describe("applyProjectFeedEvent", () => {
       const next = applyProjectFeedEvent(
         rows,
         { type: "run-created", run: row({ id: "r1", passed: 3 }) },
-        true,
+        view(),
       );
       expect(next).toBe(rows);
       expect(next).toHaveLength(1);
+    });
+
+    describe("origin-view policy (the server broadcasts ALL origins)", () => {
+      const ciRun = row({ id: "r-ci", origin: "ci" });
+      const syntheticRun = row({ id: "r-syn", origin: "synthetic" });
+
+      it("'ci' view accepts only ci runs", () => {
+        const rows = [row({ id: "r1" })];
+        expect(
+          applyProjectFeedEvent(
+            rows,
+            { type: "run-created", run: ciRun },
+            view({ origin: "ci" }),
+          ).map((r) => r.id),
+        ).toEqual(["r-ci", "r1"]);
+        expect(
+          applyProjectFeedEvent(
+            rows,
+            { type: "run-created", run: syntheticRun },
+            view({ origin: "ci" }),
+          ),
+        ).toBe(rows);
+      });
+
+      it("'synthetic' view accepts only synthetic runs", () => {
+        const rows = [row({ id: "r1", origin: "synthetic" })];
+        expect(
+          applyProjectFeedEvent(
+            rows,
+            { type: "run-created", run: syntheticRun },
+            view({ origin: "synthetic" }),
+          ).map((r) => r.id),
+        ).toEqual(["r-syn", "r1"]);
+        expect(
+          applyProjectFeedEvent(
+            rows,
+            { type: "run-created", run: ciRun },
+            view({ origin: "synthetic" }),
+          ),
+        ).toBe(rows);
+      });
+
+      it("'all' view accepts both origins", () => {
+        const rows = [row({ id: "r1" })];
+        expect(
+          applyProjectFeedEvent(
+            rows,
+            { type: "run-created", run: ciRun },
+            view({ origin: "all" }),
+          ).map((r) => r.id),
+        ).toEqual(["r-ci", "r1"]);
+        expect(
+          applyProjectFeedEvent(
+            rows,
+            { type: "run-created", run: syntheticRun },
+            view({ origin: "all" }),
+          ).map((r) => r.id),
+        ).toEqual(["r-syn", "r1"]);
+      });
     });
   });
 });
@@ -121,7 +194,7 @@ describe("applyProjectFeedEvent defensive fall-through", () => {
     const next = applyProjectFeedEvent(
       rows,
       { type: "nope" } as unknown as ProjectFeedEvent,
-      true,
+      view(),
     );
     expect(next).toBe(rows);
   });

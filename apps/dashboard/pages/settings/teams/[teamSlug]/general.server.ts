@@ -8,6 +8,7 @@ import {
   teams as teamsTable,
 } from "@schema";
 import { logger } from "void/log";
+import { deleteProjectArtifactObjects } from "@/lib/artifacts";
 import { runBatch } from "@/lib/db-batch";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
@@ -145,6 +146,28 @@ export const actions = {
         "Could not delete team — please try again.",
       );
     }
+
+    // Best-effort R2 byte cleanup per deleted project, AFTER the authoritative
+    // row deletion. Runs via waitUntil (the sanctioned post-response mechanism
+    // — see api-key.ts's lastUsedAt bump): a multi-project sweep is up to ~200
+    // R2 subrequests per project, which must not block the user's redirect.
+    // Failures are logged, never surfaced — the team is gone either way, and
+    // leftover objects are unreferenced and unguessable.
+    c.executionCtx.waitUntil(
+      (async () => {
+        for (const projectId of projectIds) {
+          try {
+            await deleteProjectArtifactObjects(team.id, projectId);
+          } catch (err) {
+            logger.error("team artifact R2 sweep failed", {
+              teamId: team.id,
+              projectId,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      })(),
+    );
 
     return c.redirect("/settings/profile");
   }),

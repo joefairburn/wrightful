@@ -10,6 +10,7 @@ import type {
 } from "@playwright/test/reporter";
 import {
   classifyAttachment,
+  normalizeContentType,
   parseSnapshotAttachment,
   safeResolvedPath,
   safeSize,
@@ -50,6 +51,13 @@ const ARTIFACT_UPLOAD_CONCURRENCY = 4;
 // Best-effort `/complete` attempt fired from a signal handler. Kept short so
 // we don't hold the process open past when the OS would SIGKILL anyway.
 const SHUTDOWN_COMPLETE_TIMEOUT_MS = 3_000;
+// Wall-clock budget for the whole onEnd drain + complete. Without it, every
+// call is individually bounded but a slow dashboard with many artifacts can
+// stretch onEnd to hours. Overridable via `shutdownTimeoutMs`.
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 600_000;
+// Slice of the budget reserved for the final `/complete` call so it still
+// fires even when uploads eat the rest.
+const COMPLETE_RESERVE_MS = 30_000;
 
 function warn(message: string): void {
   // Reporter must never fail the suite. All user-facing messaging goes to
@@ -169,7 +177,16 @@ export default class WrightfulReporter implements Reporter {
   private batcher: Batcher<EnqueuedTest> | null = null;
   private accumulator = new TestAccumulator();
   private artifactTasks: Promise<void>[] = [];
+  // Tracked tasks still in flight — the count surfaced when the shutdown
+  // budget expires and work has to be abandoned.
+  private pendingTasks = 0;
   private allowedRoot = "";
+  // Resolved cwd realpath used to validate attachment paths. Kept separate
+  // from artifactTasks so collectArtifacts can await just this resolution
+  // instead of the whole task graph (which would be O(n²) and serialize
+  // enqueues behind all in-flight uploads).
+  private allowedRootReady: Promise<void> = Promise.resolve();
+  private warnedOutsideRoot = false;
   private artifactMode: ArtifactMode = DEFAULT_ARTIFACT_MODE;
   private rootDir: string | null = null;
   private startedAt = 0;
@@ -181,6 +198,13 @@ export default class WrightfulReporter implements Reporter {
   private artifactsFailed = 0;
   // Per-status tallies, used for the PR comment summary.
   private counts = { passed: 0, failed: 0, flaky: 0, skipped: 0, timedout: 0 };
+  // Set on the first mid-run AuthError from a /results flush. Gates the
+  // streaming path only: later batches are dropped locally without network
+  // calls, but the client stays alive so onEnd (and the signal handler) can
+  // still attempt the single /complete — completeRun's server-side recompute
+  // makes a successful complete strictly better than leaving the run at
+  // 'running' for the watchdog to interrupt.
+  private streamingDisabled = false;
   // Signal-handler state so we only attempt the shutdown /complete once.
   private shuttingDown = false;
   private signalHandlersInstalled = false;
@@ -231,7 +255,14 @@ export default class WrightfulReporter implements Reporter {
     const runOrigin = resolveRunOrigin(process.env.WRIGHTFUL_RUN_ORIGIN);
     const monitorId = process.env.WRIGHTFUL_MONITOR_ID || null;
     const payload = {
-      idempotencyKey: generateIdempotencyKey(ci?.ciBuildId),
+      // The job name discriminates distinct jobs (different suites, matrix
+      // legs) that share one workflow-level build id; without it they would
+      // silently merge into a single dashboard run. Playwright `--shard` is
+      // deliberately NOT discriminated: shards of one suite share the key so
+      // the dashboard merges them into a single run.
+      idempotencyKey: generateIdempotencyKey(ci?.ciBuildId, {
+        jobName: ci?.ciJobName ?? null,
+      }),
       run: {
         ciProvider: ci?.ciProvider ?? null,
         ciBuildId: ci?.ciBuildId ?? null,
@@ -278,7 +309,7 @@ export default class WrightfulReporter implements Reporter {
       flushIntervalMs,
       flush: async (batch) => {
         await openPromise;
-        if (!this.client || !this.runId) {
+        if (this.streamingDisabled || !this.client || !this.runId) {
           this.streamFailed += batch.length;
           return;
         }
@@ -291,7 +322,18 @@ export default class WrightfulReporter implements Reporter {
       },
       onFailure: (batch, err) => {
         if (err instanceof AuthError) {
-          warn(err.message);
+          // Auth failure is terminal for streaming: warn once and stop
+          // POSTing /results (subsequent batches drop locally instead of
+          // re-POSTing, and re-warning, with the same bad credentials). The
+          // client deliberately stays alive: onEnd still attempts the single
+          // /complete. If the rejection was a transient proxy/WAF hiccup
+          // that call finalizes the run; if the key is genuinely revoked it
+          // fails once with a caught warning (4xx is never retried) — no
+          // retry storm either way.
+          if (!this.streamingDisabled) {
+            this.streamingDisabled = true;
+            warn(`${err.message} Streaming disabled.`);
+          }
         } else {
           warn(
             `appendResults failed: ${err.message}. ${batch.length} result(s) dropped.`,
@@ -303,15 +345,13 @@ export default class WrightfulReporter implements Reporter {
 
     // Resolve the cwd-based root used to validate attachment paths. Doing
     // this once up-front avoids a per-attachment realpath on cwd.
-    this.artifactTasks.push(
-      realpath(process.cwd()).then(
-        (p) => {
-          this.allowedRoot = p;
-        },
-        () => {
-          this.allowedRoot = process.cwd();
-        },
-      ),
+    this.allowedRootReady = realpath(process.cwd()).then(
+      (p) => {
+        this.allowedRoot = p;
+      },
+      () => {
+        this.allowedRoot = process.cwd();
+      },
     );
 
     this.installSignalHandlers();
@@ -332,6 +372,10 @@ export default class WrightfulReporter implements Reporter {
       this.shuttingDown = true;
       warn(`received ${signal} — attempting best-effort /complete.`);
       const task = async () => {
+        // Deliberately not gated on `streamingDisabled` — that flag only
+        // stops doomed /results POSTs. The one best-effort /complete is
+        // still worth attempting with a possibly-bad key (maxRetries: 0, so
+        // a genuine revocation costs a single swallowed failure).
         if (this.client && this.runId) {
           try {
             await this.client.completeRun(
@@ -368,26 +412,58 @@ export default class WrightfulReporter implements Reporter {
   onTestEnd(test: TestCase, result: TestResult): void {
     if (!this.batcher) return;
     const done = this.accumulator.record(test, result);
-    if (done) this.artifactTasks.push(this.enqueueDone(done));
+    if (done) this.trackTask(this.enqueueDone(done));
+  }
+
+  /**
+   * Track a background task on `artifactTasks` with a last-resort rejection
+   * guard. A bare rejected promise on the array would surface as an
+   * unhandledRejection (killing the user's suite) and would make `onEnd`'s
+   * `Promise.all` reject before drain/complete — so tracked tasks must never
+   * reject. `pendingTasks` counts the in-flight tasks for the shutdown-budget
+   * warning.
+   */
+  private trackTask(task: Promise<void>): void {
+    this.pendingTasks++;
+    this.artifactTasks.push(
+      task
+        .catch((err: unknown) => {
+          warn(
+            `internal task failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        })
+        .finally(() => {
+          this.pendingTasks--;
+        }),
+    );
   }
 
   private async enqueueDone(entry: PendingTest): Promise<void> {
-    const payload = buildPayload(entry, this.rootDir);
-    this.counts[payload.status]++;
-    const attachments =
-      this.artifactMode === "none"
-        ? []
-        : shouldCollectArtifacts(this.artifactMode, entry.test)
-          ? await this.collectArtifacts(entry)
-          : [];
-    this.batcher?.enqueue({ payload, artifacts: attachments });
+    try {
+      const payload = buildPayload(entry, this.rootDir);
+      this.counts[payload.status]++;
+      const attachments =
+        this.artifactMode === "none"
+          ? []
+          : shouldCollectArtifacts(this.artifactMode, entry.test)
+            ? await this.collectArtifacts(entry)
+            : [];
+      this.batcher?.enqueue({ payload, artifacts: attachments });
+    } catch (err) {
+      // Reporter must never fail the suite: swallow, count the result as
+      // dropped, and keep going.
+      this.streamFailed++;
+      warn(
+        `failed to enqueue result for "${entry.test.title}": ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private async collectArtifacts(
     entry: PendingTest,
   ): Promise<PreparedArtifact[]> {
     // Ensure allowedRoot has been resolved before we validate any paths.
-    await Promise.all(this.artifactTasks.filter(Boolean));
+    await this.allowedRootReady;
     const out: PreparedArtifact[] = [];
     for (const result of entry.results) {
       for (const attachment of result.attachments ?? []) {
@@ -399,7 +475,18 @@ export default class WrightfulReporter implements Reporter {
           attachment.path,
           this.allowedRoot,
         );
-        if (!resolved) continue;
+        if (!resolved) {
+          // Warn once per run (not per file) — typically an outputDir
+          // configured outside the invocation cwd.
+          if (!this.warnedOutsideRoot) {
+            this.warnedOutsideRoot = true;
+            warn(
+              `skipping attachment "${attachment.path}" — it resolves outside the allowed root "${this.allowedRoot}" ` +
+                `(the directory Playwright was invoked from) or is unreadable. Further such attachments are skipped silently.`,
+            );
+          }
+          continue;
+        }
         const size = await safeSize(resolved);
         if (size === null) continue;
         const baseType = classifyAttachment(
@@ -413,7 +500,9 @@ export default class WrightfulReporter implements Reporter {
         out.push({
           type: baseType,
           name: attachment.name,
-          contentType: attachment.contentType,
+          // Normalised to the dashboard's allowlist — one non-allowlisted
+          // type would 400 the whole register batch server-side.
+          contentType: normalizeContentType(attachment.contentType),
           sizeBytes: size,
           localPath: resolved,
           attempt: result.retry,
@@ -439,7 +528,7 @@ export default class WrightfulReporter implements Reporter {
   ): void {
     if (!this.uploader) return;
     const uploader = this.uploader;
-    this.artifactTasks.push(
+    this.trackTask(
       uploader
         .upload(
           runId,
@@ -456,14 +545,78 @@ export default class WrightfulReporter implements Reporter {
     );
   }
 
+  /**
+   * Await `task` until `deadline` (epoch ms). Returns false on expiry,
+   * true once the task settles (fulfilled OR rejected) — abandoned work
+   * keeps running unawaited, which is safe because every tracked task
+   * swallows its own failures. Never rejects.
+   *
+   * Thin wrapper over {@link withDeadline} (the single timer primitive):
+   * the task is first mapped to a never-rejecting "settled" promise, so the
+   * only rejection {@link withDeadline} can surface here is its own timeout —
+   * which maps to `false`.
+   */
+  private async settleWithinDeadline(
+    task: Promise<unknown>,
+    deadline: number,
+  ): Promise<boolean> {
+    const settled = task.then(
+      () => true,
+      () => true,
+    );
+    try {
+      return await this.withDeadline(settled, deadline);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Await `task` until `deadline` (epoch ms), propagating the task's value or
+   * rejection; rejects with a timeout error on expiry. The underlying task
+   * keeps its handlers attached, so a late rejection after expiry can never
+   * surface as an unhandledRejection.
+   */
+  private withDeadline<T>(task: Promise<T>, deadline: number): Promise<T> {
+    const remaining = deadline - Date.now();
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(new Error(`timed out after ${remaining}ms (shutdown budget)`)),
+        Math.max(remaining, 0),
+      );
+      timer.unref?.();
+      task.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (err: unknown) => {
+          clearTimeout(timer);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        },
+      );
+    });
+  }
+
   async onEnd(result: FullResult): Promise<void> {
     if (this.shuttingDown) return;
+
+    // Wall-clock budget for the whole drain + complete. Each call below is
+    // individually bounded, but with many artifacts against a slow dashboard
+    // the sum could otherwise stretch to hours. A slice is reserved for the
+    // final `/complete` so it still fires when uploads eat the budget.
+    const budgetMs =
+      this.options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
+    const deadline = Date.now() + budgetMs;
+    const drainDeadline =
+      deadline - Math.min(COMPLETE_RESERVE_MS, budgetMs / 2);
 
     // Any test whose "done" trigger never fired (e.g. interrupted worker
     // killed the run mid-attempt) gets flushed here with whatever state we
     // have. Better to report partial data than lose it.
     for (const entry of this.accumulator.drainPending()) {
-      this.artifactTasks.push(this.enqueueDone(entry));
+      this.trackTask(this.enqueueDone(entry));
     }
 
     // enqueueDone tasks (pushed from onTestEnd) resolve asynchronously and
@@ -471,13 +624,31 @@ export default class WrightfulReporter implements Reporter {
     // Await them first so drain actually sees every finished test — otherwise
     // tests whose `enqueueDone` was still in flight when drain ran would land
     // in a new batch with no one left to flush it.
-    await Promise.all(this.artifactTasks);
-    if (this.batcher) {
-      await this.batcher.drain();
+    const enqueuesSettled = await this.settleWithinDeadline(
+      Promise.all(this.artifactTasks),
+      drainDeadline,
+    );
+    // The drain is always STARTED — even when the enqueue stage exhausted the
+    // budget — so fully-buffered result batches are at least handed to fetch;
+    // only the awaiting below is subject to the remaining budget. The promise
+    // goes through trackTask, so an abandoned drain keeps running unawaited
+    // without ever surfacing an unhandled rejection. Its flush callback fires
+    // artifact uploads that push new promises onto artifactTasks — awaited by
+    // the final stage. Short-circuits on budget expiry.
+    const drainTask = this.batcher?.drain() ?? Promise.resolve();
+    this.trackTask(drainTask);
+    const drained =
+      enqueuesSettled &&
+      (await this.settleWithinDeadline(drainTask, drainDeadline)) &&
+      (await this.settleWithinDeadline(
+        Promise.all(this.artifactTasks),
+        drainDeadline,
+      ));
+    if (!drained) {
+      warn(
+        `shutdown budget of ${budgetMs}ms exhausted — abandoned ${this.pendingTasks} in-flight task(s) (enqueues, artifact uploads, result-batch drain); they continue unawaited. Completing the run anyway.`,
+      );
     }
-    // drain's flush callback fires artifact uploads, which push new promises
-    // onto artifactTasks. Await those too.
-    await Promise.all(this.artifactTasks);
 
     const durationMs = Date.now() - this.startedAt;
 
@@ -486,7 +657,10 @@ export default class WrightfulReporter implements Reporter {
     if (this.client && this.runId) {
       runStatus = mapFullResultStatus(result.status);
       try {
-        await this.client.completeRun(this.runId, runStatus, durationMs);
+        await this.withDeadline(
+          this.client.completeRun(this.runId, runStatus, durationMs),
+          deadline,
+        );
       } catch (err) {
         completeFailed = true;
         warn(
@@ -514,7 +688,14 @@ export default class WrightfulReporter implements Reporter {
       this.ci,
       process.env,
     );
-    if (!gate.ok) return;
+    if (!gate.ok) {
+      // Only worth a warning when the user explicitly opted in — silence is
+      // correct for the default-off path.
+      if (this.options.postPrComment) {
+        warn(`PR comment skipped: ${gate.reason}.`);
+      }
+      return;
+    }
     if (!this.baseUrl || !this.ci?.repo || !this.ci.prNumber) return;
 
     const total =
@@ -595,7 +776,13 @@ export function buildTestDescriptor(
   const titlePath = test.titlePath().filter(Boolean);
   const absoluteFile = test.location.file;
   const file = rootDir ? relativePath(rootDir, absoluteFile) : absoluteFile;
-  const testId = computeTestId(file, titlePath, projectName);
+  // `?? 0` guards test shims that omit repeatEachIndex (typed non-optional).
+  const testId = computeTestId(
+    file,
+    titlePath,
+    projectName,
+    test.repeatEachIndex ?? 0,
+  );
   return {
     testId,
     title: titlePath.join(" > "),

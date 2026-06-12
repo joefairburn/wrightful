@@ -3,7 +3,8 @@ import { and, db, eq, gte, inArray, sql } from "void/db";
 import { runs, testResults, testTags } from "@schema";
 import {
   branchFragment,
-  branchJoinFragment,
+  ciRunsJoinFragment,
+  ciRunsJoinOn,
   testResultsScopeJoin,
 } from "@/lib/analytics/filters";
 import {
@@ -72,39 +73,35 @@ export const loader = defineHandler(async (c) => {
   const { windowStartSec, days } = resolveAnalyticsWindow(range);
   const rangeDays = days ?? 0;
 
-  const branches = await loadProjectBranches(scope);
-
-  // 1. Aggregates.
+  // 1. Aggregates (in parallel with the independent branch-list query).
   const aggConditions = [
     eq(testResults.projectId, scope.projectId),
     gte(testResults.createdAt, windowStartSec),
   ];
   if (branchFilter) aggConditions.push(eq(runs.branch, branchFilter));
 
-  // Join `runs` only when a branch filter needs `runs.branch`. Otherwise the
-  // join is a no-op (`runId` is a NOT NULL FK) that adds a `runs` PK probe per
-  // scanned testResults row; `(projectId, createdAt)` already prunes the window
-  // and `(testId, createdAt)` serves the GROUP BY without a sort.
-  const aggBase = db
-    .select({
-      testId: testResults.testId,
-      total: sql<number>`sum(case when ${testResults.status} != 'skipped' then 1 else 0 end)`,
-      flakyCount: sql<number>`sum(case when ${testResults.status} = 'flaky' then 1 else 0 end)`,
-      passedCount: sql<number>`sum(case when ${testResults.status} = 'passed' then 1 else 0 end)`,
-    })
-    .from(testResults)
-    .$dynamic();
-
-  const aggRows = await (
-    branchFilter
-      ? aggBase.innerJoin(runs, eq(runs.id, testResults.runId))
-      : aggBase
-  )
-    .where(and(...aggConditions))
-    .groupBy(testResults.testId)
-    .having(
-      sql`sum(case when ${testResults.status} = 'flaky' then 1 else 0 end) >= 1`,
-    );
+  // Join `runs` unconditionally via ciRunsJoinOn: the ON clause carries the
+  // `origin <> 'synthetic'` exclusion, so monitor tests can't rank on the
+  // flaky page even with no branch filter active. (The join used to be
+  // branch-conditional as a perf nicety — skipping a `runs` PK probe per
+  // scanned row — but it's now load-bearing for correctness.)
+  const [branches, aggRows] = await Promise.all([
+    loadProjectBranches(scope),
+    db
+      .select({
+        testId: testResults.testId,
+        total: sql<number>`sum(case when ${testResults.status} != 'skipped' then 1 else 0 end)`,
+        flakyCount: sql<number>`sum(case when ${testResults.status} = 'flaky' then 1 else 0 end)`,
+        passedCount: sql<number>`sum(case when ${testResults.status} = 'passed' then 1 else 0 end)`,
+      })
+      .from(testResults)
+      .innerJoin(runs, ciRunsJoinOn())
+      .where(and(...aggConditions))
+      .groupBy(testResults.testId)
+      .having(
+        sql`sum(case when ${testResults.status} = 'flaky' then 1 else 0 end) >= 1`,
+      ),
+  ]);
 
   const rankedAll: RankedTest[] = aggRows
     .map((r) => {
@@ -214,11 +211,13 @@ async function loadSparklinesAndMeta(
   sparklineSize: number,
 ): Promise<SparklineMetaRow[]> {
   const branchSql = branchFragment(branch);
-  // The runs join is conditional here (only needed when a branch filter is
-  // active), so this query keeps its own branchJoinFragment + tenant predicate
-  // pairing rather than testResultsScopeJoin (whose join is unconditional). The
-  // branded scope still bakes the auth-checked projectId in as a bound param.
-  const joinSql = branchJoinFragment(branch);
+  // Unconditional runs join (ciRunsJoinFragment) so the sparkline reads CI
+  // history only — its `origin <> 'synthetic'` ON clause keeps monitor results
+  // out even when no branch filter is active. This query builds its own tenant
+  // predicate rather than using testResultsScopeJoin (which bundles the WHERE);
+  // the branded scope still bakes the auth-checked projectId in as a bound
+  // param.
+  const joinSql = ciRunsJoinFragment();
 
   return runRows<SparklineMetaRow>(sql`
     with ranked as (

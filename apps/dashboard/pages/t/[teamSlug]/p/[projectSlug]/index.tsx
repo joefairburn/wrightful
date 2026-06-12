@@ -17,7 +17,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useProjectRoom } from "@/realtime/use-project-room";
-import { toSearchParams } from "@/lib/runs-filters";
+import {
+  DEFAULT_ORIGIN_FILTER,
+  hasAnyFilter,
+  toSearchParams,
+} from "@/lib/runs-filters";
 import type { Props } from "./index.server";
 
 /**
@@ -51,10 +55,19 @@ export default function RunsListPage({
 
   // Live run feed for the whole list over ONE shared connection: in-flight rows
   // stream in place and brand-new runs prepend without a refresh. New runs are
-  // accepted only on the default first page (no filters) so a filtered or
-  // paginated view isn't injected with rows that don't belong to it.
+  // accepted only on the first page with no filters, so a filtered or paginated
+  // view isn't injected with rows that don't belong to it. The origin
+  // SegmentedControl is a VIEW, not a disqualifying filter: the server
+  // broadcasts run-created for all origins and the reducer prepends only runs
+  // matching `filters.origin`, so the CI, Synthetic, and All views each stay
+  // live with exactly their own provenance.
+  const nonOriginFiltersActive = hasAnyFilter({
+    ...filters,
+    origin: DEFAULT_ORIGIN_FILTER,
+  });
   const liveRows = useProjectRoom(project.id, runs, {
-    acceptNewRuns: currentPage === 1 && !filtersActive,
+    acceptNewRuns: currentPage === 1 && !nonOriginFiltersActive,
+    origin: filters.origin,
   });
   // Rows the feed prepended beyond the SSR page — shifts #N and the footer.
   const newCount = liveRows.length - runs.length;

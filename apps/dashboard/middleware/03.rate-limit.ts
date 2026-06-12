@@ -1,5 +1,5 @@
 import { defineMiddleware } from "void";
-import { checkRateLimit, clientIp } from "@/lib/rate-limit";
+import { checkRateLimit, clientIp, tooManyRequests } from "@/lib/rate-limit";
 import { isIngestRoute } from "@/lib/ingest-routes";
 
 /**
@@ -29,16 +29,6 @@ import { isIngestRoute } from "@/lib/ingest-routes";
  */
 const AUTH_RE = /^\/api\/auth(?:\/|$)/;
 const ARTIFACT_DOWNLOAD_RE = /^\/api\/artifacts\/([^/]+)\/download(?:\/|$)/;
-
-function tooManyRequests(retryAfterSeconds: number): Response {
-  return new Response(JSON.stringify({ error: "Too many requests" }), {
-    status: 429,
-    headers: {
-      "content-type": "application/json",
-      "retry-after": String(retryAfterSeconds),
-    },
-  });
-}
 
 export default defineMiddleware(async (c, next) => {
   const path = c.req.path;

@@ -13,12 +13,25 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 
 export const DEFAULT_PAGE_SIZE = 20;
 
+/**
+ * Which run provenance the list shows. `ci` (the default) hides synthetic
+ * monitor runs — they arrive on monitor cadence (potentially every minute) and
+ * would drown the CI history; the monitors pages are their home. `synthetic`
+ * inverts the view; `all` shows both.
+ */
+export const RUN_ORIGIN_FILTERS = ["ci", "synthetic", "all"] as const;
+
+export type RunOriginFilter = (typeof RUN_ORIGIN_FILTERS)[number];
+
+export const DEFAULT_ORIGIN_FILTER: RunOriginFilter = "ci";
+
 export type RunsFilters = {
   q: string;
   status: RunStatus[];
   branch: string[];
   actor: string[];
   environment: string[];
+  origin: RunOriginFilter;
   from: string | null;
   to: string | null;
   page: number;
@@ -30,6 +43,7 @@ export const EMPTY_FILTERS: RunsFilters = {
   branch: [],
   actor: [],
   environment: [],
+  origin: DEFAULT_ORIGIN_FILTER,
   from: null,
   to: null,
   page: 1,
@@ -61,6 +75,13 @@ function parsePage(raw: string | null): number {
   return n;
 }
 
+function parseOrigin(raw: string | null): RunOriginFilter {
+  // Validate against the canonical set so adding a fourth filter can't drift:
+  // a value present in RUN_ORIGIN_FILTERS but missed by a hand-written
+  // disjunction here would silently coerce to the default.
+  return RUN_ORIGIN_FILTERS.find((o) => o === raw) ?? DEFAULT_ORIGIN_FILTER;
+}
+
 export function parseRunsFilters(params: URLSearchParams): RunsFilters {
   const statusRaw = readList(params, "status");
   const statusSet: ReadonlySet<string> = new Set(RUN_STATUSES);
@@ -73,6 +94,7 @@ export function parseRunsFilters(params: URLSearchParams): RunsFilters {
     branch: readList(params, "branch"),
     actor: readList(params, "actor"),
     environment: readList(params, "env"),
+    origin: parseOrigin(params.get("origin")),
     from: from && isValidIsoDate(from) ? from : null,
     to: to && isValidIsoDate(to) ? to : null,
     page: parsePage(params.get("page")),
@@ -87,6 +109,8 @@ export function toSearchParams(filters: RunsFilters): URLSearchParams {
   if (filters.actor.length > 0) params.set("actor", filters.actor.join(","));
   if (filters.environment.length > 0)
     params.set("env", filters.environment.join(","));
+  if (filters.origin !== DEFAULT_ORIGIN_FILTER)
+    params.set("origin", filters.origin);
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.page > 1) params.set("page", String(filters.page));
@@ -100,6 +124,7 @@ export function hasAnyFilter(filters: RunsFilters): boolean {
     filters.branch.length > 0 ||
     filters.actor.length > 0 ||
     filters.environment.length > 0 ||
+    filters.origin !== DEFAULT_ORIGIN_FILTER ||
     filters.from !== null ||
     filters.to !== null
   );

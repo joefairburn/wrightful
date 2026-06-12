@@ -93,14 +93,15 @@ export const loader = defineHandler(async (c) => {
     Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
 
   const { nowSec, windowStartSec } = resolveAnalyticsWindow(range);
-  const branches = await loadProjectBranches(scope);
 
   const branchSql = branchFragment(branchFilter);
   const qSql = searchFragment(q || null);
 
+  // Branch list is independent of the totals — run the two in parallel.
   // Totals: max duration + count of non-skipped + distinct testIds.
-  const totalsRow =
-    (await runRow<{
+  const [branches, totalsRowRaw] = await Promise.all([
+    loadProjectBranches(scope),
+    runRow<{
       maxDur?: number | null;
       n?: number;
       unique?: number;
@@ -115,7 +116,9 @@ export const loader = defineHandler(async (c) => {
       and tr.status != 'skipped'
       ${branchSql}
       ${qSql}
-  `)) ?? {};
+  `),
+  ]);
+  const totalsRow = totalsRowRaw ?? {};
   const totals: TotalsRow = {
     totalResults: totalsRow.n ?? 0,
     maxDurationMs: totalsRow.maxDur ?? 0,
@@ -125,9 +128,18 @@ export const loader = defineHandler(async (c) => {
   const bucketMs = pickBinWidthMs(totals.maxDurationMs);
   const topBin = HIST_BINS - 1;
 
-  let histogram: HistogramRow[] = [];
-  if (totals.totalResults > 0) {
-    histogram = await runRows<HistogramRow>(sql`
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totals.totalUniqueTests / PAGE_SIZE),
+  );
+  const currentPage = Math.min(requestedPage, totalPages);
+  const offset = (currentPage - 1) * PAGE_SIZE;
+
+  // Histogram + bottlenecks each depend only on the totals, not on each
+  // other — run them in parallel.
+  const histogramPromise: Promise<HistogramRow[]> =
+    totals.totalResults > 0
+      ? runRows<HistogramRow>(sql`
       select
         cast(
           case
@@ -143,19 +155,12 @@ export const loader = defineHandler(async (c) => {
         ${branchSql}
         ${qSql}
       group by bin
-    `);
-  }
+    `)
+      : Promise.resolve([]);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(totals.totalUniqueTests / PAGE_SIZE),
-  );
-  const currentPage = Math.min(requestedPage, totalPages);
-  const offset = (currentPage - 1) * PAGE_SIZE;
-
-  let bottlenecks: BottleneckRow[] = [];
-  if (totals.totalUniqueTests > 0) {
-    bottlenecks = await runRows<BottleneckRow>(sql`
+  const bottlenecksPromise: Promise<BottleneckRow[]> =
+    totals.totalUniqueTests > 0
+      ? runRows<BottleneckRow>(sql`
       with filtered as (
         select
           tr."testId" as "testId",
@@ -199,8 +204,13 @@ export const loader = defineHandler(async (c) => {
       order by p95 desc
       limit ${PAGE_SIZE}
       offset ${offset}
-    `);
-  }
+    `)
+      : Promise.resolve([]);
+
+  const [histogram, bottlenecks] = await Promise.all([
+    histogramPromise,
+    bottlenecksPromise,
+  ]);
 
   const pageTestIds = bottlenecks.map((r) => r.testId);
   const sparklinesEntries: [string, SparklinePoint[]][] = [];
@@ -240,6 +250,9 @@ export const loader = defineHandler(async (c) => {
   const fromRow = totals.totalUniqueTests === 0 ? 0 : offset + 1;
   const toRow = offset + bottlenecks.length;
 
+  // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
+  // `private` keeps tenant-scoped data out of shared/edge caches.
+  c.header("Cache-Control", "private, max-age=300, stale-while-revalidate=900");
   return {
     project: {
       id: project.id,

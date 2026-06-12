@@ -6,6 +6,7 @@ import {
   projectRoomServerSchema,
 } from "@/realtime/events";
 import {
+  isAllowedWsOrigin,
   isInternalRequest,
   resolveInternalSecret,
   roomAtCapacity,
@@ -32,9 +33,18 @@ export default defineRoom({
    * (`authorizeTopicSubscription` → project-team membership). `ctx.user` is
    * resolved from the Better Auth session cookie on the WS upgrade and is
    * already typed `AuthUser | null` by RoomContext (no cast needed). A
-   * connection cap backstops fan-out / abuse per room.
+   * connection cap backstops fan-out / abuse per room. Origin first:
+   * cross-site browser upgrades are rejected outright rather than relying on
+   * SameSite cookie defaults alone (defense in depth). Same-origin is judged
+   * against the upgrade's own Host (any domain routed to this worker), with
+   * WRIGHTFUL_PUBLIC_URL as belt-and-braces — see `isAllowedWsOrigin`.
    */
   async onBeforeConnect(ctx) {
+    const origin = ctx.request.headers.get("origin");
+    const host = ctx.request.headers.get("host");
+    if (!isAllowedWsOrigin(origin, host, env.WRIGHTFUL_PUBLIC_URL)) {
+      return new Response("Forbidden", { status: 403 });
+    }
     if (roomAtCapacity(ctx.room.getConnections())) {
       return new Response("Too Many Requests", { status: 429 });
     }

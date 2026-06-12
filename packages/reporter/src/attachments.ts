@@ -19,6 +19,57 @@ export interface SnapshotAttachmentMeta {
 }
 
 /**
+ * Mirror of the dashboard's artifact content-type allowlist
+ * (apps/dashboard/src/lib/content-types.ts) — the repo's established
+ * duplicate-and-canary contract pattern; `contract.test.ts` asserts the two
+ * sets stay identical. The register endpoint rejects an ENTIRE batch when any
+ * single item carries a non-allowlisted contentType, so the reporter
+ * normalises every attachment up-front instead of letting one odd type poison
+ * the batch.
+ */
+export const SAFE_CONTENT_TYPES: ReadonlySet<string> = new Set<string>([
+  // Trace bundles
+  "application/zip",
+  "application/x-zip-compressed",
+  // Generic binary + structured payloads (PDFs, JSON dumps, error context, …)
+  "application/octet-stream",
+  "application/json",
+  "application/pdf",
+  // Plain-text logs / error context / copy-prompt payloads
+  "text/plain",
+  "text/csv",
+  "text/markdown",
+  // Screenshots + visual diffs. SVG is intentionally excluded — it can carry
+  // <script> and would execute on the dashboard origin.
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+  // Video recordings
+  "video/webm",
+  "video/mp4",
+  "video/ogg",
+  // Audio (used in some custom attachments)
+  "audio/webm",
+  "audio/mp4",
+  "audio/ogg",
+]);
+
+const FALLBACK_CONTENT_TYPE = "application/octet-stream";
+
+/**
+ * Map an attachment's contentType onto the dashboard-safe set: strip
+ * parameters (`; charset=…`), lower-case, and fall back to
+ * `application/octet-stream` for anything not on the allowlist (matching what
+ * the dashboard would serve it as anyway).
+ */
+export function normalizeContentType(value: string): string {
+  const base = value.split(";", 1)[0].trim().toLowerCase();
+  return SAFE_CONTENT_TYPES.has(base) ? base : FALLBACK_CONTENT_TYPE;
+}
+
+/**
  * Detects Playwright snapshot attachments produced by `toHaveScreenshot()`
  * (and image variants of `toMatchSnapshot()`). Playwright names them
  * `{baseName}-(expected|actual|diff).png`. Returns the trimmed `snapshotName`
@@ -37,7 +88,9 @@ export function parseSnapshotAttachment(
   const match = /^(.+)-(expected|actual|diff)\.png$/.exec(base);
   if (!match) return null;
   return {
-    snapshotName: match[1],
+    // The dashboard caps snapshotName at 255 chars; truncating here keeps the
+    // triple's grouping key consistent across all three roles.
+    snapshotName: match[1].slice(0, 255),
     role: match[2] as SnapshotRole,
   };
 }

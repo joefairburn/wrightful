@@ -26,39 +26,104 @@ describe("escapeLike", () => {
 
 /**
  * `buildRunsWhere` wraps the escaped term in `%…%` and feeds it to three
- * `like()` calls. Under the void/db stub, operators record their arguments
- * (`{ __op, args }`), so we can read back the exact pattern string the search
- * filter binds and assert the escaping survives into the predicate.
+ * `likeEscaped` fragments. Under the void/db stub, `sql\`…\`` records
+ * `{ __op: "sql", strings, args }`, so we can read back both the bound pattern
+ * AND the SQL text. The `ESCAPE '\'` clause is load-bearing: SQLite defines NO
+ * default LIKE escape character, so without it the escaped pattern matches a
+ * literal backslash instead of the metacharacter — i.e. searches containing
+ * `%`/`_`/`\` silently return nothing.
  */
 describe("buildRunsWhere search escaping", () => {
-  type RecordedOp = { __op: string; args: readonly unknown[] };
+  type RecordedSql = {
+    __op: string;
+    strings?: readonly string[];
+    args: readonly unknown[];
+  };
 
-  function collectLikePatterns(node: unknown): string[] {
+  function collectLikeFragments(node: unknown): RecordedSql[] {
     if (typeof node !== "object" || node === null) return [];
-    const op = node as Partial<RecordedOp>;
-    if (op.__op === "like" && Array.isArray(op.args)) {
-      const pattern = op.args[1];
-      return typeof pattern === "string" ? [pattern] : [];
+    const op = node as Partial<RecordedSql>;
+    if (
+      op.__op === "sql" &&
+      Array.isArray(op.strings) &&
+      op.strings.join("").includes(" like ")
+    ) {
+      return [op as RecordedSql];
     }
     if (Array.isArray(op.args)) {
-      return op.args.flatMap((arg) => collectLikePatterns(arg));
+      return op.args.flatMap((arg) => collectLikeFragments(arg));
     }
     return [];
   }
 
   it("wraps the escaped term in %…% for each searched column", () => {
     const where = buildRunsWhere({ ...EMPTY_FILTERS, q: "50%_x" });
-    const patterns = collectLikePatterns(where);
-    // commitMessage, commitSha, branch — three LIKE predicates, same pattern.
-    expect(patterns).toHaveLength(3);
-    for (const pattern of patterns) {
-      expect(pattern).toBe("%50\\%\\_x%");
+    const fragments = collectLikeFragments(where);
+    // commitMessage, commitSha, branch — three LIKE predicates, same pattern
+    // bound as args[1] (args[0] is the column).
+    expect(fragments).toHaveLength(3);
+    for (const fragment of fragments) {
+      expect(fragment.args[1]).toBe("%50\\%\\_x%");
+    }
+  });
+
+  it("pairs every LIKE with an ESCAPE '\\' clause", () => {
+    const where = buildRunsWhere({ ...EMPTY_FILTERS, q: "x" });
+    const fragments = collectLikeFragments(where);
+    expect(fragments).toHaveLength(3);
+    for (const fragment of fragments) {
+      expect((fragment.strings ?? []).join("")).toContain("escape '\\'");
     }
   });
 
   it("does not emit any LIKE predicate when the search term is empty", () => {
     const where = buildRunsWhere({ ...EMPTY_FILTERS, q: "" });
-    expect(collectLikePatterns(where)).toEqual([]);
+    expect(collectLikeFragments(where)).toEqual([]);
+  });
+});
+
+/**
+ * The `origin` filter is the synthetic-traffic boundary on the runs list: the
+ * default (`ci`) must EXCLUDE monitor runs (a 1-minute monitor mints 1,440
+ * runs/day that would drown the CI history), `synthetic` flips the view to
+ * monitor traffic, and only an explicit `all` drops the clause.
+ */
+describe("buildRunsWhere origin filter", () => {
+  type RecordedOp = { __op?: string; args?: readonly unknown[] };
+
+  function collectEqOps(node: unknown): RecordedOp[] {
+    if (typeof node !== "object" || node === null) return [];
+    const op = node as RecordedOp;
+    const self = op.__op === "eq" ? [op] : [];
+    const nested = Array.isArray(op.args)
+      ? op.args.flatMap((arg) => collectEqOps(arg))
+      : [];
+    return [...self, ...nested];
+  }
+
+  function originValues(node: unknown): unknown[] {
+    return collectEqOps(node)
+      .filter((op) => {
+        const col = op.args?.[0] as { name?: string } | undefined;
+        return col?.name === "origin";
+      })
+      .map((op) => op.args?.[1]);
+  }
+
+  it("excludes synthetic runs by default (origin=ci)", () => {
+    expect(originValues(buildRunsWhere(EMPTY_FILTERS))).toEqual(["ci"]);
+  });
+
+  it("flips to synthetic-only when requested", () => {
+    expect(
+      originValues(buildRunsWhere({ ...EMPTY_FILTERS, origin: "synthetic" })),
+    ).toEqual(["synthetic"]);
+  });
+
+  it("drops the clause entirely for origin=all", () => {
+    expect(
+      originValues(buildRunsWhere({ ...EMPTY_FILTERS, origin: "all" })),
+    ).toEqual([]);
   });
 });
 

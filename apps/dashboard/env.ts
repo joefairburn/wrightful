@@ -92,13 +92,6 @@ export default defineEnv({
   WRIGHTFUL_MONITOR_MAX_PER_PROJECT: number().default(25),
 
   /**
-   * Floor on a monitor's interval. Cloudflare cron granularity is 1 minute and
-   * sub-minute scheduling needs a different primitive (Durable Object alarms),
-   * so 60 is the v1 floor; also a cost guard against 10s-interval browser runs.
-   */
-  WRIGHTFUL_MONITOR_MIN_INTERVAL_SECONDS: number().default(60),
-
-  /**
    * Which `MonitorExecutor` the queue consumer uses. `'sandbox'` (default) runs
    * the user's Playwright in a Void Sandbox container. `'stub'` synthesizes a
    * deterministic run in-process with no container — used by tests and local

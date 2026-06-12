@@ -1,4 +1,5 @@
 import type { Monitor, MonitorExecution } from "@schema";
+import type { ProjectRoomEvent } from "@/realtime/events";
 import type {
   ExecutionResult,
   MonitorExecutor,
@@ -56,6 +57,14 @@ export interface RunMonitorJobDeps {
   ) => Promise<void>;
   executor: MonitorExecutor;
   now: () => number;
+  /**
+   * Push a settled-execution event to the monitor's project `void/ws` room so
+   * the live monitors list advances the row. Wired to `broadcastProjectRoom`
+   * (`@/realtime/publish`) in `queues/monitors.ts`. NON-FATAL: the result is
+   * already in D1, so a realtime hiccup must never change the ack/retry outcome
+   * — `runMonitorJob` guards every call so a throw here can't flip the decision.
+   */
+  broadcast: (projectId: string, event: ProjectRoomEvent) => Promise<void>;
 }
 
 /** The consumer's per-message decision: ack the message or retry it. */
@@ -78,6 +87,52 @@ function infraErrorResult(errorMessage: string): ExecutionResult {
     errorMessage,
     infraError: true,
   };
+}
+
+/**
+ * Build the live `monitor-result` event for a settled execution. Mirrors what
+ * `recordExecutionResult` persists: the monitor's new `lastStatus` is the
+ * result state and its `lastRunAt` is `settledAt`; the execution row (id +
+ * settled state + runId + its mint time) is what the list prepends to the
+ * history strip (its id dedupes a redelivery).
+ */
+function monitorResultEvent(
+  monitor: Monitor,
+  execution: MonitorExecution,
+  result: ExecutionResult,
+  settledAt: number,
+): ProjectRoomEvent {
+  return {
+    type: "monitor-result",
+    monitorId: monitor.id,
+    lastStatus: result.state,
+    lastRunAt: settledAt,
+    execution: {
+      id: execution.id,
+      state: result.state,
+      runId: result.runId,
+      createdAt: execution.createdAt,
+    },
+  };
+}
+
+/**
+ * Broadcast the settle event, swallowing any failure. A realtime hiccup must
+ * never change the job's ack/retry decision — the outcome is already in D1 — so
+ * this is isolated from the caller's control flow. In particular it guards the
+ * SUCCESS path: an unguarded throw there would fall into `runMonitorJob`'s catch
+ * and wrongly re-record the run as an infra error + retry.
+ */
+async function safeBroadcast(
+  deps: RunMonitorJobDeps,
+  projectId: string,
+  event: ProjectRoomEvent,
+): Promise<void> {
+  try {
+    await deps.broadcast(projectId, event);
+  } catch {
+    // intentionally ignored — see docstring
+  }
 }
 
 /**
@@ -129,11 +184,24 @@ export async function runMonitorJob(
 
   try {
     const result = await deps.executor.execute({ monitor, execution });
-    await deps.recordResult(execution, result, deps.now());
+    const settledAt = deps.now();
+    await deps.recordResult(execution, result, settledAt);
+    await safeBroadcast(
+      deps,
+      monitor.projectId,
+      monitorResultEvent(monitor, execution, result, settledAt),
+    );
     return { action: result.infraError ? "retry" : "ack" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await deps.recordResult(execution, infraErrorResult(message), deps.now());
+    const settledAt = deps.now();
+    const result = infraErrorResult(message);
+    await deps.recordResult(execution, result, settledAt);
+    await safeBroadcast(
+      deps,
+      monitor.projectId,
+      monitorResultEvent(monitor, execution, result, settledAt),
+    );
     return { action: "retry" };
   }
 }

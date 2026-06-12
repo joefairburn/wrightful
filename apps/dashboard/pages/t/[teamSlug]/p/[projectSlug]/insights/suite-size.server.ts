@@ -8,6 +8,11 @@ import {
   type Segment,
 } from "@/lib/analytics/bucketing";
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
+import {
+  branchFragment,
+  ciRunsJoinFragment,
+  ciRunsJoinOn,
+} from "@/lib/analytics/filters";
 import { runRow } from "@/lib/db-run";
 import {
   normalizeBranchFilter,
@@ -15,7 +20,7 @@ import {
 } from "@/lib/analytics/params";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { runScopeWhere } from "@/lib/scope";
+import { ciRunsScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -55,18 +60,19 @@ export const loader = defineHandler(async (c) => {
     url.searchParams.get("branch"),
   );
 
-  const branches = await loadProjectBranches(scope);
-
   const { nowSec, windowStartSec, rangeSec } = resolveAnalyticsWindow(range);
   const expr = bucketExpr(segment);
 
+  // ciRunsScopeWhere: tenant pair + `origin <> 'synthetic'` — suite-size
+  // trends CI history only; monitor runs (whose totalTests reflects the
+  // monitor's own suite) must not set the per-bucket peak.
   const trendConditions = [
-    runScopeWhere(scope),
+    ciRunsScopeWhere(scope),
     gte(runs.createdAt, windowStartSec),
   ];
   if (branchFilter) trendConditions.push(eq(runs.branch, branchFilter));
 
-  const trendRows = await db
+  const trendQuery = db
     .select({
       bucket: expr,
       peak: sql<number>`max(${runs.totalTests})`,
@@ -76,14 +82,14 @@ export const loader = defineHandler(async (c) => {
     .groupBy(expr);
 
   // For "all", find the earliest run so shells don't stretch back to 1970.
-  let shellStartSec = windowStartSec;
-  if (rangeSec === null) {
-    const earliest = await db
-      .select({ first: sql<number | null>`min(${runs.createdAt})` })
-      .from(runs)
-      .where(runScopeWhere(scope));
-    shellStartSec = earliest[0]?.first ?? nowSec;
-  }
+  // CI runs only, matching the trend query — the shells frame CI history.
+  const earliestQuery =
+    rangeSec === null
+      ? db
+          .select({ first: sql<number | null>`min(${runs.createdAt})` })
+          .from(runs)
+          .where(ciRunsScopeWhere(scope))
+      : null;
 
   const addedLookbackSec = nowSec - ADDED_LOOKBACK_DAYS * DAY_SEC;
   // "Tests added in the lookback" = tests that appear in the window AND never
@@ -91,14 +97,20 @@ export const loader = defineHandler(async (c) => {
   // ALL history, but bounded: the recent set is scanned via the
   // (projectId, createdAt) index and each first-seen check is an index seek on
   // (testId, createdAt) — instead of grouping the project's entire testResults
-  // history on every render.
-  const testsAddedRow = await runRow<{ added?: number }>(sql`
+  // history on every render. The recent set joins `runs` unconditionally via
+  // ciRunsJoinFragment so monitor-run results never count as "added"; the
+  // branch filter scopes it further (which branch the test appeared on),
+  // mirroring the trend query. The NOT EXISTS first-seen check stays
+  // project-wide (all origins) so "added" still means brand-new.
+  const testsAddedQuery = runRow<{ added?: number }>(sql`
     select count(*) as added
     from (
       select distinct tr."testId" as "testId"
       from "testResults" tr
+      ${ciRunsJoinFragment()}
       where tr."projectId" = ${scope.projectId}
         and tr."createdAt" >= ${addedLookbackSec}
+        ${branchFragment(branchFilter)}
     ) recent
     where not exists (
       select 1
@@ -108,40 +120,57 @@ export const loader = defineHandler(async (c) => {
         and prev."createdAt" < ${addedLookbackSec}
     )
   `);
-  const testsAdded = testsAddedRow?.added ?? 0;
 
-  const fileRows = await db
+  // File / tag distributions join `runs` unconditionally via ciRunsJoinOn —
+  // the synthetic exclusion lives in the ON clause, so monitor-run results
+  // can't enter the distributions even with no branch filter active. (The old
+  // conditional join skipped the per-row PK probe when no branch was set; that
+  // perf nicety is gone because the join is now load-bearing for correctness.)
+  const distributionConditions = [
+    eq(testResults.projectId, scope.projectId),
+    gte(testResults.createdAt, windowStartSec),
+  ];
+  if (branchFilter) distributionConditions.push(eq(runs.branch, branchFilter));
+
+  const fileQuery = db
     .select({
       file: testResults.file,
       tests: sql<number>`count(distinct ${testResults.testId})`,
     })
     .from(testResults)
-    .where(
-      and(
-        eq(testResults.projectId, scope.projectId),
-        gte(testResults.createdAt, windowStartSec),
-      ),
-    )
+    .innerJoin(runs, ciRunsJoinOn())
+    .where(and(...distributionConditions))
     .groupBy(testResults.file)
     .orderBy(desc(sql`count(distinct ${testResults.testId})`))
     .limit(DISTRIBUTION_LIMIT);
 
-  const tagRows = await db
+  const tagQuery = db
     .select({
       tag: testTags.tag,
       tests: sql<number>`count(distinct ${testResults.testId})`,
     })
     .from(testTags)
     .innerJoin(testResults, eq(testResults.id, testTags.testResultId))
-    .where(
-      and(
-        eq(testResults.projectId, scope.projectId),
-        gte(testResults.createdAt, windowStartSec),
-      ),
-    )
+    .innerJoin(runs, ciRunsJoinOn())
+    .where(and(...distributionConditions))
     .groupBy(testTags.tag)
     .orderBy(desc(sql`count(distinct ${testResults.testId})`))
     .limit(TAG_LIMIT);
+
+  // All five passes (plus the branch list) are independent — run in parallel.
+  const [branches, trendRows, earliestRows, testsAddedRow, fileRows, tagRows] =
+    await Promise.all([
+      loadProjectBranches(scope),
+      trendQuery,
+      earliestQuery ?? Promise.resolve(null),
+      testsAddedQuery,
+      fileQuery,
+      tagQuery,
+    ]);
+
+  const shellStartSec =
+    rangeSec === null ? (earliestRows?.[0]?.first ?? nowSec) : windowStartSec;
+  const testsAdded = testsAddedRow?.added ?? 0;
 
   const peakOverall = Math.max(0, ...trendRows.map((r) => r.peak ?? 0));
 

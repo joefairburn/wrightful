@@ -23,16 +23,17 @@ import { LiveDuration } from "@/components/live-duration";
  * all of them — plus the tiles + list — share ONE WebSocket to the room.
  */
 
+interface RunLiveLeafProps {
+  runId: string;
+  initialSummary: RunProgressSummary;
+}
+
 /** The run status glyph in the sticky H1. Live so completion flips it without a reload. */
 export function RunStatusGlyphLive({
   runId,
   initialSummary,
   size,
-}: {
-  runId: string;
-  initialSummary: RunProgressSummary;
-  size: number;
-}): React.ReactElement {
+}: RunLiveLeafProps & { size: number }): React.ReactElement {
   const state = useRunRoom(runId, { initialSummary });
   return (
     <StatusGlyph
@@ -52,11 +53,7 @@ export function RunDurationLive({
   runId,
   initialSummary,
   createdAt,
-}: {
-  runId: string;
-  initialSummary: RunProgressSummary;
-  createdAt: number;
-}): React.ReactElement {
+}: RunLiveLeafProps & { createdAt: number }): React.ReactElement {
   const summary = currentSummary(
     useRunRoom(runId, { initialSummary }),
     initialSummary,
@@ -77,10 +74,7 @@ export function RunDurationLive({
 export function RunTestCountLive({
   runId,
   initialSummary,
-}: {
-  runId: string;
-  initialSummary: RunProgressSummary;
-}): React.ReactElement {
+}: RunLiveLeafProps): React.ReactElement {
   const state = useRunRoom(runId, { initialSummary });
   return <>{currentSummary(state, initialSummary).totalTests}</>;
 }

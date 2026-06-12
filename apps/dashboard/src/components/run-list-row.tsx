@@ -1,9 +1,14 @@
-import { GitBranch, GitPullRequest } from "lucide-react";
 import { Link } from "@void/react";
 import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
 import { LiveDuration } from "@/components/live-duration";
 import { OutcomeBar } from "@/components/outcome-bar";
+import {
+  BranchPill,
+  CommitPill,
+  EnvPill,
+  PrPill,
+} from "@/components/run-meta-pills";
 import { RunTestsPopover } from "@/components/run-tests-popover";
 import { StatusGlyph } from "@/components/status-glyph";
 import { TableCell, TableRow } from "@/components/ui/table";
@@ -160,113 +165,5 @@ export function RunListRow({
         {formatRelativeTime(run.createdAt)}
       </TableCell>
     </TableRow>
-  );
-}
-
-function BranchPill({
-  name,
-  href,
-}: {
-  name: string;
-  href: string | null;
-}): React.ReactElement {
-  const content = (
-    <>
-      <GitBranch className="size-3 shrink-0" strokeWidth={2} />
-      <span className="truncate">{name}</span>
-    </>
-  );
-  const className =
-    "relative z-10 inline-flex max-w-[180px] items-center gap-1 rounded-full border border-line-1 bg-bg-2 px-2 py-px font-mono text-[11.5px] leading-[18px] text-fg-2 hover:text-foreground";
-  return href ? (
-    <a
-      className={className}
-      href={href}
-      onClick={(e) => e.stopPropagation()}
-      rel="noreferrer"
-      target="_blank"
-    >
-      {content}
-    </a>
-  ) : (
-    <span className={className}>{content}</span>
-  );
-}
-
-function PrPill({
-  num,
-  href,
-}: {
-  num: number;
-  href: string | null;
-}): React.ReactElement {
-  const content = (
-    <>
-      <GitPullRequest className="size-3 shrink-0" strokeWidth={2} />#{num}
-    </>
-  );
-  const className =
-    "relative z-10 inline-flex shrink-0 items-center gap-1 rounded-full border border-line-1 bg-bg-2 px-2 py-px text-[11.5px] leading-[18px] text-fg-2 hover:text-foreground";
-  return href ? (
-    <a
-      className={className}
-      href={href}
-      onClick={(e) => e.stopPropagation()}
-      rel="noreferrer"
-      target="_blank"
-    >
-      {content}
-    </a>
-  ) : (
-    <span className={className}>{content}</span>
-  );
-}
-
-function EnvPill({ env }: { env: string }): React.ReactElement {
-  // Production gets a warm tint; staging picks up the accent; everything else
-  // lands on the neutral raised surface.
-  const tone: { bg: string; fg: string } =
-    env === "production"
-      ? { bg: "oklch(0.70 0.20 24 / 0.14)", fg: "oklch(0.78 0.20 24)" }
-      : env === "staging"
-        ? { bg: "var(--accent-soft)", fg: "var(--accent)" }
-        : { bg: "var(--bg-3)", fg: "var(--fg-2)" };
-  return (
-    <span
-      className="inline-flex shrink-0 items-center rounded-[4px] px-2 py-px font-mono text-[11px] font-medium tracking-[0.2px]"
-      style={{ background: tone.bg, color: tone.fg }}
-    >
-      {env}
-    </span>
-  );
-}
-
-function CommitPill({
-  sha,
-  href,
-}: {
-  sha: string;
-  href: string | null;
-}): React.ReactElement {
-  const short = sha.slice(0, 7);
-  const className =
-    "relative z-10 inline-flex shrink-0 items-center gap-1 font-mono text-[11.5px] text-fg-3 hover:text-foreground";
-  return href ? (
-    <a
-      className={className}
-      href={href}
-      onClick={(e) => e.stopPropagation()}
-      rel="noreferrer"
-      target="_blank"
-      title="View commit"
-    >
-      <span className="size-1 rounded-full bg-fg-4" />
-      {short}
-    </a>
-  ) : (
-    <span className={className}>
-      <span className="size-1 rounded-full bg-fg-4" />
-      {short}
-    </span>
   );
 }

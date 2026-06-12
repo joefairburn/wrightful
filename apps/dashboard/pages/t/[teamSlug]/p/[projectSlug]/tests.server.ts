@@ -164,6 +164,9 @@ export const loader = defineHandler.withValidator({
   const toRow = (currentPage - 1) * PAGE_SIZE + rows.length;
 
   const url = new URL(c.req.url);
+  // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
+  // `private` keeps tenant-scoped data out of shared/edge caches.
+  c.header("Cache-Control", "private, max-age=300, stale-while-revalidate=900");
   return {
     project: {
       id: project.id,

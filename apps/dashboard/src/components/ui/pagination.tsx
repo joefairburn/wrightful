@@ -56,15 +56,16 @@ export function PaginationLink({
 }: PaginationLinkProps): React.ReactElement {
   const defaultProps = {
     "aria-current": isActive ? ("page" as const) : undefined,
-    className: render
-      ? className
-      : cn(
-          buttonVariants({
-            size,
-            variant: isActive ? "outline" : "ghost",
-          }),
-          className,
-        ),
+    // Button styling applies whether or not a `render` override is supplied —
+    // callers swap the element (e.g. @void/react's <Link> for SPA navigation)
+    // without re-supplying the variant classes.
+    className: cn(
+      buttonVariants({
+        size,
+        variant: isActive ? "outline" : "ghost",
+      }),
+      className,
+    ),
     "data-active": isActive,
     "data-slot": "pagination-link",
   };

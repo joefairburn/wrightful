@@ -3,6 +3,7 @@ import { env } from "void/env";
 import { authorizeTopicSubscription } from "@/lib/authz";
 import { runRoomClientSchema, runRoomServerSchema } from "@/realtime/events";
 import {
+  isAllowedWsOrigin,
   isInternalRequest,
   resolveInternalSecret,
   roomAtCapacity,
@@ -25,7 +26,16 @@ export default defineRoom({
 
   // Same tenant-isolation gate the SSE stream used: member of the run's team.
   // `ctx.user` is already typed `AuthUser | null` by RoomContext (no cast).
+  // Origin first: cross-site browser upgrades are rejected outright rather
+  // than relying on SameSite cookie defaults alone (defense in depth).
+  // Same-origin is judged against the upgrade's own Host (any domain routed
+  // to this worker), with WRIGHTFUL_PUBLIC_URL as belt-and-braces.
   async onBeforeConnect(ctx) {
+    const origin = ctx.request.headers.get("origin");
+    const host = ctx.request.headers.get("host");
+    if (!isAllowedWsOrigin(origin, host, env.WRIGHTFUL_PUBLIC_URL)) {
+      return new Response("Forbidden", { status: 403 });
+    }
     if (roomAtCapacity(ctx.room.getConnections())) {
       return new Response("Too Many Requests", { status: 429 });
     }

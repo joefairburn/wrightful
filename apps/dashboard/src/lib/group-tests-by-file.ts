@@ -1,32 +1,9 @@
-import type {
-  RunProgressTest,
-  RunProgressTestStatus,
-} from "@/realtime/run-progress";
+import type { RunProgressTest } from "@/realtime/run-progress";
 import {
   statusGroupKey,
   statusSortKey,
   type StatusGroupKey,
 } from "@/lib/status";
-
-export interface FileGroupCounts {
-  passed: number;
-  failed: number;
-  flaky: number;
-  skipped: number;
-  timedout: number;
-  queued: number;
-}
-
-export interface FileGroup {
-  file: string;
-  basename: string;
-  dir: string;
-  tests: RunProgressTest[];
-  counts: FileGroupCounts;
-  durationMs: number;
-  projectNames: string[];
-  worstStatus: RunProgressTestStatus;
-}
 
 /**
  * Worst-status-first severity (lower = worse). Drives both group ordering and
@@ -42,92 +19,6 @@ export interface FileGroup {
 export function severityOf(status: string): number {
   if (status === "queued") return 3;
   return statusSortKey(status);
-}
-
-const UNGROUPED_KEY = "";
-
-function splitPath(path: string): { dir: string; basename: string } {
-  const idx = path.lastIndexOf("/");
-  if (idx < 0) return { dir: "", basename: path };
-  return { dir: path.slice(0, idx + 1), basename: path.slice(idx + 1) };
-}
-
-function worseOf(a: string, b: string): string {
-  return severityOf(a) <= severityOf(b) ? a : b;
-}
-
-/**
- * Group a flat list of test results by their `file` path. Pure — safe to call
- * from page loaders and inside `useMemo` in client islands.
- *
- * Group order is worst-status-first (failed → timedout → flaky → queued →
- * skipped → passed). Tests within a group keep the caller's input order, so
- * the caller can sort the flat list first if it wants per-group ordering.
- *
- * Tests whose `file` is empty or whitespace are collected into a trailing
- * "Other" group — defensive for rows that somehow slipped through without a
- * file path.
- */
-function isCountKey(
-  counts: FileGroupCounts,
-  status: string,
-): status is keyof FileGroupCounts {
-  return status in counts;
-}
-
-export function groupTestsByFile(tests: RunProgressTest[]): FileGroup[] {
-  const map = new Map<string, FileGroup>();
-
-  for (const test of tests) {
-    const key = test.file && test.file.trim() ? test.file : UNGROUPED_KEY;
-    let group = map.get(key);
-    if (!group) {
-      const { dir, basename } =
-        key === UNGROUPED_KEY ? { dir: "", basename: "Other" } : splitPath(key);
-      group = {
-        file: key,
-        basename,
-        dir,
-        tests: [],
-        counts: {
-          passed: 0,
-          failed: 0,
-          flaky: 0,
-          skipped: 0,
-          timedout: 0,
-          queued: 0,
-        },
-        durationMs: 0,
-        projectNames: [],
-        worstStatus: "passed",
-      };
-      map.set(key, group);
-    }
-    group.tests.push(test);
-    if (isCountKey(group.counts, test.status)) group.counts[test.status] += 1;
-    group.durationMs += test.durationMs;
-    group.worstStatus = worseOf(
-      group.worstStatus,
-      test.status,
-    ) as RunProgressTestStatus;
-    if (test.projectName && !group.projectNames.includes(test.projectName)) {
-      group.projectNames.push(test.projectName);
-    }
-  }
-
-  for (const group of map.values()) {
-    group.projectNames.sort();
-  }
-
-  const groups = Array.from(map.values());
-  groups.sort((a, b) => {
-    if (a.file === UNGROUPED_KEY) return 1;
-    if (b.file === UNGROUPED_KEY) return -1;
-    const sev = severityOf(a.worstStatus) - severityOf(b.worstStatus);
-    if (sev !== 0) return sev;
-    return a.file.localeCompare(b.file);
-  });
-  return groups;
 }
 
 /**
@@ -152,54 +43,6 @@ export function parseTitleSegments(
   const testTitle = remaining[remaining.length - 1] ?? title;
   const describeChain = remaining.slice(0, -1);
   return { describeChain, testTitle };
-}
-
-export interface DescribeTestLeaf {
-  kind: "test";
-  test: RunProgressTest;
-  displayTitle: string;
-}
-
-export interface DescribeBranch {
-  kind: "describe";
-  name: string;
-  children: DescribeNode[];
-}
-
-export type DescribeNode = DescribeTestLeaf | DescribeBranch;
-
-/**
- * Build a describe-block tree for the tests in a file. Tests sharing a
- * describe-path prefix collect under the same branch; tests with no
- * describe block end up at the tree root alongside any sibling describes.
- * Input order is preserved.
- */
-export function buildDescribeTree(
-  tests: RunProgressTest[],
-  file: string,
-): DescribeNode[] {
-  const root: DescribeNode[] = [];
-  for (const test of tests) {
-    const { describeChain, testTitle } = parseTitleSegments(
-      test.title,
-      file,
-      test.projectName,
-    );
-    let siblings = root;
-    for (const describeName of describeChain) {
-      let branch = siblings.find(
-        (n): n is DescribeBranch =>
-          n.kind === "describe" && n.name === describeName,
-      );
-      if (!branch) {
-        branch = { kind: "describe", name: describeName, children: [] };
-        siblings.push(branch);
-      }
-      siblings = branch.children;
-    }
-    siblings.push({ kind: "test", test, displayTitle: testTitle });
-  }
-  return root;
 }
 
 // --- Run-detail Tests-tab engine -------------------------------------------

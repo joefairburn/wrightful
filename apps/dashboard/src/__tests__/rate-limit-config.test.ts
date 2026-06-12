@@ -11,8 +11,10 @@ import { RATE_LIMITER_BINDING_NAMES } from "@/lib/rate-limit";
  *   1. `wrangler.jsonc#ratelimits[]` — the deploy-time binding + budget.
  *   2. `RATE_LIMITER_BINDING_NAMES` (src/lib/rate-limit.ts) — the runtime
  *      source of truth the `RateLimiterBindingName` union is derived from.
- *   3. the string literals passed at the call sites in
- *      `middleware/03.rate-limit.ts`.
+ *   3. the string literals passed at the middleware call sites —
+ *      `middleware/03.rate-limit.ts` for the post-auth gates, plus
+ *      `middleware/02.api-auth.ts` for the pre-auth ingest IP backstop
+ *      (which must run BEFORE the Bearer lookup, hence lives in 02).
  *
  * The budgets (limits/periods) live ONLY in wrangler.jsonc — deliberately not
  * mirrored into TS, since a second copy would itself drift. So the "auth is
@@ -57,14 +59,16 @@ describe("rate-limit config ⇆ code", () => {
     expect(configured).toEqual(referenced);
   });
 
-  it("references every binding name as a literal in the throttle middleware", () => {
-    const middleware = readText("middleware/03.rate-limit.ts");
+  it("references every binding name as a literal in a gate middleware", () => {
+    const gates =
+      readText("middleware/03.rate-limit.ts") +
+      readText("middleware/02.api-auth.ts");
     for (const name of RATE_LIMITER_BINDING_NAMES) {
-      expect(middleware).toContain(`"${name}"`);
+      expect(gates).toContain(`"${name}"`);
     }
   });
 
-  it("orders budgets strict→loose: AUTH < API < ARTIFACT", () => {
+  it("orders budgets strict→loose: AUTH < API < ARTIFACT < INGEST_IP", () => {
     const limitOf = (name: string): number => {
       const entry = wrangler.ratelimits.find((r) => r.name === name);
       if (!entry) throw new Error(`no ratelimits entry for ${name}`);
@@ -73,8 +77,13 @@ describe("rate-limit config ⇆ code", () => {
     const auth = limitOf("AUTH_RATE_LIMITER");
     const api = limitOf("API_RATE_LIMITER");
     const artifact = limitOf("ARTIFACT_RATE_LIMITER");
+    const ingestIp = limitOf("INGEST_IP_RATE_LIMITER");
     expect(auth).toBeLessThan(api);
     expect(api).toBeLessThan(artifact);
+    // The pre-auth IP backstop must stay the loosest gate: it only exists to
+    // bound failed-auth abuse, and several keys can share one egress IP.
+    expect(artifact).toBeLessThan(ingestIp);
+    expect(api).toBeLessThan(ingestIp);
   });
 
   it("gives every limiter a unique namespace_id and a positive period", () => {

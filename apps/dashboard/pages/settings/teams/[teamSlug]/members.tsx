@@ -45,6 +45,8 @@ export default function SettingsTeamMembersPage({
   team,
   members,
   invites,
+  currentUserId,
+  membersError,
 }: Props) {
   const router = useRouter();
   const isOwner = team.role === "owner";
@@ -93,6 +95,12 @@ export default function SettingsTeamMembersPage({
         title={`${team.name} · Members`}
       />
 
+      {membersError && (
+        <Alert variant="error">
+          <AlertDescription>{membersError}</AlertDescription>
+        </Alert>
+      )}
+
       <RevealOnceDialog
         description="Send this single-use link to your teammate. It's valid for 7 days and stops working once accepted."
         onClose={() => setRevealedInviteUrl(null)}
@@ -137,6 +145,10 @@ export default function SettingsTeamMembersPage({
               Send invite
             </Button>
           </form>
+          <p className="mt-2 text-[11.5px] text-fg-3">
+            Email invites match accounts with a verified email (currently GitHub
+            sign-ins). For password accounts, invite by GitHub username instead.
+          </p>
           {createInvite.error && (
             <Alert className="mt-3" variant="error">
               <AlertDescription>{createInvite.error.message}</AlertDescription>
@@ -188,9 +200,38 @@ export default function SettingsTeamMembersPage({
               >
                 {m.role}
               </span>
+              {isOwner && m.userId !== currentUserId && (
+                <form
+                  action={`${here}?removeMember`}
+                  className="m-0"
+                  method="post"
+                >
+                  <input name="userId" type="hidden" value={m.userId} />
+                  <Button
+                    aria-label={`Remove ${m.name}`}
+                    size="xs"
+                    type="submit"
+                    variant="ghost"
+                  >
+                    <X className="size-3.5" />
+                    Remove
+                  </Button>
+                </form>
+              )}
             </div>
           ))}
         </div>
+      </SettingsCard>
+
+      <SettingsCard
+        subtitle="You lose access to this team's projects and settings. An owner can invite you back."
+        title="Leave team"
+      >
+        <form action={`${here}?leaveTeam`} className="m-0" method="post">
+          <Button type="submit" variant="outline">
+            Leave team
+          </Button>
+        </form>
       </SettingsCard>
 
       {invites.length > 0 && (

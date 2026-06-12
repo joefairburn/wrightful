@@ -32,7 +32,11 @@ const JOB: MonitorJob = {
   scheduledFor: 1000,
 };
 
-const EXECUTION = { id: "ex-1", projectId: "proj-1" } as MonitorExecution;
+const EXECUTION = {
+  id: "ex-1",
+  projectId: "proj-1",
+  createdAt: 4321,
+} as MonitorExecution;
 const MONITOR = { id: "mon-1", projectId: "proj-1" } as Monitor;
 
 /** A passing executor result — the common "site is up" outcome. */
@@ -47,6 +51,7 @@ const PASS_RESULT: ExecutionResult = {
 type SpiedDeps = RunMonitorJobDeps & {
   recordResult: ReturnType<typeof vi.fn<RunMonitorJobDeps["recordResult"]>>;
   claim: ReturnType<typeof vi.fn<RunMonitorJobDeps["claim"]>>;
+  broadcast: ReturnType<typeof vi.fn<RunMonitorJobDeps["broadcast"]>>;
 };
 
 /** Build `RunMonitorJobDeps` with sensible fakes, overridable per test. */
@@ -57,6 +62,9 @@ function makeDeps(overrides: Partial<RunMonitorJobDeps> = {}): SpiedDeps {
   const claim =
     (overrides.claim as SpiedDeps["claim"] | undefined) ??
     vi.fn<RunMonitorJobDeps["claim"]>(() => Promise.resolve(true));
+  const broadcast =
+    (overrides.broadcast as SpiedDeps["broadcast"] | undefined) ??
+    vi.fn<RunMonitorJobDeps["broadcast"]>(() => Promise.resolve());
   return {
     loadExecution: () => Promise.resolve(EXECUTION),
     loadMonitor: () => Promise.resolve(MONITOR),
@@ -65,6 +73,7 @@ function makeDeps(overrides: Partial<RunMonitorJobDeps> = {}): SpiedDeps {
     ...overrides,
     recordResult,
     claim,
+    broadcast,
   };
 }
 
@@ -138,6 +147,31 @@ describe("runMonitorJob", () => {
     expect(deps.recordResult.mock.calls[0]![1]).toBe(failResult);
   });
 
+  it("records a wall-clock-timeout outcome terminally and acks (never retries a hang)", async () => {
+    // The SandboxExecutor classifies an exec that hit the execution budget as
+    // a TERMINAL user-facing error (`infraError: false`): the per-test timeout
+    // is clamped below the budget, so reaching the exec kill means the user's
+    // script hung deterministically — re-running would burn maxRetries full
+    // container runs for the same outcome.
+    const timeoutResult: ExecutionResult = {
+      state: "error",
+      runId: null,
+      durationMs: 300_000,
+      errorMessage:
+        "check exceeded the 300s execution budget and was terminated",
+      infraError: false,
+    };
+    const deps = makeDeps({
+      executor: { execute: () => Promise.resolve(timeoutResult) },
+    });
+
+    const outcome = await runMonitorJob(JOB, deps);
+
+    expect(outcome).toEqual({ action: "ack" });
+    expect(deps.recordResult).toHaveBeenCalledTimes(1);
+    expect(deps.recordResult.mock.calls[0]![1]).toBe(timeoutResult);
+  });
+
   it("records the infra-error result and retries when infraError is set", async () => {
     const infraResult: ExecutionResult = {
       state: "error",
@@ -174,6 +208,78 @@ describe("runMonitorJob", () => {
       infraError: true,
       errorMessage: "container boot timeout",
     });
+  });
+
+  it("broadcasts the settled result to the monitor's project room on a real outcome", async () => {
+    const deps = makeDeps();
+
+    await runMonitorJob(JOB, deps);
+
+    expect(deps.broadcast).toHaveBeenCalledTimes(1);
+    const [projectId, event] = deps.broadcast.mock.calls[0]!;
+    expect(projectId).toBe("proj-1");
+    expect(event).toEqual({
+      type: "monitor-result",
+      monitorId: "mon-1",
+      // Mirrors recordExecutionResult: new lastStatus = result state, lastRunAt = now.
+      lastStatus: "pass",
+      lastRunAt: 5000,
+      execution: {
+        id: "ex-1",
+        state: "pass",
+        runId: "run-1",
+        createdAt: 4321,
+      },
+    });
+  });
+
+  it("broadcasts an error settle (the row should turn red) and still retries", async () => {
+    const deps = makeDeps({
+      executor: {
+        execute: () => Promise.reject(new Error("container boot timeout")),
+      },
+    });
+
+    const outcome = await runMonitorJob(JOB, deps);
+
+    expect(outcome).toEqual({ action: "retry" });
+    expect(deps.broadcast).toHaveBeenCalledTimes(1);
+    expect(deps.broadcast.mock.calls[0]![1]).toMatchObject({
+      type: "monitor-result",
+      monitorId: "mon-1",
+      lastStatus: "error",
+    });
+  });
+
+  it("does NOT broadcast when there is no live row to update (missing execution, lost claim, deleted monitor)", async () => {
+    const gone = makeDeps({ loadExecution: () => Promise.resolve(null) });
+    await runMonitorJob(JOB, gone);
+    expect(gone.broadcast).not.toHaveBeenCalled();
+
+    const lostClaim = makeDeps({
+      claim: vi.fn<RunMonitorJobDeps["claim"]>(() => Promise.resolve(false)),
+    });
+    await runMonitorJob(JOB, lostClaim);
+    expect(lostClaim.broadcast).not.toHaveBeenCalled();
+
+    const deletedMonitor = makeDeps({
+      loadMonitor: () => Promise.resolve(null),
+    });
+    await runMonitorJob(JOB, deletedMonitor);
+    expect(deletedMonitor.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("a broadcast failure never changes the ack decision (result is already persisted)", async () => {
+    const deps = makeDeps({
+      broadcast: vi.fn<RunMonitorJobDeps["broadcast"]>(() =>
+        Promise.reject(new Error("room DO unreachable")),
+      ),
+    });
+
+    const outcome = await runMonitorJob(JOB, deps);
+
+    expect(outcome).toEqual({ action: "ack" });
+    expect(deps.recordResult).toHaveBeenCalledTimes(1);
   });
 
   it("claims before invoking the executor", async () => {

@@ -1,4 +1,5 @@
 import { logger } from "void/log";
+import { isUniqueViolation } from "@/lib/db-batch";
 
 /**
  * Map a thrown mutation error to a user-facing flash message.
@@ -10,16 +11,17 @@ import { logger } from "void/log";
  * message, so production mutation failures are never silently swallowed.
  *
  * Replaces the copy-pasted `msg.includes("UNIQUE") ? … : …` blocks in the
- * settings create/update actions, which discarded the original error.
+ * settings create/update actions, which discarded the original error. The
+ * violation detection delegates to `isUniqueViolation` — the single home for
+ * D1's error-text shape, shared with the ingest race-recovery paths.
  */
 export function mutationErrorMessage(
   err: unknown,
   opts: { context: string; uniqueMessage: string; genericMessage: string },
 ): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes("UNIQUE")) return opts.uniqueMessage;
+  if (isUniqueViolation(err)) return opts.uniqueMessage;
   logger.error(opts.context, {
-    message: msg,
+    message: err instanceof Error ? err.message : String(err),
     stack: err instanceof Error ? err.stack : undefined,
   });
   return opts.genericMessage;

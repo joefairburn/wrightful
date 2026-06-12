@@ -4,6 +4,7 @@ import {
   requireApiKeyOrResponse,
 } from "@/lib/api-auth";
 import { isIngestRoute } from "@/lib/ingest-routes";
+import { checkRateLimit, clientIp, tooManyRequests } from "@/lib/rate-limit";
 
 /**
  * API-key + protocol-version gate for the reporter ingest endpoints.
@@ -35,6 +36,18 @@ export default defineMiddleware(async (c, next) => {
     await next();
     return;
   }
+  // Pre-auth IP backstop. This must run BEFORE the Bearer lookup: a failed
+  // auth returns from this middleware without ever reaching 03.rate-limit's
+  // per-key gate, so without this check an unauthenticated client could spray
+  // bogus keys at an unbounded rate (each attempt costing a D1 prefix SELECT
+  // + SHA-256). The binding is generous (see wrangler.jsonc) — legit CI flows
+  // are governed by the per-key API_RATE_LIMITER in 03.
+  const ipAllowed = await checkRateLimit(
+    c.env,
+    "INGEST_IP_RATE_LIMITER",
+    clientIp(c.req.raw),
+  );
+  if (!ipAllowed) return tooManyRequests(60);
   const apiResp = await requireApiKeyOrResponse(c);
   if (apiResp instanceof Response) return apiResp;
   const versionResp = negotiateVersionOrResponse(c);

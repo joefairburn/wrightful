@@ -29,5 +29,13 @@ export const POST = defineHandler.withValidator({
   if (result.kind === "notFound") {
     return c.json({ error: "Run not found" }, 404);
   }
+  if (result.kind === "runClosed") {
+    // Terminal + idle past the write grace window — refuse the late rewrite
+    // (a 4xx so the reporter warns and stops instead of retrying).
+    return c.json(
+      { error: "Run completed too long ago to accept writes" },
+      409,
+    );
+  }
   return c.json({ runId, status: result.status }, 200);
 });

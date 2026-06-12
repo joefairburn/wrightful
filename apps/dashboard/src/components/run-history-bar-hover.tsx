@@ -171,16 +171,16 @@ function RunSummaryBody({ summary }: { summary: RunSummaryResponse }) {
       <div className="flex items-center gap-2">
         <StatusChip status={summary.status} label={`#${shortId}`} />
         <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-0.5 text-success-foreground">
+          <span className="inline-flex items-center gap-0.5 text-success">
             <Check size={10} strokeWidth={3} />
             {summary.passed}
           </span>
-          <span className="inline-flex items-center gap-0.5 text-destructive-foreground">
+          <span className="inline-flex items-center gap-0.5 text-destructive">
             <X size={10} strokeWidth={3} />
             {summary.failed}
           </span>
           {summary.flaky > 0 && (
-            <span className="inline-flex items-center gap-0.5 text-warning-foreground">
+            <span className="inline-flex items-center gap-0.5 text-warning">
               <TriangleAlert size={10} strokeWidth={2.5} />
               {summary.flaky}
             </span>
@@ -211,7 +211,7 @@ function TestResultSummaryBody({
       <div className="flex items-center gap-2">
         <StatusChip status={summary.status} label={`#${runShortId}`} />
         {summary.retryCount > 0 && (
-          <span className="inline-flex items-center gap-0.5 font-mono text-[11px] text-warning-foreground">
+          <span className="inline-flex items-center gap-0.5 font-mono text-[11px] text-warning">
             <Repeat size={10} strokeWidth={2.5} />
             {summary.retryCount}
           </span>
@@ -319,13 +319,16 @@ function CommitFooter({
 }
 
 function StatusChip({ status, label }: { status: string; label: string }) {
+  // Text colour is the status token itself (`text-success` etc.), not the
+  // `*-foreground` contrast-on-solid pair — the chip background is a 12% tint,
+  // so the solid-fill foreground would be near-invisible on it.
   const tone =
     status === "passed"
-      ? "bg-success/12 text-success-foreground border-success/24"
+      ? "bg-success/12 text-success border-success/24"
       : status === "failed" || status === "timedout"
-        ? "bg-destructive/12 text-destructive-foreground border-destructive/24"
+        ? "bg-destructive/12 text-destructive border-destructive/24"
         : status === "flaky"
-          ? "bg-warning/12 text-warning-foreground border-warning/24"
+          ? "bg-warning/12 text-warning border-warning/24"
           : "bg-muted text-muted-foreground border-border";
   return (
     <span

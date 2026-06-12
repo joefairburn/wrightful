@@ -9,15 +9,17 @@ import { startDevServerForSeed } from "./lib/dev-server.mjs";
 // Local-dev bootstrap.
 //
 // Flow:
-//   1. Create `.env.local` if missing (with a random BETTER_AUTH_SECRET and
-//      ALLOW_OPEN_SIGNUP=true enabled so the seed can call /api/auth/sign-up).
+//   1. Create `.env.local` if missing (with a random BETTER_AUTH_SECRET,
+//      ALLOW_OPEN_SIGNUP=true so the seed can call /api/auth/sign-up, and
+//      WRIGHTFUL_MONITOR_EXECUTOR=stub so seeded monitors run without Docker).
 //   2. `void db reset` — wipe the local D1 and reapply migrations. Without
 //      this, Void's migration runner refuses to start if the database has
 //      tables created outside its tracking (e.g. Better Auth bootstrapped
 //      `account/session/user/verification` on a prior run).
 //   3. Start `vp dev` and wait for the worker to respond.
 //   4. Run `seed-demo.mjs` against the running server. It signs up via
-//      void auth's HTTP API, creates team + project, mints an API key.
+//      void auth's HTTP API, creates team + project, mints an API key, and
+//      seeds a few example synthetic monitors.
 //   5. Optionally upload Playwright fixture data via the API key.
 //   6. Optionally synthesize months of run history.
 
@@ -91,14 +93,55 @@ function ensureOpenSignup(text) {
   return { text: `${text}${sep}ALLOW_OPEN_SIGNUP=true\n`, changed: true };
 }
 
+/**
+ * Ensure `WRIGHTFUL_MONITOR_EXECUTOR=stub` is set in the given `.env.local`
+ * text. The dashboard defaults this to `sandbox` (a Void Sandbox container),
+ * but `vp dev` runs with `dev.enable_containers=false` (wrangler.jsonc), so the
+ * only executor that can actually run a seeded monitor locally is the in-process
+ * stub. Without this, a scheduled monitor errors at execution time in local dev.
+ *
+ * Only adds the key when it's absent or commented — an explicit user value
+ * (e.g. they're testing the sandbox path) is left untouched.
+ *
+ * @param {string} text
+ * @returns {{ text: string, changed: boolean }}
+ */
+function ensureMonitorExecutor(text) {
+  // Already set to some explicit value, uncommented — leave it.
+  if (/^\s*WRIGHTFUL_MONITOR_EXECUTOR=\S+\s*$/m.test(text)) {
+    return { text, changed: false };
+  }
+  // Commented-out variant — uncomment and normalize to `stub`.
+  if (/^#\s*WRIGHTFUL_MONITOR_EXECUTOR=.*$/m.test(text)) {
+    return {
+      text: text.replace(
+        /^#\s*WRIGHTFUL_MONITOR_EXECUTOR=.*$/m,
+        "WRIGHTFUL_MONITOR_EXECUTOR=stub",
+      ),
+      changed: true,
+    };
+  }
+  // Missing entirely — append.
+  const sep = text.endsWith("\n") ? "" : "\n";
+  return {
+    text: `${text}${sep}WRIGHTFUL_MONITOR_EXECUTOR=stub\n`,
+    changed: true,
+  };
+}
+
 if (existsSync(envUrl)) {
   const current = readFileSync(envUrl, "utf8");
-  const { text: updated, changed } = ensureOpenSignup(current);
-  if (changed) {
-    writeFileSync(envUrl, updated);
+  const signup = ensureOpenSignup(current);
+  const executor = ensureMonitorExecutor(signup.text);
+  if (signup.changed || executor.changed) {
+    writeFileSync(envUrl, executor.text);
+    const added = [
+      signup.changed && "ALLOW_OPEN_SIGNUP=true",
+      executor.changed && "WRIGHTFUL_MONITOR_EXECUTOR=stub",
+    ].filter(Boolean);
     console.log(
       `${stageLabel("updating .env.local…")}${pc.yellow(
-        "added ALLOW_OPEN_SIGNUP=true",
+        `added ${added.join(", ")}`,
       )}`,
     );
   } else {
@@ -117,7 +160,8 @@ if (existsSync(envUrl)) {
     randomSecret(),
   );
   const { text: withSignup } = ensureOpenSignup(filled);
-  writeFileSync(envUrl, withSignup);
+  const { text: withExecutor } = ensureMonitorExecutor(withSignup);
+  writeFileSync(envUrl, withExecutor);
   console.log(`${stageLabel("creating .env.local…")}${pc.green("done")}`);
 }
 
@@ -284,4 +328,7 @@ console.log("");
 console.log(pc.green("✓ setup complete"));
 console.log(`  ${pc.dim("dashboard:")} ${baseUrl}`);
 console.log(`  ${pc.dim("sign in:  ")} demo@wrightful.local / demo1234`);
+console.log(
+  `  ${pc.dim("monitors: ")} seeded — open Monitors in the demo project`,
+);
 console.log(`  ${pc.dim("run:      ")} ${pc.cyan("pnpm dev")}`);

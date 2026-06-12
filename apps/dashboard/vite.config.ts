@@ -23,9 +23,11 @@ const isTest = process.env.VITEST === "true" || process.argv.includes("test");
 // one bundle, so this single value is identical on both sides — exactly what the
 // DO-to-DO room-publish gate needs (it only proves "same deployment"), with zero
 // secret to provision and automatic rotation per deploy. Computed once per build
-// process, so the worker + DO code agree. Omitted under test — `resolveInternal
-// Secret` falls back to BETTER_AUTH_SECRET there. It's only referenced by
-// server-only modules, so it never lands in the client bundle.
+// process, so the worker + DO code agree. Omitted under test — there,
+// `resolveInternalSecret` requires an explicit REALTIME_INTERNAL_SECRET and
+// THROWS without one (never falls back to BETTER_AUTH_SECRET); callers treat
+// that as non-fatal. It's only referenced by server-only modules, so it never
+// lands in the client bundle.
 const buildInternalSecret = randomBytes(32).toString("base64url");
 
 export default defineConfig({
@@ -70,7 +72,7 @@ export default defineConfig({
     ? [tailwindcss()]
     : [voidPlugin(), voidReact(), tailwindcss()],
   // Bake the per-build internal-RPC secret into the (server) bundle. Under test
-  // we omit it so the resolver's BETTER_AUTH_SECRET fallback is exercised.
+  // we omit it so the resolver's no-secret THROW path is exercised.
   define: isTest
     ? {}
     : { __WRIGHTFUL_INTERNAL_SECRET__: JSON.stringify(buildInternalSecret) },

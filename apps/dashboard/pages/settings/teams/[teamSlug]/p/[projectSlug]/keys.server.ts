@@ -1,6 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { and, db, desc, eq, isNull, ne } from "void/db";
-import { apiKeys, projects, type ApiKey } from "@schema";
+import { apiKeys, projects } from "@schema";
+import { deleteProjectArtifactObjects } from "@/lib/artifacts";
 import { readField } from "@/lib/form";
 import { runBatch } from "@/lib/db-batch";
 import {
@@ -31,8 +32,18 @@ export const loader = defineHandler(async (c) => {
   const generalError = url.searchParams.get("generalError");
   const dangerError = url.searchParams.get("dangerError");
 
+  // Explicit column list: loader props serialize into the page payload, and a
+  // bare `select()` would ship every key's `keyHash` to the browser. The hash
+  // isn't invertible, but it has no business in client-visible props.
   const keys = await db
-    .select()
+    .select({
+      id: apiKeys.id,
+      label: apiKeys.label,
+      keyPrefix: apiKeys.keyPrefix,
+      createdAt: apiKeys.createdAt,
+      lastUsedAt: apiKeys.lastUsedAt,
+      revokedAt: apiKeys.revokedAt,
+    })
     .from(apiKeys)
     .where(eq(apiKeys.projectId, project.id))
     .orderBy(desc(apiKeys.createdAt));
@@ -45,7 +56,7 @@ export const loader = defineHandler(async (c) => {
       name: project.name,
       teamSlug: project.teamSlug,
     },
-    keys: keys as ApiKey[],
+    keys,
     generalError,
     dangerError,
   };
@@ -164,6 +175,22 @@ export const actions = {
         "Could not delete project — please try again.",
       );
     }
+
+    // Best-effort R2 byte cleanup AFTER the authoritative row deletion, via
+    // waitUntil so the sweep (up to ~200 R2 subrequests) never blocks the
+    // user's redirect. A failure must not resurrect the project in the user's
+    // eyes — log it and move on (the orphaned objects are unreferenced and
+    // unguessable).
+    c.executionCtx.waitUntil(
+      deleteProjectArtifactObjects(project.teamId, project.id).catch(
+        (err: unknown) => {
+          logger.error("project artifact R2 sweep failed", {
+            projectId: project.id,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        },
+      ),
+    );
 
     return c.redirect(`/settings/teams/${project.teamSlug}`);
   }),

@@ -45,7 +45,7 @@ Results appear in the dashboard live as tests complete. Shards converge on a sin
 
 ```bash
 pnpm install
-pnpm setup:local                                # .env.local + demo team/project/API key (over HTTP)
+pnpm setup:local                                # .env.local + demo team/project/API key + example monitors
 pnpm dev                                        # dashboard on localhost:5173
 
 # Need additional API keys for local testing? Mint them from the dashboard

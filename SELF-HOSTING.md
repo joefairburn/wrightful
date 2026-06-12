@@ -158,6 +158,7 @@ Every key is declared and validated in `apps/dashboard/env.ts`. For local dev, c
 - `AUTH_GITHUB_CLIENT_ID` / `AUTH_GITHUB_CLIENT_SECRET` — enable "Continue with GitHub". Register an [OAuth app](https://github.com/settings/developers) with callback `${WRIGHTFUL_PUBLIC_URL}/api/auth/callback/github`. Both must be set or the button stays hidden.
 - `ALLOW_OPEN_SIGNUP` (`true`/`false`, default `false`) — allow anyone to register. Off by default because email verification isn't wired up yet; leave off for public instances and add users via invites.
 - `ARTIFACT_TOKEN_SECRET` — optional dedicated signer for the short-lived artifact-download tokens. Defaults to `BETTER_AUTH_SECRET`; set a separate value to revoke leaked artifact links by rotating it, without invalidating every user session.
+- `REALTIME_INTERNAL_SECRET` — pins the secret that authenticates the dashboard's internal realtime broadcasts (ingest worker → WebSocket room). Defaults to a fresh random value baked into each build; see [Production notes](#production-notes) for why you may want to pin it.
 
 | Name                           | Required? | Default              | Purpose                                                                                                                |
 | ------------------------------ | --------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -170,6 +171,17 @@ Every key is declared and validated in `apps/dashboard/env.ts`. For local dev, c
 | `WRIGHTFUL_MAX_ARTIFACT_BYTES` | No        | 50 MiB               | Per-artifact upload size cap.                                                                                          |
 | `WRIGHTFUL_RUN_STALE_MINUTES`  | No        | 30                   | How long a run can sit `running` before the cron watchdog interrupts it.                                               |
 | `WRIGHTFUL_SWEEP_BATCH_SIZE`   | No        | 200                  | Max stale runs the watchdog finalizes per cron invocation.                                                             |
+| `REALTIME_INTERNAL_SECRET`     | No        | per-build random     | Pins the internal realtime-broadcast secret across deploys. 32+ random bytes.                                          |
+
+---
+
+## Production notes
+
+**Pin `REALTIME_INTERNAL_SECRET`** — the worker authenticates its internal realtime broadcasts (run/project live updates) with a secret that, by default, is a fresh random value baked into each build. During a rolling deploy, the old and new versions briefly hold different secrets, so cross-version broadcasts are rejected (a logged 403). This is non-fatal — the data is already in the database and live views catch up on reload — but if you deploy often and care about uninterrupted live updates, set a stable value once: `openssl rand -base64 32 | wrangler secret put REALTIME_INTERNAL_SECRET` (or `void secret put` on the Void path).
+
+**Rate limiting needs a trusted client-IP header** — the auth/API rate limiters key unauthenticated requests by `CF-Connecting-IP`, falling back to the first hop of `X-Forwarded-For`. When the Worker runs on Cloudflare (both deploy paths above), `CF-Connecting-IP` is always set by the edge and cannot be spoofed. If you front the instance with anything else — or proxy to it through your own infrastructure — note that `X-Forwarded-For` is client-controlled: a sender can rotate it freely to dodge per-IP limits. Make sure your edge sets `CF-Connecting-IP` (or strips and rewrites `X-Forwarded-For`) from the real client address before the request reaches the Worker.
+
+**What "closed signup" actually closes** — with `ALLOW_OPEN_SIGNUP=false`, email/password registration is disabled, but GitHub OAuth sign-in (when configured) can still create accounts. That is deliberate: invites don't create accounts, so OAuth signup is how an invited teammate gets one on a closed instance. The resource boundary is enforced one step later — a self-registered account with no team membership cannot **create a team** (and therefore can't reach projects, API keys, or synthetic monitors). The only exception is a fresh instance with zero teams, so the first user — you — can bootstrap. Existing members can always create additional teams.
 
 ---
 

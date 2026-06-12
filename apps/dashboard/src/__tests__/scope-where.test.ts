@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EMPTY_FILTERS } from "@/lib/runs-filters";
 import { scopedRunsWhere } from "@/lib/runs-filters-where";
 import {
+  ciRunsScopeWhere,
   makeTenantScope,
   runByIdWhere,
   runScopeWhere,
@@ -73,6 +74,45 @@ describe("runScopeWhere", () => {
   });
 });
 
+/**
+ * `ciRunsScopeWhere` = `runScopeWhere` + the CI-analytics policy clause
+ * (`runs.origin <> 'synthetic'`). The Drizzle-side home for "this aggregate
+ * reads CI history, not monitor traffic" — insights KPIs/buckets, suite-size
+ * trend, branch filter options. Pinned separately from `runScopeWhere`, which
+ * must NOT grow the clause: run-detail-by-id paths still see synthetic runs.
+ */
+describe("ciRunsScopeWhere", () => {
+  it("ANDs the full runScopeWhere pair with the origin exclusion — exactly two children", () => {
+    const op = ciRunsScopeWhere(scope) as unknown as RecordedOp;
+    expect(op.__op).toBe("and");
+    expect(op.args).toHaveLength(2);
+    // First child IS the runScopeWhere predicate (teamId + projectId), so the
+    // tenant boundary can't be weakened by the analytics variant.
+    expect(readAndPairs(op.args[0])).toEqual({
+      teamId: "team_abc",
+      projectId: "proj_xyz",
+    });
+  });
+
+  it("excludes synthetic monitor runs via ne(origin, 'synthetic') — not eq(origin, 'ci')", () => {
+    // `ne` is load-bearing: a future origin value defaults to counting as
+    // CI-like; only monitor traffic is carved out of the analytics surfaces.
+    const op = ciRunsScopeWhere(scope) as unknown as RecordedOp;
+    const neOp = op.args[1] as RecordedOp;
+    expect(neOp.__op).toBe("ne");
+    expect((neOp.args[0] as RecordedColumn)?.name).toBe("origin");
+    expect(neOp.args[1]).toBe("synthetic");
+  });
+
+  it("leaves runScopeWhere itself untouched (no origin clause leaks into it)", () => {
+    const op = runScopeWhere(scope) as unknown as RecordedOp;
+    expect(op.args).toHaveLength(2);
+    for (const child of op.args) {
+      expect((child as RecordedOp).__op).toBe("eq");
+    }
+  });
+});
+
 describe("runByIdWhere", () => {
   it("ANDs projectId and the run id", () => {
     const pairs = readAndPairs(runByIdWhere(scope, "run_123"));
@@ -92,8 +132,29 @@ describe("runByIdWhere", () => {
 
 describe("scopedRunsWhere", () => {
   it("delegates the scope half to runScopeWhere (teamId + projectId)", () => {
-    // With no active filters, the result IS the scope predicate.
-    const pairs = readAndPairs(scopedRunsWhere(scope, EMPTY_FILTERS));
+    // EMPTY_FILTERS now carries the default origin=ci exclusion, so the
+    // result is and(scopeClause, originClause) — the scope predicate is the
+    // first child rather than the whole expression.
+    const op = scopedRunsWhere(scope, EMPTY_FILTERS) as unknown as RecordedOp;
+    expect(op.__op).toBe("and");
+    expect(readAndPairs(op.args[0])).toEqual({
+      teamId: "team_abc",
+      projectId: "proj_xyz",
+    });
+  });
+
+  it("applies the default synthetic-traffic exclusion even with no user filters", () => {
+    const op = scopedRunsWhere(scope, EMPTY_FILTERS) as unknown as RecordedOp;
+    expect(op.args).toHaveLength(2);
+    expect(readEq(op.args[1])).toEqual({ column: "origin", value: "ci" });
+  });
+
+  it("collapses to the bare scope predicate when origin=all and nothing else filters", () => {
+    // With every filter cleared INCLUDING origin, the result IS the scope
+    // predicate — pinning that no phantom clause sneaks in.
+    const pairs = readAndPairs(
+      scopedRunsWhere(scope, { ...EMPTY_FILTERS, origin: "all" }),
+    );
     expect(pairs).toEqual({
       teamId: "team_abc",
       projectId: "proj_xyz",

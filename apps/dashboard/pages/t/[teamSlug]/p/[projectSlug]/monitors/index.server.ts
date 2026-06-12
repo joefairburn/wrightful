@@ -6,12 +6,12 @@ import {
   listRecentExecutionsByMonitor,
 } from "@/lib/monitors/monitors-repo";
 import { requireTenantContext } from "@/lib/tenant-context";
-import { uptimeFromExecutions } from "./monitors-ui.shared";
+import {
+  RECENT_EXECUTION_WINDOW,
+  uptimeFromExecutions,
+} from "./monitors-ui.shared";
 
 export type Props = InferProps<typeof loader>;
-
-/** How many recent executions feed each row's `ExecStrip` + 24h uptime. */
-const RECENT_EXECUTION_WINDOW = 24;
 
 /**
  * Monitors list loader. Active project comes from `middleware/01.context.ts`
@@ -44,7 +44,10 @@ export const loader = defineHandler(async (c) => {
   );
 
   const enriched = monitors.map((m) => {
+    // `id` rides along so the live reducer can dedupe a redelivered settle and
+    // React can key the strip; `ExecStrip` itself only reads `state`.
     const executions = (executionsByMonitor.get(m.id) ?? []).map((e) => ({
+      id: e.id,
       state: e.state,
       runId: e.runId,
       createdAt: e.createdAt,
@@ -64,6 +67,8 @@ export const loader = defineHandler(async (c) => {
 
   return {
     project: {
+      // `id` is the `void/ws` room key the list island subscribes against.
+      id: project.id,
       slug: project.slug,
       name: project.name,
       teamSlug: project.teamSlug,

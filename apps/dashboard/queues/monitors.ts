@@ -10,6 +10,7 @@ import {
   recordExecutionResult,
 } from "@/lib/monitors/monitors-repo";
 import type { MonitorJob } from "@/lib/monitors/types";
+import { broadcastProjectRoom } from "@/realtime/publish";
 
 /**
  * The `"monitors"` queue consumer — the system-internal half of synthetic
@@ -32,12 +33,15 @@ import type { MonitorJob } from "@/lib/monitors/types";
  */
 
 /**
- * Drain at most 5 jobs per delivery. Each job may launch a multi-minute
- * container, so a small batch keeps a single consumer invocation's wall-clock
- * and concurrent-container footprint bounded — the per-project monitor cap and
- * the sweep's `.limit` budget already bound the total backlog upstream.
+ * One job per delivery. Jobs run SERIALLY inside a consumer invocation and each
+ * may hold a container for up to `WRIGHTFUL_MONITOR_MAX_DURATION_SECONDS`
+ * (default 5 min) — a batch of N multiplies that wall-clock, and anything above
+ * ~3 would push a full batch past the queue consumer's 15-minute invocation
+ * bound, killing later messages through no fault of their own. Per-invocation
+ * concurrency comes from Cloudflare scaling consumer invocations, not from
+ * batching.
  */
-export const maxBatchSize = 5;
+export const maxBatchSize = 1;
 
 /**
  * Retry an infra-failed job at most twice (3 deliveries total) before the
@@ -50,6 +54,17 @@ export const maxBatchSize = 5;
  */
 export const maxRetries = 2;
 
+/**
+ * Seconds between redeliveries — both the consumer-level default and the
+ * explicit `delaySeconds` passed to every `message.retry()` below. Infra
+ * errors here are capacity denials (`SandboxLimitError`) or transient
+ * transport/DB failures; with the platform default of 0 a redelivery lands
+ * milliseconds later against the same exhausted budget, burning all
+ * `maxRetries` within seconds and dead-lettering a job a moment of breathing
+ * room would have saved.
+ */
+export const retryDelay = 30;
+
 export default defineQueue<MonitorJob>(async (batch) => {
   const executor = resolveExecutor(env.WRIGHTFUL_MONITOR_EXECUTOR);
   const deps = {
@@ -59,13 +74,16 @@ export default defineQueue<MonitorJob>(async (batch) => {
     recordResult: recordExecutionResult,
     executor,
     now: () => Math.floor(Date.now() / 1000),
+    // Settle events to the project room drive the live monitors list. Same
+    // DO-to-DO publish path the ingest pipeline uses; non-fatal by design.
+    broadcast: broadcastProjectRoom,
   };
 
   for (const message of batch.messages) {
     try {
       const { action } = await runMonitorJob(message.body, deps);
       if (action === "retry") {
-        message.retry();
+        message.retry({ delaySeconds: retryDelay });
       } else {
         message.ack();
       }
@@ -79,7 +97,7 @@ export default defineQueue<MonitorJob>(async (batch) => {
         attempts: message.attempts,
         message: err instanceof Error ? err.message : String(err),
       });
-      message.retry();
+      message.retry({ delaySeconds: retryDelay });
     }
   }
 });

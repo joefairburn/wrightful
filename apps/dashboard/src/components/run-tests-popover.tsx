@@ -129,7 +129,7 @@ export function RunTestsPopover({
                       {item.file}
                     </div>
                     {variant === "failed" && item.errorMessage ? (
-                      <div className="mt-1 font-mono text-[11px] text-destructive-foreground/80 line-clamp-2">
+                      <div className="mt-1 font-mono text-[11px] text-destructive/80 line-clamp-2">
                         {item.errorMessage}
                       </div>
                     ) : null}

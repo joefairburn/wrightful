@@ -2,6 +2,7 @@ import { describe, it, expect } from "vite-plus/test";
 import {
   INTERNAL_HEADER,
   ROOM_CONNECTION_CAP,
+  isAllowedWsOrigin,
   isInternalRequest,
   resolveInternalSecret,
   roomAtCapacity,
@@ -9,9 +10,10 @@ import {
 
 /**
  * Pure server-side room guards behind the `void/ws` rooms: the internal-publish
- * secret (resolution + constant-time check) and the per-room connection cap.
- * These are the tenant-isolation + abuse backstops on the broadcast path, so
- * they're pinned here without a live socket.
+ * secret (resolution + constant-time check), the connect-time Origin allowlist,
+ * and the per-room connection cap. These are the tenant-isolation + abuse
+ * backstops on the broadcast/connect paths, so they're pinned here without a
+ * live socket.
  */
 
 describe("resolveInternalSecret", () => {
@@ -63,6 +65,114 @@ describe("isInternalRequest", () => {
 
   it("rejects a request with no internal header", () => {
     expect(isInternalRequest(reqWith(null), SECRET)).toBe(false);
+  });
+});
+
+describe("isAllowedWsOrigin", () => {
+  const PUBLIC_URL = "https://dashboard.example";
+  /** The host the upgrade request itself hit (its `Host` header). */
+  const HOST = "dashboard.example";
+
+  it("allows an upgrade with no Origin header (non-browser clients)", () => {
+    expect(isAllowedWsOrigin(null, HOST, PUBLIC_URL)).toBe(true);
+  });
+
+  it("allows the dashboard's own origin (matches both host and public URL)", () => {
+    expect(
+      isAllowedWsOrigin("https://dashboard.example", HOST, PUBLIC_URL),
+    ).toBe(true);
+  });
+
+  it("allows a same-origin upgrade on ANY host routed to the worker (workers.dev / second domain)", () => {
+    // The deployment is reachable on an origin that isn't WRIGHTFUL_PUBLIC_URL
+    // — the worker served the page AND the upgrade from the same host, so the
+    // browser's Origin equals the request's own Host. Must not 403 (this was
+    // the silent realtime blackout + 3s reconnect loop).
+    expect(
+      isAllowedWsOrigin(
+        "https://app.workers.dev",
+        "app.workers.dev",
+        PUBLIC_URL,
+      ),
+    ).toBe(true);
+    // Non-default port is part of `URL.host` and of the Host header alike.
+    expect(
+      isAllowedWsOrigin("http://localhost:5174", "localhost:5174", PUBLIC_URL),
+    ).toBe(true);
+  });
+
+  it("allows the public URL's origin even when the Host was rewritten (belt-and-braces)", () => {
+    expect(
+      isAllowedWsOrigin(
+        "https://dashboard.example",
+        "internal-proxy.local",
+        PUBLIC_URL,
+      ),
+    ).toBe(true);
+  });
+
+  it("falls back to the public URL when the request host is unavailable", () => {
+    expect(
+      isAllowedWsOrigin("https://dashboard.example", null, PUBLIC_URL),
+    ).toBe(true);
+    expect(isAllowedWsOrigin("https://evil.example", null, PUBLIC_URL)).toBe(
+      false,
+    );
+  });
+
+  it("ignores any path on the configured public URL (origin-only compare)", () => {
+    expect(
+      isAllowedWsOrigin(
+        "https://dashboard.example",
+        HOST,
+        "https://dashboard.example/some/base",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a cross-site origin (matches neither the host nor the public URL)", () => {
+    expect(isAllowedWsOrigin("https://evil.example", HOST, PUBLIC_URL)).toBe(
+      false,
+    );
+  });
+
+  it("rejects a port mismatch against both the host and the public URL", () => {
+    expect(
+      isAllowedWsOrigin("https://dashboard.example:8443", HOST, PUBLIC_URL),
+    ).toBe(false);
+  });
+
+  it("accepts a scheme mismatch only via the host branch (host is scheme-less), not the public URL branch", () => {
+    // Same host, different scheme: the Host header carries no scheme, so the
+    // same-origin host compare passes — matching the standard same-host WS
+    // check. The public-URL branch alone (no host) still requires the full
+    // origin tuple.
+    expect(
+      isAllowedWsOrigin("http://dashboard.example", HOST, PUBLIC_URL),
+    ).toBe(true);
+    expect(
+      isAllowedWsOrigin("http://dashboard.example", null, PUBLIC_URL),
+    ).toBe(false);
+  });
+
+  it("rejects an opaque/malformed Origin (including the literal 'null')", () => {
+    // Sandboxed iframes / data: pages send `Origin: null` — an opaque origin
+    // that can never equal the dashboard's, so it must reject even when a
+    // request host is present.
+    expect(isAllowedWsOrigin("null", HOST, PUBLIC_URL)).toBe(false);
+    expect(isAllowedWsOrigin("not a url", HOST, PUBLIC_URL)).toBe(false);
+  });
+
+  it("still honors the host match when the public URL itself is malformed", () => {
+    expect(
+      isAllowedWsOrigin("https://dashboard.example", HOST, "not a url"),
+    ).toBe(true);
+    expect(isAllowedWsOrigin("https://evil.example", HOST, "not a url")).toBe(
+      false,
+    );
+    expect(
+      isAllowedWsOrigin("https://dashboard.example", null, "not a url"),
+    ).toBe(false);
   });
 });
 

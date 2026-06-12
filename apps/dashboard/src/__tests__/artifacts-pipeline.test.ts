@@ -42,7 +42,14 @@ type BuilderNode = Record<string, unknown> & {
 function makeBuilder(kind: string): BuilderNode {
   const node = { __kind: kind } as BuilderNode;
   const chain = () => node;
-  for (const m of ["from", "set", "where", "limit", "values"] as const) {
+  for (const m of [
+    "from",
+    "innerJoin",
+    "set",
+    "where",
+    "limit",
+    "values",
+  ] as const) {
     node[m] = chain;
   }
   node.then = (onFulfilled?: (value: unknown) => unknown) => {
@@ -445,6 +452,19 @@ describe("registerArtifacts", () => {
     expect(result).toEqual({ kind: "runNotFound" });
   });
 
+  it("refuses registration against a terminal run idle past the grace window", async () => {
+    // The idempotent-reuse path returns OVERWRITE upload URLs, so an ungated
+    // register would let a leaked key replace historical artifact bytes.
+    awaitResults = [[{ id: "run-1", ...closedRun(NOW) }]];
+    const payload: RegisterArtifactsPayload = {
+      runId: "run-1",
+      artifacts: [artifact()],
+    };
+    const result = await registerArtifacts(scope, payload, MAX_BYTES, NOW);
+    expect(result).toEqual({ kind: "runClosed" });
+    expect(batchSpy).not.toHaveBeenCalled();
+  });
+
   it("returns unknownTestResults when a testResultId doesn't belong to the run", async () => {
     // [0] ownerRun SELECT → found; [1] testResults validation SELECT → empty.
     awaitResults = [[{ id: "run-1" }], []];
@@ -536,6 +556,17 @@ describe("registerArtifacts", () => {
 
 const fakeBody = new ReadableStream();
 
+/** An owning run the write-closure guard treats as open. */
+function openRun() {
+  return { status: "running", completedAt: null, lastActivityAt: null };
+}
+
+/** An owning run that is terminal AND idle past the write grace window. */
+function closedRun(base = Math.floor(Date.now() / 1000)) {
+  const stale = base - 10 * 24 * 3600;
+  return { status: "passed", completedAt: stale, lastActivityAt: stale };
+}
+
 describe("storeArtifactUpload", () => {
   it("returns notFound when no project-scoped row matches", async () => {
     awaitResults = [[]]; // row lookup → empty
@@ -544,15 +575,51 @@ describe("storeArtifactUpload", () => {
     expect(putSpy).not.toHaveBeenCalled();
   });
 
+  it("refuses byte uploads when the owning run is closed for writes", async () => {
+    // Artifact ids leak into dashboard URLs — without this gate a leaked API
+    // key could PUT replacement bytes over months-old artifacts.
+    awaitResults = [
+      [
+        {
+          r2Key: "k",
+          contentType: "image/png",
+          sizeBytes: 100,
+          run: closedRun(),
+        },
+      ],
+    ];
+    const result = await storeArtifactUpload(scope, "art-1", fakeBody, 100);
+    expect(result).toEqual({ kind: "runClosed" });
+    expect(putSpy).not.toHaveBeenCalled();
+  });
+
   it("requires a Content-Length", async () => {
-    awaitResults = [[{ r2Key: "k", contentType: "image/png", sizeBytes: 100 }]];
+    awaitResults = [
+      [
+        {
+          r2Key: "k",
+          contentType: "image/png",
+          sizeBytes: 100,
+          run: openRun(),
+        },
+      ],
+    ];
     const result = await storeArtifactUpload(scope, "art-1", fakeBody, null);
     expect(result).toEqual({ kind: "lengthRequired" });
     expect(putSpy).not.toHaveBeenCalled();
   });
 
   it("rejects a Content-Length that doesn't match the registered sizeBytes", async () => {
-    awaitResults = [[{ r2Key: "k", contentType: "image/png", sizeBytes: 100 }]];
+    awaitResults = [
+      [
+        {
+          r2Key: "k",
+          contentType: "image/png",
+          sizeBytes: 100,
+          run: openRun(),
+        },
+      ],
+    ];
     const result = await storeArtifactUpload(scope, "art-1", fakeBody, 99);
     expect(result).toEqual({
       kind: "lengthMismatch",
@@ -563,7 +630,16 @@ describe("storeArtifactUpload", () => {
   });
 
   it("requires a body once length checks pass", async () => {
-    awaitResults = [[{ r2Key: "k", contentType: "image/png", sizeBytes: 100 }]];
+    awaitResults = [
+      [
+        {
+          r2Key: "k",
+          contentType: "image/png",
+          sizeBytes: 100,
+          run: openRun(),
+        },
+      ],
+    ];
     const result = await storeArtifactUpload(scope, "art-1", null, 100);
     expect(result).toEqual({ kind: "bodyRequired" });
     expect(putSpy).not.toHaveBeenCalled();
@@ -571,7 +647,14 @@ describe("storeArtifactUpload", () => {
 
   it("puts the body into R2 with a sanitized content-type on the happy path", async () => {
     awaitResults = [
-      [{ r2Key: "the/key", contentType: "image/png", sizeBytes: 100 }],
+      [
+        {
+          r2Key: "the/key",
+          contentType: "image/png",
+          sizeBytes: 100,
+          run: openRun(),
+        },
+      ],
     ];
     const result = await storeArtifactUpload(scope, "art-1", fakeBody, 100);
     expect(result).toEqual({ kind: "ok" });
@@ -582,7 +665,14 @@ describe("storeArtifactUpload", () => {
 
   it("normalizes an unsafe stored content-type before serving it to R2", async () => {
     awaitResults = [
-      [{ r2Key: "the/key", contentType: "text/html", sizeBytes: 100 }],
+      [
+        {
+          r2Key: "the/key",
+          contentType: "text/html",
+          sizeBytes: 100,
+          run: openRun(),
+        },
+      ],
     ];
     await storeArtifactUpload(scope, "art-1", fakeBody, 100);
     expect(putSpy).toHaveBeenCalledWith("the/key", fakeBody, {
@@ -590,10 +680,24 @@ describe("storeArtifactUpload", () => {
     });
   });
 
-  it("maps an R2 write failure to a storageError result", async () => {
-    awaitResults = [[{ r2Key: "k", contentType: "image/png", sizeBytes: 100 }]];
+  it("maps an R2 write failure to a GENERIC storageError (raw infra text stays server-side)", async () => {
+    awaitResults = [
+      [
+        {
+          r2Key: "k",
+          contentType: "image/png",
+          sizeBytes: 100,
+          run: openRun(),
+        },
+      ],
+    ];
     putSpy.mockRejectedValueOnce(new Error("R2 down"));
     const result = await storeArtifactUpload(scope, "art-1", fakeBody, 100);
-    expect(result).toEqual({ kind: "storageError", message: "R2 down" });
+    // The raw R2 exception ("R2 down") is logged for Cloudflare Tail but must
+    // NOT echo to the client — infra error text is not API surface.
+    expect(result).toEqual({
+      kind: "storageError",
+      message: "Artifact storage write failed",
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "@void/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import {
   SegmentedControl,
@@ -75,13 +75,21 @@ export function RunProgress({
     [tests, search, statusFilter, groupBy],
   );
 
-  // Auto-expand the worst-status groups on first render. Tracks separately so
-  // user toggles after the first interaction stick around.
+  // Auto-expand the worst-status groups ONCE. Tracks separately so user
+  // toggles after the first interaction stick around. When seeded non-empty
+  // (terminal run / reload mid-run) this fires on first render, as before.
+  // When seeded EMPTY (live run viewed from the start), don't latch on the
+  // first arriving test — a single all-passing group would consume the latch
+  // and later failed groups would never auto-expand. Instead wait for the
+  // first failed/flaky-bucket test to appear, then expand the worst groups.
+  const seededNonEmpty = useRef((initialTests?.length ?? 0) > 0);
   useEffect(() => {
     if (didAutoExpand || groups.length === 0) return;
+    const hasBadGroup = statusCounts.failed > 0 || statusCounts.flaky > 0;
+    if (!seededNonEmpty.current && !hasBadGroup) return;
     setExpanded(suggestedExpanded);
     setDidAutoExpand(true);
-  }, [groups, suggestedExpanded, didAutoExpand]);
+  }, [groups, statusCounts, suggestedExpanded, didAutoExpand]);
 
   function toggleGroup(key: string) {
     setExpanded((prev) => {

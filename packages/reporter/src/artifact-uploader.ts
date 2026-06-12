@@ -1,4 +1,4 @@
-import type { StreamClient } from "./client.js";
+import { RegisterArtifactsError, type StreamClient } from "./client.js";
 import type { PreparedArtifact } from "./index.js";
 import type {
   ArtifactRegistration,
@@ -70,29 +70,31 @@ export function correlateUploads(
 }
 
 /**
- * Run `task(i)` for every index `0..length-1` with at most `concurrency`
- * tasks in flight at once. Workers pull the next index off a shared counter,
- * so a slow task can't stall the others. Resolves once every index settles;
- * task rejections are the caller's responsibility (the artifact PUT path
- * swallows + counts its own failures, so `task` never throws here).
+ * Counting semaphore: at most `limit` holders at once; waiters are released
+ * FIFO. Held by {@link ArtifactUploader} at instance level so the PUT
+ * concurrency cap is global across overlapping `upload()` calls — a per-call
+ * cap would let k in-flight batches stack to k × limit concurrent PUTs.
  */
-export async function runWithConcurrency(
-  length: number,
-  concurrency: number,
-  task: (index: number) => Promise<void>,
-): Promise<void> {
-  if (length <= 0) return;
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (true) {
-      const i = next++;
-      if (i >= length) return;
-      await task(i);
+export class Semaphore {
+  private active = 0;
+  private waiters: Array<() => void> = [];
+
+  constructor(private limit: number) {}
+
+  async acquire(): Promise<void> {
+    if (this.active < this.limit) {
+      this.active++;
+      return;
     }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, length) }, () => worker()),
-  );
+    await new Promise<void>((resolve) => this.waiters.push(resolve));
+  }
+
+  release(): void {
+    const next = this.waiters.shift();
+    // Hand the slot straight to the next waiter (active count unchanged).
+    if (next) next();
+    else this.active--;
+  }
 }
 
 /** Counts returned by {@link ArtifactUploader.upload}. */
@@ -111,11 +113,16 @@ const DEFAULT_ARTIFACT_UPLOAD_CONCURRENCY = 4;
  * routes it to stderr; tests can assert on it.
  */
 export class ArtifactUploader {
+  /** Instance-level so the cap holds globally across overlapping batches. */
+  private semaphore: Semaphore;
+
   constructor(
     private client: Pick<StreamClient, "registerArtifacts" | "uploadArtifact">,
     private onWarn: (message: string) => void = () => {},
-    private concurrency: number = DEFAULT_ARTIFACT_UPLOAD_CONCURRENCY,
-  ) {}
+    concurrency: number = DEFAULT_ARTIFACT_UPLOAD_CONCURRENCY,
+  ) {
+    this.semaphore = new Semaphore(concurrency);
+  }
 
   async upload(
     runId: string,
@@ -125,36 +132,77 @@ export class ArtifactUploader {
     const { registrations, locals } = correlateUploads(batch, mapping);
     if (registrations.length === 0) return { ok: 0, failed: 0 };
 
+    let toRegister = registrations;
+    let toUpload = locals;
+    let dropped = 0;
+
     let uploads: ArtifactUpload[];
     try {
-      uploads = await this.client.registerArtifacts(runId, registrations);
+      uploads = await this.client.registerArtifacts(runId, toRegister);
     } catch (err) {
-      this.onWarn(
-        `artifact register failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return { ok: 0, failed: registrations.length };
+      // A 413 rejects the whole register payload over individual oversized
+      // files. Recoverable: drop the offenders (warn per file) and retry the
+      // remainder exactly once. Anything else fails the batch as before.
+      const maxBytes =
+        err instanceof RegisterArtifactsError && err.status === 413
+          ? err.maxBytes
+          : null;
+      if (maxBytes === null) {
+        this.onWarn(
+          `artifact register failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return { ok: 0, failed: registrations.length };
+      }
+      const keptRegistrations: ArtifactRegistration[] = [];
+      const keptLocals: PreparedArtifact[] = [];
+      for (let i = 0; i < toRegister.length; i++) {
+        if (toRegister[i].sizeBytes > maxBytes) {
+          dropped++;
+          this.onWarn(
+            `artifact dropped (${toRegister[i].name}): ${toRegister[i].sizeBytes} bytes exceeds the server's ${maxBytes}-byte limit`,
+          );
+        } else {
+          keptRegistrations.push(toRegister[i]);
+          keptLocals.push(toUpload[i]);
+        }
+      }
+      toRegister = keptRegistrations;
+      toUpload = keptLocals;
+      if (toRegister.length === 0) return { ok: 0, failed: dropped };
+      try {
+        uploads = await this.client.registerArtifacts(runId, toRegister);
+      } catch (retryErr) {
+        this.onWarn(
+          `artifact register failed: ${retryErr instanceof Error ? retryErr.message : String(retryErr)}`,
+        );
+        return { ok: 0, failed: registrations.length };
+      }
     }
 
-    const result: UploadResult = { ok: 0, failed: 0 };
-    await runWithConcurrency(uploads.length, this.concurrency, async (i) => {
-      const upload = uploads[i];
-      const local = locals[i];
-      if (!upload || !local) return;
-      try {
-        await this.client.uploadArtifact(
-          upload.uploadUrl,
-          local.localPath,
-          local.contentType,
-          local.sizeBytes,
-        );
-        result.ok++;
-      } catch (err) {
-        result.failed++;
-        this.onWarn(
-          `artifact PUT failed (${local.name}): ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    });
+    const result: UploadResult = { ok: 0, failed: dropped };
+    await Promise.all(
+      uploads.map(async (upload, i) => {
+        const local = toUpload[i];
+        if (!upload || !local) return;
+        await this.semaphore.acquire();
+        try {
+          await this.client.uploadArtifact(
+            upload.uploadUrl,
+            local.localPath,
+            local.contentType,
+            local.sizeBytes,
+          );
+          result.ok++;
+        } catch (err) {
+          result.failed++;
+          this.onWarn(
+            `artifact PUT failed (${local.name}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        } finally {
+          this.semaphore.release();
+        }
+      }),
+    );
     return result;
   }
 }

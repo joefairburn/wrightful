@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { and, asc, db, eq, lte } from "void/db";
+import { and, asc, db, eq, lte, sql } from "void/db";
 import { monitorExecutions, monitors } from "@schema";
 import type { Monitor } from "@schema";
 import { runBatch } from "@/lib/db-batch";
@@ -89,6 +89,29 @@ export function planMonitorSweep(
 }
 
 /**
+ * The sweep SELECT's WHERE — exported pure (no `db`, just operators over the
+ * schema tables) so the overlap-suppression predicate is unit-testable.
+ *
+ * A monitor is due when it is enabled, `nextRunAt` has passed, AND it has no
+ * execution still in flight (`queued`/`running`). Without the NOT EXISTS, a
+ * monitor whose checks run longer than its interval (60s interval, 300s check)
+ * stacks one new container per tick forever, starving other tenants of the
+ * shared `maxInstances` budget. Skipped monitors deliberately do NOT advance
+ * `nextRunAt`: the past-due value keeps them due, so the tick after the
+ * in-flight execution settles picks them straight back up (then re-arms
+ * `nextRunAt` as usual). No monitor can starve permanently — the stale-execution
+ * reaper (`sweepStaleExecutions`) bounds how long any execution can sit
+ * non-terminal, which bounds how long the NOT EXISTS can suppress.
+ */
+export function dueMonitorsWhere(now: number) {
+  return and(
+    eq(monitors.enabled, 1),
+    lte(monitors.nextRunAt, now),
+    sql`not exists (select 1 from ${monitorExecutions} where ${monitorExecutions.monitorId} = ${monitors.id} and ${monitorExecutions.state} in ('queued', 'running'))`,
+  );
+}
+
+/**
  * Max jobs enqueued concurrently per `allSettled` wave — the enqueue-side twin
  * of `STALE_RUN_FINALIZE_CONCURRENCY`. Each `enqueue` is one queue-send
  * subrequest; bounding in-flight sends keeps a large due slice from opening the
@@ -98,7 +121,8 @@ export function planMonitorSweep(
 const MONITOR_ENQUEUE_CONCURRENCY = 10;
 
 /**
- * Sweep entry point: select up to `limit` enabled, due monitors, plan their
+ * Sweep entry point: select up to `limit` enabled, due monitors (skipping any
+ * with an execution still in flight — see {@link dueMonitorsWhere}), plan their
  * executions + re-arm, persist BOTH in one atomic D1 batch, then enqueue each
  * job with bounded concurrency. Returns `{ found, enqueued }`.
  *
@@ -126,7 +150,7 @@ export async function sweepDueMonitors(opts: {
   const due = await db
     .select()
     .from(monitors)
-    .where(and(eq(monitors.enabled, 1), lte(monitors.nextRunAt, opts.now)))
+    .where(dueMonitorsWhere(opts.now))
     .orderBy(asc(monitors.nextRunAt))
     .limit(opts.limit);
 
