@@ -17,9 +17,10 @@ export const ROOM_CONNECTION_CAP = 256;
  * bundle, so this single value is identical on both sides — it authenticates the
  * DO-to-DO publish POST with zero config and auto-rotates per deploy, decoupled
  * from the session-signing secret. Absent under test/dev-without-build (the
- * `typeof` guard keeps the undeclared-global read safe), where the resolver falls
- * back to `BETTER_AUTH_SECRET`. Read only here (a server-only module), so it
- * never reaches the client bundle.
+ * `typeof` guard keeps the undeclared-global read safe); there is NO further
+ * fallback — without it, `resolveInternalSecret` requires an explicit
+ * `REALTIME_INTERNAL_SECRET` and otherwise throws. Read only here (a
+ * server-only module), so it never reaches the client bundle.
  */
 declare const __WRIGHTFUL_INTERNAL_SECRET__: string | undefined;
 const BUILT_IN_SECRET: string | undefined =
@@ -68,6 +69,46 @@ export function isInternalRequest(request: Request, secret: string): boolean {
   if (provided === null) return false;
   const encoder = new TextEncoder();
   return timingSafeEqualBytes(encoder.encode(provided), encoder.encode(secret));
+}
+
+/**
+ * Cross-site WebSocket defense in depth for the rooms' `onBeforeConnect`: when
+ * the upgrade carries an `Origin` header (browsers always send one on WS
+ * upgrades), it must be SAME-ORIGIN with the upgrade request itself — the
+ * `Origin` host equals `requestHost` (the request's own `Host` header). The
+ * worker serves the pages and the WS from the same host, so a legitimate
+ * browser tab satisfies this on ANY domain routed to the worker (workers.dev
+ * alias, custom domain, dev port), while a hostile page's cross-site upgrade
+ * never can. `WRIGHTFUL_PUBLIC_URL`'s origin is additionally accepted as
+ * belt-and-braces (e.g. an upgrade proxied with a rewritten Host).
+ *
+ * Without this gate, a cross-site WS is blocked only by SameSite cookie
+ * defaults stripping the session — a browser behavior, not a guarantee. An
+ * ABSENT `Origin` is allowed: non-browser clients omit it and carry no ambient
+ * cookie authority to abuse. A malformed `Origin` rejects; a malformed public
+ * URL just disables the belt-and-braces branch.
+ */
+export function isAllowedWsOrigin(
+  origin: string | null,
+  requestHost: string | null,
+  publicUrl: string,
+): boolean {
+  if (origin === null) return true;
+  let originUrl: URL;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return false;
+  }
+  // Same-origin: the browser tab that opened the socket was served from the
+  // very host the upgrade hit. `URL.host` includes a non-default port, exactly
+  // like the `Host` header.
+  if (requestHost !== null && originUrl.host === requestHost) return true;
+  try {
+    return originUrl.origin === new URL(publicUrl).origin;
+  } catch {
+    return false;
+  }
 }
 
 /**

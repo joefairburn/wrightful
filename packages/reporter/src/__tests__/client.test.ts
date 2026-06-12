@@ -10,6 +10,7 @@ import {
   AuthError,
   backoffDelay,
   isRetryableStatus,
+  RegisterArtifactsError,
   StreamClient,
 } from "../client.js";
 import type { OpenRunPayload } from "../types.js";
@@ -361,6 +362,42 @@ describe("StreamClient", () => {
         "http://dash.example/api/artifacts/register",
       );
     });
+
+    it("throws a RegisterArtifactsError carrying status + maxBytes on 413", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse(413, { error: "too big", maxBytes: 1024 }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const error = await client
+        .registerArtifacts("run_1", [])
+        .then(() => null)
+        .catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(RegisterArtifactsError);
+      const typed = error as RegisterArtifactsError;
+      expect(typed.status).toBe(413);
+      expect(typed.maxBytes).toBe(1024);
+    });
+
+    it("leaves maxBytes null when the error body omits it", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(400, { error: "bad" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new StreamClient("http://dash.example", "tok");
+      const error = await client
+        .registerArtifacts("run_1", [])
+        .then(() => null)
+        .catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(RegisterArtifactsError);
+      expect((error as RegisterArtifactsError).maxBytes).toBeNull();
+    });
   });
 
   describe("uploadArtifact", () => {
@@ -561,6 +598,36 @@ describe("retry policy", () => {
       });
       // 2s wins over the 2^attempt*500 = 500ms the attempt would otherwise use.
       expect(backoffDelay(withRetryAfter, 0)).toBe(2000);
+    });
+
+    it("clamps a huge Retry-After to the 30s ceiling", () => {
+      const huge = new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "86400" },
+      });
+      expect(backoffDelay(huge, 0)).toBe(30_000);
+    });
+
+    it("falls back to exponential for an HTTP-date Retry-After (parses to NaN)", () => {
+      const dateForm = new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT" },
+      });
+      // Before the guard this was setTimeout(NaN) → zero backoff.
+      expect(backoffDelay(dateForm, 0)).toBe(500);
+      expect(backoffDelay(dateForm, 2)).toBe(2000);
+    });
+
+    it("falls back to exponential for a negative Retry-After", () => {
+      const negative = new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "-5" },
+      });
+      expect(backoffDelay(negative, 1)).toBe(1000);
+    });
+
+    it("clamps the exponential curve itself to the 30s ceiling", () => {
+      expect(backoffDelay(null, 10)).toBe(30_000);
     });
   });
 });

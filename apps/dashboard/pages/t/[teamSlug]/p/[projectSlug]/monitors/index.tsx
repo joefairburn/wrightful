@@ -74,6 +74,7 @@ export default function MonitorsListPage({
         isOwner={isOwner}
         monitors={monitors}
         monitorsBase={monitorsBase}
+        projectId={project.id}
       />
     </>
   );

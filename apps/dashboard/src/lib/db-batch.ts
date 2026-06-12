@@ -37,3 +37,17 @@ export async function runBatch(
   // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- db.batch's heterogeneous-tuple signature can't be satisfied by a dynamic array; the single confined launder (see file doc)
   return (await db.batch(statements as never)) as readonly unknown[];
 }
+
+/**
+ * Whether a thrown D1/Drizzle error is a SQLite UNIQUE-constraint violation.
+ * D1 surfaces SQLite's "UNIQUE constraint failed: <table>.<col>" text inside
+ * the wrapped error message, so a substring probe is the only detection D1
+ * offers (there is no structured error code on the Workers binding). The
+ * single home for that knowledge — used by the lost-the-race recovery paths
+ * (`openRun`, `registerArtifacts`) and the settings mutations' friendly
+ * duplicate-slug messages.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("UNIQUE constraint failed");
+}

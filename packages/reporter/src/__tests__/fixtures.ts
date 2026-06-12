@@ -18,6 +18,7 @@ export function makeTest(opts: {
   outcome: "expected" | "unexpected" | "flaky" | "skipped";
   tags?: string[];
   annotations?: Array<{ type: string; description?: string }>;
+  repeatEachIndex?: number;
 }): TestCase {
   return {
     id: opts.id ?? "t1",
@@ -25,6 +26,7 @@ export function makeTest(opts: {
     titlePath: () => [opts.title ?? "my test"],
     location: { file: opts.file ?? "a.spec.ts", line: 1, column: 1 },
     retries: opts.retries ?? 0,
+    repeatEachIndex: opts.repeatEachIndex ?? 0,
     tags: opts.tags ?? [],
     annotations: opts.annotations ?? [],
     outcome: () => opts.outcome,
@@ -55,10 +57,14 @@ export function makeResult(opts: {
   } as unknown as TestResult;
 }
 
-export function makeConfig(rootDir: string | null = null): FullConfig {
+export function makeConfig(
+  rootDir: string | null = null,
+  shard: { current: number; total: number } | null = null,
+): FullConfig {
   return {
     rootDir: rootDir ?? "",
     version: "1.59.0",
+    shard,
   } as unknown as FullConfig;
 }
 

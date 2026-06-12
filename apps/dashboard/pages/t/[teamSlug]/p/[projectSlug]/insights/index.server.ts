@@ -9,7 +9,7 @@ import {
 } from "@/lib/analytics/params";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { runScopeWhere } from "@/lib/scope";
+import { ciRunsScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -42,8 +42,11 @@ export const loader = defineHandler(async (c) => {
 
   const expr = bucketExpr(segment);
 
+  // ciRunsScopeWhere: tenant pair + `origin <> 'synthetic'` — the landing-page
+  // KPIs/buckets aggregate CI history only, so a 1-minute monitor's 1,440
+  // runs/day can't dominate the counts.
   const aggConditions = [
-    runScopeWhere(scope),
+    ciRunsScopeWhere(scope),
     gte(runs.createdAt, windowStartSec),
   ];
   if (branchFilter) aggConditions.push(eq(runs.branch, branchFilter));

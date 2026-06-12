@@ -13,26 +13,42 @@ import { describe, it, expect, vi } from "vite-plus/test";
 
 interface FakeSocket {
   handlers: Set<(event: unknown) => void>;
+  openHandlers: Set<() => void>;
   closed: boolean;
-  on: (type: "message", cb: (event: unknown) => void) => () => void;
+  on: (
+    type: "message" | "open",
+    cb: ((event: unknown) => void) | (() => void),
+  ) => () => void;
   close: () => void;
   emit: (event: unknown) => void;
+  emitOpen: () => void;
 }
 
 function makeSocket(): FakeSocket {
   const handlers = new Set<(event: unknown) => void>();
+  const openHandlers = new Set<() => void>();
   return {
     handlers,
+    openHandlers,
     closed: false,
-    on(_type, cb) {
-      handlers.add(cb);
-      return () => handlers.delete(cb);
+    on(type, cb) {
+      if (type === "open") {
+        const ocb = cb as () => void;
+        openHandlers.add(ocb);
+        return () => openHandlers.delete(ocb);
+      }
+      const mcb = cb as (event: unknown) => void;
+      handlers.add(mcb);
+      return () => handlers.delete(mcb);
     },
     close() {
       this.closed = true;
     },
     emit(event) {
       for (const h of [...handlers]) h(event);
+    },
+    emitOpen() {
+      for (const h of [...openHandlers]) h();
     },
   };
 }
@@ -137,5 +153,71 @@ describe("subscribeToRoom (shared, ref-counted connections)", () => {
 
     off1b();
     off2();
+  });
+
+  it("fires onReconnect on a RE-open only — never the first open", () => {
+    const id = "r-reconnect";
+    const params = { runId: id };
+    const key = `${PATH}|${JSON.stringify(params)}`;
+    const reconnects: number[] = [];
+
+    const off = subscribeToRoom(
+      PATH,
+      params,
+      key,
+      () => {},
+      () => reconnects.push(1),
+    );
+    const socket = connectSpy.mock.results.at(-1)!.value as FakeSocket;
+
+    // Initial connect — no reconnect callback.
+    socket.emitOpen();
+    expect(reconnects).toHaveLength(0);
+
+    // Re-open after a drop — fires once per re-open.
+    socket.emitOpen();
+    expect(reconnects).toHaveLength(1);
+    socket.emitOpen();
+    expect(reconnects).toHaveLength(2);
+
+    // Unsubscribed listeners stop receiving reconnects.
+    off();
+    socket.emitOpen();
+    expect(reconnects).toHaveLength(2);
+  });
+
+  it("fans reconnects out to every subscriber that registered one", () => {
+    const id = "r-reconnect-fan";
+    const params = { runId: id };
+    const key = `${PATH}|${JSON.stringify(params)}`;
+    let a = 0;
+    let b = 0;
+
+    const offA = subscribeToRoom(
+      PATH,
+      params,
+      key,
+      () => {},
+      () => (a += 1),
+    );
+    // No onReconnect for this subscriber — must be ignored, not crash.
+    const offB = subscribeToRoom(PATH, params, key, () => {});
+    const offC = subscribeToRoom(
+      PATH,
+      params,
+      key,
+      () => {},
+      () => (b += 1),
+    );
+    const socket = connectSpy.mock.results.at(-1)!.value as FakeSocket;
+
+    socket.emitOpen(); // initial
+    socket.emitOpen(); // reconnect
+    expect(a).toBe(1);
+    expect(b).toBe(1);
+
+    offA();
+    offB();
+    offC();
   });
 });

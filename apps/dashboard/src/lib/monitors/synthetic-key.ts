@@ -1,6 +1,6 @@
 import { ulid } from "ulid";
-import { and, db, eq, inArray, like, lt } from "void/db";
-import { apiKeys } from "@schema";
+import { and, db, eq, inArray, like, lt, sql } from "void/db";
+import { apiKeys, monitorExecutions } from "@schema";
 import { mintToken, sha256Hex } from "@/lib/token-crypto";
 
 /**
@@ -67,6 +67,25 @@ export async function revokeSyntheticKey(
 }
 
 /**
+ * The orphaned-synthetic-key predicate — exported pure (operators only, no
+ * `db`) so the sweep's safety rule is unit-testable. A key is sweepable when it
+ * carries the synthetic label prefix, is older than the cutoff, AND its owning
+ * execution (id = the label suffix) is no longer in flight. The NOT EXISTS is
+ * the load-bearing guard: cutoff age alone races the execution lifecycle —
+ * however the windows are tuned, a key whose execution is still
+ * `queued`/`running` is live ingest auth, and deleting it kills the
+ * in-container reporter mid-stream. A deleted execution row (FK cascade from a
+ * deleted monitor) makes the key sweepable by age, as it should.
+ */
+export function orphanedSyntheticKeysWhere(cutoffSeconds: number) {
+  return and(
+    like(apiKeys.label, `${SYNTHETIC_KEY_LABEL_PREFIX}%`),
+    lt(apiKeys.createdAt, cutoffSeconds),
+    sql`not exists (select 1 from ${monitorExecutions} where ${monitorExecutions.id} = substr(${apiKeys.label}, ${SYNTHETIC_KEY_LABEL_PREFIX.length + 1}) and ${monitorExecutions.state} in ('queued', 'running'))`,
+  );
+}
+
+/**
  * Sweeper backstop for ORPHANED synthetic keys. {@link revokeSyntheticKey} runs
  * in the executor's `finally`, but it is best-effort — a Worker eviction / CPU
  * kill mid-run skips it — and `validateApiKey` only rejects on `revokedAt` (no
@@ -74,13 +93,11 @@ export async function revokeSyntheticKey(
  * remain a permanently-valid project-scoped Bearer credential with no backstop.
  *
  * This cron-driven sweep hard-deletes any `synthetic-monitor:*` key older than
- * `cutoffSeconds`. The caller sets the cutoff to the execution-stale window, so
- * a key still in use by a running (not-yet-reaped) execution is never deleted —
- * by the time a key is that old, its execution has completed (key already
- * revoked) or been reaped. A bounded `.limit` slice keeps a mass-orphan event
- * from blowing the cron budget; the backlog drains across ticks (deleted keys
- * drop out of the next scan). The label prefix is a fixed literal (no LIKE
- * metacharacters), so the prefix match is exact.
+ * `cutoffSeconds` whose owning execution is no longer in flight (see
+ * {@link orphanedSyntheticKeysWhere}). A bounded `.limit` slice keeps a
+ * mass-orphan event from blowing the cron budget; the backlog drains across
+ * ticks (deleted keys drop out of the next scan). The label prefix is a fixed
+ * literal (no LIKE metacharacters), so the prefix match is exact.
  */
 export async function sweepStaleSyntheticKeys(opts: {
   cutoffSeconds: number;
@@ -89,12 +106,7 @@ export async function sweepStaleSyntheticKeys(opts: {
   const stale = await db
     .select({ id: apiKeys.id })
     .from(apiKeys)
-    .where(
-      and(
-        like(apiKeys.label, `${SYNTHETIC_KEY_LABEL_PREFIX}%`),
-        lt(apiKeys.createdAt, opts.cutoffSeconds),
-      ),
-    )
+    .where(orphanedSyntheticKeysWhere(opts.cutoffSeconds))
     .limit(opts.limit);
   if (stale.length === 0) return { deleted: 0 };
 

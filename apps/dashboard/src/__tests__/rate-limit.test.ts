@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vite-plus/test";
 import { checkRateLimit } from "@/lib/rate-limit";
+import apiAuthMiddleware from "../../middleware/02.api-auth";
 import rateLimitMiddleware from "../../middleware/03.rate-limit";
 
 /**
@@ -111,6 +112,45 @@ describe("03.rate-limit middleware", () => {
     const c = fakeContext("/t/team/p/proj", envWith(false));
     let nextCalled = false;
     await rateLimitMiddleware(c, async () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(true);
+  });
+});
+
+/**
+ * The pre-auth IP backstop in 02.api-auth: failed-auth requests return from 02
+ * before 03's per-key gate ever runs, so 02 must consume an IP-keyed budget
+ * BEFORE the Bearer lookup — otherwise an unauthenticated client can spray
+ * bogus keys at an unbounded rate, each attempt costing a D1 prefix SELECT.
+ */
+describe("02.api-auth pre-auth IP backstop", () => {
+  function ingestEnvWith(success: boolean) {
+    return {
+      INGEST_IP_RATE_LIMITER: {
+        limit: (_input: { key: string }) => Promise.resolve({ success }),
+      },
+    };
+  }
+
+  it("returns 429 on an ingest path when the IP budget is exhausted — before auth runs", async () => {
+    // No apiKey stash, no Authorization header: if the middleware reached the
+    // Bearer lookup it would hit the guarded void/db stub and throw. Returning
+    // a clean 429 therefore also proves the check precedes auth.
+    const c = fakeContext("/api/runs/abc/results", ingestEnvWith(false));
+    let nextCalled = false;
+    const res = await apiAuthMiddleware(c, async () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(false);
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(429);
+  });
+
+  it("leaves non-ingest paths untouched even with an exhausted IP budget", async () => {
+    const c = fakeContext("/api/auth/sign-in", ingestEnvWith(false));
+    let nextCalled = false;
+    await apiAuthMiddleware(c, async () => {
       nextCalled = true;
     });
     expect(nextCalled).toBe(true);

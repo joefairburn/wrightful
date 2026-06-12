@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { and, asc, db, desc, eq, inArray, lt, sql } from "void/db";
+import { and, asc, db, desc, eq, inArray, lt, or, sql } from "void/db";
 import { monitorExecutions, monitors } from "@schema";
 import type { Monitor, MonitorExecution } from "@schema";
 import { runBatch } from "@/lib/db-batch";
@@ -318,12 +318,21 @@ export async function loadExecutionById(
  * `state IN ('queued','error')` guard is the at-least-once-delivery defense —
  * Cloudflare Queues can hand the same `MonitorJob` to two consumer invocations
  * concurrently, and only one may launch the container; the losing claim is
- * ack'd without running (see `runMonitorJob`). It also makes a TERMINAL-SUCCESS
- * row immutable: a spurious redelivery of a `pass`/`fail`/`degraded` execution
- * finds it outside the set, claims nothing, and never re-runs or overwrites it
- * (no double-bill, no clobbered result). A legit infra-retry re-claims from
- * `error` — the one terminal state we re-enter on purpose. Scoped by the row's
- * own `(projectId, id)`; `.returning()` reports whether a row was claimed.
+ * ack'd without running (see `runMonitorJob`).
+ *
+ * The PRECISE invariant: `pass`/`fail`/`degraded` rows are immutable — a
+ * spurious redelivery finds them outside the claimable set and never re-runs
+ * or overwrites them. `error` rows are re-claimable by ANY redelivery, not
+ * just the infra-retry this exists for: the row does not persist whether its
+ * error was infra (retryable — sandbox budget, transport) or real (a settled
+ * user-facing outcome), so a duplicate redelivery arriving after a REAL error
+ * settled can re-claim it, re-run the container, and overwrite the row with a
+ * fresh outcome. That is a bounded, converging cost (one duplicate container
+ * run; the idempotency-key run linking keeps the produced run singular), not
+ * corruption — but closing it requires persisting an infra-error flag on
+ * `monitorExecutions` (schema change), deliberately not taken here. Scoped by
+ * the row's own `(projectId, id)`; `.returning()` reports whether a row was
+ * claimed.
  */
 export async function claimExecution(
   execution: MonitorExecution,
@@ -336,6 +345,9 @@ export async function claimExecution(
       and(
         eq(monitorExecutions.projectId, execution.projectId),
         eq(monitorExecutions.id, execution.id),
+        // `error` is re-enterable to support infra retries; without a
+        // persisted infra/real distinction this also lets a duplicate
+        // redelivery re-run a settled real-error outcome (see docstring).
         inArray(monitorExecutions.state, ["queued", "error"]),
       ),
     )
@@ -391,6 +403,32 @@ export async function recordExecutionResult(
 }
 
 /**
+ * The stale-execution predicate — exported pure (operators only, no `db`) so
+ * the reaper's timing rule is unit-testable. The two non-terminal states age
+ * from DIFFERENT clocks:
+ *   - `queued` ages from `createdAt` (it never started; the enqueue send
+ *     failed or the backlog is deep);
+ *   - `running` ages from `coalesce(startedAt, createdAt)` — the claim
+ *     transition stamps `startedAt`, and queue dwell before the claim is
+ *     unbounded, so aging a running execution from `createdAt` would reap one
+ *     that was legitimately claimed at minute 29 of a 30-minute window while
+ *     its container is still mid-flight. The `coalesce` is belt-and-braces for
+ *     a `running` row missing `startedAt` (not produced by any current path).
+ */
+export function staleExecutionsWhere(cutoffSeconds: number) {
+  return or(
+    and(
+      eq(monitorExecutions.state, "queued"),
+      lt(monitorExecutions.createdAt, cutoffSeconds),
+    ),
+    and(
+      eq(monitorExecutions.state, "running"),
+      sql`coalesce(${monitorExecutions.startedAt}, ${monitorExecutions.createdAt}) < ${cutoffSeconds}`,
+    ),
+  );
+}
+
+/**
  * Reaper for stuck executions — the synthetic-monitoring twin of `sweepStaleRuns`
  * (`@/lib/ingest`). An execution can strand non-terminal two ways: at `queued`
  * (the sweep's enqueue send failed — `sweepDueMonitors` tolerates that via
@@ -403,16 +441,16 @@ export async function recordExecutionResult(
  * the same load-bearing budget `sweepStaleRuns` uses so a mass-stranding event
  * can't make the cron self-DoS; the backlog drains across ticks.
  *
- * The per-row UPDATE is guarded on `state IN ('queued','running')` so it can't
- * clobber an execution that reached a terminal state between the SELECT and the
- * write (a real result racing the sweep). The cutoff must comfortably exceed a
- * full retry lifecycle (maxRetries × MAX_DURATION + queue dwell) so a
- * legitimately slow/retrying execution is never reaped mid-flight. The monitor's
- * denormalized `lastStatus` is deliberately left untouched: a reaped execution
- * still shows as `error` in the timeline + `ExecStrip`, while the monitor badge
- * stays owned by real recorded executions (so a late straggler can't regress a
- * healthy badge — the cross-execution last-write-wins window noted in the repo
- * docstring).
+ * The per-row UPDATE re-applies the same stale predicate so it can't clobber an
+ * execution that reached a terminal state — or was freshly (re-)claimed to
+ * `running` — between the SELECT and the write (a real result racing the
+ * sweep). The cutoff must comfortably exceed a full retry lifecycle
+ * (maxRetries × MAX_DURATION + queue dwell) so a legitimately slow/retrying
+ * execution is never reaped mid-flight. The monitor's denormalized `lastStatus`
+ * is deliberately left untouched: a reaped execution still shows as `error` in
+ * the timeline + `ExecStrip`, while the monitor badge stays owned by real
+ * recorded executions (so a late straggler can't regress a healthy badge — the
+ * cross-execution last-write-wins window noted in the repo docstring).
  */
 export async function sweepStaleExecutions(opts: {
   cutoffSeconds: number;
@@ -425,12 +463,7 @@ export async function sweepStaleExecutions(opts: {
       projectId: monitorExecutions.projectId,
     })
     .from(monitorExecutions)
-    .where(
-      and(
-        inArray(monitorExecutions.state, ["queued", "running"]),
-        lt(monitorExecutions.createdAt, opts.cutoffSeconds),
-      ),
-    )
+    .where(staleExecutionsWhere(opts.cutoffSeconds))
     .orderBy(asc(monitorExecutions.createdAt))
     .limit(opts.limit);
 
@@ -449,7 +482,7 @@ export async function sweepStaleExecutions(opts: {
           and(
             eq(monitorExecutions.projectId, e.projectId),
             eq(monitorExecutions.id, e.id),
-            inArray(monitorExecutions.state, ["queued", "running"]),
+            staleExecutionsWhere(opts.cutoffSeconds),
           ),
         )
         .returning({ id: monitorExecutions.id }),

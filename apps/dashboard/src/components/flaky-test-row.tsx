@@ -3,7 +3,7 @@ import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
 import { Sparkline, type SparklinePoint } from "@/components/sparkline";
 import { StatusGlyph } from "@/components/status-glyph";
-import { TableRow } from "@/components/ui/table";
+import { TableCell, TableRow } from "@/components/ui/table";
 import { stripAnsi } from "@/lib/ansi";
 import { formatRelativeTime } from "@/lib/time-format";
 
@@ -79,7 +79,7 @@ export function FlakyTestRow({
 
   return (
     <TableRow>
-      <td className="w-10 px-4 align-middle">
+      <TableCell className="w-10 px-4 align-middle">
         <Link
           className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
           href={rowHref}
@@ -87,8 +87,8 @@ export function FlakyTestRow({
           <span className="sr-only">View {cleanTitle}</span>
           <StatusGlyph size={14} status="flaky" />
         </Link>
-      </td>
-      <td className="px-4 py-3 align-middle">
+      </TableCell>
+      <TableCell className="px-4 py-3 align-middle">
         <div className="min-w-0">
           <div
             className="truncate text-[13px] font-[450] text-foreground"
@@ -111,8 +111,8 @@ export function FlakyTestRow({
             ))}
           </div>
         </div>
-      </td>
-      <td className="w-[110px] px-4 py-3 text-right align-middle">
+      </TableCell>
+      <TableCell className="w-[110px] px-4 py-3 text-right align-middle">
         <div
           className="font-mono text-[13px] font-semibold tabular-nums"
           style={{ color: tone }}
@@ -122,11 +122,11 @@ export function FlakyTestRow({
         <div className="mt-0.5 text-[10.5px] text-muted-foreground">
           over {rangeDays}d
         </div>
-      </td>
-      <td className="w-[180px] px-4 py-3 align-middle">
+      </TableCell>
+      <TableCell className="w-[180px] px-4 py-3 align-middle">
         <Sparkline height={22} points={sparklinePoints} width={160} />
-      </td>
-      <td className="w-[280px] max-w-[280px] px-4 py-3 align-middle">
+      </TableCell>
+      <TableCell className="w-[280px] max-w-[280px] px-4 py-3 align-middle">
         <div
           className="truncate font-mono text-[11.5px] text-muted-foreground"
           title={latest?.errorMessage ? stripAnsi(latest.errorMessage) : ""}
@@ -135,8 +135,8 @@ export function FlakyTestRow({
             ? stripAnsi(latest.errorMessage.split("\n")[0] ?? "")
             : "—"}
         </div>
-      </td>
-      <td className="w-[120px] px-4 py-3 align-middle">
+      </TableCell>
+      <TableCell className="w-[120px] px-4 py-3 align-middle">
         {latest?.actor ? (
           <div className="flex min-w-0 items-center gap-1.5">
             <ActorAvatar actor={latest.actor} size={16} />
@@ -147,10 +147,10 @@ export function FlakyTestRow({
         ) : (
           <span className="text-[12px] text-muted-foreground">—</span>
         )}
-      </td>
-      <td className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+      </TableCell>
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
         {latest ? formatRelativeTime(latest.createdAt) : "—"}
-      </td>
+      </TableCell>
     </TableRow>
   );
 }

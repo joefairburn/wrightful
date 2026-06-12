@@ -37,6 +37,14 @@ export const POST = defineHandler.withValidator({
       );
     case "runNotFound":
       return c.json({ error: "Run not found" }, 404);
+    case "runClosed":
+      // Terminal + idle past the write grace window: registering would hand
+      // back overwrite upload URLs for historical artifacts. 4xx → terminal
+      // for the reporter (no retry).
+      return c.json(
+        { error: "Run completed too long ago to accept writes" },
+        409,
+      );
     case "unknownTestResults":
       return c.json(
         {

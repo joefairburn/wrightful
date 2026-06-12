@@ -9,7 +9,7 @@ import {
   testTags,
   teams,
 } from "@schema";
-import { runBatch } from "@/lib/db-batch";
+import { isUniqueViolation, runBatch } from "@/lib/db-batch";
 import { runByIdWhere, staleRunFilter, type TenantScope } from "@/lib/scope";
 import { broadcastProjectRoom, broadcastRunRoom } from "@/realtime/publish";
 import type {
@@ -124,25 +124,35 @@ export async function resolveTestResultIds(
 }> {
   const existingIds = new Map<string, string>();
   const prevStatusByTestId = new Map<string, string>();
-  if (testIds.length > 0) {
-    const rows = await db
-      .select({
-        id: testResults.id,
-        testId: testResults.testId,
-        status: testResults.status,
-      })
-      .from(testResults)
-      .where(
-        and(
-          eq(testResults.projectId, scope.projectId),
-          eq(testResults.runId, runId),
-          inArray(testResults.testId, testIds),
+  // Chunk the IN list under D1's 100-bound-param ceiling: each statement also
+  // binds projectId + runId, so the testId slice gets the remaining budget. An
+  // unchunked `inArray` here hard-fails any /results batch with ≳97 unique
+  // testIds — well inside the contract's MAX_RESULTS_PER_BATCH (5000). The
+  // chunks are independent reads, so they run concurrently — a max-size batch
+  // is ~52 chunks, which serialized would add ~1s of pure round-trip latency
+  // to the flush.
+  const idsPerChunk = MAX_PARAMS_PER_STATEMENT - 2;
+  const chunkRows = await Promise.all(
+    chunkBySize(testIds, idsPerChunk).map((chunk) =>
+      db
+        .select({
+          id: testResults.id,
+          testId: testResults.testId,
+          status: testResults.status,
+        })
+        .from(testResults)
+        .where(
+          and(
+            eq(testResults.projectId, scope.projectId),
+            eq(testResults.runId, runId),
+            inArray(testResults.testId, chunk),
+          ),
         ),
-      );
-    for (const row of rows) {
-      existingIds.set(row.testId, row.id);
-      prevStatusByTestId.set(row.testId, row.status);
-    }
+    ),
+  );
+  for (const row of chunkRows.flat()) {
+    existingIds.set(row.testId, row.id);
+    prevStatusByTestId.set(row.testId, row.status);
   }
   const assignedIds = new Map<string, string>();
   for (const testId of testIds) {
@@ -692,6 +702,7 @@ export async function reconcileAndBroadcast(
   if (summary) {
     await broadcastRunUpdate(runId, [], summary);
     // Flip the run's row to its terminal status on any open runs list.
+    // Synthetic runs broadcast too — the feed's origin policy is client-side.
     const event: ProjectFeedEvent = { type: "run-progress", runId, summary };
     await broadcastProjectRoom(recomputeScope.projectId, event);
   }
@@ -867,6 +878,7 @@ export async function openRun(
     // totalTests climbing correctly; completeRun's recompute reconciles finals.
     // The serious sharding bug (a later passing shard overwriting an earlier
     // failure) is handled by completeRun's atomic monotonic status merge.
+    await reopenRunForWrites(scope, existing[0].id, nowSeconds);
     return { runId: existing[0].id, duplicate: true };
   }
 
@@ -881,11 +893,33 @@ export async function openRun(
     runInsert,
     ...buildQueuePrefillStatements(scope, runId, plannedTests, nowSeconds),
   ];
-  if (stmts.length === 1) {
-    await stmts[0];
-  } else {
-    // D1 batch atomicity: all-or-nothing.
-    await runBatch(stmts);
+  try {
+    if (stmts.length === 1) {
+      await stmts[0];
+    } else {
+      // D1 batch atomicity: all-or-nothing.
+      await runBatch(stmts);
+    }
+  } catch (err) {
+    // Lost the SELECT-then-INSERT race: sharded suites share one
+    // idempotencyKey and open concurrently BY DESIGN, so the loser's insert
+    // hitting `runs_project_idempotency_key_idx` is the expected hot path, not
+    // a corner. Recover by re-reading the winner's row instead of bubbling a
+    // 500 the reporter would have to absorb via retry.
+    if (!isUniqueViolation(err)) throw err;
+    const winner = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.projectId, scope.projectId),
+          eq(runs.idempotencyKey, payload.idempotencyKey),
+        ),
+      )
+      .limit(1);
+    if (!winner[0]) throw err;
+    await reopenRunForWrites(scope, winner[0].id, nowSeconds);
+    return { runId: winner[0].id, duplicate: true };
   }
   await bumpTeamActivity(scope.teamId, nowSeconds);
 
@@ -903,11 +937,15 @@ export async function openRun(
 
   // Tell the runs list a brand-new run exists so it can prepend the row live
   // (the run-room broadcast above only reaches the run-detail page; a viewer on
-  // the list isn't subscribed to a run that didn't exist at load).
+  // the list isn't subscribed to a run that didn't exist at load). Synthetic
+  // runs are broadcast too — the event carries `origin` and the CLIENT decides
+  // per active view (the runs list's origin filter), so the Monitors/All views
+  // stay live instead of freezing at their SSR state.
   const createdEvent: ProjectFeedEvent = {
     type: "run-created",
     run: {
       id: runId,
+      origin: payload.run.origin ?? "ci",
       status: "running",
       passed: 0,
       failed: 0,
@@ -934,7 +972,92 @@ export async function openRun(
 
 export type AppendRunResultsOutcome =
   | { kind: "ok"; mapping: ResultMapping[] }
-  | { kind: "notFound" };
+  | { kind: "notFound" }
+  | { kind: "runClosed" };
+
+/**
+ * How long a terminal run keeps accepting ingest writes after its LAST write
+ * activity. Without ANY bound, a compromised API key could silently rewrite
+ * months-old runs; with a `completedAt`-only bound, every legitimate re-stream
+ * broke (CI job re-runs share their idempotency key BY DESIGN, unbalanced
+ * shards stream past a sibling's /complete, seeders re-open fixed-key runs).
+ *
+ * The window is therefore keyed on activity, and `openRun`'s duplicate path
+ * RE-ARMS it (see `reopenRunForWrites`): every legitimate flow starts with an
+ * open — which requires knowing the run's idempotency key, a value that never
+ * appears in URLs or PR comments — while a stolen runId alone (those DO leak
+ * into URLs) cannot reopen an idle terminal run. Accepted writes keep sliding
+ * the window via `lastActivityAt`, so long-running suites are unaffected.
+ * 30 minutes matches the stale-run watchdog's default.
+ */
+export const RUN_WRITE_GRACE_SECONDS = 30 * 60;
+
+/**
+ * Whether an ingest write (/results, /complete, /artifacts/register, artifact
+ * upload) should be refused because the run is terminal AND idle past the
+ * grace window. PURE — unit-tested directly; callers feed it the owner-probe
+ * row. A still-`running` run is never closed (the stale-run watchdog owns
+ * abandoned ones).
+ */
+export function runClosedForWrites(
+  run: {
+    status: string;
+    completedAt: number | null;
+    lastActivityAt: number | null;
+  },
+  nowSeconds: number,
+): boolean {
+  if (run.status === "running") return false;
+  if (run.completedAt === null) return false;
+  const lastWrite = Math.max(run.completedAt, run.lastActivityAt ?? 0);
+  return nowSeconds - lastWrite > RUN_WRITE_GRACE_SECONDS;
+}
+
+/** The owner-probe columns every closure-guarded ingest write reads. */
+export const RUN_WRITE_GUARD_COLUMNS = {
+  id: runs.id,
+  status: runs.status,
+  completedAt: runs.completedAt,
+  lastActivityAt: runs.lastActivityAt,
+} as const;
+
+/**
+ * Re-arm a terminal run's write window from `openRun`'s duplicate path: a
+ * caller presenting the run's idempotency key is a legitimate re-stream (CI
+ * re-run, late shard, seeder), so its appends/completes must not 409 against
+ * the idle-run closure guard. Bumping `lastActivityAt` is sufficient —
+ * `runClosedForWrites` keys on it.
+ */
+async function reopenRunForWrites(
+  scope: TenantScope,
+  runId: string,
+  nowSeconds: number,
+): Promise<void> {
+  await db
+    .update(runs)
+    .set({ lastActivityAt: nowSeconds })
+    .where(runByIdWhere(scope, runId));
+}
+
+/**
+ * Last-write-wins dedupe of a /results payload by `testId`. Two entries with
+ * one (new) testId would otherwise share a single assigned ULID and the
+ * multi-row insert would hit the testResults PK — failing the whole batch
+ * with a 500 for what is a reporter-side bug. Zod doesn't enforce uniqueness,
+ * so totality lives here. Order keeps each testId's first position; content
+ * is the last occurrence (matching the row the UPDATE path would have left).
+ */
+export function dedupeResultsByTestId(
+  results: TestResultInput[],
+): TestResultInput[] {
+  if (results.length < 2) return results;
+  const byTestId = new Map<string, TestResultInput>();
+  for (const result of results) {
+    byTestId.set(result.testId, result);
+  }
+  if (byTestId.size === results.length) return results;
+  return [...byTestId.values()];
+}
 
 /**
  * Append a batch of test results to a streaming run. Verifies the run
@@ -951,19 +1074,21 @@ export async function appendRunResults(
   nowSeconds: number,
 ): Promise<AppendRunResultsOutcome> {
   const owner = await db
-    .select({ id: runs.id })
+    .select(RUN_WRITE_GUARD_COLUMNS)
     .from(runs)
     .where(runByIdWhere(scope, runId))
     .limit(1);
   if (!owner[0]) return { kind: "notFound" };
+  if (runClosedForWrites(owner[0], nowSeconds)) return { kind: "runClosed" };
 
-  const testIds = payload.results.map((r) => r.testId);
+  const results = dedupeResultsByTestId(payload.results);
+  const testIds = results.map((r) => r.testId);
   const { existingIds, assignedIds, prevStatusByTestId } =
     await resolveTestResultIds(scope, runId, testIds);
   const { statements, mapping } = buildResultInsertStatements(
     scope,
     runId,
-    payload.results,
+    results,
     nowSeconds,
     existingIds,
     assignedIds,
@@ -971,7 +1096,7 @@ export async function appendRunResults(
   const deltaStmt = aggregateDeltaStatement(
     scope,
     runId,
-    computeAggregateDelta(payload.results, prevStatusByTestId),
+    computeAggregateDelta(results, prevStatusByTestId),
     nowSeconds,
   );
   // Both branches still advance `lastActivityAt`: the delta UPDATE sets it
@@ -986,9 +1111,12 @@ export async function appendRunResults(
 
   if (!summary) return { kind: "notFound" };
 
-  const changedTests = buildChangedTests(payload.results, assignedIds);
+  const changedTests = buildChangedTests(results, assignedIds);
   await broadcastRunUpdate(runId, changedTests, summary);
-  // Advance the run's row on any open runs list (project-wide feed).
+  // Advance the run's row on any open runs list (project-wide feed). Synthetic
+  // runs broadcast too — the feed's origin policy lives client-side, where the
+  // active view is known (run-created events carry `origin`; progress events
+  // merge by id into rows the view already holds).
   const progressEvent: ProjectFeedEvent = {
     type: "run-progress",
     runId,
@@ -1001,7 +1129,8 @@ export async function appendRunResults(
 
 export type CompleteRunOutcome =
   | { kind: "ok"; status: string }
-  | { kind: "notFound" };
+  | { kind: "notFound" }
+  | { kind: "runClosed" };
 
 /**
  * Severity ranking for merging terminal run statuses across shards. A sharded
@@ -1104,20 +1233,25 @@ export async function completeRun(
   payload: CompleteRunPayload,
   completedAt: number,
 ): Promise<CompleteRunOutcome> {
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const owner = await db
-    .select({ id: runs.id })
+    .select(RUN_WRITE_GUARD_COLUMNS)
     .from(runs)
     .where(runByIdWhere(scope, runId))
     .limit(1);
   if (!owner[0]) return { kind: "notFound" };
+  // Same closure policy as /results: a terminal run idle past the grace
+  // window refuses /complete too — without this, a compromised key could
+  // still escalate a months-old passed run to failed via the severity merge.
+  // Legitimate duplicate/raced completes land within the window (the first
+  // complete just bumped lastActivityAt), and re-runs re-arm it via openRun.
+  if (runClosedForWrites(owner[0], nowSeconds)) return { kind: "runClosed" };
 
   // Monotonic status merge expressed entirely in SQL so the read (current
   // status) and write happen in one atomic statement — no TOCTOU window
   // between a SELECT and a separate UPDATE. The merge rule itself lives in one
   // place (`mergeRunStatusSql`, the SQL twin of `mergeRunStatus`).
   const statusExpr = mergeRunStatusSql(payload.status);
-
-  const nowSeconds = Math.floor(Date.now() / 1000);
   const statusUpdate = db
     .update(runs)
     .set({

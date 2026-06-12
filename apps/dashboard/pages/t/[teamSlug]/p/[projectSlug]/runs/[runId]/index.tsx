@@ -1,6 +1,6 @@
-import { GitBranch, GitCommit, GitPullRequest } from "lucide-react";
 import { Link } from "@void/react";
 import type React from "react";
+import { useMemo } from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
@@ -14,11 +14,17 @@ import {
   RunStatusGlyphLive,
   RunTestCountLive,
 } from "@/components/run-detail-live";
+import {
+  BranchPill,
+  CommitPill,
+  EnvPill,
+  PrPill,
+} from "@/components/run-meta-pills";
 import { RunProgress } from "@/components/run-progress";
 import { RunSummaryLive } from "@/components/run-summary-live";
 import { cn } from "@/lib/cn";
 import { makeHrefBuilder } from "@/lib/page-links";
-import { prUrl } from "@/lib/pr-url";
+import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { Props } from "./index.server";
 
@@ -61,14 +67,8 @@ export default function RunDetailPage({
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
   const shortId = run.id.slice(-7);
   const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
-  const branchHref =
-    run.ciProvider && run.repo && run.branch
-      ? branchHrefFor(run.ciProvider, run.repo, run.branch)
-      : null;
-  const commitHref =
-    run.ciProvider && run.repo && run.commitSha
-      ? commitHrefFor(run.ciProvider, run.repo, run.commitSha)
-      : null;
+  const branchHref = branchUrl(run.ciProvider, run.repo, run.branch);
+  const commitHref = commitUrl(run.ciProvider, run.repo, run.commitSha);
 
   const chronological = [...history].reverse();
   const hrefQuery = branchParam
@@ -99,16 +99,22 @@ export default function RunDetailPage({
       .join(" · "),
   }));
 
-  const initialSummary = {
-    totalTests: run.totalTests,
-    passed: run.passed,
-    failed: run.failed,
-    flaky: run.flaky,
-    skipped: run.skipped,
-    durationMs: run.durationMs,
-    status: run.status,
-    completedAt: run.completedAt,
-  };
+  // Memoized on the `run` loader prop so the object identity is stable across
+  // re-renders and only changes per navigation — `useRunRoom`'s render-time
+  // reseed keys on this reference, so a fresh identity must mean fresh data.
+  const initialSummary = useMemo(
+    () => ({
+      totalTests: run.totalTests,
+      passed: run.passed,
+      failed: run.failed,
+      flaky: run.flaky,
+      skipped: run.skipped,
+      durationMs: run.durationMs,
+      status: run.status,
+      completedAt: run.completedAt,
+    }),
+    [run],
+  );
 
   const { with: hrefWith } = makeHrefBuilder(pathname, {
     branch: branchParam,
@@ -163,7 +169,11 @@ export default function RunDetailPage({
         <div className="border-b border-border px-6 pt-3 pb-[18px]">
           <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px]">
             {run.branch ? (
-              <BranchPill href={branchHref} name={run.branch} />
+              <BranchPill
+                className="max-w-[220px]"
+                href={branchHref}
+                name={run.branch}
+              />
             ) : null}
             {run.prNumber != null ? (
               <PrPill href={prHref} num={run.prNumber} />
@@ -176,7 +186,7 @@ export default function RunDetailPage({
               </span>
             ) : null}
             {run.commitSha ? (
-              <CommitPill href={commitHref} sha={run.commitSha} />
+              <CommitPill href={commitHref} marker="icon" sha={run.commitSha} />
             ) : null}
           </div>
 
@@ -249,133 +259,6 @@ export default function RunDetailPage({
       </div>
     </>
   );
-}
-
-function BranchPill({
-  name,
-  href,
-}: {
-  name: string;
-  href: string | null;
-}): React.ReactElement {
-  const content = (
-    <>
-      <GitBranch className="size-3 shrink-0" strokeWidth={2} />
-      <span className="truncate">{name}</span>
-    </>
-  );
-  const className =
-    "relative z-10 inline-flex max-w-[220px] items-center gap-1 rounded-full border border-line-1 bg-bg-2 px-2 py-px font-mono text-[11.5px] leading-[18px] text-fg-2 hover:text-foreground";
-  return href ? (
-    <a className={className} href={href} rel="noreferrer" target="_blank">
-      {content}
-    </a>
-  ) : (
-    <span className={className}>{content}</span>
-  );
-}
-
-function PrPill({
-  num,
-  href,
-}: {
-  num: number;
-  href: string | null;
-}): React.ReactElement {
-  const content = (
-    <>
-      <GitPullRequest className="size-3 shrink-0" strokeWidth={2} />#{num}
-    </>
-  );
-  const className =
-    "relative z-10 inline-flex shrink-0 items-center gap-1 rounded-full border border-line-1 bg-bg-2 px-2 py-px text-[11.5px] leading-[18px] text-fg-2 hover:text-foreground";
-  return href ? (
-    <a
-      className={className}
-      href={href}
-      rel="noreferrer"
-      target="_blank"
-      title={`Open PR #${num}`}
-    >
-      {content}
-    </a>
-  ) : (
-    <span className={className}>{content}</span>
-  );
-}
-
-function EnvPill({ env }: { env: string }): React.ReactElement {
-  const tone: { bg: string; fg: string } =
-    env === "production"
-      ? { bg: "oklch(0.70 0.20 24 / 0.14)", fg: "oklch(0.78 0.20 24)" }
-      : env === "staging"
-        ? { bg: "var(--accent-soft)", fg: "var(--accent-line)" }
-        : { bg: "var(--bg-3)", fg: "var(--fg-2)" };
-  return (
-    <span
-      className="inline-flex shrink-0 items-center rounded-[4px] px-2 py-px font-mono text-[11px] font-medium tracking-[0.2px]"
-      style={{ background: tone.bg, color: tone.fg }}
-    >
-      {env}
-    </span>
-  );
-}
-
-function CommitPill({
-  sha,
-  href,
-}: {
-  sha: string;
-  href: string | null;
-}): React.ReactElement {
-  const short = sha.slice(0, 7);
-  const className =
-    "relative z-10 inline-flex shrink-0 items-center gap-1 font-mono text-[11.5px] text-fg-3 hover:text-foreground";
-  const content = (
-    <>
-      <GitCommit className="size-3 shrink-0" strokeWidth={2} />
-      {short}
-    </>
-  );
-  return href ? (
-    <a
-      className={className}
-      href={href}
-      rel="noreferrer"
-      target="_blank"
-      title="View commit"
-    >
-      {content}
-    </a>
-  ) : (
-    <span className={className}>{content}</span>
-  );
-}
-
-/** GitHub-style URL helpers — local to this file to avoid widening the
- * shared `pr-url` module's API. The shared helpers don't expose
- * branch/commit URLs because the runs list only links PRs externally; the
- * detail header wants direct deep-links into the repo. */
-function branchHrefFor(
-  provider: string,
-  repo: string,
-  branch: string,
-): string | null {
-  if (provider === "github" || provider === "github-actions") {
-    return `https://github.com/${repo}/tree/${encodeURIComponent(branch)}`;
-  }
-  return null;
-}
-
-function commitHrefFor(
-  provider: string,
-  repo: string,
-  sha: string,
-): string | null {
-  if (provider === "github" || provider === "github-actions") {
-    return `https://github.com/${repo}/commit/${sha}`;
-  }
-  return null;
 }
 
 function EnvironmentTab({ run }: { run: Props["run"] }): React.ReactElement {

@@ -1,4 +1,6 @@
-import { sql } from "void/db";
+import { and, eq, ne, sql } from "void/db";
+import { runs, testResults } from "@schema";
+import { escapeLike } from "@/lib/runs-filters-where";
 import type { TenantScope } from "@/lib/scope";
 
 /** Drizzle `SQL` fragment — the exact return type of a `sql\`…\`` template literal. */
@@ -22,12 +24,18 @@ export type SqlFilterFragment = ReturnType<typeof sql>;
  * Emits the join clause AND the leading `where tr."projectId" = ?` so callers
  * continue the WHERE with `and …` fragments (time window, branch, search,
  * testId-IN). The `runs` join is unconditional here — every caller that uses
- * this needs `runs` for its branch filter or a `runs.createdAt` window. The
- * sparkline pass in flaky.server.ts, which omits the join when no branch filter
- * is active, keeps its own {@link branchJoinFragment} pairing instead.
+ * this needs `runs` for its branch filter or a `runs.createdAt` window.
+ * Raw-SQL passes that don't need the tenant WHERE built in (flaky's sparkline,
+ * suite-size's tests-added) pair {@link ciRunsJoinFragment} with their own
+ * predicate instead — the join text (and its synthetic exclusion) must stay
+ * identical between the two.
  */
 export function testResultsScopeJoin(scope: TenantScope): SqlFilterFragment {
-  return sql`inner join runs on runs.id = tr."runId"
+  // `origin <> 'synthetic'` keeps monitor traffic out of every analytics
+  // surface that routes through this join (tests catalog, flaky, insights):
+  // a 1-minute monitor writes 1,440 runs/day of testResults that would skew
+  // flakiness/duration aggregates computed over CI history.
+  return sql`inner join runs on runs.id = tr."runId" and runs.origin <> 'synthetic'
       where tr."projectId" = ${scope.projectId}`;
 }
 
@@ -47,15 +55,36 @@ export function branchFragment(branch: string | null): SqlFilterFragment {
 }
 
 /**
- * Conditional `inner join runs` for queries that only need the `runs` table to
- * filter by branch (flaky's sparkline pass). When no branch filter is active
- * the join is omitted entirely — the query reads `testResults` alone.
+ * Unconditional `testResults`→`runs` join for raw-SQL analytics passes, with
+ * the CI-analytics policy clause (`runs.origin <> 'synthetic'`) baked into the
+ * ON clause — the same join {@link testResultsScopeJoin} opens with, minus the
+ * tenant WHERE (callers that build their own predicate use this).
  *
- * Sibling to {@link branchFragment}: pair `${branchJoinFragment(branch)}` in the
- * FROM clause with `${branchFragment(branch)}` in the WHERE clause.
+ * Replaces the old `branchJoinFragment(branch)`, which only joined `runs` when
+ * a branch filter was active. That conditionality was a perf nicety (skip a PK
+ * probe when `runs` wasn't referenced) that became a correctness hole once the
+ * synthetic exclusion moved into the join: every analytics pass needs `runs`
+ * now, branch filter or not, or monitor traffic leaks into the aggregates
+ * (e.g. monitor tests ranking on the flaky page). Pair it with
+ * `${branchFragment(branch)}` in the WHERE clause as before.
  */
-export function branchJoinFragment(branch: string | null): SqlFilterFragment {
-  return branch ? sql`inner join runs on runs.id = tr."runId"` : sql``;
+export function ciRunsJoinFragment(): SqlFilterFragment {
+  return sql`inner join runs on runs.id = tr."runId" and runs.origin <> 'synthetic'`;
+}
+
+/** A non-undefined Drizzle condition, suitable for `.innerJoin(runs, …)`. */
+type JoinCondition = NonNullable<ReturnType<typeof and>>;
+
+/**
+ * {@link ciRunsJoinFragment} for query-builder passes: the ON condition for an
+ * unconditional `.innerJoin(runs, ciRunsJoinOn())` from `testResults`, with the
+ * same synthetic-traffic exclusion. Used by the Drizzle-built aggregates that
+ * previously joined `runs` only when a branch filter was active (flaky's
+ * ranking pass, suite-size's file/tag distributions) — same correctness story
+ * as the raw-SQL fragment above.
+ */
+export function ciRunsJoinOn(): JoinCondition {
+  return and(eq(runs.id, testResults.runId), ne(runs.origin, "synthetic"))!;
 }
 
 /**
@@ -63,12 +92,13 @@ export function branchJoinFragment(branch: string | null): SqlFilterFragment {
  * for the test-catalog search box (tests / slowest-tests). Takes the raw,
  * already-trimmed search term; a falsy term yields an empty fragment.
  *
- * Wraps the term in `%…%` and emits it as a BOUND parameter, mirroring the
- * `pattern ? sql\`…\` : sql\`\`` ternary the two loaders shared. Callers no
- * longer build the `%${q}%` pattern themselves.
+ * The term goes through `escapeLike` and the LIKEs carry `ESCAPE '\'`, so
+ * `%`/`_`/`\` in a search match literally — the same semantics as the runs
+ * list search (`@/lib/runs-filters-where`), which previously diverged (this
+ * fragment used to pass wildcards through raw). Emitted as a BOUND parameter.
  */
 export function searchFragment(query: string | null): SqlFilterFragment {
   if (!query) return sql``;
-  const pattern = `%${query}%`;
-  return sql`and (tr.title like ${pattern} or tr.file like ${pattern})`;
+  const pattern = `%${escapeLike(query)}%`;
+  return sql`and (tr.title like ${pattern} escape '\\' or tr.file like ${pattern} escape '\\')`;
 }

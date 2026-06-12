@@ -1,3 +1,5 @@
+import { avatarHue } from "@/lib/avatar-hue";
+
 interface ActorAvatarProps {
   actor: string;
   size?: number;
@@ -5,18 +7,12 @@ interface ActorAvatarProps {
 
 /**
  * Small colored initial tile derived from the actor's name. Hue is hashed
- * from the string so the same actor renders with the same color across
- * runs. Restricted to the cool 220-290° band per the design bundle's
- * `TeamBadge`/`Avatar` — keeps avatars in the steel/indigo family rather
- * than scattering across the rainbow.
+ * from the string (`avatarHue`) so the same actor renders with the same
+ * color across runs.
  */
 export function ActorAvatar({ actor, size = 16 }: ActorAvatarProps) {
   const initial = actor.charAt(0).toUpperCase();
-  let h = 0;
-  for (let i = 0; i < actor.length; i++) {
-    h = (h * 31 + actor.charCodeAt(i)) | 0;
-  }
-  const hue = 220 + (Math.abs(h) % 70);
+  const hue = avatarHue(actor);
   return (
     <span
       className="inline-flex shrink-0 items-center justify-center rounded-[3px] font-semibold text-white"

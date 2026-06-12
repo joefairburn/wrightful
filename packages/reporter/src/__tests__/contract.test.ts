@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vite-plus/test";
 import {
+  isSafeContentType,
+  SAFE_CONTENT_TYPES as DASHBOARD_SAFE_CONTENT_TYPES,
+} from "../../../../apps/dashboard/src/lib/content-types.js";
+import {
   AppendResultsPayloadSchema,
   AppendResultsResponseSchema,
   CompleteRunPayloadSchema,
@@ -11,6 +15,10 @@ import {
   TestAttemptSchema,
   WRIGHTFUL_VERSION_HEADER as DASHBOARD_VERSION_HEADER,
 } from "../../../../apps/dashboard/src/lib/schemas.js";
+import {
+  normalizeContentType,
+  SAFE_CONTENT_TYPES as REPORTER_SAFE_CONTENT_TYPES,
+} from "../attachments.js";
 import {
   buildOpenRunPayload,
   buildPayload,
@@ -220,6 +228,27 @@ describe("reporter ↔ dashboard wire contract", () => {
         attempt: 1,
       },
     ];
+
+    const parsed = RegisterArtifactsPayloadSchema.safeParse({
+      runId: "run_abc",
+      artifacts: registrations,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("a visual-triple registration (role + snapshotName) parses through RegisterArtifactsPayloadSchema", () => {
+    const registrations: ArtifactRegistration[] = (
+      ["expected", "actual", "diff"] as const
+    ).map((role) => ({
+      testResultId: "tr_1",
+      type: "visual",
+      name: `hero-chromium-linux-${role}.png`,
+      contentType: "image/png",
+      sizeBytes: 2048,
+      attempt: 1,
+      role,
+      snapshotName: "hero-chromium-linux",
+    }));
 
     const parsed = RegisterArtifactsPayloadSchema.safeParse({
       runId: "run_abc",
@@ -519,6 +548,46 @@ describe("dashboard ↔ reporter response contract", () => {
       uploads: [{ artifactId: "art_1", r2Key: "k" }],
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+// The reporter mirrors the dashboard's artifact content-type allowlist so a
+// single attachment with an odd contentType can't 400 an entire register
+// batch server-side. The mirror is a hand-maintained duplicate (the repo's
+// established contract pattern); these assertions keep the two sets — and the
+// reporter's normalisation — from drifting apart silently.
+describe("reporter ↔ dashboard artifact content-type contract", () => {
+  it("the reporter's safe-content-type mirror matches the dashboard allowlist exactly", () => {
+    expect([...REPORTER_SAFE_CONTENT_TYPES].sort()).toEqual(
+      [...DASHBOARD_SAFE_CONTENT_TYPES].sort(),
+    );
+  });
+
+  it("normalizeContentType maps an unsafe type to one the dashboard accepts", () => {
+    const normalized = normalizeContentType("text/html");
+    expect(normalized).toBe("application/octet-stream");
+    expect(isSafeContentType(normalized)).toBe(true);
+  });
+
+  it("every normalised output passes the dashboard's isSafeContentType", () => {
+    for (const input of [
+      "image/png",
+      "Image/PNG; charset=utf-8",
+      "image/svg+xml",
+      "text/html",
+      "application/zip",
+      "",
+      "completely/made-up",
+    ]) {
+      expect(isSafeContentType(normalizeContentType(input))).toBe(true);
+    }
+  });
+
+  it("normalizeContentType preserves allowlisted types (modulo case/params)", () => {
+    expect(normalizeContentType("video/webm")).toBe("video/webm");
+    expect(normalizeContentType("Application/JSON; charset=utf-8")).toBe(
+      "application/json",
+    );
   });
 });
 

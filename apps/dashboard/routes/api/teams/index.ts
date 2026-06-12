@@ -2,7 +2,11 @@ import { defineHandler } from "void";
 import { requireAuth } from "void/auth";
 import { readBodyField } from "@/lib/form";
 import { mutationErrorMessage } from "@/lib/action-errors";
-import { createTeamForUser, SlugDerivationError } from "@/lib/provisioning";
+import {
+  createTeamForUser,
+  SlugDerivationError,
+  TeamCreationNotAllowedError,
+} from "@/lib/provisioning";
 
 /**
  * POST /api/teams
@@ -28,6 +32,9 @@ export const POST = defineHandler(async (c) => {
   } catch (err) {
     if (err instanceof SlugDerivationError) {
       return c.json({ error: err.message }, 400);
+    }
+    if (err instanceof TeamCreationNotAllowedError) {
+      return c.json({ error: err.message }, 403);
     }
     const friendly = mutationErrorMessage(err, {
       context: "create team failed",

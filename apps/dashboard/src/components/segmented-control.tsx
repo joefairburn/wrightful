@@ -48,6 +48,9 @@ export function SegmentedControl<T extends string>({
               : statusToken(opt.dot);
         return (
           <button
+            // Selection is otherwise conveyed only by the background pill —
+            // expose it to AT as a toggle, matching attempt-tabs.tsx.
+            aria-pressed={active}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-[4px] text-[12px] transition-colors",
               compact ? "px-2 py-[3px]" : "px-2.5 py-[3px]",

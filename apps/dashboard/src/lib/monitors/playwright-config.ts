@@ -18,12 +18,38 @@
  * project, `workers: 1` (a monitor is one logical check, not a parallel suite —
  * serial keeps container CPU/memory bounded and the run's timeline legible),
  * and a per-test timeout sourced from `PLAYWRIGHT_TIMEOUT_MS` env so the
- * executor can clamp it to `WRIGHTFUL_MONITOR_MAX_DURATION_SECONDS` without
- * re-baking the file. The reporter URL/token/idempotency/origin/monitor inputs
+ * executor can clamp it below the exec wall-clock budget (see
+ * {@link perTestTimeoutMs}) without re-baking the file. The reporter
+ * URL/token/idempotency/origin/monitor inputs
  * are NOT inlined here — they flow through process env so this builder stays a
  * pure function of its one structural input (the reporter module specifier) and
  * the same config text works for every execution.
  */
+
+/**
+ * Wall-clock the executor reserves OUT of the execution budget for everything
+ * that runs after the last test: Playwright teardown, the reporter's final
+ * result flush + `/complete` POST, and artifact uploads. Also the floor for the
+ * per-test timeout so a tiny budget can't clamp it to a useless value.
+ */
+export const PER_TEST_TIMEOUT_HEADROOM_MS = 30_000;
+export const PER_TEST_TIMEOUT_FLOOR_MS = 30_000;
+
+/**
+ * The `PLAYWRIGHT_TIMEOUT_MS` value for a given execution wall-clock budget:
+ * `maxDurationMs` minus teardown/reporting headroom, floored at 30s. If the
+ * per-test timeout equalled the exec wall-clock, a hanging user test would
+ * consume the whole budget — the exec kill then ALSO kills teardown and the
+ * reporter's `/complete` POST, so no run ever settles and a deterministic
+ * user-script hang reads as a retryable infra error. Clamping below the budget
+ * lets Playwright time the test out first and the run finish normally.
+ */
+export function perTestTimeoutMs(maxDurationMs: number): number {
+  return Math.max(
+    PER_TEST_TIMEOUT_FLOOR_MS,
+    maxDurationMs - PER_TEST_TIMEOUT_HEADROOM_MS,
+  );
+}
 
 /** Inputs for {@link generatePlaywrightConfig}. */
 export interface GeneratePlaywrightConfigOptions {
@@ -65,8 +91,9 @@ export function specFilename(): string {
  *   - `retries: 0` (a monitor wants the true pass/fail of one attempt, not a
  *     flaky-masking retry);
  *   - per-test `timeout` from `PLAYWRIGHT_TIMEOUT_MS` env (the executor sets it
- *     from `WRIGHTFUL_MONITOR_MAX_DURATION_SECONDS`), defaulting to 30s when
- *     unset so a hand-run container still has a sane bound.
+ *     via {@link perTestTimeoutMs}, headroom below the exec wall-clock budget),
+ *     defaulting to 30s when unset so a hand-run container still has a sane
+ *     bound.
  */
 export function generatePlaywrightConfig(
   opts: GeneratePlaywrightConfigOptions,

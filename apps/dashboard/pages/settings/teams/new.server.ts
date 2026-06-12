@@ -2,7 +2,11 @@ import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
-import { createTeamForUser, SlugDerivationError } from "@/lib/provisioning";
+import {
+  createTeamForUser,
+  SlugDerivationError,
+  TeamCreationNotAllowedError,
+} from "@/lib/provisioning";
 
 export type Props = InferProps<typeof loader>;
 
@@ -42,7 +46,10 @@ export const action = defineHandler(async (c) => {
   try {
     ({ slug } = await createTeamForUser(user.id, name));
   } catch (err) {
-    if (err instanceof SlugDerivationError) {
+    if (
+      err instanceof SlugDerivationError ||
+      err instanceof TeamCreationNotAllowedError
+    ) {
       return c.redirect(`${formUrl}?error=${encodeURIComponent(err.message)}`);
     }
     const friendly = mutationErrorMessage(err, {

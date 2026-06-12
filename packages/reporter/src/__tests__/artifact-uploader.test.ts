@@ -2,9 +2,10 @@ import { describe, it, expect, vi } from "vite-plus/test";
 import {
   ArtifactUploader,
   correlateUploads,
-  runWithConcurrency,
+  Semaphore,
   type ArtifactBatchEntry,
 } from "../artifact-uploader.js";
+import { RegisterArtifactsError } from "../client.js";
 import type { PreparedArtifact } from "../index.js";
 import type { ArtifactUpload, ResultMapping } from "../types.js";
 
@@ -144,49 +145,39 @@ describe("correlateUploads", () => {
   });
 });
 
-describe("runWithConcurrency", () => {
-  it("runs the task for every index", async () => {
-    const seen: number[] = [];
-    await runWithConcurrency(5, 2, async (i) => {
-      seen.push(i);
-    });
-    expect(seen.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4]);
+describe("Semaphore", () => {
+  it("admits up to `limit` holders immediately and queues the rest", async () => {
+    const sem = new Semaphore(2);
+    let admitted = 0;
+    const hold = async () => {
+      await sem.acquire();
+      admitted++;
+    };
+    await hold();
+    await hold();
+    // Both slots taken; the third waits until a release.
+    const third = hold();
+    await Promise.resolve();
+    expect(admitted).toBe(2);
+    sem.release();
+    await third;
+    expect(admitted).toBe(3);
+    sem.release();
+    sem.release();
   });
 
-  it("never exceeds the concurrency bound of in-flight tasks", async () => {
-    let active = 0;
-    let peak = 0;
-    const resolvers: Array<() => void> = [];
-    const run = runWithConcurrency(6, 3, (_i) => {
-      active++;
-      peak = Math.max(peak, active);
-      return new Promise<void>((resolve) => {
-        resolvers.push(() => {
-          active--;
-          resolve();
-        });
-      });
-    });
-    // Let the initial wave schedule.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(peak).toBeLessThanOrEqual(3);
-    // Drain: release tasks until all six have run.
-    while (resolvers.length > 0) {
-      const r = resolvers.shift()!;
-      r();
-      await Promise.resolve();
-      await Promise.resolve();
-    }
-    await run;
-    expect(peak).toBe(3);
-  });
-
-  it("is a no-op for non-positive length", async () => {
-    const task = vi.fn(async () => {});
-    await runWithConcurrency(0, 4, task);
-    await runWithConcurrency(-1, 4, task);
-    expect(task).not.toHaveBeenCalled();
+  it("hands a released slot to the next waiter FIFO", async () => {
+    const sem = new Semaphore(1);
+    const order: number[] = [];
+    await sem.acquire();
+    const a = sem.acquire().then(() => order.push(1));
+    const b = sem.acquire().then(() => order.push(2));
+    sem.release();
+    await a;
+    sem.release();
+    await b;
+    expect(order).toEqual([1, 2]);
+    sem.release();
   });
 });
 
@@ -350,5 +341,174 @@ describe("ArtifactUploader.upload", () => {
 
     expect(result).toEqual({ ok: 6, failed: 0 });
     expect(peak).toBeLessThanOrEqual(2);
+  });
+
+  it("caps PUT concurrency globally across overlapping upload() calls", async () => {
+    let urlSeq = 0;
+    const registerArtifacts = vi.fn(async (_runId: string, regs: unknown[]) =>
+      regs.map(() => makeUpload({ uploadUrl: `https://r2/u${urlSeq++}` })),
+    );
+    let active = 0;
+    let peak = 0;
+    const resolvers: Array<() => void> = [];
+    const uploadArtifact = vi.fn(() => {
+      active++;
+      peak = Math.max(peak, active);
+      return new Promise<void>((resolve) => {
+        resolvers.push(() => {
+          active--;
+          resolve();
+        });
+      });
+    });
+    const uploader = new ArtifactUploader(
+      { registerArtifacts, uploadArtifact },
+      () => {},
+      2,
+    );
+
+    const batchOf = (prefix: string): ArtifactBatchEntry[] => [
+      {
+        clientKey: "k1",
+        artifacts: Array.from({ length: 3 }, (_, i) =>
+          makeArtifact({
+            name: `${prefix}${i}`,
+            localPath: `/p/${prefix}${i}`,
+          }),
+        ),
+      },
+    ];
+    const mapping: ResultMapping[] = [
+      { clientKey: "k1", testResultId: "tr_1" },
+    ];
+
+    // Two overlapping batches: a per-call limiter would allow 2 + 2 = 4
+    // concurrent PUTs; the instance-level semaphore must hold the cap at 2.
+    const first = uploader.upload("run_1", batchOf("a"), mapping);
+    const second = uploader.upload("run_1", batchOf("b"), mapping);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(peak).toBeLessThanOrEqual(2);
+
+    while (resolvers.length > 0) {
+      resolvers.shift()!();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect(await first).toEqual({ ok: 3, failed: 0 });
+    expect(await second).toEqual({ ok: 3, failed: 0 });
+    expect(peak).toBe(2);
+    expect(uploadArtifact).toHaveBeenCalledTimes(6);
+  });
+
+  it("on a 413 register, drops oversized artifacts (warning per file) and retries the rest once", async () => {
+    const registerArtifacts = vi
+      .fn()
+      .mockRejectedValueOnce(new RegisterArtifactsError("too big", 413, 1000))
+      .mockImplementationOnce(async (_runId: string, regs: unknown[]) =>
+        (regs as unknown[]).map((_, i) =>
+          makeUpload({ uploadUrl: `https://r2/retry${i}` }),
+        ),
+      );
+    const uploadArtifact = vi.fn(async () => {});
+    const onWarn = vi.fn();
+    const uploader = new ArtifactUploader(
+      { registerArtifacts, uploadArtifact },
+      onWarn,
+    );
+
+    const batch: ArtifactBatchEntry[] = [
+      {
+        clientKey: "k1",
+        artifacts: [
+          makeArtifact({
+            name: "small.png",
+            sizeBytes: 500,
+            localPath: "/p/s",
+          }),
+          makeArtifact({
+            name: "huge.webm",
+            sizeBytes: 5000,
+            localPath: "/p/h",
+          }),
+        ],
+      },
+    ];
+    const mapping: ResultMapping[] = [
+      { clientKey: "k1", testResultId: "tr_1" },
+    ];
+
+    const result = await uploader.upload("run_1", batch, mapping);
+
+    // The oversized file counts as failed; the survivor registers + PUTs.
+    expect(result).toEqual({ ok: 1, failed: 1 });
+    expect(registerArtifacts).toHaveBeenCalledTimes(2);
+    expect(registerArtifacts.mock.calls[1][1]).toEqual([
+      expect.objectContaining({ name: "small.png" }),
+    ]);
+    expect(uploadArtifact).toHaveBeenCalledTimes(1);
+    expect(uploadArtifact).toHaveBeenCalledWith(
+      "https://r2/retry0",
+      "/p/s",
+      "image/png",
+      500,
+    );
+    expect(onWarn).toHaveBeenCalledWith(
+      expect.stringContaining("artifact dropped (huge.webm)"),
+    );
+  });
+
+  it("retries the 413 register exactly once — a second failure fails the batch", async () => {
+    const registerArtifacts = vi
+      .fn()
+      .mockRejectedValue(new RegisterArtifactsError("too big", 413, 1000));
+    const uploadArtifact = vi.fn(async () => {});
+    const onWarn = vi.fn();
+    const uploader = new ArtifactUploader(
+      { registerArtifacts, uploadArtifact },
+      onWarn,
+    );
+
+    const batch: ArtifactBatchEntry[] = [
+      {
+        clientKey: "k1",
+        artifacts: [
+          makeArtifact({ name: "small.png", sizeBytes: 500 }),
+          makeArtifact({ name: "huge.webm", sizeBytes: 5000 }),
+        ],
+      },
+    ];
+    const mapping: ResultMapping[] = [
+      { clientKey: "k1", testResultId: "tr_1" },
+    ];
+
+    const result = await uploader.upload("run_1", batch, mapping);
+
+    expect(result).toEqual({ ok: 0, failed: 2 });
+    expect(registerArtifacts).toHaveBeenCalledTimes(2);
+    expect(uploadArtifact).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a 413 when every artifact is oversized", async () => {
+    const registerArtifacts = vi
+      .fn()
+      .mockRejectedValue(new RegisterArtifactsError("too big", 413, 100));
+    const onWarn = vi.fn();
+    const uploader = new ArtifactUploader(
+      { registerArtifacts, uploadArtifact: vi.fn(async () => {}) },
+      onWarn,
+    );
+
+    const result = await uploader.upload(
+      "run_1",
+      [
+        {
+          clientKey: "k1",
+          artifacts: [makeArtifact({ name: "huge.webm", sizeBytes: 5000 })],
+        },
+      ],
+      [{ clientKey: "k1", testResultId: "tr_1" }],
+    );
+
+    expect(result).toEqual({ ok: 0, failed: 1 });
+    expect(registerArtifacts).toHaveBeenCalledTimes(1);
   });
 });

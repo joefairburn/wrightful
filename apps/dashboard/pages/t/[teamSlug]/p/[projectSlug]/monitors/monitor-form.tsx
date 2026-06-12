@@ -1,9 +1,12 @@
 "use client";
 
 import { ChevronDown, Play, X } from "lucide-react";
+import { Link } from "@void/react";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { CodeEditor } from "@/components/ui/code-editor";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/cn";
 import { INTERVAL_OPTIONS } from "./monitors-ui.shared";
@@ -171,40 +174,37 @@ export function MonitorForm({
         <div className="flex-1" />
 
         <div className="flex items-center gap-2">
-          <button
-            className="inline-flex h-[30px] cursor-not-allowed items-center gap-1.5 rounded-[5px] px-[11px] text-[13px] text-fg-2 opacity-50"
+          <Button
             disabled
+            size="sm"
             title="Coming soon — dry-run your test before saving"
-            type="button"
+            variant="ghost"
           >
             <Play className="size-3" />
             Run once
-          </button>
+          </Button>
           {cancelHref && (
-            <a
-              className="inline-flex h-[30px] items-center rounded-[5px] px-[11px] text-[13px] text-fg-2 transition-colors hover:bg-bg-2"
-              href={cancelHref}
+            <Button
+              render={<Link href={cancelHref} />}
+              size="sm"
+              variant="ghost"
             >
               Cancel
-            </a>
+            </Button>
           )}
-          <button
-            className={cn(
-              "inline-flex h-[30px] items-center rounded-[5px] border border-primary bg-primary px-[11px] text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-              limitReached && "pointer-events-none opacity-50",
-            )}
-            disabled={limitReached}
-            type="submit"
-          >
+          <Button disabled={limitReached} size="sm" type="submit">
             {submitLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </form>
   );
 }
 
-/** Compact field label matching the design's `FieldLabel` (fg-2, 12px). */
+/**
+ * Compact field label matching the design's `FieldLabel` (fg-2, 12px) —
+ * a thin re-skin over the ui `Label` wrapper rather than a raw `<label>`.
+ */
 function FieldLabel({
   children,
   className,
@@ -215,11 +215,11 @@ function FieldLabel({
   htmlFor?: string;
 }) {
   return (
-    <label
-      className={cn("mb-1.5 block text-xs font-medium text-fg-2", className)}
+    <Label
+      className={cn("mb-1.5 block text-xs text-fg-2 sm:text-xs", className)}
       htmlFor={htmlFor}
     >
       {children}
-    </label>
+    </Label>
   );
 }

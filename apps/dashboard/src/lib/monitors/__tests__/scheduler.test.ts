@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
-import { planMonitorSweep } from "@/lib/monitors/scheduler";
+import { dueMonitorsWhere, planMonitorSweep } from "@/lib/monitors/scheduler";
+import { monitorExecutions, monitors } from "@schema";
 import type { Monitor } from "@schema";
 
 /**
@@ -149,5 +150,51 @@ describe("planMonitorSweep", () => {
       "seq-2",
     ]);
     expect(issued).toHaveLength(3);
+  });
+});
+
+/**
+ * The sweep SELECT's WHERE, introspected through the test harness's `void/db`
+ * stub (each operator returns a `{ __op, args }` placeholder, and the `sql`
+ * tag captures its template strings + interpolations). Pins the overlap
+ * suppression: a monitor with an execution still `queued`/`running` must be
+ * invisible to the sweep — without the NOT EXISTS, a 60s-interval monitor
+ * with 300s checks stacks one new container per tick forever.
+ */
+describe("dueMonitorsWhere", () => {
+  interface Op {
+    __op: string;
+    args: unknown[];
+  }
+  interface SqlOp {
+    __op: "sql";
+    strings: readonly string[];
+    args: unknown[];
+  }
+
+  it("requires enabled + due + NO in-flight execution, in one predicate", () => {
+    const where = dueMonitorsWhere(5000) as unknown as Op;
+
+    expect(where.__op).toBe("and");
+    expect(where.args).toHaveLength(3);
+    const [enabled, due, noInFlight] = where.args as [Op, Op, SqlOp];
+
+    expect(enabled.__op).toBe("eq");
+    expect(enabled.args[0]).toBe(monitors.enabled);
+    expect(enabled.args[1]).toBe(1);
+
+    expect(due.__op).toBe("lte");
+    expect(due.args[0]).toBe(monitors.nextRunAt);
+    expect(due.args[1]).toBe(5000);
+
+    // The overlap-suppression arm: a NOT EXISTS correlated on the monitor id,
+    // restricted to the two non-terminal states.
+    expect(noInFlight.__op).toBe("sql");
+    const text = noInFlight.strings.join("?");
+    expect(text).toContain("not exists");
+    expect(text).toContain("in ('queued', 'running')");
+    expect(noInFlight.args).toContain(monitorExecutions.monitorId);
+    expect(noInFlight.args).toContain(monitors.id);
+    expect(noInFlight.args).toContain(monitorExecutions.state);
   });
 });

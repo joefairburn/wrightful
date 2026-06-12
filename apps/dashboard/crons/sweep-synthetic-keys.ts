@@ -10,14 +10,15 @@ import { sweepStaleSyntheticKeys } from "@/lib/monitors/synthetic-key";
  * `validateApiKey` enforces no time-based expiry, so an orphaned key would stay
  * a permanently-valid project-scoped Bearer credential. Every 5 minutes this
  * hard-deletes any `synthetic-monitor:*` key older than the execution-stale
- * window.
+ * window whose owning execution is no longer in flight.
  *
- * The cutoff reuses `WRIGHTFUL_MONITOR_EXECUTION_STALE_MINUTES` deliberately: a
- * key that old can't belong to a still-running execution (that execution would
- * itself have been reaped or completed), so the two sweeps never disagree about
- * what's still in flight. Thin adapter over `sweepStaleSyntheticKeys`
- * (`@/lib/monitors/synthetic-key`); the bounded `.limit` keeps a mass-orphan
- * event from blowing one tick's budget.
+ * The cutoff reuses `WRIGHTFUL_MONITOR_EXECUTION_STALE_MINUTES` so the two
+ * sweeps share one notion of "stale"; the in-flight guard itself is the NOT
+ * EXISTS on the owning execution inside `sweepStaleSyntheticKeys` — age alone
+ * races the execution lifecycle (a key minted late in the window can still be
+ * live ingest auth when it crosses the cutoff). Thin adapter over
+ * `sweepStaleSyntheticKeys` (`@/lib/monitors/synthetic-key`); the bounded
+ * `.limit` keeps a mass-orphan event from blowing one tick's budget.
  */
 // Offset from the other 5-minute reapers — `sweep-stuck-runs` (`*/5`) and
 // `sweep-stuck-executions` (`2-59/5`). Void dispatches scheduled events via

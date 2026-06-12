@@ -55,4 +55,25 @@ describe("computeTestId", () => {
     const id = computeTestId("a.spec.ts", ["💥 boom", "café"], "p");
     expect(id).toMatch(/^[0-9a-f]{16}$/);
   });
+
+  it("keeps existing ids stable: repeatEachIndex 0 hashes identically to the legacy 3-arg call", () => {
+    const legacy = computeTestId("a.spec.ts", ["t"], "chromium");
+    const explicitZero = computeTestId("a.spec.ts", ["t"], "chromium", 0);
+    expect(explicitZero).toBe(legacy);
+  });
+
+  it("distinguishes --repeat-each repeats (repeatEachIndex > 0)", () => {
+    const first = computeTestId("a.spec.ts", ["t"], "chromium", 0);
+    const second = computeTestId("a.spec.ts", ["t"], "chromium", 1);
+    const third = computeTestId("a.spec.ts", ["t"], "chromium", 2);
+    expect(second).not.toBe(first);
+    expect(third).not.toBe(first);
+    expect(third).not.toBe(second);
+  });
+
+  it("is deterministic for a given repeatEachIndex", () => {
+    const a = computeTestId("a.spec.ts", ["t"], "chromium", 3);
+    const b = computeTestId("a.spec.ts", ["t"], "chromium", 3);
+    expect(a).toBe(b);
+  });
 });

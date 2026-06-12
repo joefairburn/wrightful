@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   generatePlaywrightConfig,
+  PER_TEST_TIMEOUT_FLOOR_MS,
+  PER_TEST_TIMEOUT_HEADROOM_MS,
+  perTestTimeoutMs,
   specFilename,
 } from "@/lib/monitors/playwright-config";
 
@@ -22,6 +25,26 @@ describe("specFilename", () => {
   it("is a stable .spec.ts name Playwright's default testMatch selects", () => {
     expect(specFilename()).toBe("check.spec.ts");
     expect(specFilename()).toMatch(/\.spec\.ts$/);
+  });
+});
+
+describe("perTestTimeoutMs", () => {
+  it("clamps the per-test timeout headroom below the execution budget", () => {
+    // 5-minute budget (the WRIGHTFUL_MONITOR_MAX_DURATION_SECONDS default):
+    // the per-test timeout must leave teardown + the reporter's final flush
+    // and `/complete` POST room to run before the exec wall-clock kill —
+    // equal values would misclassify every user-script hang as a retryable
+    // infra error (no run ever settles).
+    expect(perTestTimeoutMs(300_000)).toBe(
+      300_000 - PER_TEST_TIMEOUT_HEADROOM_MS,
+    );
+    expect(perTestTimeoutMs(300_000)).toBeLessThan(300_000);
+  });
+
+  it("floors at 30s so a tiny budget can't produce a useless test timeout", () => {
+    expect(perTestTimeoutMs(45_000)).toBe(PER_TEST_TIMEOUT_FLOOR_MS);
+    expect(perTestTimeoutMs(10_000)).toBe(PER_TEST_TIMEOUT_FLOOR_MS);
+    expect(PER_TEST_TIMEOUT_FLOOR_MS).toBe(30_000);
   });
 });
 

@@ -1,25 +1,29 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   branchFragment,
-  branchJoinFragment,
+  ciRunsJoinFragment,
+  ciRunsJoinOn,
   searchFragment,
   testResultsScopeJoin,
 } from "@/lib/analytics/filters";
 import { makeTenantScope } from "@/lib/scope";
 
 /**
- * `branchFragment` / `branchJoinFragment` / `searchFragment` are the single home
- * for the raw-SQL filter ternaries the analytics loaders (tests / slowest-tests
- * / run-duration / flaky) used to copy-paste inline. The two invariants worth
- * pinning:
+ * `branchFragment` / `ciRunsJoinFragment` / `searchFragment` are the single
+ * home for the raw-SQL filter fragments the analytics loaders (tests /
+ * slowest-tests / run-duration / flaky) used to copy-paste inline. The
+ * invariants worth pinning:
  *
  *  1. A `null` filter collapses to an EMPTY fragment so it drops out of the
  *     surrounding `where … ${fragment}` — the "all branches" / no-search case.
  *  2. A real value is carried as a BOUND parameter (`sql\`${value}\``), never
  *     interpolated into the query string — the injection-safety guarantee.
+ *  3. Every testResults→runs join carries the `runs.origin <> 'synthetic'`
+ *     exclusion, so monitor traffic can't leak into a CI-analytics aggregate.
  *
- * Under the void/db stub, `sql\`…\`` records `{ __op: "sql", strings, args }`,
- * so we can read both the literal chunks and the bound params straight back.
+ * Under the void/db stub, `sql\`…\`` records `{ __op: "sql", strings, args }`
+ * and operators record `{ __op, args }`, so we can read both the literal
+ * chunks and the bound params straight back.
  */
 
 type RecordedSql = {
@@ -58,15 +62,53 @@ describe("branchFragment", () => {
   });
 });
 
-describe("branchJoinFragment", () => {
-  it("is empty for a null branch (no runs join needed)", () => {
-    expect(isEmptyFragment(branchJoinFragment(null))).toBe(true);
+describe("ciRunsJoinFragment", () => {
+  it("always emits the runs join with the synthetic exclusion in the ON clause", () => {
+    // No branch parameter, no conditionality: the old branchJoinFragment only
+    // joined `runs` when a branch filter was active, which let monitor-run
+    // results through every no-branch analytics pass (flaky sparklines,
+    // suite-size tests-added). The join is now load-bearing for correctness.
+    const op = readSql(ciRunsJoinFragment());
+    expect(op.strings.join("")).toBe(
+      `inner join runs on runs.id = tr."runId" and runs.origin <> 'synthetic'`,
+    );
+    expect(op.args).toEqual([]);
   });
 
-  it("emits the inner join for a real branch", () => {
-    const op = readSql(branchJoinFragment("main"));
-    expect(op.strings.join("")).toBe('inner join runs on runs.id = tr."runId"');
-    expect(op.args).toEqual([]);
+  it("emits the exact join testResultsScopeJoin opens with, so the policy can't drift", () => {
+    const scope = makeTenantScope({
+      teamId: "team_01",
+      projectId: "proj_42",
+      teamSlug: "acme",
+      projectSlug: "web",
+    });
+    const join = readSql(ciRunsJoinFragment()).strings.join("");
+    const scoped = readSql(testResultsScopeJoin(scope))
+      .strings.join("")
+      .replace(/\s+/g, " ");
+    expect(scoped.startsWith(join)).toBe(true);
+  });
+});
+
+describe("ciRunsJoinOn", () => {
+  type RecordedOp = { __op: string; args: readonly unknown[] };
+  const colName = (node: unknown) => (node as { name?: unknown })?.name;
+
+  it("ANDs the runId equality with the synthetic-origin exclusion", () => {
+    // The Drizzle twin of ciRunsJoinFragment, for `.innerJoin(runs, …)` query
+    // builders (flaky ranking aggregate, suite-size file/tag distributions).
+    const op = ciRunsJoinOn() as unknown as RecordedOp;
+    expect(op.__op).toBe("and");
+    expect(op.args).toHaveLength(2);
+
+    const [eqOp, neOp] = op.args as RecordedOp[];
+    expect(eqOp.__op).toBe("eq");
+    expect(colName(eqOp.args[0])).toBe("id");
+    expect(colName(eqOp.args[1])).toBe("runId");
+
+    expect(neOp.__op).toBe("ne");
+    expect(colName(neOp.args[0])).toBe("origin");
+    expect(neOp.args[1]).toBe("synthetic");
   });
 });
 
@@ -81,9 +123,11 @@ describe("testResultsScopeJoin", () => {
   it("emits the testResults→runs join plus the tenant WHERE clause", () => {
     const op = readSql(testResultsScopeJoin(scope));
     const text = op.strings.join("").replace(/\s+/g, " ").trim();
-    // The join + leading `where tr."projectId" =` the loaders all open with.
+    // The join (with the synthetic-traffic exclusion baked into its ON clause,
+    // so every analytics surface inherits it) + the leading
+    // `where tr."projectId" =` the loaders all open with.
     expect(text).toBe(
-      'inner join runs on runs.id = tr."runId" where tr."projectId" =',
+      `inner join runs on runs.id = tr."runId" and runs.origin <> 'synthetic' where tr."projectId" =`,
     );
   });
 
@@ -113,17 +157,20 @@ describe("searchFragment", () => {
     expect(isEmptyFragment(searchFragment(""))).toBe(true);
   });
 
-  it("emits a title-or-file LIKE predicate for a real query", () => {
+  it("emits a title-or-file LIKE predicate with an ESCAPE clause", () => {
     const op = readSql(searchFragment("login"));
+    // SQLite has no default LIKE escape character, so the ESCAPE '\' clause is
+    // load-bearing: without it the escaped pattern below matches nothing.
     expect(op.strings.join("").replace(/\s+/g, " ").trim()).toBe(
-      "and (tr.title like or tr.file like )",
+      "and (tr.title like escape '\\' or tr.file like escape '\\')",
     );
   });
 
-  it("wraps the term in %…% and binds it twice (title + file), never interpolating", () => {
+  it("escapes LIKE metacharacters, wraps in %…%, and binds twice (title + file)", () => {
     const op = readSql(searchFragment("50%"));
-    // Same %-wrapped pattern is bound for both the title and file comparison.
-    expect(op.args).toEqual(["%50%%", "%50%%"]);
+    // Same escaped, %-wrapped pattern is bound for both comparisons — `%` in
+    // the user's term matches literally (same semantics as the runs search).
+    expect(op.args).toEqual(["%50\\%%", "%50\\%%"]);
     expect(op.strings.join("")).not.toContain("50%");
   });
 });

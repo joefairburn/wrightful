@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   afterEach,
   beforeEach,
@@ -23,6 +26,7 @@ const CI_KEYS = [
   "GITLAB_CI",
   "CIRCLECI",
   "GITHUB_RUN_ID",
+  "GITHUB_JOB",
   "GITHUB_REF",
   "GITHUB_REF_NAME",
   "GITHUB_HEAD_REF",
@@ -30,7 +34,9 @@ const CI_KEYS = [
   "GITHUB_REPOSITORY",
   "GITHUB_ACTOR",
   "GITHUB_TRIGGERING_ACTOR",
+  "GITHUB_EVENT_PATH",
   "CI_PIPELINE_ID",
+  "CI_JOB_NAME",
   "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME",
   "CI_COMMIT_BRANCH",
   "CI_COMMIT_SHA",
@@ -39,6 +45,7 @@ const CI_KEYS = [
   "CI_PROJECT_PATH",
   "GITLAB_USER_LOGIN",
   "CIRCLE_WORKFLOW_ID",
+  "CIRCLE_JOB",
   "CIRCLE_BRANCH",
   "CIRCLE_SHA1",
   "CIRCLE_PR_NUMBER",
@@ -46,6 +53,7 @@ const CI_KEYS = [
   "CIRCLE_PROJECT_USERNAME",
   "CIRCLE_PROJECT_REPONAME",
   "CIRCLE_USERNAME",
+  "WRIGHTFUL_IDEMPOTENCY_KEY",
 ];
 
 describe("detectCI", () => {
@@ -73,6 +81,7 @@ describe("detectCI", () => {
   it("detects GitHub Actions with full env", () => {
     process.env.GITHUB_ACTIONS = "true";
     process.env.GITHUB_RUN_ID = "42";
+    process.env.GITHUB_JOB = "e2e";
     process.env.GITHUB_HEAD_REF = "feat/x";
     process.env.GITHUB_SHA = "abc123";
     process.env.GITHUB_REPOSITORY = "acme/app";
@@ -82,6 +91,7 @@ describe("detectCI", () => {
     expect(detectCI()).toEqual({
       ciProvider: "github-actions",
       ciBuildId: "42",
+      ciJobName: "e2e",
       branch: "feat/x",
       commitSha: "abc123",
       commitMessage: "stubbed commit message",
@@ -111,12 +121,71 @@ describe("detectCI", () => {
     expect(info).toEqual({
       ciProvider: "github-actions",
       ciBuildId: null,
+      ciJobName: null,
       branch: null,
       commitSha: null,
       commitMessage: "stubbed commit message",
       prNumber: null,
       repo: null,
       actor: null,
+    });
+  });
+
+  describe("GITHUB_EVENT_PATH fallback for prNumber", () => {
+    let eventDir: string;
+
+    beforeEach(() => {
+      eventDir = mkdtempSync(join(tmpdir(), "wrightful-event-"));
+    });
+
+    afterEach(() => {
+      rmSync(eventDir, { recursive: true, force: true });
+    });
+
+    it("reads pull_request.number from the event payload when GITHUB_REF doesn't match (pull_request_target)", () => {
+      const eventPath = join(eventDir, "event.json");
+      writeFileSync(
+        eventPath,
+        JSON.stringify({ pull_request: { number: 88 } }),
+      );
+      process.env.GITHUB_ACTIONS = "true";
+      process.env.GITHUB_REF = "refs/heads/main";
+      process.env.GITHUB_EVENT_PATH = eventPath;
+
+      expect(detectCI()?.prNumber).toBe(88);
+    });
+
+    it("prefers the GITHUB_REF pull ref over the event payload", () => {
+      const eventPath = join(eventDir, "event.json");
+      writeFileSync(
+        eventPath,
+        JSON.stringify({ pull_request: { number: 88 } }),
+      );
+      process.env.GITHUB_ACTIONS = "true";
+      process.env.GITHUB_REF = "refs/pull/12/merge";
+      process.env.GITHUB_EVENT_PATH = eventPath;
+
+      expect(detectCI()?.prNumber).toBe(12);
+    });
+
+    it("returns null when the event payload has no pull_request (push event)", () => {
+      const eventPath = join(eventDir, "event.json");
+      writeFileSync(eventPath, JSON.stringify({ ref: "refs/heads/main" }));
+      process.env.GITHUB_ACTIONS = "true";
+      process.env.GITHUB_EVENT_PATH = eventPath;
+
+      expect(detectCI()?.prNumber).toBeNull();
+    });
+
+    it("returns null (no throw) for a malformed or missing event file", () => {
+      const eventPath = join(eventDir, "event.json");
+      writeFileSync(eventPath, "not json{");
+      process.env.GITHUB_ACTIONS = "true";
+      process.env.GITHUB_EVENT_PATH = eventPath;
+      expect(detectCI()?.prNumber).toBeNull();
+
+      process.env.GITHUB_EVENT_PATH = join(eventDir, "does-not-exist.json");
+      expect(detectCI()?.prNumber).toBeNull();
     });
   });
 
@@ -134,6 +203,7 @@ describe("detectCI", () => {
     expect(detectCI()).toEqual({
       ciProvider: "gitlab-ci",
       ciBuildId: "p1",
+      ciJobName: null,
       branch: "feat/mr",
       commitSha: "deadbeef",
       commitMessage: "inline message",
@@ -141,6 +211,12 @@ describe("detectCI", () => {
       repo: "acme/app",
       actor: "alice",
     });
+  });
+
+  it("reads the GitLab job name from CI_JOB_NAME", () => {
+    process.env.GITLAB_CI = "true";
+    process.env.CI_JOB_NAME = "playwright 1/4";
+    expect(detectCI()?.ciJobName).toBe("playwright 1/4");
   });
 
   it("detects GitLab CI on a plain branch pipeline (no MR)", () => {
@@ -180,6 +256,7 @@ describe("detectCI", () => {
     expect(detectCI()).toEqual({
       ciProvider: "unknown",
       ciBuildId: null,
+      ciJobName: null,
       branch: null,
       commitSha: null,
       commitMessage: "stubbed commit message",
@@ -197,8 +274,53 @@ describe("detectCI", () => {
 });
 
 describe("generateIdempotencyKey", () => {
+  let originalExplicitKey: string | undefined;
+
+  beforeEach(() => {
+    originalExplicitKey = process.env.WRIGHTFUL_IDEMPOTENCY_KEY;
+    delete process.env.WRIGHTFUL_IDEMPOTENCY_KEY;
+  });
+
+  afterEach(() => {
+    if (originalExplicitKey === undefined) {
+      delete process.env.WRIGHTFUL_IDEMPOTENCY_KEY;
+    } else {
+      process.env.WRIGHTFUL_IDEMPOTENCY_KEY = originalExplicitKey;
+    }
+  });
+
   it("passes the ciBuildId through when provided", () => {
     expect(generateIdempotencyKey("build_42")).toBe("build_42");
+  });
+
+  it("appends the job name so distinct matrix/parallel jobs don't merge into one run", () => {
+    expect(generateIdempotencyKey("42", { jobName: "e2e" })).toBe("42-e2e");
+  });
+
+  it("carries no discriminator beyond build id + job name (shards of one suite must share the key)", () => {
+    // Playwright --shard is deliberately not part of the key: the dashboard
+    // merges shards sharing one idempotencyKey into a single run by design.
+    expect(generateIdempotencyKey("42", { jobName: "e2e" })).toBe("42-e2e");
+    expect(generateIdempotencyKey("42")).toBe("42");
+  });
+
+  it("is deterministic for the same build/job (re-runs recover the run)", () => {
+    const make = () => generateIdempotencyKey("42", { jobName: "e2e" });
+    expect(make()).toBe(make());
+  });
+
+  it("uses an explicit WRIGHTFUL_IDEMPOTENCY_KEY verbatim, ignoring discriminators", () => {
+    // Synthetic monitors pass the exact execution id — it must never be
+    // decorated with discriminator suffixes.
+    process.env.WRIGHTFUL_IDEMPOTENCY_KEY = "01EXEC0000000000000000000";
+    expect(generateIdempotencyKey("42", { jobName: "e2e" })).toBe(
+      "01EXEC0000000000000000000",
+    );
+  });
+
+  it("caps the derived key at the dashboard's 1024-char schema limit", () => {
+    const key = generateIdempotencyKey("b".repeat(2000), { jobName: "j" });
+    expect(key.length).toBeLessThanOrEqual(1024);
   });
 
   it("falls back to a v4 UUID when ciBuildId is null", () => {

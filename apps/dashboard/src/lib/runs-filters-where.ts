@@ -1,20 +1,34 @@
 import { parseISO } from "date-fns";
-import { and, gte, inArray, like, lte, or } from "void/db";
+import { and, eq, gte, inArray, like, lte, or, sql } from "void/db";
 import { runs } from "@schema";
 import type { RunsFilters } from "@/lib/runs-filters";
 import { runScopeWhere, type TenantScope } from "@/lib/scope";
 
 type SqlFragment = NonNullable<ReturnType<typeof and>>;
+type LikeColumn = Parameters<typeof like>[0];
 
 /**
  * Escape the LIKE wildcard metacharacters (`\`, `%`, `_`) in a user-supplied
  * search term so they match literally inside the `%…%` pattern this module
- * builds — a typed `like()` call can't do this, so it's hand-written and
- * therefore unit-tested (`runs-filters-where.test.ts`). Each metacharacter is
- * doubled with a leading backslash; ordinary characters pass through unchanged.
+ * builds. Only meaningful when the consuming LIKE carries an `ESCAPE '\'`
+ * clause — SQLite has NO default escape character, so a bare `like()` would
+ * treat the inserted `\` as a literal byte and break the match. Always pair
+ * with {@link likeEscaped}; both halves are unit-tested together
+ * (`runs-filters-where.test.ts`).
  */
 export function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * `column LIKE ? ESCAPE '\'` — the only correct partner for a pattern built
+ * with {@link escapeLike}. Drizzle's `like()` emits no ESCAPE clause and
+ * SQLite defines no default escape character, so without this fragment a
+ * search for `100%` compiled to `%100\%%`, which matches a literal backslash
+ * followed by anything — i.e. effectively nothing.
+ */
+export function likeEscaped(column: LikeColumn, pattern: string) {
+  return sql`${column} like ${pattern} escape '\\'`;
 }
 
 /**
@@ -55,11 +69,17 @@ export function buildRunsWhere(filters: RunsFilters): SqlFragment | undefined {
   if (filters.q) {
     const pattern = `%${escapeLike(filters.q)}%`;
     const orClause = or(
-      like(runs.commitMessage, pattern),
-      like(runs.commitSha, pattern),
-      like(runs.branch, pattern),
+      likeEscaped(runs.commitMessage, pattern),
+      likeEscaped(runs.commitSha, pattern),
+      likeEscaped(runs.branch, pattern),
     );
     if (orClause) clauses.push(orClause);
+  }
+  // Default view excludes synthetic monitor traffic — a 1-minute monitor mints
+  // 1,440 runs/day, which would otherwise drown the CI history. `all` drops
+  // the clause; `synthetic` flips the view to monitor runs only.
+  if (filters.origin !== "all") {
+    clauses.push(eq(runs.origin, filters.origin));
   }
 
   if (clauses.length === 0) return undefined;

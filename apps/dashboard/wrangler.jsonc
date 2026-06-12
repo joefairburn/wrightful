@@ -45,5 +45,19 @@
       "namespace_id": "1003",
       "simple": { "limit": 300, "period": 60 },
     },
+    {
+      // Pre-auth IP backstop on the ingest routes, checked BEFORE the Bearer
+      // key is validated (02.api-auth). Without it, failed-auth requests
+      // returned 401 before the per-key limiter ever ran — an unthrottled
+      // D1-lookup amplification surface. NOTE: authenticated traffic consumes
+      // this bucket too, so it caps the COMBINED ingest rate of every key
+      // sharing one egress IP. 10× the per-key budget keeps a NAT'd fleet of
+      // up to ~10 concurrently-saturating keys below it; the per-key
+      // API_RATE_LIMITER stays the real budget. Self-hosters with bigger
+      // single-IP fleets should raise this.
+      "name": "INGEST_IP_RATE_LIMITER",
+      "namespace_id": "1004",
+      "simple": { "limit": 1200, "period": 60 },
+    },
   ],
 }

@@ -1,4 +1,4 @@
-import { and, db, eq, lt, sql } from "void/db";
+import { and, db, eq, lt, ne, sql } from "void/db";
 import { projects, runs, teams } from "@schema";
 import type { ApiKey } from "@schema";
 
@@ -133,6 +133,27 @@ export function runScopeWhere(scope: TenantScope): SqlFragment {
     eq(runs.teamId, scope.teamId),
     eq(runs.projectId, scope.projectId),
   )!;
+}
+
+/**
+ * {@link runScopeWhere} plus the CI-analytics policy clause:
+ * `runs.origin <> 'synthetic'`. The Drizzle-side home for "this query reads CI
+ * history, not monitor traffic" — a 1-minute synthetic monitor writes 1,440
+ * runs/day that would otherwise dominate every aggregate computed over the
+ * `runs` table (insights KPIs/buckets, suite-size trend, run-duration
+ * percentiles, branch filter options).
+ *
+ * `ne('synthetic')` rather than `eq('ci')` so any future origin value counts
+ * as CI-like by default; only monitor traffic is carved out. Raw-SQL analytics
+ * passes get the same policy from `testResultsScopeJoin` /
+ * `ciRunsJoinFragment` in `@/lib/analytics/filters`.
+ *
+ * Deliberately NOT folded into {@link runScopeWhere} or {@link runByIdWhere}:
+ * run-detail-by-id paths (and the runs list, whose origin filter is
+ * user-controlled via `scopedRunsWhere`) must still see synthetic runs.
+ */
+export function ciRunsScopeWhere(scope: TenantScope): SqlFragment {
+  return and(runScopeWhere(scope), ne(runs.origin, "synthetic"))!;
 }
 
 /**

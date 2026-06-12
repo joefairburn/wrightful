@@ -14,11 +14,13 @@ import {
   MultiComboboxFilter,
 } from "@/components/filter-controls";
 import { SearchFilterInput } from "@/components/search-filter-input";
+import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import {
+  type RunOriginFilter,
   type RunsFilters,
   RUN_STATUSES,
   type RunStatus,
@@ -193,6 +195,19 @@ export function RunsFilterBar({
           onChange={(v) => apply({ ...filters, environment: v })}
           options={options.environments.map((e) => ({ value: e, label: e }))}
           placeholder="All envs"
+        />
+
+        {/* Synthetic monitor runs are excluded by default (origin=ci); this
+            flips the list to monitor traffic or shows both. */}
+        <SegmentedControl<RunOriginFilter>
+          compact
+          onChange={(origin) => apply({ ...filters, origin })}
+          options={[
+            { value: "ci", label: "CI" },
+            { value: "synthetic", label: "Monitors" },
+            { value: "all", label: "All" },
+          ]}
+          value={filters.origin}
         />
       </div>
 

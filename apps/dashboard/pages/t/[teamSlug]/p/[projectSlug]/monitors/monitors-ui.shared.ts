@@ -8,6 +8,14 @@ import { MONITOR_INTERVAL_PRESETS } from "@/lib/monitors/monitor-schemas";
  * `MONITOR_INTERVAL_PRESETS` source of truth.
  */
 
+/**
+ * How many recent executions feed a monitor row's `ExecStrip` sparkline + 24h
+ * uptime. Shared by the list loader (the window it fetches per monitor) and the
+ * live reducer (`applyMonitorFeedEvent`, the cap it trims the strip back to as
+ * fresh executions stream in) so the two never drift.
+ */
+export const RECENT_EXECUTION_WINDOW = 24;
+
 /** Human label for a monitor interval: `1m`, `5m`, `30m`, `1h`. */
 export function humanizeInterval(seconds: number): string {
   if (seconds % 3600 === 0) return `${seconds / 3600}h`;

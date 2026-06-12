@@ -1,5 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { pickUniqueSlug, SLUG_MAX_LEN, slugifyName } from "@/lib/provisioning";
+import { describe, expect, it, vi } from "vitest";
+
+// provisioning.ts reads `env.ALLOW_OPEN_SIGNUP` for the team-creation policy;
+// the typed env proxy isn't materialized without the void plugin, so mock it
+// (same pattern as artifact-tokens.test.ts).
+vi.mock("void/env", () => ({ env: { ALLOW_OPEN_SIGNUP: false } }));
+
+import {
+  pickUniqueSlug,
+  SLUG_MAX_LEN,
+  slugifyName,
+  teamCreationAllowed,
+} from "@/lib/provisioning";
 
 // The DB-bound create* functions in provisioning.ts hit `void/db` (stubbed in
 // vitest), so only the pure slug surface is unit-tested here. It is the single
@@ -83,5 +94,55 @@ describe("pickUniqueSlug", () => {
     expect(taken.has(picked)).toBe(false);
     // `demo-<6 lowercase alnum chars>` from the ulid fallback.
     expect(picked).toMatch(/^demo-[0-9a-z]{6}$/);
+  });
+});
+
+/**
+ * `teamCreationAllowed` is the closed-instance abuse boundary: GitHub OAuth
+ * signup must stay open on invite-only instances (it is the only way an
+ * invited newcomer gets an account), so "closed" is enforced at the first
+ * resource-granting action instead. A memberless stranger on a closed
+ * instance must not be able to create a team (→ projects → API keys →
+ * synthetic monitors running arbitrary code on the operator's account).
+ */
+describe("teamCreationAllowed", () => {
+  it("allows anyone when open signup is enabled", () => {
+    expect(
+      teamCreationAllowed({
+        openSignup: true,
+        isMemberOfAnyTeam: false,
+        anyTeamExists: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows existing members of any team on a closed instance", () => {
+    expect(
+      teamCreationAllowed({
+        openSignup: false,
+        isMemberOfAnyTeam: true,
+        anyTeamExists: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows the bootstrap case — closed instance with zero teams", () => {
+    expect(
+      teamCreationAllowed({
+        openSignup: false,
+        isMemberOfAnyTeam: false,
+        anyTeamExists: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses a memberless user on a closed instance with existing teams", () => {
+    expect(
+      teamCreationAllowed({
+        openSignup: false,
+        isMemberOfAnyTeam: false,
+        anyTeamExists: true,
+      }),
+    ).toBe(false);
   });
 });

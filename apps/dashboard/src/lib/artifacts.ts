@@ -1,10 +1,15 @@
 import { ulid } from "ulid";
 import { and, db, eq, inArray } from "void/db";
+import { logger } from "void/log";
 import { storage } from "void/storage";
 import { artifacts, runs, testResults } from "@schema";
 import { safeContentType } from "@/lib/content-types";
-import { runBatch } from "@/lib/db-batch";
-import { chunkInsertRows } from "@/lib/ingest";
+import { isUniqueViolation, runBatch } from "@/lib/db-batch";
+import {
+  chunkInsertRows,
+  RUN_WRITE_GUARD_COLUMNS,
+  runClosedForWrites,
+} from "@/lib/ingest";
 import type { TenantScope } from "@/lib/scope";
 import type { RegisterArtifactsPayload } from "@/lib/schemas";
 
@@ -236,6 +241,7 @@ export type RegisterArtifactsResult =
   | { kind: "ok"; uploads: ArtifactUpload[] }
   | { kind: "oversized"; name: string; maxBytes: number }
   | { kind: "runNotFound" }
+  | { kind: "runClosed" }
   | { kind: "unknownTestResults"; unknownTestResultIds: string[] };
 
 /**
@@ -267,11 +273,19 @@ export async function registerArtifacts(
   }
 
   const ownerRun = await db
-    .select({ id: runs.id })
+    .select(RUN_WRITE_GUARD_COLUMNS)
     .from(runs)
     .where(and(eq(runs.projectId, scope.projectId), eq(runs.id, payload.runId)))
     .limit(1);
   if (!ownerRun[0]) return { kind: "runNotFound" };
+  // Same closure policy as /results and /complete: registration against a
+  // terminal run idle past the grace window is refused. The idempotent-reuse
+  // path below hands back OVERWRITE upload URLs for already-registered
+  // identities, so an ungated register would let a compromised key replace
+  // months-old traces/screenshots with forged bytes.
+  if (runClosedForWrites(ownerRun[0], nowSeconds)) {
+    return { kind: "runClosed" };
+  }
 
   // Validate every testResultId belongs to this run + project. Chunk so a
   // single parameter list stays under D1's limit.
@@ -298,10 +312,49 @@ export async function registerArtifacts(
     return { kind: "unknownTestResults", unknownTestResultIds: unknown };
   }
 
-  // Idempotency: a retried /results flush re-registers the same artifacts.
-  // Fetch rows already registered for these testResultIds (chunked under D1's
-  // param cap); the plan step keys them by natural identity so a re-register
-  // reuses the existing id + r2Key.
+  // Idempotency with one race retry. A retried /results flush re-registers
+  // the same artifacts: the existing-rows read keys them by natural identity
+  // so the plan step reuses the winner's id + r2Key. Two IDENTICAL
+  // registrations racing both miss that read and collide on
+  // `artifacts_identity_uq` — the loser re-runs ONLY this read+plan+insert
+  // section once (the validations above can't change between attempts), and
+  // the re-read resolves through the winner's rows instead of 500ing the
+  // reporter.
+  for (let attempt = 0; ; attempt++) {
+    const existingRows = await fetchExistingArtifactRows(scope, requestedIds);
+    const { rowsToInsert, uploads } = planArtifactRegistration({
+      requestedArtifacts: payload.artifacts,
+      existingRows,
+      scope,
+      runId: payload.runId,
+      nowSeconds,
+    });
+    if (rowsToInsert.length === 0) return { kind: "ok", uploads };
+
+    const statements = chunkInsertRows(rowsToInsert).map((chunk) =>
+      db.insert(artifacts).values(chunk),
+    );
+    try {
+      if (statements.length === 1) {
+        await statements[0];
+      } else {
+        await runBatch(statements);
+      }
+      return { kind: "ok", uploads };
+    } catch (err) {
+      if (!isUniqueViolation(err) || attempt > 0) throw err;
+    }
+  }
+}
+
+/**
+ * Rows already registered for these testResults, read in chunks under D1's
+ * param cap. The idempotency input to `planArtifactRegistration`.
+ */
+async function fetchExistingArtifactRows(
+  scope: TenantScope,
+  requestedIds: string[],
+): Promise<ExistingArtifactRow[]> {
   const existingRows: ExistingArtifactRow[] = [];
   for (let i = 0; i < requestedIds.length; i += MAX_IN_ARRAY_IDS) {
     const chunk = requestedIds.slice(i, i + MAX_IN_ARRAY_IDS);
@@ -324,32 +377,13 @@ export async function registerArtifacts(
       );
     for (const r of rows) existingRows.push(r);
   }
-
-  const { rowsToInsert, uploads } = planArtifactRegistration({
-    requestedArtifacts: payload.artifacts,
-    existingRows,
-    scope,
-    runId: payload.runId,
-    nowSeconds,
-  });
-
-  if (rowsToInsert.length > 0) {
-    const statements = chunkInsertRows(rowsToInsert).map((chunk) =>
-      db.insert(artifacts).values(chunk),
-    );
-    if (statements.length === 1) {
-      await statements[0];
-    } else if (statements.length > 1) {
-      await runBatch(statements);
-    }
-  }
-
-  return { kind: "ok", uploads };
+  return existingRows;
 }
 
 export type StoreArtifactUploadResult =
   | { kind: "ok" }
   | { kind: "notFound" }
+  | { kind: "runClosed" }
   | { kind: "lengthRequired" }
   | { kind: "lengthMismatch"; expected: number; received: number }
   | { kind: "bodyRequired" }
@@ -377,8 +411,17 @@ export async function storeArtifactUpload(
       r2Key: artifacts.r2Key,
       contentType: artifacts.contentType,
       sizeBytes: artifacts.sizeBytes,
+      run: {
+        status: runs.status,
+        completedAt: runs.completedAt,
+        lastActivityAt: runs.lastActivityAt,
+      },
     })
     .from(artifacts)
+    // artifacts carry no runId column — the owning run is two hops away via
+    // the testResult row.
+    .innerJoin(testResults, eq(testResults.id, artifacts.testResultId))
+    .innerJoin(runs, eq(runs.id, testResults.runId))
     .where(
       and(
         eq(artifacts.projectId, scope.projectId),
@@ -388,6 +431,14 @@ export async function storeArtifactUpload(
     .limit(1);
   const row = rows[0];
   if (!row) return { kind: "notFound" };
+  // Closure policy on the byte path too: artifact rows live forever and their
+  // ids leak into dashboard URLs, so without this a leaked API key could PUT
+  // replacement bytes over months-old artifacts. Legitimate late uploads ride
+  // the activity window (/results flushes and /complete keep bumping it, and
+  // the reporter's shutdown budget caps the upload tail well inside it).
+  if (runClosedForWrites(row.run, Math.floor(Date.now() / 1000))) {
+    return { kind: "runClosed" };
+  }
 
   if (contentLength === null) return { kind: "lengthRequired" };
   if (!Number.isFinite(contentLength) || contentLength !== row.sizeBytes) {
@@ -405,11 +456,69 @@ export async function storeArtifactUpload(
       httpMetadata: { contentType: safeContentType(row.contentType) },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "R2 write failed";
-    return { kind: "storageError", message };
+    // Log the raw R2 error for Cloudflare Tail; the client gets a generic
+    // message — infra exception text is an internal detail, not API surface.
+    logger.error("artifact R2 write failed", {
+      artifactId,
+      r2Key: row.r2Key,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return { kind: "storageError", message: "Artifact storage write failed" };
   }
 
   return { kind: "ok" };
+}
+
+/** Outcome of an R2 prefix sweep: objects removed + whether the prefix is empty. */
+export interface DeleteArtifactObjectsResult {
+  deleted: number;
+  complete: boolean;
+}
+
+/**
+ * Max list+bulk-delete pages a single prefix sweep performs. Each page costs 2
+ * subrequests and removes up to 1000 objects, so 100 pages clears 100k objects
+ * while staying far inside the Workers subrequest budget. A prefix bigger than
+ * that logs the leftover and stops — the next delete (or a future retention
+ * sweep) picks it up.
+ */
+const DELETE_OBJECTS_MAX_PAGES = 100;
+
+/**
+ * Delete every R2 object under a project's artifact prefix
+ * (`t/<teamId>/p/<projectId>/`). Called by the project/team delete actions
+ * AFTER the D1 rows are gone: row deletion is the atomic, authoritative step;
+ * this sweep is the best-effort byte cleanup that previously didn't exist at
+ * all — "permanently deleted" teams kept their traces/screenshots/videos
+ * (which can embed secrets) in R2 forever. Failures must not resurrect the
+ * user-facing action, so callers log-and-continue on a thrown error.
+ *
+ * Takes raw ids (not a `TenantScope`): deleteTeam sweeps every project of a
+ * team it has already authorized and partially deleted, at which point the
+ * membership rows backing a scope no longer exist.
+ */
+export async function deleteProjectArtifactObjects(
+  teamId: string,
+  projectId: string,
+): Promise<DeleteArtifactObjectsResult> {
+  const prefix = `t/${teamId}/p/${projectId}/`;
+  let deleted = 0;
+  let cursor: string | undefined;
+  for (let page = 0; page < DELETE_OBJECTS_MAX_PAGES; page++) {
+    const listed = await storage.list({ prefix, cursor, limit: 1000 });
+    const keys = listed.objects.map((o) => o.key);
+    if (keys.length > 0) {
+      await storage.delete(keys);
+      deleted += keys.length;
+    }
+    if (!listed.truncated) return { deleted, complete: true };
+    cursor = listed.cursor;
+  }
+  logger.warn("artifact prefix sweep hit page budget; objects remain", {
+    prefix,
+    deleted,
+  });
+  return { deleted, complete: false };
 }
 
 /**

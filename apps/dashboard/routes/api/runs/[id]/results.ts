@@ -22,5 +22,13 @@ export const POST = defineHandler.withValidator({
   if (result.kind === "notFound") {
     return c.json({ error: "Run not found" }, 404);
   }
+  if (result.kind === "runClosed") {
+    // Terminal status + past the straggler grace window — refuse the rewrite
+    // (a 4xx so the reporter drops the batch instead of retrying).
+    return c.json(
+      { error: "Run completed too long ago to accept results" },
+      409,
+    );
+  }
   return c.json({ results: result.mapping }, 200);
 });

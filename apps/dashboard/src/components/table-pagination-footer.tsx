@@ -1,3 +1,4 @@
+import { Link } from "@void/react";
 import {
   Pagination,
   PaginationContent,
@@ -46,6 +47,9 @@ export function TablePaginationFooter({
 }: TablePaginationFooterProps): React.ReactElement {
   const pageWindow = buildPageWindow(currentPage, totalPages);
   const plural = totalCount === 1 ? itemNoun : `${itemNoun}s`;
+  const prevHref = currentPage > 1 ? pageHref(currentPage - 1) : undefined;
+  const nextHref =
+    currentPage < totalPages ? pageHref(currentPage + 1) : undefined;
 
   return (
     <div
@@ -62,9 +66,14 @@ export function TablePaginationFooter({
       {totalPages > 1 && (
         <Pagination className="mx-0 w-auto justify-end">
           <PaginationContent>
+            {/* `render={<Link/>}` swaps the literal `<a>` for @void/react's
+             * SPA <Link> — a page change re-runs the loader without a full
+             * document navigation. Disabled prev/next keep the plain <a>
+             * (no href, pointer-events-none). */}
             <PaginationItem>
               <PaginationPrevious
-                href={currentPage > 1 ? pageHref(currentPage - 1) : undefined}
+                href={prevHref}
+                render={prevHref ? <Link href={prevHref} /> : undefined}
                 aria-disabled={currentPage === 1}
                 className={cn(
                   currentPage === 1 && "pointer-events-none opacity-50",
@@ -81,6 +90,7 @@ export function TablePaginationFooter({
                   <PaginationLink
                     href={pageHref(entry)}
                     isActive={entry === currentPage}
+                    render={<Link href={pageHref(entry)} />}
                   >
                     {entry}
                   </PaginationLink>
@@ -89,11 +99,8 @@ export function TablePaginationFooter({
             )}
             <PaginationItem>
               <PaginationNext
-                href={
-                  currentPage < totalPages
-                    ? pageHref(currentPage + 1)
-                    : undefined
-                }
+                href={nextHref}
+                render={nextHref ? <Link href={nextHref} /> : undefined}
                 aria-disabled={currentPage >= totalPages}
                 className={cn(
                   currentPage >= totalPages && "pointer-events-none opacity-50",

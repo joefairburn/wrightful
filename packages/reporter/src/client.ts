@@ -16,6 +16,9 @@ import {
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const ARTIFACT_PUT_TIMEOUT_MS = 120_000;
+// Upper bound on any single retry wait. A hostile/buggy `Retry-After: 86400`
+// must not park the user's suite for a day between attempts.
+const MAX_BACKOFF_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,6 +28,23 @@ export class AuthError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AuthError";
+  }
+}
+
+/**
+ * Structured failure from `/api/artifacts/register`, so the uploader can
+ * react to the status (a 413 carries the server's `maxBytes` limit and is
+ * recoverable by dropping the oversized files and re-registering the rest).
+ */
+export class RegisterArtifactsError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    /** Server-side per-artifact byte limit, present on 413 responses. */
+    public readonly maxBytes: number | null,
+  ) {
+    super(message);
+    this.name = "RegisterArtifactsError";
   }
 }
 
@@ -42,7 +62,8 @@ export function isRetryableStatus(status: number): boolean {
 /**
  * Compute the wait before the next attempt. Honours a server `Retry-After`
  * header (seconds), otherwise exponential backoff of `2^attempt * 500`ms.
- * `attempt` is zero-based, so the first backoff is 500ms.
+ * `attempt` is zero-based, so the first backoff is 500ms. The final delay is
+ * clamped to {@link MAX_BACKOFF_MS} regardless of source.
  *
  * Exported as the pure wait half of the retry policy.
  */
@@ -50,10 +71,16 @@ export function backoffDelay(
   response: Response | null,
   attempt: number,
 ): number {
+  let delay = Math.pow(2, attempt) * 500;
   const retryAfter = response?.headers.get("Retry-After");
-  return retryAfter
-    ? parseInt(retryAfter, 10) * 1000
-    : Math.pow(2, attempt) * 500;
+  if (retryAfter) {
+    const seconds = parseInt(retryAfter, 10);
+    // The HTTP-date form of Retry-After parses to NaN — without this guard it
+    // became setTimeout(NaN), i.e. zero backoff. NaN/negative fall back to
+    // the exponential curve.
+    if (Number.isFinite(seconds) && seconds >= 0) delay = seconds * 1000;
+  }
+  return Math.min(delay, MAX_BACKOFF_MS);
 }
 
 interface RetryPolicy {
@@ -252,10 +279,13 @@ export class StreamClient {
       .json()
       .catch(() => ({}))) as Partial<RegisterArtifactsResponse> & {
       error?: string;
+      maxBytes?: number;
     };
     if (!response.ok) {
-      throw new Error(
+      throw new RegisterArtifactsError(
         `registerArtifacts failed (${response.status}): ${body.error ?? response.statusText}`,
+        response.status,
+        typeof body.maxBytes === "number" ? body.maxBytes : null,
       );
     }
     return body.uploads ?? [];

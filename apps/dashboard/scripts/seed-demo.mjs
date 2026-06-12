@@ -1,6 +1,6 @@
-// Bootstraps a demo user + team + project + API key on a running local dev
-// server, by hitting the worker's HTTP endpoints just like a real user
-// would.
+// Bootstraps a demo user + team + project + API key + example monitors on a
+// running local dev server, by hitting the worker's HTTP endpoints just like a
+// real user would.
 //
 // Not idempotent. Designed to run against fresh D1 state (no demo
 // user, no demo team). If the demo user already exists, sign-in succeeds
@@ -32,6 +32,81 @@ const TEAM_NAME = "Demo";
 const TEAM_SLUG = "demo";
 const PROJECT_NAME = "Playwright";
 const PROJECT_SLUG = "playwright";
+
+/**
+ * Example synthetic monitors seeded into the demo project so the Monitors page
+ * isn't empty out of the box. Authored exactly as a user would through the
+ * create form (`type = "browser"`, a Playwright spec, an interval preset), then
+ * POSTed to the same `?createMonitor` page action.
+ *
+ * A spread of intervals + one paused monitor exercises the list/detail states;
+ * the `FORCE_FAIL` sentinel in one spec makes the dev stub executor
+ * (`WRIGHTFUL_MONITOR_EXECUTOR=stub`) synthesize a *failing* run once scheduled,
+ * so the dashboard shows a red monitor alongside the green ones. They arm but
+ * don't execute during this seed — Cloudflare's local dev doesn't auto-fire
+ * crons, so executions appear once the sweep runs (deployed, or triggered via
+ * Void's `/__void/scheduled` dev endpoint).
+ *
+ * @type {Array<{ name: string, intervalSeconds: number, enabled: boolean, source: string }>}
+ */
+const DEMO_MONITORS = [
+  {
+    name: "Homepage — loads & title",
+    intervalSeconds: 60,
+    enabled: true,
+    source: `import { test, expect } from "@playwright/test";
+
+test("homepage loads", async ({ page }) => {
+  await page.goto("https://example.com");
+  await expect(page).toHaveTitle(/Example Domain/);
+});
+`,
+  },
+  {
+    name: "Checkout — reach payment",
+    intervalSeconds: 300,
+    enabled: true,
+    source: `import { test, expect } from "@playwright/test";
+
+test("checkout reaches the payment step", async ({ page }) => {
+  await page.goto("https://example.com");
+  await expect(page.getByRole("heading", { name: /example/i })).toBeVisible();
+  await expect(page.getByRole("link")).toBeVisible();
+});
+`,
+  },
+  {
+    name: "Pricing — known regression",
+    intervalSeconds: 600,
+    enabled: true,
+    // FORCE_FAIL: the dev stub executor synthesizes a failing run for any
+    // monitor whose source contains this sentinel, so the seeded set includes a
+    // red monitor without depending on a real (flaky) target site.
+    source: `import { test, expect } from "@playwright/test";
+
+// FORCE_FAIL — seeded as a failing monitor for the local demo.
+test("pricing page renders the enterprise tier", async ({ page }) => {
+  await page.goto("https://example.com");
+  await expect(page.getByText("Enterprise")).toBeVisible();
+});
+`,
+  },
+  {
+    name: "Login smoke (staging)",
+    intervalSeconds: 3600,
+    enabled: false,
+    source: `import { test, expect } from "@playwright/test";
+
+test("user can sign in", async ({ page }) => {
+  await page.goto("https://example.com/login");
+  await page.getByLabel("Email").fill("demo@example.com");
+  await page.getByLabel("Password").fill("hunter2");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/dashboard/);
+});
+`,
+  },
+];
 
 const dashboardDir = new URL("..", import.meta.url);
 const seedOutputPath = fileURLToPath(new URL(".env.seed.json", dashboardDir));
@@ -260,7 +335,47 @@ if (!apiKey) {
   process.exit(1);
 }
 
-// ---------- 5. Save seed file ----------
+// ---------- 5. Seed example monitors ----------
+
+// Authored via the same page action the create form POSTs to. urlencoded form
+// fields (identical content type to the browser form, which the action parses
+// with `c.req.formData()`); `enabled` follows checkbox semantics — present
+// ("on") = enabled, absent = paused (the schema coerces a missing value to
+// false). Done before the seed file is written so a failure aborts ahead of the
+// fixture-uploader's success canary.
+log(`${pc.dim("›")} creating ${DEMO_MONITORS.length} example monitors…`);
+for (const monitor of DEMO_MONITORS) {
+  const form = {
+    name: monitor.name,
+    type: "browser",
+    source: monitor.source,
+    intervalSeconds: String(monitor.intervalSeconds),
+  };
+  if (monitor.enabled) form.enabled = "on";
+
+  const res = await request(
+    "POST",
+    `/t/${teamSlug}/p/${projectSlug}/monitors/new?createMonitor`,
+    { cookies: sessionCookies, form },
+  );
+
+  // The action redirects to the new monitor's detail on success, or back to
+  // `…/monitors/new?formError=<msg>` on a validation / cap / duplicate-name
+  // failure. A plain (non-Inertia) POST like this one gets the raw `c.redirect`
+  // response, and `request` uses `redirect: "manual"`, so the Location is
+  // readable. Key off the error marker rather than a specific 3xx code: any
+  // redirect whose target carries `formError` is a failure, as is any 4xx/5xx.
+  const location = res.headers.get("location") ?? "";
+  if (res.status >= 400 || location.includes("formError")) {
+    const reason = location.includes("formError")
+      ? decodeURIComponent(location.split("formError=")[1]?.split("&")[0] ?? "")
+      : `unexpected response (${res.status})`;
+    console.error(pc.red(`monitor "${monitor.name}" failed: ${reason}`));
+    process.exit(1);
+  }
+}
+
+// ---------- 6. Save seed file ----------
 
 writeFileSync(
   seedOutputPath,
@@ -285,4 +400,5 @@ log(`  password: ${DEMO_PASSWORD}`);
 log(`  team:     ${teamSlug}`);
 log(`  project:  ${projectSlug}`);
 log(`  api key:  ${apiKey}`);
+log(`  monitors: ${DEMO_MONITORS.length} (browser checks)`);
 log(`  (also written to apps/dashboard/.env.seed.json)`);

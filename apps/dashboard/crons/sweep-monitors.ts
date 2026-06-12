@@ -11,8 +11,9 @@ import { sweepDueMonitors } from "@/lib/monitors/scheduler";
  * each one in a Void Sandbox (or the in-process stub in dev).
  *
  * Minute granularity is the floor Cloudflare cron offers and matches the
- * 60-second `WRIGHTFUL_MONITOR_MIN_INTERVAL_SECONDS` interval floor — a monitor
- * can fire at most once per tick.
+ * 60-second floor of `MONITOR_INTERVAL_PRESETS` (the hardcoded allowed
+ * intervals in `@/lib/monitors/monitor-schemas`) — a monitor can fire at most
+ * once per tick.
  *
  * The whole select-due-slice → plan → persist-in-one-batch → enqueue policy
  * lives behind `sweepDueMonitors` (`@/lib/monitors/scheduler`), mirroring how

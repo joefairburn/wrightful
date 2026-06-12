@@ -2,7 +2,7 @@
 
 import { Search } from "lucide-react";
 import { useState } from "react";
-import { Link } from "@void/react";
+import { Link, useRouter } from "@void/react";
 import {
   ExecStrip,
   MonBadge,
@@ -22,7 +22,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
+import { requestReconnectRefresh } from "@/realtime/reconnect-refresh";
+import { useRoom } from "@/realtime/use-room";
+import { useSeededState } from "@/realtime/use-seeded-state";
 import { formatRelativeTime } from "@/lib/time-format";
+import { applyMonitorFeedEvent } from "./monitor-feed";
 import { humanizeInterval } from "./monitors-ui.shared";
 import type { Props } from "./index.server";
 
@@ -31,25 +35,53 @@ type Monitor = Props["monitors"][number];
 type StatusFilter = "all" | "failing" | "paused";
 
 /**
- * Interactive monitors roster — filter + search + per-row pause toggle. The
- * loader hands the enriched monitors in as props and this island filters them
- * client-side (matching the design's instant filtering). The row toggle POSTs
+ * Interactive monitors roster — filter + search + per-row pause toggle, live
+ * over the project's `void/ws` room. The loader hands the enriched monitors in
+ * as props; this island filters them client-side (instant filtering) and folds
+ * `monitor-result` events into the rows via `applyMonitorFeedEvent` so a check
+ * that runs anywhere advances its row's status + history strip without a reload.
+ *
+ * It subscribes to the SAME per-project room the runs list uses (the reducer
+ * ignores `run-*` events), shared + ref-counted by `useRoom`. Rooms have no
+ * replay, so a reconnect after a drop triggers a coalesced `router.refresh()`
+ * and `useSeededState` reseeds from the fresh loader props. The row toggle POSTs
  * to the detail route's `?toggleEnabled` action via `fetch` (so it doesn't
- * navigate away to the detail page the action redirects to) and reflects the
- * new state locally on success.
+ * navigate away) and reflects the new state through the same seeded setter.
  */
 export function MonitorsList({
   monitors: initialMonitors,
   monitorsBase,
+  projectId,
   isOwner,
 }: {
   monitors: Monitor[];
   monitorsBase: string;
+  projectId: string;
   isOwner: boolean;
 }) {
-  const [monitors, setMonitors] = useState(initialMonitors);
+  const router = useRouter();
+  const [monitors, setMonitors] = useSeededState<readonly Monitor[]>(
+    [projectId, initialMonitors],
+    () => [...initialMonitors],
+  );
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
+  // Shared per-project room — so this also receives the runs list's `run-*`
+  // frames, which the reducer discards by returning the SAME array reference
+  // (React bails out: no re-render, just the frame's parse cost). Fine at
+  // monitor + CI volumes; a dedicated monitor topic is the lever if a very busy
+  // project ever makes that discard traffic matter.
+  useRoom(
+    "/ws/project/:projectId",
+    { projectId },
+    (event) => {
+      setMonitors((prev) => applyMonitorFeedEvent(prev, event));
+    },
+    () => {
+      requestReconnectRefresh(() => router.refresh());
+    },
+  );
 
   // Status counts use the MONITOR's display status (paused beats last result),
   // matching the summary strip + the design's per-state tallies. States outside

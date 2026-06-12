@@ -1,6 +1,8 @@
 import { db, eq, like, or } from "void/db";
+import { env } from "void/env";
 import { ulid } from "ulid";
 import { memberships, projects, teams as teamsTable } from "@schema";
+import { openSignupAllowed } from "@/lib/config";
 import { runBatch } from "@/lib/db-batch";
 
 /**
@@ -92,16 +94,69 @@ async function resolveTeamSlug(name: string): Promise<string> {
 }
 
 /**
+ * Team creation refused by the instance policy (see {@link teamCreationAllowed}).
+ * Status-agnostic like {@link SlugDerivationError}: the form action redirects
+ * with `?error=`, the JSON route returns 403.
+ */
+export class TeamCreationNotAllowedError extends Error {
+  constructor(
+    message = "Team creation on this instance is invite-only. Ask a team owner for an invite.",
+  ) {
+    super(message);
+    this.name = "TeamCreationNotAllowedError";
+  }
+}
+
+/**
+ * Whether a user may create a team on this instance. PURE — the policy
+ * decision over pre-resolved inputs; `createTeamForUser` resolves them.
+ *
+ * Open-signup instances allow anyone. On a closed (invite-only) instance the
+ * gate is the actual abuse boundary: GitHub OAuth signup must stay open there
+ * (it is the only way an invited newcomer can create an account — invites
+ * don't mint users), so "closed" is enforced one step later, at the first
+ * resource-granting action. A self-registered stranger holds a dead account:
+ * no team, no projects, no API keys, no synthetic monitors (which execute
+ * arbitrary Playwright code in containers on the operator's Cloudflare
+ * account). Existing members may always create more teams, and the zero-teams
+ * case lets the operator bootstrap a fresh instance.
+ */
+export function teamCreationAllowed(input: {
+  openSignup: boolean;
+  isMemberOfAnyTeam: boolean;
+  anyTeamExists: boolean;
+}): boolean {
+  return input.openSignup || input.isMemberOfAnyTeam || !input.anyTeamExists;
+}
+
+/**
  * Create a team + owner membership for `userId` atomically (one D1 batch) and
  * return the assigned slug. The single canonical create-team path shared by
  * the form action and `POST /api/teams`. Throws {@link SlugDerivationError}
- * for an unusable name; lets DB errors (e.g. a unique violation from a slug
- * race) propagate so each caller maps them to its own friendly message.
+ * for an unusable name and {@link TeamCreationNotAllowedError} when the
+ * instance policy refuses (closed instance, memberless user — see
+ * {@link teamCreationAllowed}); lets DB errors (e.g. a unique violation from a
+ * slug race) propagate so each caller maps them to its own friendly message.
  */
 export async function createTeamForUser(
   userId: string,
   name: string,
 ): Promise<{ slug: string }> {
+  const [membershipRows, teamRows] = await Promise.all([
+    db
+      .select({ id: memberships.id })
+      .from(memberships)
+      .where(eq(memberships.userId, userId))
+      .limit(1),
+    db.select({ id: teamsTable.id }).from(teamsTable).limit(1),
+  ]);
+  const allowed = teamCreationAllowed({
+    openSignup: openSignupAllowed(env.ALLOW_OPEN_SIGNUP),
+    isMemberOfAnyTeam: Boolean(membershipRows[0]),
+    anyTeamExists: Boolean(teamRows[0]),
+  });
+  if (!allowed) throw new TeamCreationNotAllowedError();
+
   const slug = await resolveTeamSlug(name);
   const teamId = ulid();
   const nowSeconds = Math.floor(Date.now() / 1000);

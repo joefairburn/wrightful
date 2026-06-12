@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { VisualDiffRailButton } from "@/components/visual-diff-dialog";
 import { cn } from "@/lib/cn";
+import { useCopiedFlag } from "@/lib/use-copied-flag";
 
 /**
  * Sticky right rail on the test detail page. Three optional sections:
@@ -239,13 +240,12 @@ function RailScreenshotButton({
 }
 
 function TerminalBlock({ command }: { command: string }): React.ReactElement {
-  const [copied, setCopied] = useState(false);
+  const { copied, flash } = useCopiedFlag();
 
   async function onCopy(): Promise<void> {
     try {
       await navigator.clipboard.writeText(command);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      flash();
     } catch {
       // Silent — the label will just not flip to Copied. A toast could be
       // layered on later.
@@ -281,7 +281,7 @@ function CopyArtifactButton({
 }: {
   artifact: ArtifactAction;
 }): React.ReactElement {
-  const [copied, setCopied] = useState(false);
+  const { copied, flash } = useCopiedFlag();
   const [loading, setLoading] = useState(false);
 
   async function onCopy(): Promise<void> {
@@ -291,8 +291,7 @@ function CopyArtifactButton({
       if (!res.ok) throw new Error(`status ${res.status}`);
       const text = await res.text();
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      flash();
     } catch {
       // Silent — see TerminalBlock for rationale.
     } finally {

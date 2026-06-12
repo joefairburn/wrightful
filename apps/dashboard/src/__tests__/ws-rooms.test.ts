@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 /**
  * The `void/ws` room handlers (`routes/ws/**.ws.ts`). `onRequest` is the SOLE
  * gate against a forged cross-tenant broadcast on the public room path; `onBefore
- * Connect` is the connect-time tenant-isolation + capacity gate. Both were
+ * Connect` is the connect-time origin + tenant-isolation + capacity gate. Both were
  * untested (the ingest suites mock the publisher and never invoke the room
  * receiver). `defineRoom` is mocked as a passthrough so the default export is the
  * definition object whose hooks we invoke with a fabricated context.
@@ -16,6 +16,7 @@ vi.mock("void/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "auth-secret",
     REALTIME_INTERNAL_SECRET: "internal-secret",
+    WRIGHTFUL_PUBLIC_URL: "https://dashboard.example",
   },
 }));
 const authorizeSpy =
@@ -73,6 +74,9 @@ function connectCtx(opts: {
   connections?: number;
   userId?: string | null;
   params?: Record<string, string>;
+  origin?: string;
+  /** The upgrade's own Host header; defaults to the dashboard's host. */
+  host?: string;
 }): unknown {
   const conns = Array.from({ length: opts.connections ?? 0 }, () => ({}));
   const user =
@@ -81,8 +85,16 @@ function connectCtx(opts: {
       : opts.userId === null
         ? null
         : { id: opts.userId, email: "u@x.io" };
+  // A bare Headers (not a real Request): happy-dom's Request applies the
+  // fetch spec's forbidden-header filtering and silently strips `Origin`,
+  // which a real WS upgrade carries. The hooks only read `request.headers`.
   return {
-    request: new Request("https://void.local"),
+    request: {
+      headers: new Headers({
+        host: opts.host ?? "dashboard.example",
+        ...(opts.origin === undefined ? {} : { origin: opts.origin }),
+      }),
+    },
     room: { getConnections: () => conns },
     params: opts.params ?? { runId: "r1" },
     user,
@@ -136,7 +148,53 @@ describe("run room onRequest (forged-broadcast gate)", () => {
   });
 });
 
-describe("run room onBeforeConnect (tenant + capacity gate)", () => {
+describe("run room onBeforeConnect (origin + tenant + capacity gate)", () => {
+  it("403s a cross-site Origin before consulting authz (defense in depth)", async () => {
+    const res = await runRoom.onBeforeConnect(
+      connectCtx({ origin: "https://evil.example" }),
+    );
+    expect((res as Response).status).toBe(403);
+    expect(authorizeSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows the dashboard's own Origin (WRIGHTFUL_PUBLIC_URL)", async () => {
+    authorizeSpy.mockResolvedValue({ ok: true });
+    const res = await runRoom.onBeforeConnect(
+      connectCtx({ origin: "https://dashboard.example" }),
+    );
+    expect(res).toBeUndefined();
+  });
+
+  it("allows a same-origin upgrade on a second legitimate host (Origin matches the request's own Host)", async () => {
+    // workers.dev alias / custom-domain / dev-port deployments: the Origin
+    // isn't WRIGHTFUL_PUBLIC_URL but DOES equal the host the upgrade hit.
+    authorizeSpy.mockResolvedValue({ ok: true });
+    const res = await runRoom.onBeforeConnect(
+      connectCtx({
+        origin: "https://wrightful.workers.dev",
+        host: "wrightful.workers.dev",
+      }),
+    );
+    expect(res).toBeUndefined();
+  });
+
+  it("403s a cross-site Origin even on a non-canonical host (evil.com ≠ Host)", async () => {
+    const res = await runRoom.onBeforeConnect(
+      connectCtx({
+        origin: "https://evil.example",
+        host: "wrightful.workers.dev",
+      }),
+    );
+    expect((res as Response).status).toBe(403);
+    expect(authorizeSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows an upgrade with no Origin header (non-browser client)", async () => {
+    authorizeSpy.mockResolvedValue({ ok: true });
+    const res = await runRoom.onBeforeConnect(connectCtx({}));
+    expect(res).toBeUndefined();
+  });
+
   it("429s when the room is at capacity (without consulting authz)", async () => {
     const res = await runRoom.onBeforeConnect(
       connectCtx({ connections: ROOM_CONNECTION_CAP }),
@@ -188,5 +246,16 @@ describe("project room (shares the same gates, project: topic)", () => {
       connectCtx({ userId: "u1", params: { projectId: "proj-9" } }),
     );
     expect(authorizeSpy).toHaveBeenCalledWith("u1", "project:proj-9");
+  });
+
+  it("onBeforeConnect 403s a cross-site Origin before consulting authz", async () => {
+    const res = await projectRoom.onBeforeConnect(
+      connectCtx({
+        origin: "https://evil.example",
+        params: { projectId: "proj-9" },
+      }),
+    );
+    expect((res as Response).status).toBe(403);
+    expect(authorizeSpy).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   afterEach,
   beforeEach,
@@ -18,6 +20,7 @@ const CI_ENV_VARS = [
   "GITLAB_CI",
   "CIRCLECI",
   "GITHUB_RUN_ID",
+  "GITHUB_JOB",
   "GITHUB_REF",
   "GITHUB_REF_NAME",
   "GITHUB_HEAD_REF",
@@ -25,6 +28,8 @@ const CI_ENV_VARS = [
   "GITHUB_REPOSITORY",
   "GITHUB_ACTOR",
   "GITHUB_TRIGGERING_ACTOR",
+  "GITHUB_EVENT_PATH",
+  "WRIGHTFUL_IDEMPOTENCY_KEY",
 ];
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -294,5 +299,503 @@ describe("WrightfulReporter lifecycle", () => {
       .map((c) => String(c[0]))
       .find((s) => s.includes("streaming disabled"));
     expect(msg).toBeDefined();
+  });
+
+  it("disables streaming after a mid-run AuthError (warns once, drops later batches) but still completes the run", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/runs")) {
+        return jsonResponse(200, { runId: "run_abc" });
+      }
+      if (url.includes("/results")) {
+        // e.g. a transient proxy/WAF hiccup — auth itself may still be valid.
+        return jsonResponse(401, { error: "key revoked" });
+      }
+      return jsonResponse(200, {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    const a = makeTest({ id: "a", outcome: "expected", title: "a" });
+    const b = makeTest({ id: "b", outcome: "expected", title: "b" });
+    const reporter = new WrightfulReporter({
+      url: "http://dash.example",
+      token: "tok",
+      batchSize: 1,
+      flushIntervalMs: 5,
+    });
+    reporter.onBegin(makeConfig(), makeSuite([a, b]));
+
+    reporter.onTestEnd(
+      a,
+      makeResult({ status: "passed", duration: 1, retry: 0 }),
+    );
+    // Let the first flush hit the 401 and disable streaming.
+    await new Promise((r) => setTimeout(r, 50));
+    reporter.onTestEnd(
+      b,
+      makeResult({ status: "passed", duration: 1, retry: 0 }),
+    );
+
+    await reporter.onEnd({
+      status: "passed",
+      startTime: new Date(),
+      duration: 0,
+    } as FullResult);
+
+    const urls = fetchMock.mock.calls.map((c) => c[0]);
+    // Only the first batch POSTs; the second is dropped without a request.
+    expect(urls.filter((u) => u.includes("/results"))).toHaveLength(1);
+    // The client survives: /complete is still attempted exactly once so the
+    // run doesn't sit at status='running' until the watchdog interrupts it.
+    expect(urls.filter((u) => u.endsWith("/complete"))).toHaveLength(1);
+    const authWarns = stderrSpy.mock.calls
+      .map((c) => String(c[0]))
+      .filter((s) => s.includes("WRIGHTFUL_TOKEN"));
+    expect(authWarns).toHaveLength(1);
+  });
+
+  it("makes exactly one /complete attempt (no retry storm) when auth is genuinely revoked", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/runs")) {
+        return jsonResponse(200, { runId: "run_abc" });
+      }
+      // Everything after open is rejected — the key is gone.
+      return jsonResponse(401, { error: "key revoked" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    const t = makeTest({ id: "t", outcome: "expected" });
+    const reporter = new WrightfulReporter({
+      url: "http://dash.example",
+      token: "tok",
+      flushIntervalMs: 5,
+    });
+    reporter.onBegin(makeConfig(), makeSuite([t]));
+    reporter.onTestEnd(
+      t,
+      makeResult({ status: "passed", duration: 1, retry: 0 }),
+    );
+
+    await expect(
+      reporter.onEnd({
+        status: "passed",
+        startTime: new Date(),
+        duration: 0,
+      } as FullResult),
+    ).resolves.toBeUndefined();
+
+    const urls = fetchMock.mock.calls.map((c) => c[0]);
+    // One attempt, no retries (4xx is never retried), failure caught + warned.
+    expect(urls.filter((u) => u.endsWith("/complete"))).toHaveLength(1);
+    const completeWarn = stderrSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((s) => s.includes("completeRun failed"));
+    expect(completeWarn).toBeDefined();
+  });
+
+  it("onEnd returns within the shutdown budget and still calls /complete when flushes hang", async () => {
+    const pendingResults: Array<(r: Response) => void> = [];
+    const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith("/api/runs")) {
+        return Promise.resolve(jsonResponse(200, { runId: "run_abc" }));
+      }
+      if (url.includes("/results")) {
+        // Hang until released — simulates a wedged dashboard.
+        return new Promise<Response>((resolve) => pendingResults.push(resolve));
+      }
+      return Promise.resolve(jsonResponse(200, {}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    const t = makeTest({ id: "t", outcome: "expected" });
+    const reporter = new WrightfulReporter({
+      url: "http://dash.example",
+      token: "tok",
+      flushIntervalMs: 5,
+      shutdownTimeoutMs: 300,
+    });
+    reporter.onBegin(makeConfig(), makeSuite([t]));
+    reporter.onTestEnd(
+      t,
+      makeResult({ status: "passed", duration: 1, retry: 0 }),
+    );
+
+    const started = Date.now();
+    await reporter.onEnd({
+      status: "passed",
+      startTime: new Date(),
+      duration: 0,
+    } as FullResult);
+
+    // Bounded by the 300ms budget (generous margin for CI scheduling).
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const urls = fetchMock.mock.calls.map((c) => c[0]);
+    expect(urls.find((u) => u.endsWith("/complete"))).toBeDefined();
+    const budgetWarn = stderrSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((s) => s.includes("shutdown budget"));
+    expect(budgetWarn).toMatch(/abandoned \d+ in-flight/);
+
+    // Release the wedged request so nothing leaks past the test.
+    for (const resolve of pendingResults) {
+      resolve(jsonResponse(200, { results: [] }));
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  it("still starts the batcher drain when hung artifact uploads exhaust the drain budget (buffered batch POSTs, /complete fires)", async () => {
+    // Pins the onEnd restructure: a hung artifact stage must not prevent the
+    // drain from ever being INVOKED — fully-buffered result batches are handed
+    // to fetch regardless, and only the awaiting is budget-bounded (the drain
+    // keeps running unawaited; it may settle after onEnd returns).
+    const tmpDir = mkdtempSync(join(process.cwd(), "wrightful-test-"));
+    const attachmentPath = join(tmpDir, "shot.png");
+    writeFileSync(attachmentPath, "png-bytes");
+
+    try {
+      const fetchMock = vi.fn((url: string, init: RequestInit) => {
+        if (url.endsWith("/api/runs")) {
+          return Promise.resolve(jsonResponse(200, { runId: "run_abc" }));
+        }
+        if (url.includes("/results")) {
+          // Echo a mapping for every streamed result so artifact uploads fire.
+          const body = JSON.parse(
+            typeof init.body === "string" ? init.body : "",
+          ) as {
+            results: Array<{ clientKey: string }>;
+          };
+          return Promise.resolve(
+            jsonResponse(200, {
+              results: body.results.map((r) => ({
+                clientKey: r.clientKey,
+                testResultId: `tr_${r.clientKey}`,
+              })),
+            }),
+          );
+        }
+        if (url.includes("/artifacts/register")) {
+          // Wedge the artifact stage forever.
+          return new Promise<Response>(() => {});
+        }
+        return Promise.resolve(jsonResponse(200, {}));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+
+      const failing = makeTest({
+        id: "f",
+        outcome: "unexpected",
+        title: "fails with artifact",
+      });
+      const passing = makeTest({
+        id: "p",
+        outcome: "expected",
+        title: "passes early",
+      });
+      const buffered = makeTest({
+        id: "late",
+        outcome: "expected",
+        title: "buffered late",
+      });
+      const reporter = new WrightfulReporter({
+        url: "http://dash.example",
+        token: "tok",
+        batchSize: 2,
+        // Huge interval so a partial batch can only ever flush via drain.
+        flushIntervalMs: 60_000,
+        shutdownTimeoutMs: 300,
+      });
+      reporter.onBegin(makeConfig(), makeSuite([failing, passing, buffered]));
+
+      // First two tests fill a batch of 2 → flush fires → the failing test's
+      // artifact register wedges, leaving a never-settling tracked task.
+      reporter.onTestEnd(
+        failing,
+        makeResult({
+          status: "failed",
+          duration: 1,
+          retry: 0,
+          errorMessage: "x",
+          attachments: [
+            {
+              name: "shot.png",
+              contentType: "image/png",
+              path: attachmentPath,
+            },
+          ],
+        }),
+      );
+      reporter.onTestEnd(
+        passing,
+        makeResult({ status: "passed", duration: 1, retry: 0 }),
+      );
+      await vi.waitFor(() => {
+        expect(
+          fetchMock.mock.calls.some(([u]) => u.includes("/artifacts/register")),
+        ).toBe(true);
+      });
+
+      // Enqueued but never flushed before onEnd: 1 < batchSize and the batch
+      // timer is 60s out — only the drain can hand this batch to fetch.
+      reporter.onTestEnd(
+        buffered,
+        makeResult({ status: "passed", duration: 1, retry: 0 }),
+      );
+
+      const started = Date.now();
+      await reporter.onEnd({
+        status: "failed",
+        startTime: new Date(),
+        duration: 0,
+      } as FullResult);
+      expect(Date.now() - started).toBeLessThan(5_000);
+
+      // The drain runs unawaited — give its POST a beat to land.
+      await vi.waitFor(() => {
+        const resultsBodies = fetchMock.mock.calls
+          .filter(([u]) => u.includes("/results"))
+          .map(
+            ([, init]) =>
+              JSON.parse(typeof init.body === "string" ? init.body : "") as {
+                results: Array<{ title: string }>;
+              },
+          );
+        const streamedTitles = resultsBodies.flatMap((b) =>
+          b.results.map((r) => r.title),
+        );
+        expect(streamedTitles).toContain("buffered late");
+      });
+
+      const urls = fetchMock.mock.calls.map((c) => c[0]);
+      expect(urls.find((u) => u.endsWith("/complete"))).toBeDefined();
+      const budgetWarn = stderrSpy.mock.calls
+        .map((c) => String(c[0]))
+        .find((s) => s.includes("shutdown budget"));
+      expect(budgetWarn).toMatch(/abandoned \d+ in-flight/);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("swallows a throwing enqueue (poisoned test object) without rejecting onEnd", async () => {
+    const fetchMock = makeFetch([
+      (url) =>
+        url.endsWith("/api/runs")
+          ? jsonResponse(200, { runId: "run_abc" })
+          : undefined,
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    const evil = makeTest({ id: "boom", outcome: "expected", title: "evil" });
+    (evil as unknown as { titlePath: () => string[] }).titlePath = () => {
+      throw new Error("titlePath exploded");
+    };
+
+    const reporter = new WrightfulReporter({
+      url: "http://dash.example",
+      token: "tok",
+      flushIntervalMs: 5,
+    });
+    reporter.onBegin(makeConfig(), makeSuite([]));
+    reporter.onTestEnd(
+      evil,
+      makeResult({ status: "passed", duration: 1, retry: 0 }),
+    );
+
+    await expect(
+      reporter.onEnd({
+        status: "passed",
+        startTime: new Date(),
+        duration: 0,
+      } as FullResult),
+    ).resolves.toBeUndefined();
+
+    const msg = stderrSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((s) => s.includes('failed to enqueue result for "evil"'));
+    expect(msg).toContain("titlePath exploded");
+  });
+
+  it("derives the idempotency key from build id + job name, never the Playwright shard", async () => {
+    process.env.GITHUB_ACTIONS = "true";
+    process.env.GITHUB_RUN_ID = "42";
+    process.env.GITHUB_JOB = "e2e";
+
+    const fetchMock = makeFetch([
+      (url) =>
+        url.endsWith("/api/runs")
+          ? jsonResponse(200, { runId: "run_abc" })
+          : undefined,
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const openKey = async (): Promise<string> => {
+      const callsBefore = fetchMock.mock.calls.length;
+      const reporter = new WrightfulReporter({
+        url: "http://dash.example",
+        token: "tok",
+        flushIntervalMs: 5,
+      });
+      // `config.shard` is set, but the key must NOT carry a shard suffix:
+      // shards run slices of ONE suite and share the idempotency key so the
+      // dashboard merges them into a single run (openRun's duplicate path and
+      // completeRun's cross-shard status merge are designed around that).
+      reporter.onBegin(
+        makeConfig(null, { current: 1, total: 2 }),
+        makeSuite([]),
+      );
+      await reporter.onEnd({
+        status: "passed",
+        startTime: new Date(),
+        duration: 0,
+      } as FullResult);
+      const openCall = fetchMock.mock.calls
+        .slice(callsBefore)
+        .find(([url]) => url.endsWith("/api/runs"));
+      expect(openCall).toBeDefined();
+      const rawBody = openCall![1].body;
+      const body = (typeof rawBody === "string" ? JSON.parse(rawBody) : {}) as {
+        idempotencyKey: string;
+      };
+      return body.idempotencyKey;
+    };
+
+    const first = await openKey();
+    expect(first).toBe("42-e2e");
+    // Deterministic across re-runs of the same job — a re-run recovers the run.
+    expect(await openKey()).toBe(first);
+  });
+
+  it("sends WRIGHTFUL_IDEMPOTENCY_KEY verbatim on the wire, undecorated", async () => {
+    process.env.GITHUB_ACTIONS = "true";
+    process.env.GITHUB_RUN_ID = "42";
+    process.env.GITHUB_JOB = "e2e";
+    process.env.WRIGHTFUL_IDEMPOTENCY_KEY = "01EXEC0000000000000000000";
+
+    const fetchMock = makeFetch([
+      (url) =>
+        url.endsWith("/api/runs")
+          ? jsonResponse(200, { runId: "run_abc" })
+          : undefined,
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const reporter = new WrightfulReporter({
+      url: "http://dash.example",
+      token: "tok",
+      flushIntervalMs: 5,
+    });
+    reporter.onBegin(makeConfig(null, { current: 1, total: 2 }), makeSuite([]));
+    await reporter.onEnd({
+      status: "passed",
+      startTime: new Date(),
+      duration: 0,
+    } as FullResult);
+
+    const openCall = fetchMock.mock.calls.find(([url]) =>
+      url.endsWith("/api/runs"),
+    );
+    expect(openCall).toBeDefined();
+    const rawBody = openCall![1].body;
+    const body = (typeof rawBody === "string" ? JSON.parse(rawBody) : {}) as {
+      idempotencyKey: string;
+    };
+    expect(body.idempotencyKey).toBe("01EXEC0000000000000000000");
+  });
+
+  it("warns the gate reason when postPrComment is enabled but cannot fire", async () => {
+    const fetchMock = makeFetch([
+      (url) =>
+        url.endsWith("/api/runs")
+          ? jsonResponse(200, { runId: "run_abc" })
+          : undefined,
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    const reporter = new WrightfulReporter({
+      url: "http://dash.example",
+      token: "tok",
+      flushIntervalMs: 5,
+      postPrComment: true,
+    });
+    reporter.onBegin(makeConfig(), makeSuite([]));
+    await reporter.onEnd({
+      status: "passed",
+      startTime: new Date(),
+      duration: 0,
+    } as FullResult);
+
+    const msg = stderrSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((s) => s.includes("PR comment skipped"));
+    expect(msg).toContain("no CI context detected");
+  });
+
+  it("warns once per run (not per file) when attachments resolve outside the allowed root", async () => {
+    const fetchMock = makeFetch([
+      (url) =>
+        url.endsWith("/api/runs")
+          ? jsonResponse(200, { runId: "run_abc" })
+          : undefined,
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    const outside = [
+      "/definitely-not-under-cwd/one.png",
+      "/definitely-not-under-cwd/two.png",
+    ];
+    const failing = makeTest({ id: "f", outcome: "unexpected" });
+    const reporter = new WrightfulReporter({
+      url: "http://dash.example",
+      token: "tok",
+      flushIntervalMs: 5,
+    });
+    reporter.onBegin(makeConfig(), makeSuite([failing]));
+    reporter.onTestEnd(
+      failing,
+      makeResult({
+        status: "failed",
+        duration: 1,
+        retry: 0,
+        errorMessage: "x",
+        attachments: outside.map((path) => ({
+          name: "screenshot.png",
+          contentType: "image/png",
+          path,
+        })),
+      }),
+    );
+    await reporter.onEnd({
+      status: "failed",
+      startTime: new Date(),
+      duration: 0,
+    } as FullResult);
+
+    const rootWarns = stderrSpy.mock.calls
+      .map((c) => String(c[0]))
+      .filter((s) => s.includes("allowed root"));
+    expect(rootWarns).toHaveLength(1);
+    expect(rootWarns[0]).toContain(outside[0]);
   });
 });

@@ -29,7 +29,11 @@ import { runRow, runRows } from "@/lib/db-run";
 
 /** The directed-invite identity resolved for a signed-in user. */
 export interface UserIdentity {
-  /** Lowercased `user.email`, or null when the row/column is absent. */
+  /**
+   * Lowercased `user.email` when the account's email is VERIFIED, else null.
+   * Unverified emails are self-asserted and must never match a directed
+   * invite — see `getUserIdentity`.
+   */
   email: string | null;
   /** The GitHub login captured at OAuth sign-in, or null. */
   githubLogin: string | null;
@@ -74,13 +78,22 @@ export interface UserAuthProfile {
  * to remember to — directed invites store emails lowercased, so a missing
  * `.toLowerCase()` would silently fail to match.
  *
+ * **Only a VERIFIED email is an identity.** An unverified `user.email` is a
+ * self-asserted string: with signup open, anyone can register an account
+ * claiming `victim@corp.com` (no verification email is sent — none is wired
+ * up) and would otherwise see and redeem the victim's directed invites. GitHub
+ * OAuth users get `emailVerified` from GitHub's verified-email flag, so the
+ * OAuth invite flow keeps matching; unverified password accounts fall back to
+ * the GitHub-login channel or an undirected token link. When an email sender +
+ * verification ships, password accounts regain email matching automatically.
+ *
  * Used by every invite-redemption path (team-picker pending invites, the
  * token share-link gate, and the accept / decline routes).
  */
 export async function getUserIdentity(userId: string): Promise<UserIdentity> {
   const [userRow, githubRow] = await Promise.all([
-    runRow<{ email?: string }>(
-      sql`select email from "user" where id = ${userId} limit 1`,
+    runRow<{ email?: string; emailVerified?: number | boolean }>(
+      sql`select email, emailVerified from "user" where id = ${userId} limit 1`,
     ),
     db
       .select({ githubLogin: userGithubAccounts.githubLogin })
@@ -89,7 +102,9 @@ export async function getUserIdentity(userId: string): Promise<UserIdentity> {
       .limit(1),
   ]);
 
-  const rawEmail = userRow?.email;
+  // D1 hands the boolean back as 0/1; treat anything truthy as verified.
+  const verified = Boolean(userRow?.emailVerified);
+  const rawEmail = verified ? userRow?.email : null;
   return {
     email: rawEmail ? rawEmail.toLowerCase() : null,
     githubLogin: githubRow[0]?.githubLogin ?? null,

@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 // CI environment detection. Reads standard env vars on GitHub Actions,
 // GitLab CI, and CircleCI; falls back to a `CI=true` generic case. Commit
@@ -8,6 +9,12 @@ import { randomUUID } from "node:crypto";
 export interface CIInfo {
   ciProvider: string | null;
   ciBuildId: string | null;
+  /**
+   * Job-level discriminator within a build (GITHUB_JOB / CI_JOB_NAME). The
+   * build id alone is workflow/pipeline-scoped, so without this matrix and
+   * parallel jobs would share an idempotency key and merge into one run.
+   */
+  ciJobName: string | null;
   branch: string | null;
   commitSha: string | null;
   commitMessage: string | null;
@@ -30,9 +37,21 @@ function readGitCommitMessage(): string | null {
 
 function githubPrNumber(): number | null {
   const ref = process.env.GITHUB_REF;
-  if (!ref) return null;
-  const match = ref.match(/^refs\/pull\/(\d+)\/merge$/);
-  return match ? parseInt(match[1], 10) : null;
+  const match = ref?.match(/^refs\/pull\/(\d+)\/merge$/);
+  if (match) return parseInt(match[1], 10);
+  // `pull_request_target` / `merge_group` events don't get a refs/pull/N/merge
+  // ref; fall back to the event payload GitHub writes to disk.
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (!eventPath) return null;
+  try {
+    const event = JSON.parse(readFileSync(eventPath, "utf8")) as {
+      pull_request?: { number?: number };
+    };
+    const number = event.pull_request?.number;
+    return typeof number === "number" ? number : null;
+  } catch {
+    return null;
+  }
 }
 
 function circlePrNumber(): number | null {
@@ -49,6 +68,7 @@ export function detectCI(): CIInfo | null {
     return {
       ciProvider: "github-actions",
       ciBuildId: process.env.GITHUB_RUN_ID ?? null,
+      ciJobName: process.env.GITHUB_JOB ?? null,
       branch:
         process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || null,
       commitSha: process.env.GITHUB_SHA ?? null,
@@ -63,6 +83,7 @@ export function detectCI(): CIInfo | null {
     return {
       ciProvider: "gitlab-ci",
       ciBuildId: process.env.CI_PIPELINE_ID ?? null,
+      ciJobName: process.env.CI_JOB_NAME ?? null,
       branch:
         process.env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME ||
         process.env.CI_COMMIT_BRANCH ||
@@ -80,6 +101,7 @@ export function detectCI(): CIInfo | null {
     return {
       ciProvider: "circleci",
       ciBuildId: process.env.CIRCLE_WORKFLOW_ID ?? null,
+      ciJobName: process.env.CIRCLE_JOB ?? null,
       branch: process.env.CIRCLE_BRANCH ?? null,
       commitSha: process.env.CIRCLE_SHA1 ?? null,
       commitMessage: readGitCommitMessage(),
@@ -96,6 +118,7 @@ export function detectCI(): CIInfo | null {
     return {
       ciProvider: "unknown",
       ciBuildId: null,
+      ciJobName: null,
       branch: null,
       commitSha: null,
       commitMessage: readGitCommitMessage(),
@@ -107,16 +130,44 @@ export function detectCI(): CIInfo | null {
   return null;
 }
 
+export interface IdempotencyDiscriminators {
+  /** CI job name (e.g. GITHUB_JOB / CI_JOB_NAME). */
+  jobName?: string | null;
+}
+
+// Mirror of the dashboard's `idempotencyKey` cap (MAX.ID in
+// apps/dashboard/src/lib/schemas.ts) — a longer key would 400 the open call.
+const MAX_IDEMPOTENCY_KEY_LENGTH = 1024;
+
 /**
  * Resolve the run's idempotency key. Precedence:
  *   1. `WRIGHTFUL_IDEMPOTENCY_KEY` env override — set by the synthetic-monitor
  *      container to the pre-known `monitorExecutions.id`, so the opened run is
  *      addressable by `(projectId, idempotencyKey === execution.id)` and the
  *      executor can resolve `runId` back from the execution without a handshake.
+ *      Used verbatim — never decorated with discriminators.
  *   2. The CI build id (deterministic across re-runs of the same CI job, which
- *      is what lets a re-run recover the same run row).
+ *      is what lets a re-run recover the same run row), suffixed with the job
+ *      name when present. The build id alone is workflow/pipeline-scoped, so
+ *      distinct jobs (different suites in one workflow, matrix legs) would
+ *      otherwise silently merge into one dashboard run. The job name is stable
+ *      across re-runs, so re-run determinism survives the suffix.
+ *
+ *      Playwright `--shard` is deliberately NOT a discriminator: shards run
+ *      slices of ONE suite and must share an idempotency key so the dashboard
+ *      merges them into a single run — openRun's duplicate path, the queue
+ *      prefill, and completeRun's monotonic cross-shard status merge are all
+ *      designed around shards sharing one key.
  *   3. A random UUID for purely local runs.
  */
-export function generateIdempotencyKey(ciBuildId: string | null | undefined) {
-  return process.env.WRIGHTFUL_IDEMPOTENCY_KEY || ciBuildId || randomUUID();
+export function generateIdempotencyKey(
+  ciBuildId: string | null | undefined,
+  discriminators: IdempotencyDiscriminators = {},
+): string {
+  const explicit = process.env.WRIGHTFUL_IDEMPOTENCY_KEY;
+  if (explicit) return explicit;
+  if (!ciBuildId) return randomUUID();
+  const parts = [ciBuildId];
+  if (discriminators.jobName) parts.push(discriminators.jobName);
+  return parts.join("-").slice(0, MAX_IDEMPOTENCY_KEY_LENGTH);
 }

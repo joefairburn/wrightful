@@ -15,10 +15,13 @@ import { makeHrefBuilder } from "@/lib/page-links";
 import { formatDuration } from "@/lib/time-format";
 import type { Props } from "./run-duration.server";
 
+// Theme tokens only (styles.css owns the resolved colours): higher percentiles
+// escalate through the status palette — p90 amber (flaky), p95 red (fail) —
+// and track light/dark for free.
 const SERIES_COLORS = {
   p50: "var(--color-foreground)",
-  p90: "#ea580c",
-  p95: "#dc2626",
+  p90: "var(--flaky)",
+  p95: "var(--fail)",
 } as const;
 
 /**

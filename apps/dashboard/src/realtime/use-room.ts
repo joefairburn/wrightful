@@ -50,9 +50,11 @@ const RECONNECT_DELAY_MS = 3000;
 
 interface SharedRoom {
   close: () => void;
-  /** Removes the single message handler the shared socket fans out through. */
+  /** Removes the message + open handlers the shared socket fans out through. */
   detach: () => void;
   listeners: Set<(event: unknown) => void>;
+  /** Fired on every RE-open (reconnect after a drop), never the first open. */
+  reconnectListeners: Set<() => void>;
   refCount: number;
 }
 
@@ -73,12 +75,18 @@ const rooms = new Map<string, SharedRoom>();
  * caller's stable `path|params` string. Returns an unsubscribe that drops the
  * listener and closes the underlying socket once no listener remains. Pure of
  * React so the ref-counting is unit-testable with a fake `connect`.
+ *
+ * `onReconnect` (optional) fires when the shared socket RE-opens after a drop
+ * — never on the first open. Rooms have no event replay (a viewer disconnected
+ * across a broadcast reconnects to silence), so consumers use this hook point
+ * to reconcile against the server (re-fetch a snapshot / refresh the loader).
  */
 export function subscribeToRoom<P extends RoomPath>(
   path: P,
   params: ParamsOf<P>,
   key: string,
   onEvent: (event: ServerEventOf<P>) => void,
+  onReconnect?: () => void,
 ): () => void {
   let room = rooms.get(key);
   if (!room) {
@@ -87,12 +95,32 @@ export function subscribeToRoom<P extends RoomPath>(
       reconnectDelayMs: RECONNECT_DELAY_MS,
     });
     const listeners = new Set<(event: unknown) => void>();
-    const detach = socket.on("message", (event) => {
+    const reconnectListeners = new Set<() => void>();
+    const detachMessage = socket.on("message", (event) => {
       // `event` is ServerEventOf<P>; fan out to the type-erased listener set
       // (passing a typed value to (unknown)=>void is sound, no cast).
       for (const listener of [...listeners]) listener(event);
     });
-    room = { close: () => socket.close(), detach, listeners, refCount: 0 };
+    // VoidSocket re-dials internally on non-user closes, emitting "open" per
+    // (re)connection. The first open is the initial connect; every later one
+    // is a reconnect after a drop — exactly the gap with no replay.
+    let openedOnce = false;
+    const detachOpen = socket.on("open", () => {
+      if (openedOnce) {
+        for (const listener of [...reconnectListeners]) listener();
+      }
+      openedOnce = true;
+    });
+    room = {
+      close: () => socket.close(),
+      detach: () => {
+        detachMessage();
+        detachOpen();
+      },
+      listeners,
+      reconnectListeners,
+      refCount: 0,
+    };
     rooms.set(key, room);
   }
   // The registry holds rooms of differing `P` in one Map, so listeners are
@@ -102,6 +130,7 @@ export function subscribeToRoom<P extends RoomPath>(
   // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- the socket for `path` only emits ServerEventOf<P>; re-narrowing from the type-erased listener set is sound (see comment above)
   const fan = (event: unknown) => onEvent(event as ServerEventOf<P>);
   room.listeners.add(fan);
+  if (onReconnect) room.reconnectListeners.add(onReconnect);
   room.refCount += 1;
 
   let released = false;
@@ -111,6 +140,7 @@ export function subscribeToRoom<P extends RoomPath>(
     const current = rooms.get(key);
     if (!current) return;
     current.listeners.delete(fan);
+    if (onReconnect) current.reconnectListeners.delete(onReconnect);
     current.refCount -= 1;
     if (current.refCount <= 0) {
       current.detach();
@@ -130,24 +160,31 @@ export function subscribeToRoom<P extends RoomPath>(
  * same room hold ONE socket between them, auto-reconnecting (VoidSocket), torn
  * down when the last leaf unmounts.
  *
- * `onEvent` is read through a ref so callers can pass a fresh closure each render
- * (e.g. one that closes over current props) without re-opening the socket; the
- * subscription is re-created only when `path` or `params` change.
+ * `onEvent` / `onReconnect` are read through refs so callers can pass a fresh
+ * closure each render (e.g. one that closes over current props) without
+ * re-opening the socket; the subscription is re-created only when `path` or
+ * `params` change. `onReconnect` fires when the socket re-opens after a drop
+ * (never the first open) — the hook point for missed-broadcast reconciliation,
+ * since rooms have no event replay.
  */
 export function useRoom<P extends RoomPath>(
   path: P,
   params: ParamsOf<P>,
   onEvent: (event: ServerEventOf<P>) => void,
+  onReconnect?: () => void,
 ): void {
   const cb = useRef(onEvent);
   cb.current = onEvent;
+  const reconnectCb = useRef(onReconnect);
+  reconnectCb.current = onReconnect;
 
   // Stable dependency key — re-subscribe only when the target room changes.
   const key = `${path}|${JSON.stringify(params)}`;
 
   useEffect(() => {
     const stable = (event: ServerEventOf<P>) => cb.current(event);
-    return subscribeToRoom(path, params, key, stable);
+    const stableReconnect = () => reconnectCb.current?.();
+    return subscribeToRoom(path, params, key, stable, stableReconnect);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 }

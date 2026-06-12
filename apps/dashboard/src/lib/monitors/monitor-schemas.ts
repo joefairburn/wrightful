@@ -9,9 +9,10 @@ import { z } from "zod";
  */
 
 /**
- * Allowed interval presets in seconds: 1m, 5m, 10m, 30m, 1h. The 1-minute floor
- * matches Cloudflare cron granularity (`WRIGHTFUL_MONITOR_MIN_INTERVAL_SECONDS`)
- * and guards cost; sub-minute would need a different scheduling primitive.
+ * Allowed interval presets in seconds: 1m, 5m, 10m, 30m, 1h. This list is the
+ * single source of the interval floor — the 1-minute minimum matches Cloudflare
+ * cron granularity and guards cost; sub-minute would need a different
+ * scheduling primitive.
  */
 export const MONITOR_INTERVAL_PRESETS = [60, 300, 600, 1800, 3600] as const;
 export type MonitorIntervalPreset = (typeof MONITOR_INTERVAL_PRESETS)[number];

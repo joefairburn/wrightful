@@ -364,7 +364,7 @@ function rowTone(row: BottleneckRow): RowTone {
       Icon: XCircle,
       iconColor: statusToken("failed"),
       border: "border-l-destructive",
-      p95Text: "text-destructive-foreground",
+      p95Text: "text-destructive",
       sparkColor: statusToken("failed"),
     };
   }
@@ -373,7 +373,7 @@ function rowTone(row: BottleneckRow): RowTone {
       Icon: TriangleAlert,
       iconColor: statusToken("flaky"),
       border: "border-l-warning",
-      p95Text: "text-warning-foreground",
+      p95Text: "text-warning",
       sparkColor: statusToken("flaky"),
     };
   }

@@ -81,19 +81,33 @@ export const loader = defineHandler(async (c) => {
     };
   }
 
+  // Child reads repeat the projectId predicate even though the parent row was
+  // ownership-verified above: the project invariant is that EVERY query
+  // against these tables is project-scoped, so a future refactor that loosens
+  // the parent probe can't silently turn these into cross-tenant reads.
   const [tagRows, annotationRows, artifactRows, attemptRows, historyRows] =
     await Promise.all([
       db
         .select({ tag: testTags.tag })
         .from(testTags)
-        .where(eq(testTags.testResultId, testResultId)),
+        .where(
+          and(
+            eq(testTags.projectId, project.id),
+            eq(testTags.testResultId, testResultId),
+          ),
+        ),
       db
         .select({
           type: testAnnotations.type,
           description: testAnnotations.description,
         })
         .from(testAnnotations)
-        .where(eq(testAnnotations.testResultId, testResultId)),
+        .where(
+          and(
+            eq(testAnnotations.projectId, project.id),
+            eq(testAnnotations.testResultId, testResultId),
+          ),
+        ),
       db
         .select({
           id: artifacts.id,
@@ -107,7 +121,12 @@ export const loader = defineHandler(async (c) => {
           snapshotName: artifacts.snapshotName,
         })
         .from(artifacts)
-        .where(eq(artifacts.testResultId, testResultId))
+        .where(
+          and(
+            eq(artifacts.projectId, project.id),
+            eq(artifacts.testResultId, testResultId),
+          ),
+        )
         .orderBy(asc(artifacts.attempt)),
       db
         .select({
@@ -118,7 +137,12 @@ export const loader = defineHandler(async (c) => {
           errorStack: testResultAttempts.errorStack,
         })
         .from(testResultAttempts)
-        .where(eq(testResultAttempts.testResultId, testResultId))
+        .where(
+          and(
+            eq(testResultAttempts.projectId, project.id),
+            eq(testResultAttempts.testResultId, testResultId),
+          ),
+        )
         .orderBy(asc(testResultAttempts.attempt)),
       db
         .select({

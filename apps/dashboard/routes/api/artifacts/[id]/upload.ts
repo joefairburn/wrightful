@@ -31,6 +31,13 @@ export const PUT = defineHandler(async (c) => {
   switch (result.kind) {
     case "notFound":
       return c.json({ error: "Not found" }, 404);
+    case "runClosed":
+      // The owning run is terminal + idle past the write grace window —
+      // refuse byte overwrites of historical artifacts. 4xx → no retry.
+      return c.json(
+        { error: "Run completed too long ago to accept writes" },
+        409,
+      );
     case "lengthRequired":
       return c.json({ error: "Content-Length required" }, 400);
     case "lengthMismatch":

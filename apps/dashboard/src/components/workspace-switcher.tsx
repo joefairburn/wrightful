@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useRouter } from "@void/react";
 import { useNavigate } from "@/lib/navigate";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
+import { avatarHue } from "@/lib/avatar-hue";
 import { cn } from "@/lib/cn";
 import { link } from "@/lib/links";
 import type { WorkspaceListItem } from "@/lib/shared-bundle";
@@ -189,7 +190,7 @@ function TeamBadge({
 }) {
   const initial = name.charAt(0).toUpperCase();
   const px = size === "sm" ? "size-4 text-[9.5px]" : "size-[22px] text-[12px]";
-  const hue = teamHue(name);
+  const hue = avatarHue(name);
   return (
     <span
       className={cn(
@@ -205,12 +206,4 @@ function TeamBadge({
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function teamHue(name: string): number {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
-  // Restrict to a cool 220-290° band so badges stay in the steel/indigo
-  // family rather than scattering across the rainbow.
-  return 220 + (Math.abs(h) % 70);
 }
