@@ -6,9 +6,13 @@ import { expect, test } from "./fixtures";
  * `monitors.spec.ts`.
  *
  * Unlike browser monitors there is NO stub executor: an http check is a plain
- * `fetch`, so it runs identically in dev/CI/prod. We point the monitor at the
- * dashboard's OWN base URL (a reachable loopback target), then drive one
- * scheduled cycle via Void's dev triggers:
+ * `fetch`, so it runs identically in dev/CI/prod. The monitor must target a
+ * PUBLIC URL — the `url-policy` SSRF guard rejects loopback/localhost at the
+ * form, so we can't point it at the dashboard's own dev URL. We use a stable
+ * public host and drive one scheduled cycle via Void's dev triggers. The check's
+ * outcome is deliberately not pinned (see below), so the test passes whether or
+ * not the CI worker has outbound egress: a blocked/failed fetch is still recorded
+ * as a terminal `fail` execution, which is all the pipeline assertion needs:
  *
  *   1. Create an http monitor through the form; assert it lands in the list with
  *      the "uptime" type pill + interval, and its detail shows the request
@@ -28,6 +32,11 @@ import { expect, test } from "./fixtures";
 
 const SWEEP_CRON = "* * * * *";
 const ONE_MINUTE = 60;
+// A public target — `url-policy` rejects loopback/localhost, so the monitor
+// can't point at the dashboard's own dev URL. The pipeline assertion is
+// status-agnostic, so this passes even if CI egress can't reach the host (a
+// failed fetch records a terminal `fail`).
+const TARGET_URL = "https://example.com";
 
 test.setTimeout(150_000);
 
@@ -39,12 +48,13 @@ test.describe("HTTP uptime monitors", () => {
   }) => {
     const name = `pw-uptime-${Date.now()}`;
 
-    // 1. Create via the http form (pointed at the dashboard's own URL).
+    // 1. Create via the http form (pointed at a public URL — url-policy blocks
+    // loopback, so the dashboard's own dev URL can't be the target).
     await monitorsPage.gotoNewHttp();
     const monitorId = await monitorsPage.createHttp({
       name,
       intervalSeconds: ONE_MINUTE,
-      url: ctx.url,
+      url: TARGET_URL,
     });
 
     // List: the uptime type pill + humanized interval.

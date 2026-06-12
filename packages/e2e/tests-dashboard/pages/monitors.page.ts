@@ -68,8 +68,9 @@ export class MonitorsPage {
     await expect(this.listHeading).toBeVisible();
   }
 
+  /** Open the create form for the browser type directly (skips the chooser). */
   async gotoNew(): Promise<void> {
-    await this.page.goto(this.newPath);
+    await this.page.goto(`${this.newPath}?type=browser`);
     await expect(this.nameInput).toBeVisible();
   }
 
