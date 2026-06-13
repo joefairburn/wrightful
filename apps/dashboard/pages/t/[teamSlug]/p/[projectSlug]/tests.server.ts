@@ -2,12 +2,15 @@ import { defineHandler, type InferProps } from "void";
 import { sql } from "void/db";
 import { z } from "zod";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { loadProjectTags } from "@/lib/tags-query";
 import { runRows } from "@/lib/db-run";
 import {
   branchFragment,
   searchFragment,
+  tagFragment,
   testResultsScopeJoin,
 } from "@/lib/analytics/filters";
+import type { CatalogGroupMode } from "@/lib/group-catalog-rows";
 import {
   normalizeBranchFilter,
   resolveAnalyticsWindow,
@@ -83,6 +86,10 @@ export const loader = defineHandler.withValidator({
     range: z.enum(RANGES).optional(),
     branch: z.string().optional(),
     q: z.string().optional(),
+    /** Comma-separated tag filter (ANY-match). */
+    tag: z.string().optional(),
+    /** Presentational grouping of the current page. */
+    group: z.enum(["file", "suite"]).optional(),
     page: z.coerce.number().int().min(1).optional(),
   }),
 })(async (c, { query }) => {
@@ -91,13 +98,23 @@ export const loader = defineHandler.withValidator({
   const range: RangeKey = query.range ?? "14d";
   const { branchParam, branchFilter } = normalizeBranchFilter(query.branch);
   const q = (query.q ?? "").trim();
+  const tags = (query.tag ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const tagParam = tags.length > 0 ? tags.join(",") : null;
+  const group: CatalogGroupMode | null = query.group ?? null;
   const requestedPage = query.page ?? 1;
 
-  const branches = await loadProjectBranches(scope);
+  const [branches, availableTags] = await Promise.all([
+    loadProjectBranches(scope),
+    loadProjectTags(scope),
+  ]);
   const { windowStartSec } = resolveAnalyticsWindow(range);
 
   const branchSql = branchFragment(branchFilter);
   const qSql = searchFragment(q || null);
+  const tagSql = tagFragment(tags);
 
   const offset = (requestedPage - 1) * PAGE_SIZE;
   let pageRows = await runPageQuery(
@@ -105,6 +122,7 @@ export const loader = defineHandler.withValidator({
     windowStartSec,
     branchSql,
     qSql,
+    tagSql,
     offset,
   );
 
@@ -119,6 +137,7 @@ export const loader = defineHandler.withValidator({
       windowStartSec,
       branchSql,
       qSql,
+      tagSql,
       (currentPage - 1) * PAGE_SIZE,
     );
   } else {
@@ -133,6 +152,7 @@ export const loader = defineHandler.withValidator({
       scope,
       windowStartSec,
       branchSql,
+      tagSql,
       testIds,
     );
     rows = testIds.flatMap((id) => {
@@ -180,6 +200,10 @@ export const loader = defineHandler.withValidator({
     branchFilter,
     branches,
     q,
+    tagParam,
+    tags,
+    availableTags,
+    group,
     rows,
     totalUniqueTests,
     currentPage,
@@ -196,6 +220,7 @@ async function runPageQuery(
   windowStartSec: number,
   branchSql: ReturnType<typeof sql>,
   qSql: ReturnType<typeof sql>,
+  tagSql: ReturnType<typeof sql>,
   offset: number,
 ): Promise<PageQueryRow[]> {
   return runRows<PageQueryRow>(sql`
@@ -209,6 +234,7 @@ async function runPageQuery(
         and runs."createdAt" >= ${windowStartSec}
         ${branchSql}
         ${qSql}
+        ${tagSql}
       group by tr."testId"
     )
     select "testId", "lastSeen", "totalDistinct"
@@ -223,6 +249,7 @@ async function runAggregateQuery(
   scope: TenantScope,
   windowStartSec: number,
   branchSql: ReturnType<typeof sql>,
+  tagSql: ReturnType<typeof sql>,
   testIds: readonly string[],
 ): Promise<Map<string, AggregateRow>> {
   const rows = await runRows<AggregateRow>(sql`
@@ -245,6 +272,10 @@ async function runAggregateQuery(
           sql`, `,
         )})
         ${branchSql}
+        -- Same tag predicate as runPageQuery so per-test counts/duration reflect
+        -- ONLY the tag-filtered results, not the test's full history. Without it
+        -- a tag-filtered page shows correct membership but inflated counts.
+        ${tagSql}
     )
     select
       "testId",

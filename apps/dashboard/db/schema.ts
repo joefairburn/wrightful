@@ -474,10 +474,12 @@ export const testTags = sqliteTable(
     tag: text("tag").notNull(),
   },
   (t) => [
-    // No standalone (tag) index — nothing filters `WHERE tag = ?`; the only tag
-    // reads group by tag from a testResults-driven scan. Re-add (projectId, tag)
-    // if a tag-filter feature lands. See worklog §2.
     index("testTags_testResultId_idx").on(t.testResultId),
+    // Serves the tag-filter feature: `loadProjectTags`' `SELECT DISTINCT tag
+    // WHERE projectId = ?` runs as an index-only skip-scan, and the EXISTS
+    // tag-filter subquery (`tagFragment`) has a covering lookup. (The schema
+    // pre-authorized this once a tag-filter feature landed — it now has.)
+    index("testTags_project_tag_idx").on(t.projectId, t.tag),
   ],
 );
 

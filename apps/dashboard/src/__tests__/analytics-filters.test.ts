@@ -4,6 +4,7 @@ import {
   ciRunsJoinFragment,
   ciRunsJoinOn,
   searchFragment,
+  tagFragment,
   testResultsScopeJoin,
 } from "@/lib/analytics/filters";
 import { makeTenantScope } from "@/lib/scope";
@@ -172,5 +173,31 @@ describe("searchFragment", () => {
     // the user's term matches literally (same semantics as the runs search).
     expect(op.args).toEqual(["%50\\%%", "%50\\%%"]);
     expect(op.strings.join("")).not.toContain("50%");
+  });
+});
+
+describe("tagFragment", () => {
+  it("is empty for an empty tag list (the no-tag-filter case)", () => {
+    expect(isEmptyFragment(tagFragment([]))).toBe(true);
+  });
+
+  it("emits an EXISTS correlated subquery against testTags on tr.id", () => {
+    const op = readSql(tagFragment(["smoke"]));
+    const text = op.strings.join("").replace(/\s+/g, " ").trim();
+    expect(text).toContain(
+      `and exists (select 1 from "testTags" tt where tt."testResultId" = tr.id and tt.tag in (`,
+    );
+  });
+
+  it("binds every tag as a parameter, never interpolating it", () => {
+    const op = readSql(tagFragment(["smoke", "slow"]));
+    // The IN list is a `sql.join` node whose chunks each carry one bound tag.
+    const join = op.args[0] as { __op: string; chunks: unknown[] };
+    expect(join.__op).toBe("sql.join");
+    const tagValues = join.chunks.map((c) => readSql(c).args[0]);
+    expect(tagValues).toEqual(["smoke", "slow"]);
+    // No tag value leaks into the literal SQL text — injection-safe.
+    expect(op.strings.join("")).not.toContain("smoke");
+    expect(op.strings.join("")).not.toContain("slow");
   });
 });
