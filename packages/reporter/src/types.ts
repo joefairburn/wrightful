@@ -123,6 +123,23 @@ export interface RegisterArtifactsResponse {
   uploads: ArtifactUpload[];
 }
 
+/** One quarantined test as returned by `GET /api/runs/quarantine`. */
+export interface QuarantineEntry {
+  testId: string;
+  mode: "skip" | "soft";
+  reason: string | null;
+}
+
+/**
+ * `GET /api/runs/quarantine` response. The reporter fetches this at `onBegin`
+ * and demotes a quarantined hard failure to `skipped` on the wire (v1
+ * enforcement — a reporter is observe-only, so it can't skip execution).
+ * Mirror of `QuarantineResponseSchema` in apps/dashboard/src/lib/schemas.ts.
+ */
+export interface QuarantineResponse {
+  tests: QuarantineEntry[];
+}
+
 export interface ArtifactRegistration {
   testResultId: string;
   type: ArtifactType;

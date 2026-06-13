@@ -15,6 +15,8 @@ import { latestPerTestRn } from "@/lib/analytics/per-test";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { runRows } from "@/lib/db-run";
+import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
+import type { QuarantineMode } from "@/lib/quarantine-schemas";
 import type { TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -119,13 +121,21 @@ export const loader = defineHandler(async (c) => {
   // 2 + 3 in parallel.
   const sparkByTest = new Map<string, FlakyTestMeta>();
   const failsByTest = new Map<string, RecentFailureRow[]>();
+  const quarantinedByTestId: Record<
+    string,
+    { mode: QuarantineMode; reason: string | null }
+  > = {};
 
   if (testIds.length > 0) {
-    const [sparkRows, failRows, tagRows] = await Promise.all([
+    const [sparkRows, failRows, tagRows, quarantineRows] = await Promise.all([
       loadSparklinesAndMeta(scope, testIds, branchFilter, SPARKLINE_SIZE),
       loadRecentFailures(scope, testIds, branchFilter, RECENT_FAILURES),
       loadTagsByTestId(scope.projectId, testIds),
+      loadQuarantineByTestId(scope.projectId, testIds),
     ]);
+    for (const q of quarantineRows) {
+      quarantinedByTestId[q.testId] = { mode: q.mode, reason: q.reason };
+    }
     for (const r of sparkRows) {
       let entry = sparkByTest.get(r.testId);
       if (!entry) {
@@ -173,6 +183,9 @@ export const loader = defineHandler(async (c) => {
       slug: project.slug,
       name: project.name,
       teamSlug: project.teamSlug,
+      // Only owners get the quarantine/unquarantine control (the mutation is
+      // owner-gated server-side too); non-owners just see the badge.
+      canManageQuarantine: project.role === "owner",
     },
     range,
     branchParam,
@@ -186,7 +199,13 @@ export const loader = defineHandler(async (c) => {
     // Convert maps to plain objects for serialization.
     sparkByTest: Object.fromEntries(sparkByTest),
     failsByTest: Object.fromEntries(failsByTest),
+    // testId → quarantine state for the per-row badge + control.
+    quarantinedByTestId,
+    // Set by the quarantine mutation route on a validation / conflict failure
+    // (it redirects back here with ?quarantineError=…). Surfaced as a banner.
+    quarantineError: url.searchParams.get("quarantineError"),
     pathname: url.pathname,
+    fullPath: url.pathname + url.search,
     ranges: RANGES,
   };
 });

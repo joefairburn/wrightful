@@ -31,6 +31,11 @@ import {
   shouldPostPrComment,
   type RunSummary,
 } from "./pr-comment.js";
+import {
+  applyQuarantine,
+  fetchQuarantine,
+  type QuarantineMap,
+} from "./quarantine.js";
 import { computeTestId } from "./test-id.js";
 import type {
   ArtifactMode,
@@ -172,6 +177,14 @@ export default class WrightfulReporter implements Reporter {
   private client: StreamClient | null = null;
   private uploader: ArtifactUploader | null = null;
   private runId: string | null = null;
+  // Resolves to the project's quarantine list, indexed by testId. Fetched at
+  // onBegin in parallel with openRun and awaited in enqueueDone before a
+  // payload is built, so a quarantined failure is demoted to `skipped` on the
+  // wire. Defaults to an empty map (no quarantine) — the fetch swallows every
+  // error, so it can never break a run.
+  private quarantinePromise: Promise<QuarantineMap> = Promise.resolve(
+    new Map(),
+  );
   private runUrl: string | null = null;
   private ci: CIInfo | null = null;
   private batcher: Batcher<EnqueuedTest> | null = null;
@@ -237,6 +250,12 @@ export default class WrightfulReporter implements Reporter {
       warn,
       ARTIFACT_UPLOAD_CONCURRENCY,
     );
+
+    // Fetch the quarantine list in the background — do NOT block run-open on
+    // it. `enqueueDone` awaits this map before building each payload (like the
+    // batcher awaits `openPromise`); `fetchQuarantine` swallows all errors to
+    // an empty map, so quarantine can never delay or break a run.
+    this.quarantinePromise = fetchQuarantine(this.client);
 
     const allTests = suite.allTests();
     const plannedTests = allTests.map((t) =>
@@ -440,7 +459,13 @@ export default class WrightfulReporter implements Reporter {
 
   private async enqueueDone(entry: PendingTest): Promise<void> {
     try {
-      const payload = buildPayload(entry, this.rootDir);
+      const built = buildPayload(entry, this.rootDir);
+      // Demote a quarantined hard failure to `skipped` on the wire. The map is
+      // resolved by the time the first test ends in any real run, but await it
+      // here so we never race a slow fetch; it's empty on any fetch failure, so
+      // this is a no-op when quarantine is unavailable.
+      const quarantine = await this.quarantinePromise;
+      const payload = applyQuarantine(built, quarantine);
       this.counts[payload.status]++;
       const attachments =
         this.artifactMode === "none"

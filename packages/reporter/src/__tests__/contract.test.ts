@@ -9,6 +9,7 @@ import {
   CompleteRunPayloadSchema,
   OpenRunPayloadSchema,
   OpenRunResponseSchema,
+  QuarantineResponseSchema,
   RegisterArtifactsPayloadSchema,
   RegisterArtifactsResponseSchema,
   SUPPORTED_VERSIONS,
@@ -31,6 +32,7 @@ import {
   type AppendResultsResponse,
   type ArtifactRegistration,
   type OpenRunResponse,
+  type QuarantineResponse,
   type RegisterArtifactsResponse,
   type TestResultPayload,
 } from "../types.js";
@@ -546,6 +548,31 @@ describe("dashboard ↔ reporter response contract", () => {
   it("RegisterArtifactsResponseSchema rejects an upload missing uploadUrl (the field the reporter PUTs to)", () => {
     const parsed = RegisterArtifactsResponseSchema.safeParse({
       uploads: [{ artifactId: "art_1", r2Key: "k" }],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("GET /api/runs/quarantine response parses through QuarantineResponseSchema", () => {
+    // Shape returned by routes/api/runs/quarantine.ts ({ tests }). The reporter
+    // reads `testId`/`mode`/`reason` off each entry (see quarantine.ts).
+    const response: QuarantineResponse = {
+      tests: [
+        { testId: "t1", mode: "skip", reason: "known flaky" },
+        { testId: "t2", mode: "soft", reason: null },
+      ],
+    };
+    const parsed = QuarantineResponseSchema.safeParse(response);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("QuarantineResponseSchema accepts an empty list (nothing quarantined)", () => {
+    const parsed = QuarantineResponseSchema.safeParse({ tests: [] });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("QuarantineResponseSchema rejects an entry with an unknown mode (catches enum drift)", () => {
+    const parsed = QuarantineResponseSchema.safeParse({
+      tests: [{ testId: "t1", mode: "nope", reason: null }],
     });
     expect(parsed.success).toBe(false);
   });

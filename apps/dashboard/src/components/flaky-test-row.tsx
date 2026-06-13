@@ -1,6 +1,10 @@
 import { Link } from "@void/react";
 import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
+import {
+  QuarantineCell,
+  type QuarantineState,
+} from "@/components/quarantine-cell";
 import { Sparkline, type SparklinePoint } from "@/components/sparkline";
 import { StatusGlyph } from "@/components/status-glyph";
 import { TableCell, TableRow } from "@/components/ui/table";
@@ -30,6 +34,11 @@ export interface FlakyTestRowProps {
   /** Where the row click lands — typically the most recent failure's
    * test-detail page, falling back to the project base. */
   rowHref: string;
+  /** Quarantine state for this test (null = not quarantined) + the controls. */
+  quarantine: QuarantineState | null;
+  quarantineActionPath: string;
+  quarantineRedirectTo: string;
+  canManageQuarantine: boolean;
 }
 
 function pctTone(pct: number): string {
@@ -64,6 +73,7 @@ function displayTitle(title: string, file: string): string {
  * X-padding matches the runs table (`px-4`).
  */
 export function FlakyTestRow({
+  testId,
   title,
   file,
   tags,
@@ -72,6 +82,10 @@ export function FlakyTestRow({
   sparklinePoints,
   recentFailures,
   rowHref,
+  quarantine,
+  quarantineActionPath,
+  quarantineRedirectTo,
+  canManageQuarantine,
 }: FlakyTestRowProps): React.ReactElement {
   const tone = pctTone(pct);
   const latest = recentFailures[0];
@@ -150,6 +164,16 @@ export function FlakyTestRow({
       </TableCell>
       <TableCell className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
         {latest ? formatRelativeTime(latest.createdAt) : "—"}
+      </TableCell>
+      <TableCell className="w-[170px] px-4 py-3 align-middle">
+        <QuarantineCell
+          actionPath={quarantineActionPath}
+          canManage={canManageQuarantine}
+          quarantine={quarantine}
+          redirectTo={quarantineRedirectTo}
+          testId={testId}
+          title={cleanTitle}
+        />
       </TableCell>
     </TableRow>
   );

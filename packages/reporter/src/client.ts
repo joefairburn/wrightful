@@ -8,6 +8,8 @@ import {
   type CompleteRunPayload,
   type OpenRunPayload,
   type OpenRunResponse,
+  type QuarantineEntry,
+  type QuarantineResponse,
   type RegisterArtifactsResponse,
   type ResultMapping,
   type TestResultPayload,
@@ -289,6 +291,43 @@ export class StreamClient {
       );
     }
     return body.uploads ?? [];
+  }
+
+  /**
+   * Fetch the project's flaky-test quarantine list. Called once at `onBegin`,
+   * in parallel with `openRun`; the result drives the demote-on-the-wire
+   * enforcement (`applyQuarantine` in index.ts).
+   *
+   * Quarantine must NEVER break a run, so this is deliberately best-effort:
+   * any non-2xx (a 404 on an old dashboard, a 5xx, an auth error) and any
+   * network/parse error resolve to an EMPTY list rather than throwing. The
+   * caller already treats "no quarantine" as the safe default. The shared retry
+   * policy still applies to the transport (5xx/429 get retried), but a final
+   * failure is swallowed here.
+   */
+  async fetchQuarantine(): Promise<QuarantineEntry[]> {
+    let response: Response;
+    try {
+      response = await fetchWithRetry(`${this.baseUrl}/api/runs/quarantine`, {
+        method: "GET",
+        headers: this.headers,
+      });
+    } catch {
+      // Network error / timeout — treat as "no quarantine".
+      return [];
+    }
+    if (!response.ok) return [];
+    const body = (await response
+      .json()
+      .catch(() => null)) as Partial<QuarantineResponse> | null;
+    if (!body || !Array.isArray(body.tests)) return [];
+    // Defensively keep only well-formed entries — a malformed row must not
+    // poison the map the reporter keys demotion off.
+    return body.tests.filter(
+      (t): t is QuarantineEntry =>
+        typeof t?.testId === "string" &&
+        (t.mode === "skip" || t.mode === "soft"),
+    );
   }
 
   /**

@@ -4,6 +4,7 @@ import { KpiInline } from "@/components/kpi-inline";
 import { PageHeader } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Empty,
   EmptyContent,
@@ -39,10 +40,14 @@ export default function FlakyTestsPage({
   ranked,
   sparkByTest,
   failsByTest,
+  quarantinedByTestId,
+  quarantineError,
   pathname,
+  fullPath,
   ranges,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
+  const quarantineActionPath = `/api/t/${project.teamSlug}/p/${project.slug}/quarantine`;
   const { with: hrefWith } = makeHrefBuilder(pathname, {
     range,
     branch: branchParam,
@@ -88,6 +93,14 @@ export default function FlakyTestsPage({
           value={range}
         />
       </div>
+
+      {quarantineError && (
+        <div className="shrink-0 px-6 pt-3">
+          <Alert variant="error">
+            <AlertDescription>{quarantineError}</AlertDescription>
+          </Alert>
+        </div>
+      )}
 
       {ranked.length === 0 ? (
         <div className="flex-1 overflow-y-auto min-h-0">
@@ -138,6 +151,9 @@ export default function FlakyTestsPage({
                 <TableHead className="w-[90px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                   Last seen
                 </TableHead>
+                <TableHead className="w-[170px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                  Quarantine
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -150,9 +166,13 @@ export default function FlakyTestsPage({
                   : base;
                 return (
                   <FlakyTestRow
+                    canManageQuarantine={project.canManageQuarantine}
                     file={meta?.file ?? ""}
                     key={row.testId}
                     pct={row.pct}
+                    quarantine={quarantinedByTestId[row.testId] ?? null}
+                    quarantineActionPath={quarantineActionPath}
+                    quarantineRedirectTo={fullPath}
                     rangeDays={rangeDays}
                     recentFailures={fails}
                     rowHref={rowHref}

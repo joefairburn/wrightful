@@ -681,6 +681,54 @@ export const monitorExecutions = sqliteTable(
   ],
 );
 
+/**
+ * Per-project flaky-test quarantine list, keyed by the stable `testId`.
+ *
+ * The reporter pulls this at `onBegin` (`GET /api/runs/quarantine`) and, for v1
+ * enforcement, DEMOTES a quarantined test's hard failure to `skipped` on the
+ * wire so a known-flaky test can't redden a run while it's being stabilised
+ * (a reporter is observe-only — it can't skip execution). The dashboard UI
+ * (flaky + tests catalog) lets an owner add/remove entries.
+ *
+ * Like `testTags`, every row carries denormalized `projectId` so tenant
+ * isolation needs no join. `createdBy` is the void-managed `user.id` of the
+ * actor — a LOGICAL FK (no `.references()`), matching `monitors.createdBy`.
+ */
+export const quarantinedTests = sqliteTable(
+  "quarantinedTests",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("projectId")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    testId: text("testId").notNull(),
+    /** Optional human note explaining why the test is quarantined. */
+    reason: text("reason"),
+    /**
+     * 'skip' (v1 default): demote a quarantined hard failure to `skipped` so it
+     * doesn't count as a failure. 'soft': reserved for a future "still report
+     * the failure but don't fail the run" mode (not enforced differently in v1).
+     */
+    mode: text("mode").notNull().$type<"skip" | "soft">().default("skip"),
+    /** void-managed `user.id` of the creator. Logical FK — see schema header. */
+    createdBy: text("createdBy").notNull(),
+    createdAt: integer("createdAt").notNull(),
+  },
+  (t) => [
+    // One quarantine entry per (project, test). Re-quarantining the same test
+    // upserts onto this index (mode/reason updated) rather than erroring.
+    uniqueIndex("quarantinedTests_project_testId_idx").on(
+      t.projectId,
+      t.testId,
+    ),
+    // Backs the project-scoped list (`projectId = ?` ordered by `createdAt`).
+    index("quarantinedTests_project_createdAt_idx").on(
+      t.projectId,
+      t.createdAt,
+    ),
+  ],
+);
+
 // ---------- Type aliases for downstream code ----------
 
 export type Team = typeof teams.$inferSelect;
@@ -700,3 +748,4 @@ export type TestResultAttempt = typeof testResultAttempts.$inferSelect;
 export type Artifact = typeof artifacts.$inferSelect;
 export type Monitor = typeof monitors.$inferSelect;
 export type MonitorExecution = typeof monitorExecutions.$inferSelect;
+export type QuarantinedTest = typeof quarantinedTests.$inferSelect;

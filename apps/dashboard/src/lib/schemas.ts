@@ -280,3 +280,24 @@ export const RegisterArtifactsResponseSchema = z
 export type RegisterArtifactsResponse = z.infer<
   typeof RegisterArtifactsResponseSchema
 >;
+
+/**
+ * `GET /api/runs/quarantine` response (server → reporter). The reporter pulls
+ * the project's flaky-test quarantine list at `onBegin` and demotes a
+ * quarantined hard failure to `skipped` on the wire. Reporter-consumed fields
+ * only; `.passthrough()` tolerates any extra the handler adds. Mirrors
+ * `QuarantineResponse` in `@wrightful/reporter`'s `types.ts`.
+ */
+export const QuarantineEntrySchema = z.object({
+  testId: z.string().min(1).max(MAX.ID),
+  mode: z.enum(["skip", "soft"]),
+  reason: z.string().nullable(),
+});
+export type QuarantineEntryWire = z.infer<typeof QuarantineEntrySchema>;
+
+export const QuarantineResponseSchema = z
+  .object({
+    tests: z.array(QuarantineEntrySchema),
+  })
+  .passthrough();
+export type QuarantineResponse = z.infer<typeof QuarantineResponseSchema>;
