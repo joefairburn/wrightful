@@ -42,6 +42,25 @@ export const teams = sqliteTable(
     name: text("name").notNull(),
     createdAt: integer("createdAt").notNull(),
     lastActivityAt: integer("lastActivityAt"),
+    /**
+     * Billing tier — drives which limit set `checkQuota` (`src/lib/usage.ts`)
+     * enforces. `'free'` (default) → the env-configured `WRIGHTFUL_FREE_*`
+     * ceilings; any other tier is treated as unlimited (no quota block). Stripe
+     * binding (a `stripeCustomerId` column flipped by a webhook) is a later,
+     * additive change — the metering + enforcement layer is tier-agnostic.
+     */
+    tier: text("tier").notNull().default("free"),
+    /**
+     * Two-axis data-retention windows in DAYS, both nullable (null → the
+     * `WRIGHTFUL_RETENTION_*` env default). Separate because the cost/value
+     * profiles differ: `retentionArtifactDays` bounds R2 bytes (the storage
+     * cost), `retentionTestResultsDays` bounds the testResults row history (D1
+     * size). The `sweep-retention` cron enforces both. The artifact window must
+     * stay ≤ the testResults window (validated in the settings editor) so an
+     * expiring testResult's FK cascade never orphans still-live R2 objects.
+     */
+    retentionArtifactDays: integer("retentionArtifactDays"),
+    retentionTestResultsDays: integer("retentionTestResultsDays"),
   },
   (t) => [
     uniqueIndex("teams_slug_idx").on(t.slug),
@@ -174,6 +193,111 @@ export const apiKeys = sqliteTable(
   ],
 );
 
+// ---------- Billing / usage metering ----------
+
+/**
+ * Per-team usage meter, one row per (team, calendar-month). The live counter
+ * the ingest pipeline increments in the SAME `db.batch` as its writes
+ * (`usageBumpStatement` in `src/lib/usage.ts`) — so a run open / results flush /
+ * artifact registration bumps usage atomically with the data it meters, never a
+ * separate round-trip. `periodStart` is the UTC month-boundary epoch-seconds
+ * (`monthStartSeconds`), so a new month lands on a fresh row via the upsert's
+ * `onConflictDoUpdate` — no reset job. `checkQuota` reads the current row to
+ * gate ingest against the team's tier limits; the `rollup-usage` cron
+ * recomputes a period's counters from the authoritative rows to correct drift.
+ */
+export const usageCounters = sqliteTable(
+  "usageCounters",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("teamId")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** UTC start-of-month epoch-seconds — the rolling billing window key. */
+    periodStart: integer("periodStart").notNull(),
+    runsCount: integer("runsCount").notNull().default(0),
+    testResultsCount: integer("testResultsCount").notNull().default(0),
+    artifactBytes: integer("artifactBytes").notNull().default(0),
+    artifactCount: integer("artifactCount").notNull().default(0),
+    updatedAt: integer("updatedAt").notNull(),
+  },
+  (t) => [
+    // The upsert conflict target AND the seek key for `checkQuota` /
+    // `loadTeamUsage` ("this team's row for this period").
+    uniqueIndex("usageCounters_team_period_idx").on(t.teamId, t.periodStart),
+  ],
+);
+
+// ---------- Public run shares ----------
+
+/**
+ * A signed, revocable public share link for a single run. The HMAC token
+ * (`src/lib/share-tokens.ts`) proves authenticity statelessly and carries the
+ * run/project/team ids; this row exists so a link can be REVOKED before its
+ * expiry (the `/share/run/:token` loader checks `revokedAt` by `tokenHash`).
+ * Only the SHA-256 of the token is stored, never the token itself — same
+ * discipline as `apiKeys`/`teamInvites`. Carries denormalized `projectId`
+ * (the run-scoped isolation key) + `teamId`.
+ */
+export const runShares = sqliteTable(
+  "runShares",
+  {
+    id: text("id").primaryKey(),
+    runId: text("runId")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    projectId: text("projectId")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    teamId: text("teamId")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** SHA-256 hex of the share token. The verify-path lookup key. */
+    tokenHash: text("tokenHash").notNull(),
+    /** void-managed `user.id` of the creator. Logical FK — see schema header. */
+    createdBy: text("createdBy").notNull(),
+    createdAt: integer("createdAt").notNull(),
+    expiresAt: integer("expiresAt").notNull(),
+    revokedAt: integer("revokedAt"),
+  },
+  (t) => [
+    uniqueIndex("runShares_tokenHash_idx").on(t.tokenHash),
+    index("runShares_run_idx").on(t.runId),
+  ],
+);
+
+// ---------- GitHub App (check runs) ----------
+
+/**
+ * A GitHub App installation linked to a Wrightful team. Created by the setup
+ * callback (`routes/api/github/setup.ts`, which knows the team from the install
+ * `state`) and removed by the `installation.deleted` webhook. `accountLogin` is
+ * the org/user the App is installed on — the resolution key from a run's
+ * `repo` ("owner/name") to the installation that can post a check on it.
+ */
+export const githubInstallations = sqliteTable(
+  "githubInstallations",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("teamId")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** GitHub's numeric installation id — what we mint installation tokens for. */
+    installationId: integer("installationId").notNull(),
+    /** The org/user login the App is installed on (the `repo` owner segment). */
+    accountLogin: text("accountLogin").notNull(),
+    createdAt: integer("createdAt").notNull(),
+    updatedAt: integer("updatedAt").notNull(),
+  },
+  (t) => [
+    uniqueIndex("githubInstallations_installationId_idx").on(t.installationId),
+    // Resolve "which installation can post a check for repo owner X" without a
+    // scan. Account logins are unique per installation, so this is a point seek.
+    uniqueIndex("githubInstallations_accountLogin_idx").on(t.accountLogin),
+    index("githubInstallations_team_idx").on(t.teamId),
+  ],
+);
+
 // ---------- Test data (runs and children) ----------
 
 export const runs = sqliteTable(
@@ -250,6 +374,12 @@ export const runs = sqliteTable(
      * a missing monitor gracefully).
      */
     monitorId: text("monitorId"),
+    /**
+     * The GitHub check-run id created for this run, or null. Lets the terminal
+     * path (`completeRun` / `finalizeStaleRun` → `maybePostGithubCheck`) PATCH
+     * the existing check on a re-complete instead of POSTing a duplicate.
+     */
+    githubCheckRunId: integer("githubCheckRunId"),
   },
   (t) => [
     uniqueIndex("runs_project_idempotency_key_idx").on(
@@ -431,6 +561,13 @@ export const artifacts = sqliteTable(
   (t) => [
     index("artifacts_testResultId_idx").on(t.testResultId),
     /**
+     * Serves the retention sweep's age scan (`projectId = ? AND createdAt < ?`):
+     * lets D1 seek the project's oldest artifacts in createdAt order for the
+     * bounded delete slice, instead of scanning the project partition via
+     * `artifacts_testResultId_idx`. Mirrors `testResults_project_createdAt_idx`.
+     */
+    index("artifacts_project_createdAt_idx").on(t.projectId, t.createdAt),
+    /**
      * Artifact idempotency identity. A retried `/results` flush re-registers
      * the same artifact set; this tuple is what makes two registrations "the
      * same artifact" so the reporter's PUT overwrites one R2 object instead of
@@ -589,6 +726,9 @@ export type TeamInvite = typeof teamInvites.$inferSelect;
 export type UserGithubAccount = typeof userGithubAccounts.$inferSelect;
 export type UserStateRow = typeof userState.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
+export type UsageCounter = typeof usageCounters.$inferSelect;
+export type GithubInstallation = typeof githubInstallations.$inferSelect;
+export type RunShare = typeof runShares.$inferSelect;
 export type Run = typeof runs.$inferSelect;
 export type TestResult = typeof testResults.$inferSelect;
 export type TestTag = typeof testTags.$inferSelect;

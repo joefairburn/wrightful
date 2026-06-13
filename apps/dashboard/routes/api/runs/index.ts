@@ -3,6 +3,7 @@ import { getApiKey } from "@/lib/api-auth";
 import { tenantScopeForApiKey } from "@/lib/scope";
 import { OpenRunPayloadSchema } from "@/lib/schemas";
 import { backdatingAllowed, openRun } from "@/lib/ingest";
+import { checkQuota } from "@/lib/usage";
 
 function runUrl(scope: { teamSlug: string; projectSlug: string }, id: string) {
   return `/t/${scope.teamSlug}/p/${scope.projectSlug}/runs/${id}`;
@@ -27,7 +28,33 @@ export const POST = defineHandler.withValidator({
 
   const scope = await tenantScopeForApiKey(getApiKey(c));
   const nowSeconds = payload.createdAt ?? Math.floor(Date.now() / 1000);
+
+  // Quota gate (CI ingest only — the synthetic-monitor path calls openRun
+  // directly and is intentionally exempt, so monitoring never silently stops on
+  // a CI-run quota). Checked before the open: over the monthly allowance → 429.
+  // A duplicate re-open of an existing run is gated too; the narrow case of a
+  // late shard re-opening the run that sat exactly at the limit is acceptable.
+  const quota = await checkQuota(scope.teamId, "runs", 1, nowSeconds);
+  if (quota.status === "blocked") {
+    return c.json(
+      {
+        error:
+          "Monthly run quota exceeded for this team. Upgrade the plan or wait for the next billing period.",
+        limit: quota.limit,
+        used: quota.used,
+      },
+      429,
+    );
+  }
+
   const { runId, duplicate } = await openRun(scope, payload, nowSeconds);
+
+  if (quota.status === "softWarn") {
+    c.header(
+      "X-Wrightful-Quota-Warning",
+      `runs ${quota.used + 1}/${quota.limit}`,
+    );
+  }
 
   return c.json(
     {

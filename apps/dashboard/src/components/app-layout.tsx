@@ -3,6 +3,7 @@ import {
   BarChart2,
   CheckSquare,
   FlaskConical,
+  Gauge,
   KeyRound,
   List,
   Radar,
@@ -361,6 +362,12 @@ function SettingsSidebarMiddle({
             href={`/settings/teams/${expandedTeam.slug}/members`}
             icon={Users}
             label="Members"
+          />
+          <SettingsNavLink
+            active={pathname === `/settings/teams/${expandedTeam.slug}/usage`}
+            href={`/settings/teams/${expandedTeam.slug}/usage`}
+            icon={Gauge}
+            label="Usage"
           />
           <SettingsNavLink
             active={

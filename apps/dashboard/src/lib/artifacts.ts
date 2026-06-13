@@ -12,6 +12,7 @@ import {
 } from "@/lib/ingest";
 import type { TenantScope } from "@/lib/scope";
 import type { RegisterArtifactsPayload } from "@/lib/schemas";
+import { checkQuota, monthStartSeconds, usageBumpStatement } from "@/lib/usage";
 
 /**
  * Artifact write pipeline — the storage half of the streaming ingest contract.
@@ -242,7 +243,8 @@ export type RegisterArtifactsResult =
   | { kind: "oversized"; name: string; maxBytes: number }
   | { kind: "runNotFound" }
   | { kind: "runClosed" }
-  | { kind: "unknownTestResults"; unknownTestResultIds: string[] };
+  | { kind: "unknownTestResults"; unknownTestResultIds: string[] }
+  | { kind: "quotaExceeded"; limit: number; used: number };
 
 /**
  * Reserve a row per requested artifact and return its worker upload URL
@@ -331,9 +333,33 @@ export async function registerArtifacts(
     });
     if (rowsToInsert.length === 0) return { kind: "ok", uploads };
 
-    const statements = chunkInsertRows(rowsToInsert).map((chunk) =>
-      db.insert(artifacts).values(chunk),
+    // Enforce the team's artifact-byte quota on FRESH bytes only (rows about to
+    // be inserted) — an idempotent re-registration plans 0 fresh rows and so is
+    // never blocked, keeping the reporter's retry path working at the limit.
+    const freshBytes = rowsToInsert.reduce((sum, r) => sum + r.sizeBytes, 0);
+    const quota = await checkQuota(
+      scope.teamId,
+      "artifactBytes",
+      freshBytes,
+      nowSeconds,
     );
+    if (quota.status === "blocked") {
+      return { kind: "quotaExceeded", limit: quota.limit, used: quota.used };
+    }
+
+    // Meter the fresh bytes + row count in the SAME batch as the insert.
+    const usageBump = usageBumpStatement(
+      scope.teamId,
+      monthStartSeconds(nowSeconds),
+      { artifactBytes: freshBytes, artifactCount: rowsToInsert.length },
+      nowSeconds,
+    );
+    const statements = [
+      ...chunkInsertRows(rowsToInsert).map((chunk) =>
+        db.insert(artifacts).values(chunk),
+      ),
+      ...(usageBump ? [usageBump] : []),
+    ];
     try {
       if (statements.length === 1) {
         await statements[0];
@@ -519,6 +545,27 @@ export async function deleteProjectArtifactObjects(
     deleted,
   });
   return { deleted, complete: false };
+}
+
+/**
+ * R2's bulk-delete cap: `storage.delete` accepts at most 1000 keys per call.
+ */
+const DELETE_KEYS_PER_CALL = 1000;
+
+/**
+ * Delete a known set of R2 objects by key, paged under R2's 1000-key bulk-delete
+ * cap. The key-list counterpart to {@link deleteProjectArtifactObjects} (which
+ * sweeps a whole prefix): the retention sweep already holds the exact `r2Key`s
+ * of the expired artifacts it is removing, so it deletes them directly rather
+ * than listing a prefix. Returns the number of keys submitted for deletion.
+ */
+export async function deleteArtifactObjectsByKeys(
+  keys: string[],
+): Promise<number> {
+  for (let i = 0; i < keys.length; i += DELETE_KEYS_PER_CALL) {
+    await storage.delete(keys.slice(i, i + DELETE_KEYS_PER_CALL));
+  }
+  return keys.length;
 }
 
 /**

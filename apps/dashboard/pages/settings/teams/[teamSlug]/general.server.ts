@@ -1,7 +1,9 @@
 import { defineHandler, type InferProps } from "void";
 import { and, db, eq, inArray, ne } from "void/db";
+import { env } from "void/env";
 import {
   apiKeys,
+  githubInstallations,
   memberships,
   projects,
   teamInvites,
@@ -9,6 +11,7 @@ import {
 } from "@schema";
 import { logger } from "void/log";
 import { deleteProjectArtifactObjects } from "@/lib/artifacts";
+import { githubAppEnabled } from "@/lib/config";
 import { runBatch } from "@/lib/db-batch";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
@@ -38,10 +41,45 @@ export const loader = defineHandler(async (c) => {
     .from(projects)
     .where(eq(projects.teamId, team.id));
 
+  const retentionRows = await db
+    .select({
+      artifactDays: teamsTable.retentionArtifactDays,
+      testResultDays: teamsTable.retentionTestResultsDays,
+    })
+    .from(teamsTable)
+    .where(eq(teamsTable.id, team.id))
+    .limit(1);
+
+  const githubEnabled = githubAppEnabled(env);
+  const installations = githubEnabled
+    ? await db
+        .select({ accountLogin: githubInstallations.accountLogin })
+        .from(githubInstallations)
+        .where(eq(githubInstallations.teamId, team.id))
+    : [];
+  const appSlug = env.GITHUB_APP_SLUG;
+  const installUrl =
+    githubEnabled && appSlug
+      ? `https://github.com/apps/${appSlug}/installations/new?state=${encodeURIComponent(team.slug)}`
+      : null;
+
   return {
     team,
     projectCount: projectCountRows.length,
+    retention: {
+      artifactDays: retentionRows[0]?.artifactDays ?? null,
+      testResultDays: retentionRows[0]?.testResultDays ?? null,
+      defaultArtifactDays: env.WRIGHTFUL_RETENTION_ARTIFACT_DAYS,
+      defaultTestResultDays: env.WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS,
+    },
+    github: {
+      enabled: githubEnabled,
+      installations: installations.map((i) => i.accountLogin),
+      installUrl,
+    },
     generalError: url.searchParams.get("generalError"),
+    retentionError: url.searchParams.get("retentionError"),
+    githubError: url.searchParams.get("githubError"),
     dangerError: url.searchParams.get("dangerError"),
   };
 });
@@ -93,6 +131,73 @@ export const actions = {
     }
 
     return c.redirect(`/settings/teams/${slug}/general`);
+  }),
+
+  /**
+   * Set the team's two-axis data-retention windows (in days). Either field may
+   * be left blank to inherit the deployment default. The artifact window must
+   * stay ≤ the testResults window so an expiring testResult's FK cascade never
+   * orphans live R2 objects.
+   */
+  updateRetention: defineHandler(async (c) => {
+    const { team, here } = await requireOwnerScope(c, hereFor);
+    const form = await c.req.formData();
+
+    const parseDays = (raw: string): number | null | "invalid" => {
+      const trimmed = raw.trim();
+      if (trimmed === "") return null;
+      const n = Number(trimmed);
+      if (!Number.isInteger(n) || n < 1) return "invalid";
+      return n;
+    };
+
+    const artifactDays = parseDays(readField(form, "artifactDays"));
+    const testResultDays = parseDays(readField(form, "testResultDays"));
+
+    if (artifactDays === "invalid" || testResultDays === "invalid") {
+      return redirectWithParam(
+        c,
+        here,
+        "retentionError",
+        "Retention windows must be whole numbers of days (1 or more), or blank to use the default.",
+      );
+    }
+
+    const effectiveArtifact =
+      artifactDays ?? env.WRIGHTFUL_RETENTION_ARTIFACT_DAYS;
+    const effectiveTestResult =
+      testResultDays ?? env.WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS;
+    if (effectiveArtifact > effectiveTestResult) {
+      return redirectWithParam(
+        c,
+        here,
+        "retentionError",
+        "The artifact window must be less than or equal to the test-results window.",
+      );
+    }
+
+    try {
+      await db
+        .update(teamsTable)
+        .set({
+          retentionArtifactDays: artifactDays,
+          retentionTestResultsDays: testResultDays,
+        })
+        .where(eq(teamsTable.id, team.id));
+    } catch (err) {
+      logger.error("update retention failed", {
+        teamId: team.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return redirectWithParam(
+        c,
+        here,
+        "retentionError",
+        "Could not save retention settings.",
+      );
+    }
+
+    return c.redirect(here);
   }),
 
   /**

@@ -10,7 +10,9 @@ import {
   teams,
 } from "@schema";
 import { isUniqueViolation, runBatch } from "@/lib/db-batch";
+import { maybePostGithubCheck } from "@/lib/github-checks";
 import { runByIdWhere, staleRunFilter, type TenantScope } from "@/lib/scope";
+import { monthStartSeconds, usageBumpStatement } from "@/lib/usage";
 import { broadcastProjectRoom, broadcastRunRoom } from "@/realtime/publish";
 import type {
   AppendResultsPayload,
@@ -889,9 +891,19 @@ export async function openRun(
     .insert(runs)
     .values(buildRunInsertValues(runId, scope, payload, nowSeconds));
 
+  // Meter the run open in the SAME batch as the row insert — usage is bumped
+  // atomically with the data it counts. Only the fresh-open path bumps (a
+  // duplicate re-open of a sharded suite / CI re-run does not create a new run).
+  const usageBump = usageBumpStatement(
+    scope.teamId,
+    monthStartSeconds(nowSeconds),
+    { runs: 1 },
+    nowSeconds,
+  );
   const stmts = [
     runInsert,
     ...buildQueuePrefillStatements(scope, runId, plannedTests, nowSeconds),
+    ...(usageBump ? [usageBump] : []),
   ];
   try {
     if (stmts.length === 1) {
@@ -1093,6 +1105,19 @@ export async function appendRunResults(
     existingIds,
     assignedIds,
   );
+  // Meter FRESH testResults rows only (testIds not already present on this run),
+  // so a re-streamed/retried flush doesn't double-count. Joins the same batch.
+  const freshResultCount = results.reduce(
+    (n, r) => (existingIds.has(r.testId) ? n : n + 1),
+    0,
+  );
+  const usageBump = usageBumpStatement(
+    scope.teamId,
+    monthStartSeconds(nowSeconds),
+    { testResults: freshResultCount },
+    nowSeconds,
+  );
+  if (usageBump) statements.push(usageBump);
   const deltaStmt = aggregateDeltaStatement(
     scope,
     runId,
@@ -1267,6 +1292,10 @@ export async function completeRun(
 
   const summary = await reconcileAndBroadcast(runId, statusUpdate, scope);
   await bumpTeamActivity(scope.teamId, nowSeconds);
+  // Best-effort GitHub check run (no-op unless the App is configured + the
+  // repo's org installed it). Awaited per the no-fire-and-forget rule; it
+  // swallows its own errors so a GitHub outage never fails /complete.
+  await maybePostGithubCheck(runId);
 
   return { kind: "ok", status: summary?.status ?? payload.status };
 }
@@ -1311,6 +1340,9 @@ export async function finalizeStaleRun(
     { projectId: run.projectId },
     { requireStatusFlip: true },
   );
+  // Watchdog-finalized runs (CI killed before /complete) still post their check
+  // — same best-effort, self-silencing path as completeRun.
+  await maybePostGithubCheck(run.id);
 }
 
 /** Counts a watchdog sweep emits: rows seen, finalized, and failed. */

@@ -37,6 +37,25 @@ export function githubOAuthEnabled(source: {
 }
 
 /**
+ * Whether the GitHub App (check runs) is wired up: APP_ID + PRIVATE_KEY +
+ * WEBHOOK_SECRET are all present and non-empty. One source of truth for the
+ * ingest-side `maybePostGithubCheck` guard, the webhook route, and the settings
+ * card, so they can't drift. Distinct from {@link githubOAuthEnabled} (sign-in)
+ * — a deployment may run either, both, or neither.
+ */
+export function githubAppEnabled(source: {
+  GITHUB_APP_ID?: string | undefined;
+  GITHUB_APP_PRIVATE_KEY?: string | undefined;
+  GITHUB_APP_WEBHOOK_SECRET?: string | undefined;
+}): boolean {
+  return Boolean(
+    source.GITHUB_APP_ID &&
+    source.GITHUB_APP_PRIVATE_KEY &&
+    source.GITHUB_APP_WEBHOOK_SECRET,
+  );
+}
+
+/**
  * Whether open email/password signup is enabled.
  *
  * Normalizes across the two env sources: the typed `env` already coerces
@@ -72,4 +91,17 @@ export function resolveArtifactTokenSecret(source: {
   BETTER_AUTH_SECRET: string;
 }): string {
   return source.ARTIFACT_TOKEN_SECRET ?? source.BETTER_AUTH_SECRET;
+}
+
+/**
+ * The secret that signs public run-share tokens: a dedicated `SHARE_TOKEN_SECRET`
+ * when set, else `BETTER_AUTH_SECRET`. Same presence-not-truthiness `??` rule and
+ * rationale as {@link resolveArtifactTokenSecret} — rotating the dedicated secret
+ * invalidates every outstanding share link in one move, independent of sessions.
+ */
+export function resolveShareTokenSecret(source: {
+  SHARE_TOKEN_SECRET?: string | undefined;
+  BETTER_AUTH_SECRET: string;
+}): string {
+  return source.SHARE_TOKEN_SECRET ?? source.BETTER_AUTH_SECRET;
 }

@@ -18,7 +18,11 @@ import type { Props } from "./general.server";
 export default function SettingsTeamGeneralPage({
   team,
   projectCount,
+  retention,
+  github,
   generalError,
+  retentionError,
+  githubError,
   dangerError,
 }: Props) {
   const isOwner = team.role === "owner";
@@ -83,6 +87,112 @@ export default function SettingsTeamGeneralPage({
           )}
         </form>
       </SettingsCard>
+
+      <SettingsGroupGap />
+      <SettingsCard title="Data retention">
+        <form action={`${here}?updateRetention`} className="m-0" method="post">
+          {retentionError && (
+            <Alert className="mb-3" variant="error">
+              <AlertDescription>{retentionError}</AlertDescription>
+            </Alert>
+          )}
+          <p className="mb-4 text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+            How long to keep data before it's automatically deleted. Leave a
+            field blank to use the default. Artifacts (traces, videos,
+            screenshots) are usually kept for a shorter window than run history.
+          </p>
+          <SettingsField
+            hint={`Days to keep artifact files. Default ${retention.defaultArtifactDays}.`}
+            label="Artifact storage"
+          >
+            <Input
+              defaultValue={retention.artifactDays ?? ""}
+              disabled={!isOwner}
+              max={3650}
+              min={1}
+              name="artifactDays"
+              nativeInput
+              placeholder={String(retention.defaultArtifactDays)}
+              type="number"
+            />
+          </SettingsField>
+          <SettingsField
+            hint={`Days to keep test-result history. Must be ≥ the artifact window. Default ${retention.defaultTestResultDays}.`}
+            label="Test results"
+          >
+            <Input
+              defaultValue={retention.testResultDays ?? ""}
+              disabled={!isOwner}
+              max={3650}
+              min={1}
+              name="testResultDays"
+              nativeInput
+              placeholder={String(retention.defaultTestResultDays)}
+              type="number"
+            />
+          </SettingsField>
+          {isOwner && (
+            <div className="mt-2">
+              <Button size="sm" type="submit">
+                Save retention
+              </Button>
+            </div>
+          )}
+        </form>
+      </SettingsCard>
+
+      {github.enabled && (
+        <>
+          <SettingsGroupGap />
+          <SettingsCard title="GitHub checks">
+            {githubError && (
+              <Alert className="mb-3" variant="error">
+                <AlertDescription>{githubError}</AlertDescription>
+              </Alert>
+            )}
+            <p className="mb-4 text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+              Connect a GitHub organization to post a check run on each commit —
+              pass/fail/flaky with a link to the run report — so test results
+              gate pull-request merges.
+            </p>
+            {github.installations.length > 0 ? (
+              <ul className="mb-4 flex flex-col gap-1">
+                {github.installations.map((login) => (
+                  <li
+                    className="flex items-center gap-2 text-[length:var(--text-fs-13)] text-fg-1"
+                    key={login}
+                  >
+                    <span className="size-1.5 rounded-full bg-passed" />
+                    <code className="font-mono">{login}</code>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mb-4 text-[length:var(--text-fs-13)] text-fg-3">
+                No GitHub organizations connected yet.
+              </p>
+            )}
+            {isOwner &&
+              (github.installUrl ? (
+                <Button
+                  render={<a href={github.installUrl} rel="noreferrer" />}
+                  size="sm"
+                >
+                  {github.installations.length > 0
+                    ? "Connect another organization"
+                    : "Connect a GitHub organization"}
+                </Button>
+              ) : (
+                <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+                  Set <code className="font-mono">GITHUB_APP_SLUG</code> to
+                  enable one-click install, or install the GitHub App manually
+                  and point its setup URL at{" "}
+                  <code className="font-mono">/api/github/setup</code>.
+                </p>
+              ))}
+          </SettingsCard>
+        </>
+      )}
 
       {isOwner && (
         <>

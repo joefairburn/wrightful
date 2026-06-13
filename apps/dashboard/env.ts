@@ -27,6 +27,15 @@ export default defineEnv({
   ARTIFACT_TOKEN_SECRET: string().secret().optional(),
 
   /**
+   * Optional dedicated secret for signing public run-share tokens (the
+   * `/share/run/:token` read-only links). Decoupled from BETTER_AUTH_SECRET so
+   * rotating THIS value invalidates every outstanding share link without
+   * logging users out. Falls back to BETTER_AUTH_SECRET when unset. ≥32 chars.
+   * Precedence is owned by `resolveShareTokenSecret` in src/lib/config.ts.
+   */
+  SHARE_TOKEN_SECRET: string().secret().optional(),
+
+  /**
    * GitHub OAuth credentials, in Void's `AUTH_<PROVIDER>_CLIENT_{ID,SECRET}`
    * naming convention. The github social provider is enabled in `auth.ts` at
    * startup only when BOTH are set — deliberately NOT declared in
@@ -36,6 +45,33 @@ export default defineEnv({
    */
   AUTH_GITHUB_CLIENT_ID: string().optional(),
   AUTH_GITHUB_CLIENT_SECRET: string().secret().optional(),
+
+  // ---------- GitHub App (check runs) ----------
+
+  /**
+   * GitHub App credentials for posting check runs that gate PR merges. The
+   * feature is enabled only when ALL of APP_ID + PRIVATE_KEY + WEBHOOK_SECRET
+   * are set (`githubAppEnabled` in `src/lib/config.ts`); leave them unset to
+   * disable. Distinct from the OAuth `AUTH_GITHUB_*` creds (sign-in) — a check
+   * run needs an *installation* token, which only a GitHub App can mint, and
+   * works on fork PRs where a CI `GITHUB_TOKEN` is read-only.
+   *
+   * `GITHUB_APP_PRIVATE_KEY` must be a **PKCS#8** PEM (`BEGIN PRIVATE KEY`);
+   * convert GitHub's default PKCS#1 key with
+   * `openssl pkcs8 -topk8 -nocrypt -in key.pem`. WebCrypto's `importKey("pkcs8")`
+   * only accepts PKCS#8.
+   */
+  GITHUB_APP_ID: string().optional(),
+  GITHUB_APP_PRIVATE_KEY: string().secret().optional(),
+  GITHUB_APP_WEBHOOK_SECRET: string().secret().optional(),
+
+  /**
+   * The GitHub App's public slug (from its settings URL,
+   * `github.com/apps/<slug>`). Used to build the "Install" link on the team
+   * settings page. Optional — without it the settings card shows manual setup
+   * instructions instead of a one-click install button.
+   */
+  GITHUB_APP_SLUG: string().optional(),
 
   /**
    * Per-artifact upload size cap. The cap binds in exactly one place:
@@ -67,6 +103,64 @@ export default defineEnv({
    * subrequest cap at ~2 round-trips/run, with headroom for the SELECT itself.
    */
   WRIGHTFUL_SWEEP_BATCH_SIZE: number().default(200),
+
+  // ---------- Billing / usage quotas ----------
+
+  /**
+   * `'free'`-tier monthly run-open allowance. `checkQuota` (`src/lib/usage.ts`)
+   * blocks `POST /api/runs` once a team's `usageCounters.runsCount` for the
+   * current month would exceed this. Non-free tiers are unlimited (no block).
+   * Default 1000.
+   */
+  WRIGHTFUL_FREE_MONTHLY_RUNS: number().default(1000),
+
+  /**
+   * `'free'`-tier monthly test-result allowance. Metered (fresh testResults
+   * rows per month) but NOT hard-blocked in v1 — surfaced on the usage page and
+   * used for the soft-warn signal. Default 100000.
+   */
+  WRIGHTFUL_FREE_MONTHLY_TEST_RESULTS: number().default(100000),
+
+  /**
+   * `'free'`-tier monthly artifact-byte allowance (R2). `registerArtifacts`
+   * blocks once a team's `usageCounters.artifactBytes` for the month would
+   * exceed this — enforced on FRESH bytes only, so an idempotent re-registration
+   * is never blocked. Default 5 GiB.
+   */
+  WRIGHTFUL_FREE_ARTIFACT_BYTES: number().default(5368709120),
+
+  /**
+   * Percent of a tier limit at which `checkQuota` returns `softWarn` (the
+   * ingest response sets an `X-Wrightful-Quota-Warning` header and the usage
+   * page shows an amber bar) before the hard block at 100%. Default 90.
+   */
+  WRIGHTFUL_QUOTA_SOFT_WARN_PCT: number().default(90),
+
+  // ---------- Data retention ----------
+
+  /**
+   * Default age (DAYS) after which artifact R2 objects + rows are swept, when a
+   * team hasn't set its own `retentionArtifactDays`. The storage-cost axis —
+   * shorter than run history because bytes (traces/videos) dominate R2 spend.
+   * Must stay ≤ `WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS`. Default 30.
+   */
+  WRIGHTFUL_RETENTION_ARTIFACT_DAYS: number().default(30),
+
+  /**
+   * Default age (DAYS) after which `testResults` rows (+ their cascaded
+   * attempts/tags/annotations/artifact rows) are swept, when a team hasn't set
+   * its own `retentionTestResultsDays`. The D1-size axis; `runs` summary rows
+   * are kept (they hold the aggregate counters). Default 90.
+   */
+  WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS: number().default(90),
+
+  /**
+   * Max rows of EACH retention axis the sweep deletes per project per cron
+   * invocation. Bounds the per-pass D1 + R2 work so a large backlog drains
+   * across successive daily passes instead of blowing the subrequest budget.
+   * Mirrors `WRIGHTFUL_SWEEP_BATCH_SIZE`. Default 200.
+   */
+  WRIGHTFUL_RETENTION_SWEEP_BATCH_SIZE: number().default(200),
 
   /**
    * Enable open email/password signup. Off by default — email verification
