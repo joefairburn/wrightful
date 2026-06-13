@@ -256,6 +256,9 @@ export const runs = sqliteTable(
       t.projectId,
       t.idempotencyKey,
     ),
+    // Reserved for the upcoming "runs for this monitor" list — no read uses it
+    // yet (the only `monitorId` touch today is the ingest write). Pure write
+    // amplification until that query lands; drop it if the feature is cut.
     index("runs_project_monitor_created_at_idx").on(
       t.projectId,
       t.monitorId,

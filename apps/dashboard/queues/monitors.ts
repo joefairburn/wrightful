@@ -1,16 +1,6 @@
 import { defineQueue } from "void";
-import { env } from "void/env";
-import { logger } from "void/log";
-import { runMonitorJob } from "@/lib/monitors/executor";
-import { resolveExecutor } from "@/lib/monitors/executor-registry";
-import {
-  claimExecution,
-  loadExecutionById,
-  loadMonitorById,
-  recordExecutionResult,
-} from "@/lib/monitors/monitors-repo";
+import { makeMonitorQueueHandler } from "@/lib/monitors/queue-consumer";
 import type { MonitorJob } from "@/lib/monitors/types";
-import { broadcastProjectRoom } from "@/realtime/publish";
 
 /**
  * The `"monitors"` queue consumer — the system-internal half of synthetic
@@ -65,39 +55,6 @@ export const maxRetries = 2;
  */
 export const retryDelay = 30;
 
-export default defineQueue<MonitorJob>(async (batch) => {
-  const executor = resolveExecutor(env.WRIGHTFUL_MONITOR_EXECUTOR);
-  const deps = {
-    loadMonitor: loadMonitorById,
-    loadExecution: loadExecutionById,
-    claim: claimExecution,
-    recordResult: recordExecutionResult,
-    executor,
-    now: () => Math.floor(Date.now() / 1000),
-    // Settle events to the project room drive the live monitors list. Same
-    // DO-to-DO publish path the ingest pipeline uses; non-fatal by design.
-    broadcast: broadcastProjectRoom,
-  };
-
-  for (const message of batch.messages) {
-    try {
-      const { action } = await runMonitorJob(message.body, deps);
-      if (action === "retry") {
-        message.retry({ delaySeconds: retryDelay });
-      } else {
-        message.ack();
-      }
-    } catch (err) {
-      // `runMonitorJob` already converts executor throws into a recorded error
-      // result; reaching here means an UNEXPECTED throw (e.g. a recordResult DB
-      // failure), so retry the delivery and surface it to Cloudflare Tail.
-      logger.error("monitor job failed unexpectedly", {
-        monitorId: message.body.monitorId,
-        executionId: message.body.executionId,
-        attempts: message.attempts,
-        message: err instanceof Error ? err.message : String(err),
-      });
-      message.retry({ delaySeconds: retryDelay });
-    }
-  }
-});
+export default defineQueue<MonitorJob>(
+  makeMonitorQueueHandler("monitor", retryDelay),
+);
