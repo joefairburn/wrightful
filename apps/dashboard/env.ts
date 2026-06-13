@@ -27,15 +27,6 @@ export default defineEnv({
   ARTIFACT_TOKEN_SECRET: string().secret().optional(),
 
   /**
-   * Optional dedicated secret for signing public run-share tokens (the
-   * `/share/run/:token` read-only links). Decoupled from BETTER_AUTH_SECRET so
-   * rotating THIS value invalidates every outstanding share link without
-   * logging users out. Falls back to BETTER_AUTH_SECRET when unset. ≥32 chars.
-   * Precedence is owned by `resolveShareTokenSecret` in src/lib/config.ts.
-   */
-  SHARE_TOKEN_SECRET: string().secret().optional(),
-
-  /**
    * GitHub OAuth credentials, in Void's `AUTH_<PROVIDER>_CLIENT_{ID,SECRET}`
    * naming convention. The github social provider is enabled in `auth.ts` at
    * startup only when BOTH are set — deliberately NOT declared in

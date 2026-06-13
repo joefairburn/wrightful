@@ -26,7 +26,7 @@ _Suggested sequence: metering + retention de-risk cost exposure before opening s
 1. [Billing / usage metering + quota enforcement](./1.1-billing-usage-metering.md)
 2. [Retention enforcement (two-axis)](./1.2-retention-enforcement.md)
 3. [GitHub Checks / Commit Status API](./1.3-github-checks.md)
-4. [Public / shareable run links](./1.4-public-share-links.md)
+4. ~~Public / shareable run links~~ — **dropped**: the product keeps everything behind auth, so there are no anonymous/public views.
 
 ### Tier 2 — Strong differentiators / competitive parity
 

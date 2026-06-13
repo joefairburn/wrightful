@@ -22,7 +22,6 @@ import {
 } from "@/components/run-meta-pills";
 import { RunProgress } from "@/components/run-progress";
 import { RunSummaryLive } from "@/components/run-summary-live";
-import { ShareRunButton } from "@/components/share-run-button";
 import { cn } from "@/lib/cn";
 import { makeHrefBuilder } from "@/lib/page-links";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
@@ -163,13 +162,6 @@ export default function RunDetailPage({
               <span className="text-fg-4">·</span>
               <span>{formatRelativeTime(run.createdAt)}</span>
             </div>
-          </div>
-          <div className="ml-3 shrink-0">
-            <ShareRunButton
-              projectSlug={project.slug}
-              runId={runId}
-              teamSlug={project.teamSlug}
-            />
           </div>
         </div>
 

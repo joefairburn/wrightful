@@ -92,16 +92,3 @@ export function resolveArtifactTokenSecret(source: {
 }): string {
   return source.ARTIFACT_TOKEN_SECRET ?? source.BETTER_AUTH_SECRET;
 }
-
-/**
- * The secret that signs public run-share tokens: a dedicated `SHARE_TOKEN_SECRET`
- * when set, else `BETTER_AUTH_SECRET`. Same presence-not-truthiness `??` rule and
- * rationale as {@link resolveArtifactTokenSecret} — rotating the dedicated secret
- * invalidates every outstanding share link in one move, independent of sessions.
- */
-export function resolveShareTokenSecret(source: {
-  SHARE_TOKEN_SECRET?: string | undefined;
-  BETTER_AUTH_SECRET: string;
-}): string {
-  return source.SHARE_TOKEN_SECRET ?? source.BETTER_AUTH_SECRET;
-}

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "85b0fa9c-dc41-4ec6-b93f-8d29b4c901b1",
+  "id": "b93e3242-03cd-45d8-9ba1-1547c823755b",
   "prevId": "61c784e8-7f9c-43c1-a03a-c92614e0631f",
   "tables": {
     "apiKeys": {
@@ -739,118 +739,6 @@
         "projects_teamId_teams_id_fk": {
           "name": "projects_teamId_teams_id_fk",
           "tableFrom": "projects",
-          "tableTo": "teams",
-          "columnsFrom": ["teamId"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "runShares": {
-      "name": "runShares",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "runId": {
-          "name": "runId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "projectId": {
-          "name": "projectId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "teamId": {
-          "name": "teamId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "tokenHash": {
-          "name": "tokenHash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "createdBy": {
-          "name": "createdBy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expiresAt": {
-          "name": "expiresAt",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "revokedAt": {
-          "name": "revokedAt",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "runShares_tokenHash_idx": {
-          "name": "runShares_tokenHash_idx",
-          "columns": ["tokenHash"],
-          "isUnique": true
-        },
-        "runShares_run_idx": {
-          "name": "runShares_run_idx",
-          "columns": ["runId"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "runShares_runId_runs_id_fk": {
-          "name": "runShares_runId_runs_id_fk",
-          "tableFrom": "runShares",
-          "tableTo": "runs",
-          "columnsFrom": ["runId"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "runShares_projectId_projects_id_fk": {
-          "name": "runShares_projectId_projects_id_fk",
-          "tableFrom": "runShares",
-          "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "runShares_teamId_teams_id_fk": {
-          "name": "runShares_teamId_teams_id_fk",
-          "tableFrom": "runShares",
           "tableTo": "teams",
           "columnsFrom": ["teamId"],
           "columnsTo": ["id"],
@@ -1671,6 +1559,11 @@
         "testTags_testResultId_idx": {
           "name": "testTags_testResultId_idx",
           "columns": ["testResultId"],
+          "isUnique": false
+        },
+        "testTags_project_tag_idx": {
+          "name": "testTags_project_tag_idx",
+          "columns": ["projectId", "tag"],
           "isUnique": false
         }
       },

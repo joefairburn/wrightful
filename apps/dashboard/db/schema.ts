@@ -228,44 +228,6 @@ export const usageCounters = sqliteTable(
   ],
 );
 
-// ---------- Public run shares ----------
-
-/**
- * A signed, revocable public share link for a single run. The HMAC token
- * (`src/lib/share-tokens.ts`) proves authenticity statelessly and carries the
- * run/project/team ids; this row exists so a link can be REVOKED before its
- * expiry (the `/share/run/:token` loader checks `revokedAt` by `tokenHash`).
- * Only the SHA-256 of the token is stored, never the token itself — same
- * discipline as `apiKeys`/`teamInvites`. Carries denormalized `projectId`
- * (the run-scoped isolation key) + `teamId`.
- */
-export const runShares = sqliteTable(
-  "runShares",
-  {
-    id: text("id").primaryKey(),
-    runId: text("runId")
-      .notNull()
-      .references(() => runs.id, { onDelete: "cascade" }),
-    projectId: text("projectId")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    teamId: text("teamId")
-      .notNull()
-      .references(() => teams.id, { onDelete: "cascade" }),
-    /** SHA-256 hex of the share token. The verify-path lookup key. */
-    tokenHash: text("tokenHash").notNull(),
-    /** void-managed `user.id` of the creator. Logical FK — see schema header. */
-    createdBy: text("createdBy").notNull(),
-    createdAt: integer("createdAt").notNull(),
-    expiresAt: integer("expiresAt").notNull(),
-    revokedAt: integer("revokedAt"),
-  },
-  (t) => [
-    uniqueIndex("runShares_tokenHash_idx").on(t.tokenHash),
-    index("runShares_run_idx").on(t.runId),
-  ],
-);
-
 // ---------- GitHub App (check runs) ----------
 
 /**
@@ -730,7 +692,6 @@ export type UserStateRow = typeof userState.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type UsageCounter = typeof usageCounters.$inferSelect;
 export type GithubInstallation = typeof githubInstallations.$inferSelect;
-export type RunShare = typeof runShares.$inferSelect;
 export type Run = typeof runs.$inferSelect;
 export type TestResult = typeof testResults.$inferSelect;
 export type TestTag = typeof testTags.$inferSelect;
