@@ -86,6 +86,8 @@ function infraErrorResult(errorMessage: string): ExecutionResult {
     durationMs: null,
     errorMessage,
     infraError: true,
+    statusCode: null,
+    resultDetail: null,
   };
 }
 
@@ -112,6 +114,8 @@ function monitorResultEvent(
       state: result.state,
       runId: result.runId,
       createdAt: execution.createdAt,
+      durationMs: result.durationMs,
+      statusCode: result.statusCode,
     },
   };
 }

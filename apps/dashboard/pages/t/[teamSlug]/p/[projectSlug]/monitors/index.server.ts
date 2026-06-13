@@ -1,5 +1,4 @@
 import { defineHandler, type InferProps } from "void";
-import { env } from "void/env";
 import {
   countMonitors,
   listMonitors,
@@ -45,12 +44,18 @@ export const loader = defineHandler(async (c) => {
 
   const enriched = monitors.map((m) => {
     // `id` rides along so the live reducer can dedupe a redelivered settle and
-    // React can key the strip; `ExecStrip` itself only reads `state`.
+    // React can key the strip; `ExecStrip` itself only reads `state`. The
+    // projection mirrors the realtime `MonitorExecutionRow` exactly (incl.
+    // `durationMs` / `statusCode`) so a folded-in live settle and an SSR-seeded
+    // row share one shape — and http response-time / status are available to the
+    // strip for free.
     const executions = (executionsByMonitor.get(m.id) ?? []).map((e) => ({
       id: e.id,
       state: e.state,
       runId: e.runId,
       createdAt: e.createdAt,
+      durationMs: e.durationMs,
+      statusCode: e.statusCode,
     }));
     return {
       id: m.id,
@@ -75,7 +80,8 @@ export const loader = defineHandler(async (c) => {
       role: project.role,
     },
     monitors: enriched,
+    // Total across both types. Browser + http have separate caps enforced at
+    // create time (see `createMonitor`); the roster just shows the total.
     count,
-    limit: env.WRIGHTFUL_MONITOR_MAX_PER_PROJECT,
   };
 });

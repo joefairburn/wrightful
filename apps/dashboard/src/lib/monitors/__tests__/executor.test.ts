@@ -46,6 +46,8 @@ const PASS_RESULT: ExecutionResult = {
   durationMs: 1234,
   errorMessage: null,
   infraError: false,
+  statusCode: null,
+  resultDetail: null,
 };
 
 type SpiedDeps = RunMonitorJobDeps & {
@@ -136,6 +138,8 @@ describe("runMonitorJob", () => {
       durationMs: 999,
       errorMessage: "expected element to be visible",
       infraError: false,
+      statusCode: null,
+      resultDetail: null,
     };
     const deps = makeDeps({
       executor: { execute: () => Promise.resolve(failResult) },
@@ -160,6 +164,8 @@ describe("runMonitorJob", () => {
       errorMessage:
         "check exceeded the 300s execution budget and was terminated",
       infraError: false,
+      statusCode: null,
+      resultDetail: null,
     };
     const deps = makeDeps({
       executor: { execute: () => Promise.resolve(timeoutResult) },
@@ -179,6 +185,8 @@ describe("runMonitorJob", () => {
       durationMs: 10,
       errorMessage: "sandbox unavailable (concurrency)",
       infraError: true,
+      statusCode: null,
+      resultDetail: null,
     };
     const deps = makeDeps({
       executor: { execute: () => Promise.resolve(infraResult) },
@@ -229,6 +237,10 @@ describe("runMonitorJob", () => {
         state: "pass",
         runId: "run-1",
         createdAt: 4321,
+        // Carried through from the result so the live list can show response
+        // time / status (null for browser executions like this one).
+        durationMs: 1234,
+        statusCode: null,
       },
     });
   });

@@ -97,6 +97,10 @@ export interface MonitorExecutionRow {
   state: string;
   runId: string | null;
   createdAt: number;
+  /** Settled duration (ms) — lets the live list/timeline show response time. */
+  durationMs: number | null;
+  /** HTTP status code for `http` executions; null for browser / no response. */
+  statusCode: number | null;
 }
 
 /**

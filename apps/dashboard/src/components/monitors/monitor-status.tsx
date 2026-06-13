@@ -279,6 +279,47 @@ export function ExecStrip({
   );
 }
 
+/**
+ * The monitor-TYPE glyph (vs the status glyph above): a beaker for `browser`
+ * (a Playwright test) and a globe for `http` (a URL uptime check). Inline SVG on
+ * the same 16-grid stroke set as {@link MonGlyph} so the two read as a family.
+ * Used in the type pill on the list + detail header.
+ */
+export function MonTypeGlyph({
+  type,
+  size = 10,
+}: {
+  type: string;
+  size?: number;
+}) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 16 16",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+  if (type === "http") {
+    return (
+      <svg {...common}>
+        <circle cx="8" cy="8" r="6" />
+        <path d="M2 8 H 14" />
+        <path d="M8 2 C 4.5 4.5, 4.5 11.5, 8 14 C 11.5 11.5, 11.5 4.5, 8 2 Z" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M6 2.5 V 7 L 3 13 H 13 L 10 7 V 2.5" />
+      <path d="M5.5 2.5 H 10.5" />
+    </svg>
+  );
+}
+
 /** Count chip used in the list's status-summary strip. */
 export function SummaryPill({
   state,

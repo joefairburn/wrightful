@@ -145,7 +145,12 @@ const MONITOR_ENQUEUE_CONCURRENCY = 10;
 export async function sweepDueMonitors(opts: {
   now: number;
   limit: number;
-  enqueue: (job: MonitorJob) => Promise<void>;
+  /**
+   * Enqueue one job, given its monitor row so the caller can route by
+   * `monitor.type` (http → `queues.uptime`, browser → `queues.monitors`). The
+   * job body itself stays IDs-only.
+   */
+  enqueue: (job: MonitorJob, monitor: Monitor) => Promise<void>;
 }): Promise<{ found: number; enqueued: number }> {
   const due = await db
     .select()
@@ -180,16 +185,20 @@ export async function sweepDueMonitors(opts: {
   ];
   await runBatch(statements);
 
+  // Pair each job with its monitor row (plan.jobs is index-aligned with `due` —
+  // see `planMonitorSweep`) so the enqueue callback can route by `monitor.type`.
+  const items = plan.jobs.map((job, i) => ({ job, monitor: due[i]! }));
+
   // Enqueue with bounded concurrency, same wave policy as `drainStaleRuns`:
   // each `allSettled` wave holds at most `MONITOR_ENQUEUE_CONCURRENCY` sends in
   // flight, and a fresh wave only starts once the previous settles. A failed
   // send is tolerated (the execution row is already persisted as `queued`); we
   // count only the sends that landed.
   let enqueued = 0;
-  for (let i = 0; i < plan.jobs.length; i += MONITOR_ENQUEUE_CONCURRENCY) {
-    const wave = plan.jobs.slice(i, i + MONITOR_ENQUEUE_CONCURRENCY);
+  for (let i = 0; i < items.length; i += MONITOR_ENQUEUE_CONCURRENCY) {
+    const wave = items.slice(i, i + MONITOR_ENQUEUE_CONCURRENCY);
     const settled = await Promise.allSettled(
-      wave.map((job) => opts.enqueue(job)),
+      wave.map((item) => opts.enqueue(item.job, item.monitor)),
     );
     for (const result of settled) {
       if (result.status === "fulfilled") enqueued++;

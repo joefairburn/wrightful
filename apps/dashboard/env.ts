@@ -86,10 +86,30 @@ export default defineEnv({
   WRIGHTFUL_MONITOR_SWEEP_BATCH_SIZE: number().default(200),
 
   /**
-   * Per-project cap on the number of monitors. A coarse abuse/cost guardrail —
-   * each monitor multiplies scheduled browser-container runs. Default 25.
+   * Per-project cap on the number of BROWSER monitors. A coarse abuse/cost
+   * guardrail — each browser monitor multiplies scheduled container runs.
+   * Default 25. (HTTP monitors have their own, higher cap below — they're a
+   * plain `fetch()`, far cheaper, so users make many.)
    */
   WRIGHTFUL_MONITOR_MAX_PER_PROJECT: number().default(25),
+
+  /**
+   * Per-project cap on HTTP (uptime) monitors. Separate from the browser cap
+   * because an http check is a plain `fetch()` from the queue consumer — no
+   * container, ~free — so a project can hold many without eating its browser
+   * budget. Enforced by a TYPE-SCOPED `countMonitors(scope, "http")`, so the two
+   * caps never cross-contaminate. Default 50.
+   */
+  WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT: number().default(50),
+
+  /**
+   * Max bytes of an HTTP check's response body the executor buffers for
+   * body/JSON assertions (read is truncated past this). Bounds Worker memory +
+   * the CPU of evaluating a body assertion against a huge payload. The stored
+   * `resultDetail.bodyExcerpt` is a much smaller ≤2 KiB slice, kept only when a
+   * body assertion failed. Default 256 KiB.
+   */
+  WRIGHTFUL_HTTP_CHECK_MAX_BODY_BYTES: number().default(262144),
 
   /**
    * Which `MonitorExecutor` the queue consumer uses. `'sandbox'` (default) runs

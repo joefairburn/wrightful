@@ -26,6 +26,7 @@ export class MonitorsPage {
   readonly nameInput: Locator;
   readonly intervalSelect: Locator;
   readonly sourceEditor: Locator;
+  readonly urlInput: Locator;
   readonly enabledSwitch: Locator;
   readonly createButton: Locator;
 
@@ -41,6 +42,7 @@ export class MonitorsPage {
     this.sourceEditor = page.getByRole("textbox", {
       name: /playwright source/i,
     });
+    this.urlInput = page.locator('input[name="url"]');
     this.enabledSwitch = page.getByRole("switch");
     this.createButton = page.getByRole("button", { name: /create monitor/i });
   }
@@ -66,9 +68,52 @@ export class MonitorsPage {
     await expect(this.listHeading).toBeVisible();
   }
 
+  /** Open the create form for the browser type directly (skips the chooser). */
   async gotoNew(): Promise<void> {
-    await this.page.goto(this.newPath);
+    await this.page.goto(`${this.newPath}?type=browser`);
     await expect(this.nameInput).toBeVisible();
+  }
+
+  /** Open the create form for the http (uptime) type directly (skips the chooser). */
+  async gotoNewHttp(): Promise<void> {
+    await this.page.goto(`${this.newPath}?type=http`);
+    await expect(this.urlInput).toBeVisible();
+  }
+
+  /**
+   * Fill + submit the http (uptime) create form, returning the new monitor's id.
+   * The http form posts natively even before hydration (the hidden `type=http`,
+   * `enabled`, `followRedirects`, and `assertions` fields are in the SSR HTML, and
+   * the threshold inputs carry default values), so the same retry-submit pattern
+   * as {@link create} rides out the hydration window.
+   */
+  async createHttp(opts: {
+    name: string;
+    intervalSeconds: number;
+    url: string;
+  }): Promise<string> {
+    await this.nameInput.fill(opts.name);
+    await this.intervalSelect.selectOption(String(opts.intervalSeconds));
+    await this.urlInput.fill(opts.url);
+
+    const detailUrlRe = new RegExp(
+      `/monitors/(?!new(?:[/?#]|$))[^/?#]+(?:[?#]|$)`,
+    );
+    await expect(async () => {
+      await this.createButton.click();
+      await this.page.waitForURL(detailUrlRe, { timeout: 3_000 });
+    }).toPass({ timeout: 15_000 });
+
+    const match = new URL(this.page.url()).pathname.match(
+      /\/monitors\/([^/?#]+)/,
+    );
+    const monitorId = match?.[1];
+    if (!monitorId) {
+      throw new Error(
+        `createHttp() did not land on a monitor detail URL: ${this.page.url()}`,
+      );
+    }
+    return monitorId;
   }
 
   /**

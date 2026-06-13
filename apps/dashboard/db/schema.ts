@@ -543,6 +543,20 @@ export const monitorExecutions = sqliteTable(
     /** Logical ref to `runs.id` for browser executions; null otherwise. */
     runId: text("runId"),
     durationMs: integer("durationMs"),
+    /**
+     * HTTP response status code for `http` (uptime) executions; null for browser
+     * and for `http` checks that never got a response (network error / timeout).
+     * Stored as a queryable column (vs buried in `resultDetail`) so the list /
+     * timeline can show + filter by it without parsing JSON.
+     */
+    statusCode: integer("statusCode"),
+    /**
+     * Inline result detail for `http` executions as JSON (`HttpResultDetail`):
+     * per-assertion outcomes, timing phases, redirect chain, and a capped body
+     * excerpt on a failed body assertion. Null for browser executions (whose
+     * detail lives in the linked `runs` row).
+     */
+    resultDetail: text("resultDetail"),
     errorMessage: text("errorMessage"),
     createdAt: integer("createdAt").notNull(),
   },

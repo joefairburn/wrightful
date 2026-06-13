@@ -23,6 +23,8 @@ function exec(over: Partial<ExecRow> = {}): ExecRow {
     state: "pass",
     runId: "run-1",
     createdAt: 2000,
+    durationMs: null,
+    statusCode: null,
     ...over,
   };
 }
@@ -84,6 +86,26 @@ describe("applyMonitorFeedEvent", () => {
     expect(next[1]).toBe(rows[1]);
     // Uptime recomputed off [fail, pass, pass] → 2 of 3 countable pass.
     expect(next[0]!.uptime).toBeCloseTo((2 / 3) * 100, 5);
+  });
+
+  it("carries the widened execution fields (durationMs, statusCode) onto the strip", () => {
+    const rows = [monitorRow({ id: "m1", recentExecutions: [] })];
+    const next = applyMonitorFeedEvent(
+      rows,
+      result({
+        execution: exec({
+          id: "ex-http",
+          state: "pass",
+          durationMs: 142,
+          statusCode: 200,
+        }),
+      }),
+    );
+    expect(next[0]!.recentExecutions[0]).toMatchObject({
+      id: "ex-http",
+      durationMs: 142,
+      statusCode: 200,
+    });
   });
 
   it("is a no-op (same array reference) when the monitor isn't displayed", () => {
@@ -184,6 +206,24 @@ describe("project room schema (monitor-result)", () => {
       lastStatus: "fail",
       lastRunAt: 5000,
       execution: { id: "ex-new", state: "fail", runId: null, createdAt: 2000 },
+    });
+    expect("issues" in r && r.issues).toBeFalsy();
+  });
+
+  it("accepts an execution carrying the widened http fields (durationMs, statusCode)", () => {
+    const r = projectRoomServerSchema["~standard"].validate({
+      type: "monitor-result",
+      monitorId: "m1",
+      lastStatus: "pass",
+      lastRunAt: 6000,
+      execution: {
+        id: "ex-http",
+        state: "pass",
+        runId: null,
+        createdAt: 3000,
+        durationMs: 142,
+        statusCode: 200,
+      },
     });
     expect("issues" in r && r.issues).toBeFalsy();
   });

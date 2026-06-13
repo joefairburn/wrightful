@@ -34,23 +34,31 @@ const PROJECT_NAME = "Playwright";
 const PROJECT_SLUG = "playwright";
 
 /**
- * Example synthetic monitors seeded into the demo project so the Monitors page
- * isn't empty out of the box. Authored exactly as a user would through the
- * create form (`type = "browser"`, a Playwright spec, an interval preset), then
- * POSTed to the same `?createMonitor` page action.
+ * Example monitors seeded into the demo project so the Monitors page isn't empty
+ * out of the box — a mix of BOTH types, authored exactly as a user would through
+ * the create form and POSTed to the same `?createMonitor` page action:
+ *   - `browser` checks carry a Playwright `source`;
+ *   - `http` (uptime) checks carry a `url` + optional assertions/thresholds.
  *
- * A spread of intervals + one paused monitor exercises the list/detail states;
- * the `FORCE_FAIL` sentinel in one spec makes the dev stub executor
- * (`WRIGHTFUL_MONITOR_EXECUTOR=stub`) synthesize a *failing* run once scheduled,
- * so the dashboard shows a red monitor alongside the green ones. They arm but
- * don't execute during this seed — Cloudflare's local dev doesn't auto-fire
- * crons, so executions appear once the sweep runs (deployed, or triggered via
- * Void's `/__void/scheduled` dev endpoint).
+ * A spread of intervals + one paused monitor exercises the list/detail states.
+ * For browser checks the `FORCE_FAIL` sentinel makes the dev stub executor
+ * (`WRIGHTFUL_MONITOR_EXECUTOR=stub`) synthesize a *failing* run; for http checks
+ * there is no stub (a plain `fetch` runs in every env), so the "regression" one
+ * carries an assertion that won't hold against its target — both show a red
+ * monitor alongside the green ones once scheduled. They arm but don't execute
+ * during this seed — Cloudflare's local dev doesn't auto-fire crons, so
+ * executions appear once the sweep runs (deployed, or triggered via Void's
+ * `/__void/scheduled` dev endpoint). http targets must be PUBLIC URLs —
+ * `url-policy` rejects `localhost`/loopback, so the demo points at example.com.
  *
- * @type {Array<{ name: string, intervalSeconds: number, enabled: boolean, source: string }>}
+ * @type {Array<
+ *   | { type: "browser", name: string, intervalSeconds: number, enabled: boolean, source: string }
+ *   | { type: "http", name: string, intervalSeconds: number, enabled: boolean, url: string, shouldFail?: boolean, assertions?: Array<{ source: string, property?: string, comparison: string, target: string }> }
+ * >}
  */
 const DEMO_MONITORS = [
   {
+    type: "browser",
     name: "Homepage — loads & title",
     intervalSeconds: 60,
     enabled: true,
@@ -63,6 +71,7 @@ test("homepage loads", async ({ page }) => {
 `,
   },
   {
+    type: "browser",
     name: "Checkout — reach payment",
     intervalSeconds: 300,
     enabled: true,
@@ -76,6 +85,7 @@ test("checkout reaches the payment step", async ({ page }) => {
 `,
   },
   {
+    type: "browser",
     name: "Pricing — known regression",
     intervalSeconds: 600,
     enabled: true,
@@ -92,6 +102,7 @@ test("pricing page renders the enterprise tier", async ({ page }) => {
 `,
   },
   {
+    type: "browser",
     name: "Login smoke (staging)",
     intervalSeconds: 3600,
     enabled: false,
@@ -105,6 +116,30 @@ test("user can sign in", async ({ page }) => {
   await expect(page).toHaveURL(/dashboard/);
 });
 `,
+  },
+  {
+    // A passing uptime check: a 2xx within the response-time budget.
+    type: "http",
+    name: "Marketing site — uptime",
+    intervalSeconds: 60,
+    enabled: true,
+    url: "https://example.com",
+    assertions: [
+      { source: "STATUS_CODE", comparison: "LESS_THAN", target: "400" },
+    ],
+  },
+  {
+    // A red uptime check: the assertion can't hold against the target (it
+    // returns 200, not 201), so it fails deterministically once scheduled —
+    // the http analogue of the browser FORCE_FAIL monitor.
+    type: "http",
+    name: "API status — expects 201 (demo fail)",
+    intervalSeconds: 300,
+    enabled: true,
+    url: "https://example.com",
+    assertions: [
+      { source: "STATUS_CODE", comparison: "EQUALS", target: "201" },
+    ],
   },
 ];
 
@@ -347,11 +382,21 @@ log(`${pc.dim("›")} creating ${DEMO_MONITORS.length} example monitors…`);
 for (const monitor of DEMO_MONITORS) {
   const form = {
     name: monitor.name,
-    type: "browser",
-    source: monitor.source,
+    type: monitor.type,
     intervalSeconds: String(monitor.intervalSeconds),
   };
   if (monitor.enabled) form.enabled = "on";
+  if (monitor.type === "http") {
+    // Mirror the http form's fields (the action's `httpConfigFromForm` reads
+    // these). Follow redirects on by default; thresholds left to the schema
+    // defaults; assertions serialized as the one hidden JSON field.
+    form.url = monitor.url;
+    form.followRedirects = "on";
+    if (monitor.shouldFail) form.shouldFail = "on";
+    form.assertions = JSON.stringify(monitor.assertions ?? []);
+  } else {
+    form.source = monitor.source;
+  }
 
   const res = await request(
     "POST",
@@ -400,5 +445,7 @@ log(`  password: ${DEMO_PASSWORD}`);
 log(`  team:     ${teamSlug}`);
 log(`  project:  ${projectSlug}`);
 log(`  api key:  ${apiKey}`);
-log(`  monitors: ${DEMO_MONITORS.length} (browser checks)`);
+log(
+  `  monitors: ${DEMO_MONITORS.length} (${DEMO_MONITORS.filter((m) => m.type === "browser").length} browser, ${DEMO_MONITORS.filter((m) => m.type === "http").length} uptime)`,
+);
 log(`  (also written to apps/dashboard/.env.seed.json)`);

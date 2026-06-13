@@ -1,9 +1,24 @@
-import { ArrowRight, Beaker, Clock, Pause, Play, Settings } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Clock,
+  Pause,
+  Play,
+  Settings,
+  X as XIcon,
+} from "lucide-react";
 import { Link } from "@void/react";
+import {
+  AnalyticsLineChart,
+  type LineChartBucket,
+  type LineChartSeries,
+} from "@/components/analytics/line-chart";
 import {
   MonBadge,
   MonGlyph,
   monitorDisplayStatus,
+  MonTypeGlyph,
 } from "@/components/monitors/monitor-status";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -15,12 +30,16 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import { Card, CardPanel } from "@/components/ui/card";
 import { CodeEditor } from "@/components/ui/code-editor";
 import { cn } from "@/lib/cn";
+import { parseHttpResultDetail } from "@/lib/monitors/monitor-schemas";
+import type { HttpResultDetail } from "@/lib/monitors/types";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { MonitorExecution } from "@schema";
+import { HttpMonitorForm } from "../http-monitor-form";
 import { MonitorForm } from "../monitor-form";
-import { humanizeInterval } from "../monitors-ui.shared";
+import { humanizeInterval, monitorTypeLabel } from "../monitors-ui.shared";
 import type { Props } from "./index.server";
 
 type CreateProps = Extract<Props, { mode: "create" }>;
@@ -30,17 +49,24 @@ type DetailProps = Extract<Props, { mode: "detail" }>;
  * Serves two surfaces from one route (see `index.server.ts` — Void's matcher
  * has no static-over-dynamic precedence for nested-dynamic routes, so
  * `/monitors/new` resolves here as the `"new"` sentinel rather than a sibling
- * page). `mode === "create"` renders the new-monitor form; otherwise the
- * monitor detail.
+ * page). `mode === "create"` renders the new-monitor flow (type chooser →
+ * per-type form); otherwise the monitor detail.
  */
 export default function MonitorPage(props: Props) {
   if (props.mode === "create") return <MonitorCreateView {...props} />;
   return <MonitorDetailView {...props} />;
 }
 
-/** New-monitor form. Posts to the `createMonitor` action on this same route. */
-function MonitorCreateView({ project, formError }: CreateProps) {
+/**
+ * New-monitor flow. With no `?type=`, shows the type chooser (browser vs
+ * uptime); with a type, shows that type's form. Posts to the `createMonitor`
+ * action on this same route.
+ */
+function MonitorCreateView({ project, type, formError }: CreateProps) {
   const monitorsBase = `/t/${project.teamSlug}/p/${project.slug}/monitors`;
+  const action = `${monitorsBase}/new?createMonitor`;
+  const isHttp = type === "http";
+  const isBrowser = type === "browser";
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
@@ -62,35 +88,99 @@ function MonitorCreateView({ project, formError }: CreateProps) {
           New monitor
         </h1>
         <p className="mt-1 text-[12.5px] text-fg-3">
-          Author a Playwright test and pick how often it should run against
-          production.
+          {isHttp
+            ? "Check a URL on a schedule — status, response time, headers, and body."
+            : isBrowser
+              ? "Author a Playwright test and pick how often it should run against production."
+              : "Choose what to monitor."}
         </p>
       </header>
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[860px] px-6 pt-6 pb-16">
-          <MonitorForm
-            action={`${monitorsBase}/new?createMonitor`}
-            cancelHref={monitorsBase}
-            error={formError}
-            submitLabel="Create monitor"
-          />
+          {isHttp ? (
+            <HttpMonitorForm
+              action={action}
+              cancelHref={monitorsBase}
+              error={formError}
+              submitLabel="Create monitor"
+            />
+          ) : isBrowser ? (
+            <MonitorForm
+              action={action}
+              cancelHref={monitorsBase}
+              error={formError}
+              submitLabel="Create monitor"
+            />
+          ) : (
+            <TypeChooser monitorsBase={monitorsBase} />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
+/** The "what do you want to monitor?" cards at `/monitors/new`. */
+function TypeChooser({ monitorsBase }: { monitorsBase: string }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <TypeCard
+        description="Run a Playwright test on a schedule — full browser flows like login or checkout, producing a run report."
+        glyph="browser"
+        href={`${monitorsBase}/new?type=browser`}
+        title="Browser check"
+      />
+      <TypeCard
+        description="Check a URL is up and fast — status code, response time, header and body assertions. No code."
+        glyph="http"
+        href={`${monitorsBase}/new?type=http`}
+        title="Uptime check"
+      />
+    </div>
+  );
+}
+
+function TypeCard({
+  href,
+  glyph,
+  title,
+  description,
+}: {
+  href: string;
+  glyph: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Link
+      className="group flex flex-col gap-2.5 rounded-[11px] border border-line-1 bg-bg-1 p-5 transition-colors hover:border-accent/50 hover:bg-bg-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      href={href}
+    >
+      <span className="flex size-10 items-center justify-center rounded-[10px] border border-line-1 bg-bg-2 text-accent">
+        <MonTypeGlyph size={18} type={glyph} />
+      </span>
+      <span className="text-[14.5px] font-semibold">{title}</span>
+      <span className="text-[12.5px] leading-relaxed text-fg-3">
+        {description}
+      </span>
+    </Link>
+  );
+}
+
 /**
- * Monitor detail. Breadcrumbs + a header (status glyph, name, status badge,
- * Pause/Resume + Edit), then a meta row (Type / Interval / State / Last run /
- * Next run / Uptime 24h), the execution timeline (newest first, each browser
- * execution deep-linking into the existing rich run view), a read-only test
- * definition, the inline edit form (toggled via `?edit=1`), and a danger zone.
+ * Monitor detail. Type-discriminated: the header/meta/timeline chrome is shared,
+ * but a browser monitor shows its Playwright "Test definition" + deep-links each
+ * execution to a run report, while an http monitor shows its request config,
+ * real time-based uptime, a response-time trend, and per-execution assertion
+ * results inline (no run report exists for an http check).
  */
 function MonitorDetailView({
   project,
   monitor,
   executions,
+  httpConfig,
+  uptimeWindows,
+  responseTrend,
   uptime,
   nextRunAt,
   editing,
@@ -102,16 +192,20 @@ function MonitorDetailView({
   const here = `${monitorsBase}/${monitor.id}`;
   const enabled = monitor.enabled === 1;
   const status = monitorDisplayStatus(monitor);
+  const isHttp = monitor.type === "http";
   // Members get a read-only detail view; only owners can edit/pause/delete (the
   // actions are owner-gated server-side). `editingOpen` also defends against a
   // member hand-typing `?edit=1`: the edit section stays hidden AND the
   // read-only definition still shows (it keys off `!editingOpen`, not `!editing`).
   const isOwner = project.role === "owner";
   const editingOpen = isOwner && editing;
+  // For http, the header "Uptime 24h" shows the real time-based 24h number; for
+  // browser it shows the count-based window uptime.
+  const headerUptime = isHttp ? (uptimeWindows?.d1 ?? null) : uptime;
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Header */}
         <header className="border-b border-line-1 px-6 pt-4 pb-4">
           <Breadcrumb>
@@ -184,8 +278,8 @@ function MonitorDetailView({
               label="Type"
               value={
                 <span className="inline-flex items-center gap-1">
-                  <Beaker className="size-[11px] text-fg-3" />
-                  {monitor.type}
+                  <MonTypeGlyph size={11} type={monitor.type} />
+                  {monitorTypeLabel(monitor.type)}
                 </span>
               }
             />
@@ -217,23 +311,7 @@ function MonitorDetailView({
             <MetaItem
               label="Uptime 24h"
               last
-              value={
-                uptime != null ? (
-                  <span
-                    className={cn(
-                      uptime > 99
-                        ? "text-pass"
-                        : uptime > 95
-                          ? "text-degraded"
-                          : "text-fail",
-                    )}
-                  >
-                    {uptime.toFixed(1)}%
-                  </span>
-                ) : (
-                  "—"
-                )
-              }
+              value={<UptimePct value={headerUptime} />}
             />
           </div>
         </header>
@@ -249,18 +327,43 @@ function MonitorDetailView({
                 </p>
               </div>
               <div className="px-[18px] py-4">
-                <MonitorForm
-                  action={`${here}?updateMonitor`}
-                  cancelHref={here}
-                  defaultEnabled={enabled}
-                  defaultIntervalSeconds={monitor.intervalSeconds}
-                  defaultName={monitor.name}
-                  defaultSource={monitor.source ?? ""}
-                  error={formError}
-                  submitLabel="Save changes"
-                />
+                {isHttp ? (
+                  <HttpMonitorForm
+                    action={`${here}?updateMonitor`}
+                    cancelHref={here}
+                    defaultConfig={httpConfig ?? undefined}
+                    defaultEnabled={enabled}
+                    defaultIntervalSeconds={monitor.intervalSeconds}
+                    defaultName={monitor.name}
+                    error={formError}
+                    submitLabel="Save changes"
+                  />
+                ) : (
+                  <MonitorForm
+                    action={`${here}?updateMonitor`}
+                    cancelHref={here}
+                    defaultEnabled={enabled}
+                    defaultIntervalSeconds={monitor.intervalSeconds}
+                    defaultName={monitor.name}
+                    defaultSource={monitor.source ?? ""}
+                    error={formError}
+                    submitLabel="Save changes"
+                  />
+                )}
               </div>
             </section>
+          )}
+
+          {/* http: time-based uptime + response-time trend. */}
+          {isHttp && uptimeWindows && (
+            <section className="grid grid-cols-3 gap-3">
+              <UptimeStat label="Uptime · 24h" value={uptimeWindows.d1} />
+              <UptimeStat label="Uptime · 7d" value={uptimeWindows.d7} />
+              <UptimeStat label="Uptime · 30d" value={uptimeWindows.d30} />
+            </section>
+          )}
+          {isHttp && responseTrend && (
+            <ResponseTimeCard trend={responseTrend} />
           )}
 
           {/* Execution timeline. */}
@@ -291,45 +394,73 @@ function MonitorDetailView({
                   </div>
                 </div>
               ) : (
-                executions.map((ex, i) => (
-                  <ExecRow
-                    base={base}
-                    exec={ex}
-                    key={ex.id}
-                    last={i === executions.length - 1}
-                  />
-                ))
+                executions.map((ex, i) =>
+                  isHttp ? (
+                    <HttpExecRow
+                      exec={ex}
+                      key={ex.id}
+                      last={i === executions.length - 1}
+                    />
+                  ) : (
+                    <ExecRow
+                      base={base}
+                      exec={ex}
+                      key={ex.id}
+                      last={i === executions.length - 1}
+                    />
+                  ),
+                )
               )}
             </div>
           </section>
 
-          {/* Test definition (read-only when not editing). */}
-          {!editingOpen && (
-            <section>
-              <SectionTitle
-                right={
-                  isOwner ? (
-                    <Button
-                      render={<Link href={`${here}?edit=1`} />}
-                      size="xs"
-                      variant="ghost"
-                    >
-                      <Settings className="size-[11px]" />
-                      Edit
-                    </Button>
-                  ) : null
-                }
-                title="Test definition"
-              />
-              <CodeEditor
-                aria-label="Monitor test definition"
-                height={220}
-                onValueChange={NOOP}
-                readOnly
-                value={monitor.source ?? ""}
-              />
-            </section>
-          )}
+          {/* Definition / config (read-only when not editing). */}
+          {!editingOpen &&
+            (isHttp ? (
+              <section>
+                <SectionTitle
+                  right={
+                    isOwner ? (
+                      <Button
+                        render={<Link href={`${here}?edit=1`} />}
+                        size="xs"
+                        variant="ghost"
+                      >
+                        <Settings className="size-[11px]" />
+                        Edit
+                      </Button>
+                    ) : null
+                  }
+                  title="Request"
+                />
+                <HttpConfigSummary config={httpConfig} />
+              </section>
+            ) : (
+              <section>
+                <SectionTitle
+                  right={
+                    isOwner ? (
+                      <Button
+                        render={<Link href={`${here}?edit=1`} />}
+                        size="xs"
+                        variant="ghost"
+                      >
+                        <Settings className="size-[11px]" />
+                        Edit
+                      </Button>
+                    ) : null
+                  }
+                  title="Test definition"
+                />
+                <CodeEditor
+                  aria-label="Monitor test definition"
+                  height={220}
+                  onValueChange={NOOP}
+                  readOnly
+                  value={monitor.source ?? ""}
+                />
+              </section>
+            ))}
 
           {/* Danger zone (owner-only). */}
           {isOwner && (
@@ -343,8 +474,9 @@ function MonitorDetailView({
                 <div className="flex-1">
                   <div className="text-[13px] font-medium">Delete monitor</div>
                   <p className="mt-1 text-[12px] leading-relaxed text-fg-3">
-                    Stops the schedule and removes this monitor. Run reports it
-                    already produced are retained.
+                    Stops the schedule and removes this monitor.
+                    {!isHttp &&
+                      " Run reports it already produced are retained."}
                   </p>
                 </div>
                 <details className="group shrink-0">
@@ -378,7 +510,160 @@ function MonitorDetailView({
 /** No-op change handler for the read-only definition editor. */
 function NOOP() {}
 
-/** A description line for an execution, keyed off its terminal state. */
+/** Color an uptime % by the >99 / >95 thresholds the design's meta row uses. */
+function UptimePct({ value }: { value: number | null }) {
+  if (value == null) return <>—</>;
+  return (
+    <span
+      className={cn(
+        value > 99 ? "text-pass" : value > 95 ? "text-degraded" : "text-fail",
+      )}
+    >
+      {value.toFixed(1)}%
+    </span>
+  );
+}
+
+/** A time-based uptime stat card (http detail). */
+function UptimeStat({ label, value }: { label: string; value: number | null }) {
+  return (
+    <div className="rounded-[9px] border border-line-1 bg-bg-1 px-4 py-3">
+      <div className="text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+        {label}
+      </div>
+      <div className="mt-1 font-mono text-[18px] font-semibold tabular-nums">
+        <UptimePct value={value} />
+      </div>
+    </div>
+  );
+}
+
+/** The response-time trend chart card (24h hourly p50/p95). */
+function ResponseTimeCard({
+  trend,
+}: {
+  trend: NonNullable<DetailProps["responseTrend"]>;
+}) {
+  const series: LineChartSeries[] = [
+    { key: "p50", label: "p50", color: "var(--color-foreground)" },
+    { key: "p95", label: "p95", color: "var(--accent)" },
+  ];
+  const buckets: LineChartBucket[] = trend.map((b) => ({
+    key: b.key,
+    label: b.label,
+    values: [b.p50, b.p95],
+    tooltip: (
+      <div className="font-mono text-[11px]">
+        <div className="mb-0.5 text-fg-3">{b.label}</div>
+        <div>p50 {b.p50 == null ? "—" : `${Math.round(b.p50)}ms`}</div>
+        <div>p95 {b.p95 == null ? "—" : `${Math.round(b.p95)}ms`}</div>
+      </div>
+    ),
+  }));
+  return (
+    <Card className="overflow-hidden rounded-[9px] border-line-1">
+      <div className="border-b border-line-1 px-[18px] py-3">
+        <h2 className="text-[13px] font-semibold tracking-tight">
+          Response time
+        </h2>
+        <p className="mt-0.5 text-[11.5px] text-fg-3">
+          Last 24h — p50 and p95 per hour (UTC).
+        </p>
+      </div>
+      <CardPanel className="px-[18px] py-4">
+        <AnalyticsLineChart
+          ariaLabel="Response time p50 and p95 over the last 24 hours"
+          buckets={buckets}
+          emptyState="No checks with a response in the last 24h."
+          formatYTick={(ms) => formatDuration(Math.round(ms))}
+          height={260}
+          series={series}
+        />
+        <div className="mt-3.5 flex items-center gap-3.5 text-[11.5px] text-fg-3">
+          {series.map((s) => (
+            <span className="inline-flex items-center gap-1.5" key={s.key}>
+              <span className="h-0.5 w-3" style={{ background: s.color }} />
+              {s.label}
+            </span>
+          ))}
+        </div>
+      </CardPanel>
+    </Card>
+  );
+}
+
+/** Read-only summary of an http monitor's request config. */
+function HttpConfigSummary({ config }: { config: DetailProps["httpConfig"] }) {
+  if (!config) {
+    return (
+      <div className="rounded-[9px] border border-fail/30 bg-fail-soft px-[18px] py-4 text-[12.5px] text-fail">
+        This monitor's configuration is missing or invalid — edit it to fix.
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+      <div className="flex items-center gap-2 border-b border-line-1 px-[18px] py-3">
+        <span className="rounded bg-bg-3 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-fg-2">
+          GET
+        </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-foreground">
+          {config.url}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 px-[18px] py-3.5 text-[12.5px] sm:grid-cols-4">
+        <ConfigField
+          label="Degraded above"
+          value={`${config.degradedResponseTimeMs}ms`}
+        />
+        <ConfigField
+          label="Fail above"
+          value={`${config.maxResponseTimeMs}ms`}
+        />
+        <ConfigField
+          label="Redirects"
+          value={config.followRedirects ? "follow" : "manual"}
+        />
+        <ConfigField
+          label="Expectation"
+          value={config.shouldFail ? "should fail" : "should succeed"}
+        />
+      </div>
+      {config.assertions.length > 0 && (
+        <div className="border-t border-line-1 px-[18px] py-3.5">
+          <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+            Assertions
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {config.assertions.map((a, i) => (
+              <div className="font-mono text-[12px] text-fg-2" key={i}>
+                <span className="text-foreground">{a.source}</span>
+                {a.property ? (
+                  <span className="text-fg-3"> {a.property}</span>
+                ) : null}{" "}
+                <span className="text-accent">{a.comparison}</span>
+                {a.target ? <span> {a.target}</span> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConfigField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+        {label}
+      </span>
+      <span className="font-mono text-fg-1">{value}</span>
+    </div>
+  );
+}
+
+/** A description line for a browser execution, keyed off its terminal state. */
 function execDescription(state: string): React.ReactNode {
   switch (state) {
     case "running":
@@ -400,7 +685,7 @@ function execDescription(state: string): React.ReactNode {
   }
 }
 
-/** One execution row in the timeline. */
+/** One browser execution row in the timeline (deep-links to the run report). */
 function ExecRow({
   exec,
   base,
@@ -461,6 +746,174 @@ function ExecRow({
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Color a status-code chip by its class (2xx/3xx ok, 4xx/5xx bad). */
+function statusCodeClass(code: number): string {
+  return code < 400 ? "text-pass" : "text-fail";
+}
+
+/**
+ * One http execution row — an expandable `<details>` (no-JS) whose summary shows
+ * status code + duration + the result line, and whose body shows the assertion
+ * results, timing phases, and the redirect chain from `resultDetail`.
+ */
+function HttpExecRow({
+  exec,
+  last,
+}: {
+  exec: MonitorExecution;
+  last: boolean;
+}) {
+  const isRunning = exec.state === "running";
+  const detail = parseHttpResultDetail(exec.resultDetail);
+  const expandable =
+    detail != null &&
+    (detail.assertions.length > 0 ||
+      detail.bodyExcerpt != null ||
+      exec.statusCode != null);
+
+  const summary = (
+    <div
+      className={cn(
+        "flex items-center gap-3 px-[18px] py-[11px] transition-colors hover:bg-bg-2",
+        expandable && "cursor-pointer",
+      )}
+    >
+      <MonGlyph size={14} state={exec.state} />
+      <div className="w-[92px] shrink-0">
+        <MonBadge size="sm" state={exec.state} />
+      </div>
+      <span className="w-[42px] shrink-0 text-right font-mono text-[12px] tabular-nums">
+        {exec.statusCode != null ? (
+          <span className={statusCodeClass(exec.statusCode)}>
+            {exec.statusCode}
+          </span>
+        ) : (
+          <span className="text-fg-4">—</span>
+        )}
+      </span>
+      <div
+        className="min-w-0 flex-1 truncate text-[12.5px] text-fg-2"
+        title={exec.errorMessage ?? undefined}
+      >
+        {isRunning ? (
+          <span className="text-running">running now…</span>
+        ) : exec.errorMessage ? (
+          exec.errorMessage
+        ) : (
+          <span className="text-fg-3">responded OK</span>
+        )}
+      </div>
+      <span className="w-[70px] text-right font-mono text-[11.5px] tabular-nums text-fg-3">
+        {exec.durationMs != null ? formatDuration(exec.durationMs) : "—"}
+      </span>
+      <span className="w-[96px] text-right text-[12px]">
+        {isRunning ? (
+          <span className="text-running">now</span>
+        ) : (
+          <span className="text-fg-2">
+            {formatRelativeTime(exec.createdAt)}
+          </span>
+        )}
+      </span>
+      <span className="flex w-[18px] justify-end">
+        {expandable && (
+          <ChevronDown className="size-3.5 text-fg-3 transition-transform group-open:rotate-180" />
+        )}
+      </span>
+    </div>
+  );
+
+  const rail = cn(
+    "border-l-2",
+    last ? "border-b-0" : "border-b border-b-line-1",
+    exec.state === "fail"
+      ? "border-l-fail"
+      : exec.state === "error"
+        ? "border-l-error"
+        : "border-l-transparent",
+  );
+
+  if (!expandable) {
+    return <div className={rail}>{summary}</div>;
+  }
+
+  return (
+    <details className={cn("group", rail)}>
+      <summary className="list-none [&::-webkit-details-marker]:hidden">
+        {summary}
+      </summary>
+      {detail && <HttpExecDetail detail={detail} />}
+    </details>
+  );
+}
+
+/** The expanded body of an http execution row: assertions + timings + chain. */
+function HttpExecDetail({ detail }: { detail: HttpResultDetail }) {
+  return (
+    <div className="border-t border-line-1 bg-bg-0 px-[18px] py-3.5">
+      {detail.assertions.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+            Assertions
+          </div>
+          <div className="flex flex-col gap-1">
+            {detail.assertions.map((a, i) => (
+              <div
+                className="flex items-center gap-2 font-mono text-[12px]"
+                key={i}
+              >
+                {a.pass ? (
+                  <Check className="size-3.5 shrink-0 text-pass" />
+                ) : (
+                  <XIcon className="size-3.5 shrink-0 text-fail" />
+                )}
+                <span className="text-fg-2">
+                  <span className="text-foreground">{a.source}</span>
+                  {a.property ? (
+                    <span className="text-fg-3"> {a.property}</span>
+                  ) : null}{" "}
+                  <span className="text-accent">{a.comparison}</span>
+                  {a.target ? <span> {a.target}</span> : null}
+                </span>
+                <span className="text-fg-3">
+                  → got {a.actual === null ? "nothing" : `"${a.actual}"`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-x-5 gap-y-1 font-mono text-[11.5px] text-fg-3">
+        <span>
+          ttfb{" "}
+          {detail.timings.ttfbMs == null
+            ? "—"
+            : `${Math.round(detail.timings.ttfbMs)}ms`}
+        </span>
+        <span>
+          download{" "}
+          {detail.timings.downloadMs == null
+            ? "—"
+            : `${Math.round(detail.timings.downloadMs)}ms`}
+        </span>
+        <span>total {Math.round(detail.timings.totalMs)}ms</span>
+        {detail.redirected && <span>· redirected</span>}
+      </div>
+      <div
+        className="mt-1.5 truncate font-mono text-[11.5px] text-fg-3"
+        title={detail.finalUrl}
+      >
+        {detail.finalUrl}
+      </div>
+      {detail.bodyExcerpt != null && (
+        <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-line-1 bg-bg-1 p-2.5 font-mono text-[11px] leading-relaxed text-fg-2">
+          {detail.bodyExcerpt}
+        </pre>
+      )}
     </div>
   );
 }

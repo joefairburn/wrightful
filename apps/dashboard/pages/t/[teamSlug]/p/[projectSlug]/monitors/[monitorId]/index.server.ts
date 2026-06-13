@@ -5,8 +5,18 @@ import { env } from "void/env";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import {
   CreateMonitorSchema,
-  UpdateMonitorSchema,
+  parseHttpMonitorConfig,
+  UpdateBrowserMonitorSchema,
+  UpdateHttpMonitorSchema,
 } from "@/lib/monitors/monitor-schemas";
+import {
+  formType,
+  httpConfigFromForm,
+} from "@/lib/monitors/monitor-form-parse";
+import {
+  httpResponseTimeBuckets,
+  httpUptimeWindows,
+} from "@/lib/monitors/http/uptime-analytics";
 import {
   countMonitors,
   createMonitor,
@@ -74,6 +84,9 @@ export const loader = defineHandler(async (c) => {
     return {
       mode: "create" as const,
       project: projectProps,
+      // Which create form to show: `?type=http` → uptime form, `?type=browser`
+      // → browser form, absent → the type chooser. (Only the two v1 types.)
+      type: url.searchParams.get("type"),
       formError: url.searchParams.get("formError"),
     };
   }
@@ -83,12 +96,69 @@ export const loader = defineHandler(async (c) => {
 
   const executions = await listExecutions(scope, monitorId, EXECUTIONS_LIMIT);
 
+  // HTTP monitors carry inline config + their own analytics (SQL-computed,
+  // time-based uptime + a response-time trend); browser monitors carry none of
+  // these (their detail lives in the linked run reports).
+  const isHttp = monitor.type === "http";
+  const httpConfig = isHttp ? parseHttpMonitorConfig(monitor.config) : null;
+
+  let uptimeWindows: {
+    d1: number | null;
+    d7: number | null;
+    d30: number | null;
+  } | null = null;
+  let responseTrend: Array<{
+    key: string;
+    label: string;
+    p50: number | null;
+    p95: number | null;
+  }> | null = null;
+
+  if (isHttp) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    // 24 hourly slots ending at the current hour.
+    const nowHour = Math.floor(nowSec / 3600);
+    const windowStartSec = (nowHour - 23) * 3600;
+    // Two independent reads — run them concurrently so the page waits on the
+    // slower of the two, not their sum.
+    const [windows, rows] = await Promise.all([
+      httpUptimeWindows({ scope, monitorId, nowSec }),
+      httpResponseTimeBuckets({ scope, monitorId, windowStartSec }),
+    ]);
+    uptimeWindows = {
+      d1: windowPct(windows.d1),
+      d7: windowPct(windows.d7),
+      d30: windowPct(windows.d30),
+    };
+    // left-join the SQL rows onto the continuous skeleton so empty hours render
+    // as gaps in the chart.
+    const byBucket = new Map(rows.map((r) => [r.bucket, r]));
+    responseTrend = Array.from({ length: 24 }, (_, i) => {
+      const slot = nowHour - 23 + i;
+      const r = byBucket.get(slot);
+      const hour = new Date(slot * 3600 * 1000).getUTCHours();
+      return {
+        key: String(slot),
+        label: `${String(hour).padStart(2, "0")}:00`,
+        p50: r?.p50 ?? null,
+        p95: r?.p95 ?? null,
+      };
+    });
+  }
+
   return {
     mode: "detail" as const,
     project: projectProps,
     monitor,
     executions,
-    // 24h-style uptime over the loaded window (null until there's something
+    httpConfig,
+    // Real time-based uptime (24h/7d/30d) for http; null for browser (which
+    // uses the count-based `uptime` below). Each is a % or null when nothing
+    // countable yet.
+    uptimeWindows,
+    // 24-slot hourly response-time trend (p50/p95) for http; null for browser.
+    responseTrend,
+    // Count-based uptime over the loaded window (null until there's something
     // countable). The page colors it by the same >99 / >95 thresholds as the
     // design's meta row.
     uptime: uptimeFromExecutions(executions),
@@ -103,6 +173,11 @@ export const loader = defineHandler(async (c) => {
     dangerError: url.searchParams.get("dangerError"),
   };
 });
+
+/** A window's up/countable counts → uptime %, or null when nothing countable. */
+function windowPct(w: { up: number; countable: number }): number | null {
+  return w.countable > 0 ? (w.up / w.countable) * 100 : null;
+}
 
 /**
  * Create + detail mutations. `createMonitor` backs `/monitors/new?createMonitor`;
@@ -122,27 +197,49 @@ export const actions = {
     const user = requireAuth(c);
     const { project, scope } = requireOwnerTenantContext(c);
     const monitorsBase = `/t/${project.teamSlug}/p/${project.slug}/monitors`;
+    const form = await c.req.formData();
+    const type = formType(form);
+    // Keep the chosen type on the redirect so the create form re-renders the
+    // right variant (browser vs uptime) with the error.
     const fail = (msg: string) =>
-      c.redirect(`${monitorsBase}/new?formError=${encodeURIComponent(msg)}`);
+      c.redirect(
+        `${monitorsBase}/new?type=${type}&formError=${encodeURIComponent(msg)}`,
+      );
 
-    const count = await countMonitors(scope);
-    if (count >= env.WRIGHTFUL_MONITOR_MAX_PER_PROJECT) {
+    // Browser and http have SEPARATE per-project caps (a container run vs a
+    // plain fetch); count + limit by the chosen type so they don't interfere.
+    const cap =
+      type === "http"
+        ? env.WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT
+        : env.WRIGHTFUL_MONITOR_MAX_PER_PROJECT;
+    const count = await countMonitors(scope, type);
+    if (count >= cap) {
+      const kind = type === "http" ? "uptime" : "browser";
       return fail(
-        `This project has reached its limit of ${env.WRIGHTFUL_MONITOR_MAX_PER_PROJECT} monitors. Delete one before creating another.`,
+        `This project has reached its limit of ${cap} ${kind} monitors. Delete one before creating another.`,
       );
     }
 
-    const form = await c.req.formData();
-    const parsed = CreateMonitorSchema.safeParse({
-      name: form.get("name"),
-      type: form.get("type") ?? undefined,
-      source: form.get("source"),
-      intervalSeconds: form.get("intervalSeconds"),
-      // A paused switch omits the field. Coalesce `null` → `""` (not
-      // `undefined`): `checkboxBoolean` maps a non-"on" string to `false`,
-      // whereas `undefined` would trigger the schema's `.default(true)`.
-      enabled: form.get("enabled") ?? "",
-    });
+    const parsed = CreateMonitorSchema.safeParse(
+      type === "http"
+        ? {
+            type,
+            name: form.get("name"),
+            intervalSeconds: form.get("intervalSeconds"),
+            enabled: form.get("enabled") ?? "",
+            config: httpConfigFromForm(form),
+          }
+        : {
+            type,
+            name: form.get("name"),
+            source: form.get("source"),
+            intervalSeconds: form.get("intervalSeconds"),
+            // A paused switch omits the field. Coalesce `null` → `""` (not
+            // `undefined`): `checkboxBoolean` maps a non-"on" string to `false`,
+            // whereas `undefined` would trigger the schema's `.default(true)`.
+            enabled: form.get("enabled") ?? "",
+          },
+    );
     if (!parsed.success) {
       return fail(parsed.error.issues[0]?.message ?? "Invalid monitor.");
     }
@@ -175,24 +272,43 @@ export const actions = {
     const fail = (msg: string) =>
       c.redirect(`${here}?edit=1&formError=${encodeURIComponent(msg)}`);
 
+    // `type` is immutable — dispatch on the EXISTING monitor's type, not the
+    // posted one, and pick the matching update schema (a discriminated union
+    // can't be `.partial()`-ed, so the schemas are per-type).
+    const existing = await getMonitor(scope, monitorId);
+    if (!existing) throw new Response("Not Found", { status: 404 });
+
     const form = await c.req.formData();
-    const parsed = UpdateMonitorSchema.safeParse({
-      name: form.get("name") ?? undefined,
-      type: form.get("type") ?? undefined,
-      source: form.get("source") ?? undefined,
-      intervalSeconds: form.get("intervalSeconds") ?? undefined,
-      // The edit form always submits the switch state (an absent value means
-      // "unchecked"), so coerce undefined → false rather than leaving enabled
-      // untouched — matches the visible toggle.
-      enabled: form.get("enabled") ?? "",
-    });
+    const parsed =
+      existing.type === "http"
+        ? UpdateHttpMonitorSchema.safeParse({
+            name: form.get("name") ?? undefined,
+            intervalSeconds: form.get("intervalSeconds") ?? undefined,
+            enabled: form.get("enabled") ?? "",
+            config: httpConfigFromForm(form),
+          })
+        : UpdateBrowserMonitorSchema.safeParse({
+            name: form.get("name") ?? undefined,
+            source: form.get("source") ?? undefined,
+            intervalSeconds: form.get("intervalSeconds") ?? undefined,
+            // The edit form always submits the switch state (an absent value
+            // means "unchecked"), so coerce undefined → false rather than
+            // leaving enabled untouched — matches the visible toggle.
+            enabled: form.get("enabled") ?? "",
+          });
     if (!parsed.success) {
       return fail(parsed.error.issues[0]?.message ?? "Invalid monitor.");
     }
 
     const now = Math.floor(Date.now() / 1000);
     try {
-      const updated = await updateMonitor(scope, monitorId, parsed.data, now);
+      const updated = await updateMonitor(
+        scope,
+        monitorId,
+        parsed.data,
+        now,
+        existing,
+      );
       if (!updated) throw new Response("Not Found", { status: 404 });
     } catch (err) {
       if (err instanceof Response) throw err;
