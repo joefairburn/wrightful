@@ -13,10 +13,9 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
+import { useState } from "react";
 import { Link, useRouter, useShared } from "@void/react";
-// Command menu is wired up but temporarily hidden — re-enable by uncommenting
-// the trigger button below + the `<CommandMenu>` + shortcut hook usage.
-// import { CommandMenu, useCommandMenuShortcut } from "@/components/command-menu";
+import { CommandMenu, useCommandMenuShortcut } from "@/components/command-menu";
 import { QueryProvider } from "@/components/query-provider";
 import { SidebarUserMenu } from "@/components/sidebar-user-menu";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
@@ -78,8 +77,8 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
   const pathname = router.path;
   const user = auth?.user ?? null;
 
-  // const [cmdOpen, setCmdOpen] = useState(false);
-  // useCommandMenuShortcut(setCmdOpen);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  useCommandMenuShortcut(setCmdOpen);
 
   return (
     <QueryProvider>
@@ -132,14 +131,14 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
         </main>
       </div>
 
-      {/* <CommandMenu
+      <CommandMenu
         activeProject={selectedProject}
         activeTeam={selectedTeam}
         onOpenChange={setCmdOpen}
         open={cmdOpen}
         projects={teamProjects}
         teams={userTeams}
-      /> */}
+      />
     </QueryProvider>
   );
 }
