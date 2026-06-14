@@ -281,9 +281,10 @@ export function ExecStrip({
 
 /**
  * The monitor-TYPE glyph (vs the status glyph above): a beaker for `browser`
- * (a Playwright test) and a globe for `http` (a URL uptime check). Inline SVG on
- * the same 16-grid stroke set as {@link MonGlyph} so the two read as a family.
- * Used in the type pill on the list + detail header.
+ * (a Playwright test), a globe for `http` (a URL uptime check), and a plug/socket
+ * for `tcp`/`ping` (a raw port-connect check). Inline SVG on the same 16-grid
+ * stroke set as {@link MonGlyph} so they read as a family. Used in the type pill
+ * on the list + detail header.
  */
 export function MonTypeGlyph({
   type,
@@ -309,6 +310,19 @@ export function MonTypeGlyph({
         <circle cx="8" cy="8" r="6" />
         <path d="M2 8 H 14" />
         <path d="M8 2 C 4.5 4.5, 4.5 11.5, 8 14 C 11.5 11.5, 11.5 4.5, 8 2 Z" />
+      </svg>
+    );
+  }
+  if (type === "tcp" || type === "ping") {
+    // A plug/socket: two pins entering a connector body — reads as "a raw
+    // connection to a port", distinct from the http globe.
+    return (
+      <svg {...common}>
+        <path d="M6 2.5 V 5" />
+        <path d="M10 2.5 V 5" />
+        <rect height="4" rx="1" width="8" x="4" y="5" />
+        <path d="M8 9 V 11" />
+        <rect height="2.5" rx="0.8" width="5" x="5.5" y="11" />
       </svg>
     );
   }

@@ -205,6 +205,18 @@ export default defineEnv({
   WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT: number().default(50),
 
   /**
+   * Per-project cap on TCP / ping (uptime) monitors. Separate from the http +
+   * browser caps for the same reason they're separate from each other: a tcp
+   * check is a single raw `connect()` from the queue consumer — no container,
+   * ~free — so a project can hold many without eating its other budgets.
+   * Enforced by a TYPE-SCOPED `countMonitors(scope, "tcp")`, so the caps never
+   * cross-contaminate. Counts `tcp` rows only — a `ping` monitor is stored with
+   * `type = 'tcp'` (a ping IS a TCP-connect probe; see `tcp/tcp-run.ts`), so it
+   * falls under this cap. Default 50.
+   */
+  WRIGHTFUL_TCP_MONITOR_MAX_PER_PROJECT: number().default(50),
+
+  /**
    * Max bytes of an HTTP check's response body the executor buffers for
    * body/JSON assertions (read is truncated past this). Bounds Worker memory +
    * the CPU of evaluating a body assertion against a huge payload. The stored

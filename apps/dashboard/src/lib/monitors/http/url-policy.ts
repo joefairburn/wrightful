@@ -92,8 +92,16 @@ function isBlockedIpv6(host: string): boolean {
   return false;
 }
 
-/** True when the host is one we never allow a monitor to target. */
-function isBlockedHost(hostname: string): boolean {
+/**
+ * True when the host is one we never allow a monitor to target — the SSRF block
+ * set: `localhost` (and `*.localhost`), and literal private / loopback /
+ * link-local / metadata IPv4 + IPv6 addresses. EXPORTED because it is the
+ * genuinely shared kernel of the monitor SSRF guard: `tcp/host-policy.ts` reuses
+ * it for the raw-socket check so the http and tcp policies block the EXACT same
+ * host set (one place to add a newly-discovered internal range). Accepts either
+ * a bare hostname or a bracketed IPv6 literal (`[::1]`).
+ */
+export function isBlockedHostname(hostname: string): boolean {
   const host = hostname.toLowerCase();
   if (host === "localhost" || host.endsWith(".localhost")) return true;
   // WHATWG `URL.hostname` keeps IPv6 in brackets — strip them before matching.
@@ -128,7 +136,7 @@ export function checkUrlPolicy(raw: string): UrlPolicyResult {
   if (host.length === 0 || host.length > MAX_HOST_LENGTH) {
     return { ok: false, reason: "URL host is invalid" };
   }
-  if (isBlockedHost(host)) {
+  if (isBlockedHostname(host)) {
     return {
       ok: false,
       reason: "Private, loopback, and link-local addresses can't be monitored",

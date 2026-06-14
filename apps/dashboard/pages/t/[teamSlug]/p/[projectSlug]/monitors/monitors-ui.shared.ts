@@ -21,7 +21,16 @@ export const RECENT_EXECUTION_WINDOW = 24;
 
 /** Short label for a monitor type, in the product's vocabulary. */
 export function monitorTypeLabel(type: string): string {
-  return type === "http" ? "uptime" : "browser";
+  switch (type) {
+    case "http":
+      return "uptime";
+    case "tcp":
+      return "TCP";
+    case "ping":
+      return "ping";
+    default:
+      return "browser";
+  }
 }
 
 /** Human label for a monitor interval: `1m`, `5m`, `30m`, `1h`. */
