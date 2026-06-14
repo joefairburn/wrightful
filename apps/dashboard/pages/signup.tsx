@@ -11,7 +11,7 @@ import type { Props } from "./signup.server";
  * `ALLOW_OPEN_SIGNUP` is enabled (the colocated loader bounces to /login
  * otherwise). Authenticated users are redirected to `/` by the loader.
  */
-export default function SignupPage({ githubEnabled }: Props) {
+export default function SignupPage({ githubEnabled, ssoEnabledFlag }: Props) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -111,6 +111,21 @@ export default function SignupPage({ githubEnabled }: Props) {
             className="bg-foreground text-background block rounded-md px-4 py-2 text-center text-sm font-medium"
           >
             Continue with GitHub
+          </a>
+        </div>
+      )}
+
+      {/* SSO/OIDC sign-in (roadmap 3.3) — gated by the request-time `ssoEnabled`
+          predicate, mirroring the GitHub button. Hidden unless SSO env is set;
+          the endpoint goes live with the (blocked) plugin wire. See login.tsx. */}
+      {ssoEnabledFlag && (
+        <div className="space-y-2">
+          <div className="bg-border h-px" />
+          <a
+            href="/api/auth/sign-in/sso"
+            className="bg-foreground text-background block rounded-md px-4 py-2 text-center text-sm font-medium"
+          >
+            Continue with SSO
           </a>
         </div>
       )}

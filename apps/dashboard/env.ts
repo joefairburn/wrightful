@@ -64,6 +64,35 @@ export default defineEnv({
    */
   GITHUB_APP_SLUG: string().optional(),
 
+  // ---------- SSO / OIDC (roadmap 3.3) ----------
+
+  /**
+   * Enterprise SSO via OIDC. All three are OPTIONAL and the feature is OFF
+   * unless ALL THREE are present and non-empty (`ssoEnabled` in
+   * `src/lib/config.ts`) — exactly mirroring the `AUTH_GITHUB_*` gate. Leaving
+   * any unset hides the "Continue with SSO" button and registers no SSO plugin,
+   * so a clean checkout boots, typechecks, and behaves identically to today
+   * (email/password + optional GitHub). This is the non-negotiable inert-by-
+   * default contract.
+   *
+   * - `SSO_ISSUER_URL`     — the IdP's OIDC issuer URL (its discovery document
+   *                          lives at `<issuer>/.well-known/openid-configuration`).
+   * - `SSO_CLIENT_ID`      — the OAuth client id Wrightful is registered as with
+   *                          the IdP.
+   * - `SSO_CLIENT_SECRET`  — the matching client secret (a real secret).
+   *
+   * NOTE (blocked wire): the actual `sso()` plugin is NOT registered yet. Better
+   * Auth's `@better-auth/sso` is not bundled in the pinned better-auth 1.6.11,
+   * and the version-matched standalone (`@better-auth/sso@1.6.11`) pulls
+   * `samlify` + a Node-native XML/crypto stack that is not Cloudflare-Workers
+   * compatible. These keys + the `ssoEnabled` predicate are the inert
+   * scaffolding the one-step wire will read once a Workers-safe OIDC plugin
+   * path exists — see `auth.ts` and `docs/worklog/2026-06-14-sso-oidc.md`.
+   */
+  SSO_ISSUER_URL: url().optional(),
+  SSO_CLIENT_ID: string().optional(),
+  SSO_CLIENT_SECRET: string().secret().optional(),
+
   /**
    * Per-artifact upload size cap. The cap binds in exactly one place:
    * /api/artifacts/register rejects any artifact whose declared sizeBytes

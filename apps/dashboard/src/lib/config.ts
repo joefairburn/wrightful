@@ -37,6 +37,28 @@ export function githubOAuthEnabled(source: {
 }
 
 /**
+ * Whether enterprise SSO/OIDC is wired up: ALL of `SSO_ISSUER_URL`,
+ * `SSO_CLIENT_ID`, and `SSO_CLIENT_SECRET` are present and non-empty. One
+ * source of truth for SSO plugin registration (`auth.ts`, once the wire is
+ * unblocked) and the "Continue with SSO" button (login/signup loaders), so
+ * they can't drift — exactly mirroring {@link githubOAuthEnabled}.
+ *
+ * Like the GitHub gate, an empty string (allowed by env.ts's `.optional()`
+ * schema) is treated as unset — `Boolean("")` is false — so a half-configured
+ * deployment stays off rather than booting a broken SSO flow. Absence of any
+ * one cred ⇒ false ⇒ the feature is fully inert (no button, no plugin).
+ */
+export function ssoEnabled(source: {
+  SSO_ISSUER_URL?: string | undefined;
+  SSO_CLIENT_ID?: string | undefined;
+  SSO_CLIENT_SECRET?: string | undefined;
+}): boolean {
+  return Boolean(
+    source.SSO_ISSUER_URL && source.SSO_CLIENT_ID && source.SSO_CLIENT_SECRET,
+  );
+}
+
+/**
  * Whether the GitHub App (check runs) is wired up: APP_ID + PRIVATE_KEY +
  * WEBHOOK_SECRET are all present and non-empty. One source of truth for the
  * ingest-side `maybePostGithubCheck` guard, the webhook route, and the settings

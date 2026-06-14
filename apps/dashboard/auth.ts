@@ -103,6 +103,45 @@ export default defineAuth(({ defaults }) => ({
         }
       : {}),
   },
+  // SSO/OIDC plugin registration (roadmap 3.3) — INTENTIONALLY NOT WIRED.
+  //
+  // The slot is real: Void's `defineAuth` returns Better Auth's options object,
+  // which exposes `plugins?: BetterAuthPlugin[]`, so registering `sso()` here —
+  // conditionally on the SSO creds, mirroring the `socialProviders.github` gate
+  // above — is the intended shape. The wire is blocked on the DEPENDENCY, not
+  // the slot:
+  //   - `@better-auth/sso` is NOT bundled in the pinned better-auth 1.6.11
+  //     (there is no `better-auth/plugins/sso` export).
+  //   - The version-matched standalone `@better-auth/sso@1.6.11` peer-matches
+  //     Void's bundled stack cleanly, BUT it depends on `samlify` (+ xml-crypto,
+  //     @xmldom/xmldom, node-rsa, node-forge) — a Node-native XML/crypto stack
+  //     that is not Cloudflare-Workers compatible. Importing the plugin drags
+  //     that into the Worker bundle even for OIDC-only use.
+  //   - `@better-auth/sso@latest` (1.6.18) requires `better-auth ^1.6.18`,
+  //     which would fork a SECOND copy of better-auth (1.6.11 is what Void
+  //     boots) and register the plugin against the wrong instance.
+  //
+  // So nothing extra is registered: `plugins` is a straight passthrough of
+  // Void's defaults, which keeps the slot present and explicit while a clean
+  // checkout — and any deployment with no SSO env — boots, typechecks, and
+  // behaves exactly as today. The env keys (`SSO_*`), the `ssoEnabled` predicate
+  // (`@/lib/config`, also the gate the login/signup buttons read), the
+  // `teams.ssoDomain` column, and the pure org-mapping (`@/lib/sso.ts`) are the
+  // inert scaffolding the one-step wire will use once a Workers-safe OIDC plugin
+  // path exists. To finish (see docs/worklog/2026-06-14-sso-oidc.md):
+  //   1. add a Workers-compatible OIDC plugin (a vetted `@better-auth/sso`
+  //      release whose runtime deps bundle on workerd, or `genericOAuth` from
+  //      better-auth's bundled `./plugins/generic-oauth`);
+  //   2. inline the SSO creds here the same config-time way the GitHub creds are
+  //      read (`process.env.SSO_*` — the `@/lib` alias isn't resolvable in the
+  //      bare-Node `void prepare` context), gate on all-three-present, and
+  //      append the plugin: `plugins: [...(defaults.plugins ?? []),
+  //      ...(ssoConfigured ? [oidcPlugin({ issuer, clientId, clientSecret })]
+  //      : [])]`;
+  //   3. call `joinTeamForSsoEmail(user.id, user.email)` from the sign-in /
+  //      account-create hook so a verified SSO email auto-resolves into the
+  //      team that claimed its domain.
+  plugins: defaults.plugins,
   databaseHooks: {
     ...defaults.databaseHooks,
     account: {

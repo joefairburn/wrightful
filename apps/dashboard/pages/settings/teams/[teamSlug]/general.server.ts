@@ -12,10 +12,11 @@ import {
 import { logger } from "void/log";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { deleteProjectArtifactObjects } from "@/lib/artifacts";
-import { githubAppEnabled } from "@/lib/config";
+import { githubAppEnabled, ssoEnabled } from "@/lib/config";
 import { runBatch } from "@/lib/db-batch";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
+import { normalizeSsoDomain } from "@/lib/sso";
 import {
   redirectWithParam,
   requireOwnerScope,
@@ -46,6 +47,7 @@ export const loader = defineHandler(async (c) => {
     .select({
       artifactDays: teamsTable.retentionArtifactDays,
       testResultDays: teamsTable.retentionTestResultsDays,
+      ssoDomain: teamsTable.ssoDomain,
     })
     .from(teamsTable)
     .where(eq(teamsTable.id, team.id))
@@ -78,9 +80,18 @@ export const loader = defineHandler(async (c) => {
       installations: installations.map((i) => i.accountLogin),
       installUrl,
     },
+    // SSO/OIDC org-mapping (roadmap 3.3). The card renders only when SSO is
+    // configured at the deployment level (`ssoEnabled`) — mirroring how the
+    // GitHub card hides without GitHub creds — so a clean checkout never shows
+    // it. `domain` is the team's current claim (null = unclaimed).
+    sso: {
+      enabled: ssoEnabled(env),
+      domain: retentionRows[0]?.ssoDomain ?? null,
+    },
     generalError: url.searchParams.get("generalError"),
     retentionError: url.searchParams.get("retentionError"),
     githubError: url.searchParams.get("githubError"),
+    ssoError: url.searchParams.get("ssoError"),
     dangerError: url.searchParams.get("dangerError"),
   };
 });
@@ -211,6 +222,49 @@ export const actions = {
         "retentionError",
         "Could not save retention settings.",
       );
+    }
+
+    return c.redirect(here);
+  }),
+
+  /**
+   * Set (or clear) the team's SSO email-domain claim for org-mapping v1
+   * (roadmap 3.3). A blank value clears the claim. The input is normalized +
+   * validated by `normalizeSsoDomain` (host-only, lowercased; tolerates a
+   * pasted URL). A unique index on `teams.ssoDomain` prevents two teams from
+   * claiming the same domain — a collision surfaces as a friendly field error.
+   *
+   * Mirrors `updateRetention`: owner-gated, redirect-with-param on error, no
+   * separate audit row (the closest sibling settings-field edit doesn't record
+   * one either). Inert end-to-end until the SSO plugin is wired — the column is
+   * only read by the (currently unreferenced) `joinTeamForSsoEmail` resolver.
+   */
+  updateSso: defineHandler(async (c) => {
+    const { team, here } = await requireOwnerScope(c, hereFor);
+    const form = await c.req.formData();
+
+    const parsed = normalizeSsoDomain(readField(form, "ssoDomain"));
+    if (!parsed.ok) {
+      return redirectWithParam(
+        c,
+        here,
+        "ssoError",
+        "Enter a bare domain like acme.com (no scheme or path), or leave it blank to clear.",
+      );
+    }
+
+    try {
+      await db
+        .update(teamsTable)
+        .set({ ssoDomain: parsed.domain })
+        .where(eq(teamsTable.id, team.id));
+    } catch (err) {
+      const friendly = mutationErrorMessage(err, {
+        context: "update sso domain failed",
+        uniqueMessage: "That domain is already claimed by another team.",
+        genericMessage: "Could not save the SSO domain.",
+      });
+      return redirectWithParam(c, here, "ssoError", friendly);
     }
 
     return c.redirect(here);

@@ -20,9 +20,11 @@ export default function SettingsTeamGeneralPage({
   projectCount,
   retention,
   github,
+  sso,
   generalError,
   retentionError,
   githubError,
+  ssoError,
   dangerError,
 }: Props) {
   const isOwner = team.role === "owner";
@@ -190,6 +192,53 @@ export default function SettingsTeamGeneralPage({
                   <code className="font-mono">/api/github/setup</code>.
                 </p>
               ))}
+          </SettingsCard>
+        </>
+      )}
+
+      {sso.enabled && (
+        <>
+          <SettingsGroupGap />
+          <SettingsCard title="Single sign-on (SSO)">
+            <form action={`${here}?updateSso`} className="m-0" method="post">
+              {ssoError && (
+                <Alert className="mb-3" variant="error">
+                  <AlertDescription>{ssoError}</AlertDescription>
+                </Alert>
+              )}
+              <p className="mb-4 text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+                Claim an email domain for this team. Anyone who signs in through
+                your identity provider with a verified email on this domain is
+                automatically added to{" "}
+                <span className="font-medium text-fg-1">{team.name}</span>.
+                Sub-domains are not included — claim each one separately. Leave
+                blank to disable.
+              </p>
+              <SettingsField
+                hint="A bare domain like acme.com. Each domain can be claimed by only one team."
+                htmlFor="sso-domain"
+                label="Email domain"
+              >
+                <Input
+                  autoComplete="off"
+                  className="font-mono"
+                  defaultValue={sso.domain ?? ""}
+                  disabled={!isOwner}
+                  id="sso-domain"
+                  maxLength={253}
+                  name="ssoDomain"
+                  nativeInput
+                  placeholder="acme.com"
+                />
+              </SettingsField>
+              {isOwner && (
+                <div className="mt-2">
+                  <Button size="sm" type="submit">
+                    Save SSO domain
+                  </Button>
+                </div>
+              )}
+            </form>
           </SettingsCard>
         </>
       )}

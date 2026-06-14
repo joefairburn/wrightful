@@ -3,6 +3,7 @@ import {
   githubOAuthEnabled,
   openSignupAllowed,
   resolveArtifactTokenSecret,
+  ssoEnabled,
 } from "@/lib/config";
 
 /**
@@ -56,6 +57,66 @@ describe("config flag resolvers", () => {
         githubOAuthEnabled({
           AUTH_GITHUB_CLIENT_ID: "",
           AUTH_GITHUB_CLIENT_SECRET: "secret",
+        }),
+      ).toBe(false);
+    });
+  });
+
+  describe("ssoEnabled", () => {
+    it("is true only when ALL THREE creds are present", () => {
+      expect(
+        ssoEnabled({
+          SSO_ISSUER_URL: "https://idp.example.com",
+          SSO_CLIENT_ID: "client",
+          SSO_CLIENT_SECRET: "secret",
+        }),
+      ).toBe(true);
+    });
+
+    it("is false when any one cred is missing", () => {
+      expect(
+        ssoEnabled({
+          SSO_ISSUER_URL: undefined,
+          SSO_CLIENT_ID: "client",
+          SSO_CLIENT_SECRET: "secret",
+        }),
+      ).toBe(false);
+      expect(
+        ssoEnabled({
+          SSO_ISSUER_URL: "https://idp.example.com",
+          SSO_CLIENT_ID: undefined,
+          SSO_CLIENT_SECRET: "secret",
+        }),
+      ).toBe(false);
+      expect(
+        ssoEnabled({
+          SSO_ISSUER_URL: "https://idp.example.com",
+          SSO_CLIENT_ID: "client",
+          SSO_CLIENT_SECRET: undefined,
+        }),
+      ).toBe(false);
+    });
+
+    it("is false when all are missing (clean-checkout default → inert)", () => {
+      expect(ssoEnabled({})).toBe(false);
+    });
+
+    it("treats an empty-string cred as unset (matches env.ts .optional() schema)", () => {
+      // An "" cred passes the optional schema but must not count as configured —
+      // Boolean("") is false — so a half-configured deployment stays off rather
+      // than rendering the SSO button against a non-functional flow.
+      expect(
+        ssoEnabled({
+          SSO_ISSUER_URL: "https://idp.example.com",
+          SSO_CLIENT_ID: "client",
+          SSO_CLIENT_SECRET: "",
+        }),
+      ).toBe(false);
+      expect(
+        ssoEnabled({
+          SSO_ISSUER_URL: "",
+          SSO_CLIENT_ID: "client",
+          SSO_CLIENT_SECRET: "secret",
         }),
       ).toBe(false);
     });
