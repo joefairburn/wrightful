@@ -13,11 +13,7 @@ import type { Props } from "./login.server";
  * Anonymous users only — server redirects authenticated users to `/` via
  * the colocated loader.
  */
-export default function LoginPage({
-  githubEnabled,
-  ssoEnabledFlag,
-  signupAllowed,
-}: Props) {
+export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -104,27 +100,6 @@ export default function LoginPage({
             className="bg-foreground text-background block rounded-md px-4 py-2 text-center text-sm font-medium"
           >
             Continue with GitHub
-          </a>
-        </div>
-      )}
-
-      {/*
-        SSO/OIDC sign-in (roadmap 3.3). Gated by the request-time `ssoEnabled`
-        predicate exactly like the GitHub button above — when no SSO env is set
-        the flag is false and this never renders, so a clean checkout shows the
-        identical login page. The endpoint is Better Auth's SSO sign-in route;
-        it only resolves once the SSO plugin is wired (BLOCKED — see auth.ts),
-        which is gated behind the same env that flips this flag, so the button
-        and the plugin go live together.
-      */}
-      {ssoEnabledFlag && (
-        <div className="space-y-2">
-          <div className="bg-border h-px" />
-          <a
-            href="/api/auth/sign-in/sso"
-            className="bg-foreground text-background block rounded-md px-4 py-2 text-center text-sm font-medium"
-          >
-            Continue with SSO
           </a>
         </div>
       )}

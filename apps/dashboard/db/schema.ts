@@ -67,28 +67,10 @@ export const teams = sqliteTable(
      */
     retentionArtifactDays: integer("retentionArtifactDays"),
     retentionTestResultsDays: integer("retentionTestResultsDays"),
-    /**
-     * Owner-configured email domain for SSO/OIDC org-mapping v1 (roadmap 3.3).
-     * Nullable — null means "no SSO domain claimed", which is the default and
-     * the only state on a deployment that hasn't configured an IdP. When set
-     * (lowercased, bare host, e.g. `acme.com`), a user signing in through SSO
-     * whose verified email's domain equals this value is auto-resolved into
-     * THIS team — the same membership seam directed invites use. The mapping
-     * itself is pure (`resolveTeamForSsoEmail` in `src/lib/sso.ts`); this column
-     * is only the per-team claim it reads. Inert until the SSO plugin is wired
-     * (see auth.ts) AND a domain is set, so it changes nothing for the existing
-     * email/password + GitHub flows.
-     */
-    ssoDomain: text("ssoDomain"),
   },
   (t) => [
     uniqueIndex("teams_slug_idx").on(t.slug),
     index("teams_lastActivityAt_idx").on(t.lastActivityAt),
-    // Unique so a single email domain can't be claimed by two teams (which
-    // would make SSO org-mapping ambiguous). NULLs are exempt in SQLite's
-    // unique-index semantics, so unclaimed teams (the common case) don't
-    // collide with each other.
-    uniqueIndex("teams_ssoDomain_idx").on(t.ssoDomain),
   ],
 );
 

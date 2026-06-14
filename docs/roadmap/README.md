@@ -41,7 +41,7 @@ _Suggested sequence: metering + retention de-risk cost exposure before opening s
 
 11. [Granular RBAC + member-role editing](./3.1-granular-rbac.md)
 12. [Audit logs](./3.2-audit-logs.md)
-13. [SSO / SAML](./3.3-sso-saml.md)
+13. [SSO / SAML](./3.3-sso-saml.md) — **deferred**: scaffolding built then reverted (the `@better-auth/sso` dependency isn't Cloudflare-Workers-compatible); the plan documents the blocker + how to finish.
 
 ### Tier 4 — Polish bundle (finishing existing stubs)
 
