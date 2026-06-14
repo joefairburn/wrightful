@@ -10,6 +10,7 @@ import {
   teams as teamsTable,
 } from "@schema";
 import { logger } from "void/log";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { deleteProjectArtifactObjects } from "@/lib/artifacts";
 import { githubAppEnabled } from "@/lib/config";
 import { runBatch } from "@/lib/db-batch";
@@ -130,6 +131,21 @@ export const actions = {
       return redirectWithParam(c, here, "generalError", friendly);
     }
 
+    // Audit the rename only after it lands (best-effort). Capture the before/
+    // after identity so the diff is legible in the log.
+    await recordAudit(c, {
+      teamId: team.id,
+      action: AUDIT_ACTIONS.TEAM_RENAME,
+      targetType: "team",
+      targetId: slug,
+      metadata: {
+        fromName: team.name,
+        toName: name,
+        fromSlug: team.slug,
+        toSlug: slug,
+      },
+    });
+
     return c.redirect(`/settings/teams/${slug}/general`);
   }),
 
@@ -223,6 +239,20 @@ export const actions = {
       .from(projects)
       .where(eq(projects.teamId, team.id));
     const projectIds = teamProjects.map((r) => r.id);
+
+    // Record the audit row SYNCHRONOUSLY *before* the delete batch (roadmap
+    // 3.2). The audit log is team-scoped, so `auditLog.teamId` cascades and this
+    // row dies with the team — an accepted, documented choice (no one can read a
+    // dead team's log). Recording it here, awaited, still captures the actor +
+    // confirmation context before the cascade and keeps workerd from dropping a
+    // post-response write.
+    await recordAudit(c, {
+      teamId: team.id,
+      action: AUDIT_ACTIONS.TEAM_DELETE,
+      targetType: "team",
+      targetId: team.slug,
+      metadata: { teamName: team.name, projectCount: projectIds.length },
+    });
 
     const ops: PromiseLike<unknown>[] = [];
     if (projectIds.length > 0) {

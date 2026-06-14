@@ -1,4 +1,5 @@
 import { defineHandler } from "void";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { AuthzError, resolveOwnedTeam } from "@/lib/settings-scope";
 import { readBodyField } from "@/lib/form";
 import { mutationErrorMessage } from "@/lib/action-errors";
@@ -29,6 +30,13 @@ export const POST = defineHandler(async (c) => {
 
   try {
     const { slug } = await createProjectForTeam(team.id, name);
+    await recordAudit(c, {
+      teamId: team.id,
+      action: AUDIT_ACTIONS.PROJECT_CREATE,
+      targetType: "project",
+      targetId: slug,
+      metadata: { projectName: name },
+    });
     return c.json({ projectSlug: slug });
   } catch (err) {
     if (err instanceof SlugDerivationError) {

@@ -795,6 +795,80 @@ export const testOwners = sqliteTable(
   ],
 );
 
+// ---------- Audit log ----------
+
+/**
+ * Append-only team audit log (roadmap 3.2). One row per privileged mutation
+ * (invite mint/revoke/accept, member remove/leave/role-change, key mint/revoke,
+ * team rename/delete, project create/delete) written by `recordAudit`
+ * (`src/lib/audit.ts`). Reverse-chron, owner-only viewer at
+ * `/settings/teams/:teamSlug/audit`.
+ *
+ * **An audit row must OUTLIVE the entity it records.** A "project deleted" /
+ * "team renamed" row has to survive the thing it describes, which dictates the
+ * two FK onDelete choices below:
+ *
+ *  - `teamId` → teams `onDelete: "cascade"`. The audit log is *team*-scoped —
+ *    when the team itself is deleted there is no longer anyone who could read
+ *    its log (the viewer page is owner-only and the team's memberships cascade
+ *    away too), so retaining orphaned audit rows for a dead team buys nothing.
+ *    Cascade is therefore both acceptable AND the simplest choice. The
+ *    `team.delete` row is still captured: `recordAudit` is awaited SYNCHRONOUSLY
+ *    *before* the delete batch runs, so the actor/target context is persisted
+ *    and (briefly) readable up to the moment the cascade removes the whole team.
+ *
+ *  - `projectId` → projects `onDelete: "set null"` (NULLABLE). A project delete
+ *    must NOT cascade-delete the audit rows that record it — the "project
+ *    deleted" entry is exactly the row a team owner wants to keep. So the FK
+ *    nulls the column on project delete and the row persists under its team.
+ *    The human-readable identity of the gone project (slug/name) is captured in
+ *    `targetId` / `metadata` so the row stays meaningful after the project row
+ *    is gone.
+ *
+ * `actorUserId` is the void-managed `user.id` of the actor — a LOGICAL FK (no
+ * `.references()`), matching `memberships.userId` / `monitors.createdBy`.
+ */
+export const auditLog = sqliteTable(
+  "auditLog",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("teamId")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /**
+     * Nullable + `set null` on project delete so a `project.delete` row
+     * survives the project it records. See table doc-comment.
+     */
+    projectId: text("projectId").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    /** void-managed `user.id` of the actor. Logical FK — see schema header. */
+    actorUserId: text("actorUserId").notNull(),
+    /**
+     * Stable enum-ish action string (e.g. "invite.mint", "member.role_change",
+     * "key.revoke", "team.delete", "project.create"). The canonical set lives in
+     * `AUDIT_ACTIONS` (`src/lib/audit.ts`) so call sites don't stringly-drift.
+     */
+    action: text("action").notNull(),
+    /** The kind of thing acted on ("invite" | "member" | "key" | "team" | "project"). */
+    targetType: text("targetType"),
+    /**
+     * Human-readable identifier of the target (an email/login for invites, a key
+     * label, a project slug, …) — captured here so the row stays meaningful even
+     * after the underlying entity is deleted.
+     */
+    targetId: text("targetId"),
+    /** Extra structured context as a JSON string (serialized by `recordAudit`). */
+    metadata: text("metadata"),
+    createdAt: integer("createdAt").notNull(),
+  },
+  (t) => [
+    // Serves the reverse-chron viewer page: WHERE teamId = ? ORDER BY createdAt
+    // DESC — D1 seeks the team partition and walks it newest-first.
+    index("auditLog_team_createdAt_idx").on(t.teamId, t.createdAt),
+  ],
+);
+
 // ---------- Type aliases for downstream code ----------
 
 export type Team = typeof teams.$inferSelect;
@@ -816,3 +890,4 @@ export type Monitor = typeof monitors.$inferSelect;
 export type MonitorExecution = typeof monitorExecutions.$inferSelect;
 export type QuarantinedTest = typeof quarantinedTests.$inferSelect;
 export type TestOwner = typeof testOwners.$inferSelect;
+export type AuditLogRow = typeof auditLog.$inferSelect;

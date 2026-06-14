@@ -3,6 +3,7 @@ import { requireAuth } from "void/auth";
 import { db } from "void/db";
 import { ulid } from "ulid";
 import { teamInvites, type MembershipRole } from "@schema";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { AuthzError, resolveOwnedTeam } from "@/lib/settings-scope";
 import { roleSchema } from "@/lib/members-repo";
 import { readBodyField } from "@/lib/form";
@@ -101,6 +102,22 @@ export const POST = defineHandler(async (c) => {
       500,
     );
   }
+
+  // Audit the mint (best-effort — never blocks the invite). The directed
+  // identity (email / github login) is the human-readable target; the role is
+  // metadata so the log shows what access was granted.
+  await recordAudit(c, {
+    teamId: team.id,
+    action: AUDIT_ACTIONS.INVITE_MINT,
+    targetType: "invite",
+    targetId:
+      directed.kind === "email"
+        ? directed.value
+        : directed.kind === "githubLogin"
+          ? `@${directed.value}`
+          : "open invite link",
+    metadata: { role, inviteId },
+  });
 
   const url = new URL(c.req.url);
   const inviteUrl = `${url.origin}/invite/${token}`;

@@ -1,6 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { and, db, desc, eq, isNull, ne } from "void/db";
 import { apiKeys, projects } from "@schema";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { CODEOWNERS_FILE_MAX } from "@/lib/owner-schemas";
 import { deleteProjectArtifactObjects } from "@/lib/artifacts";
 import { readField } from "@/lib/form";
@@ -91,7 +92,7 @@ export const actions = {
     const form = await c.req.formData();
     const keyId = readField(form, "keyId");
     if (!keyId) return c.redirect(here);
-    await db
+    const revoked = await db
       .update(apiKeys)
       .set({ revokedAt: Math.floor(Date.now() / 1000) })
       .where(
@@ -100,7 +101,24 @@ export const actions = {
           eq(apiKeys.projectId, project.id),
           isNull(apiKeys.revokedAt),
         ),
-      );
+      )
+      .returning({ label: apiKeys.label, keyPrefix: apiKeys.keyPrefix });
+    // Idempotent revoke: a foreign/already-revoked key matches 0 rows. Only
+    // audit a genuine state change.
+    if (revoked[0]) {
+      await recordAudit(c, {
+        teamId: project.teamId,
+        projectId: project.id,
+        action: AUDIT_ACTIONS.KEY_REVOKE,
+        targetType: "key",
+        targetId: revoked[0].label,
+        metadata: {
+          keyId,
+          keyPrefix: revoked[0].keyPrefix,
+          projectSlug: project.slug,
+        },
+      });
+    }
     return c.redirect(here);
   }),
 
@@ -221,6 +239,19 @@ export const actions = {
         `Confirmation did not match. Type "${project.slug}" exactly to delete the project.`,
       );
     }
+
+    // Record the audit row SYNCHRONOUSLY *before* the delete (roadmap 3.2): the
+    // delete cascades and nulls this row's `projectId`, so we capture the
+    // project's slug/name as the human-readable target NOW, while the entity
+    // still exists. The row persists under its team after the project is gone.
+    await recordAudit(c, {
+      teamId: project.teamId,
+      projectId: project.id,
+      action: AUDIT_ACTIONS.PROJECT_DELETE,
+      targetType: "project",
+      targetId: project.slug,
+      metadata: { projectName: project.name, projectId: project.id },
+    });
 
     try {
       await runBatch([

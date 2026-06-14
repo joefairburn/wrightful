@@ -2,6 +2,7 @@ import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
 import { and, db, desc, eq, gt } from "void/db";
 import { memberships, teamInvites } from "@schema";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { getUsersByIds } from "@/lib/auth-users";
 import { type TeamRole } from "@/lib/authz";
 import {
@@ -108,11 +109,26 @@ export const actions = {
     const form = await c.req.formData();
     const inviteId = readField(form, "inviteId").trim();
     if (!inviteId) return c.redirect(redirectTo);
-    await db
+    const revoked = await db
       .delete(teamInvites)
-      .where(
-        and(eq(teamInvites.id, inviteId), eq(teamInvites.teamId, team.id)),
-      );
+      .where(and(eq(teamInvites.id, inviteId), eq(teamInvites.teamId, team.id)))
+      .returning({
+        email: teamInvites.email,
+        githubLogin: teamInvites.githubLogin,
+        role: teamInvites.role,
+      });
+    // Only audit a genuine revoke — a stale/foreign inviteId matches 0 rows.
+    if (revoked[0]) {
+      const inv = revoked[0];
+      await recordAudit(c, {
+        teamId: team.id,
+        action: AUDIT_ACTIONS.INVITE_REVOKE,
+        targetType: "invite",
+        targetId:
+          inv.email ?? (inv.githubLogin ? `@${inv.githubLogin}` : inviteId),
+        metadata: { role: inv.role, inviteId },
+      });
+    }
     return c.redirect(redirectTo);
   }),
 
@@ -156,6 +172,17 @@ export const actions = {
           : "That's the team's last owner — promote someone else first.",
       );
     }
+    // Audit only an actual role change (`ok`). A `noop` (vanished member) or a
+    // last-owner block writes no row.
+    if (result.ok) {
+      await recordAudit(c, {
+        teamId: team.id,
+        action: AUDIT_ACTIONS.MEMBER_ROLE_CHANGE,
+        targetType: "member",
+        targetId: userId,
+        metadata: { role: parsed.data },
+      });
+    }
     return c.redirect(redirectTo);
   }),
 
@@ -192,6 +219,16 @@ export const actions = {
         "membersError",
         "That's the team's last owner — promote someone else first.",
       );
+    }
+    // Audit only an actual removal (`ok`) — a vanished member or a last-owner
+    // block writes no row.
+    if (result.ok) {
+      await recordAudit(c, {
+        teamId: team.id,
+        action: AUDIT_ACTIONS.MEMBER_REMOVE,
+        targetType: "member",
+        targetId: userId,
+      });
     }
     return c.redirect(redirectTo);
   }),
@@ -235,6 +272,16 @@ export const actions = {
         "You're the last owner — delete the team instead.",
       );
     }
+    // Audit the leave only when it actually happened. The membership row is
+    // gone but the team (and its auditLog) survives — this is a self-removal,
+    // not a team cascade — so the awaited write here is safe. The actor IS the
+    // target.
+    await recordAudit(c, {
+      teamId: team.id,
+      action: AUDIT_ACTIONS.MEMBER_LEAVE,
+      targetType: "member",
+      targetId: actor.id,
+    });
     return c.redirect("/");
   }),
 };

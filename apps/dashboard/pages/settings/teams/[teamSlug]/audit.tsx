@@ -1,0 +1,162 @@
+import {
+  SettingsCard,
+  SettingsHeader,
+  SettingsPage,
+} from "@/components/settings/settings-primitives";
+import { TablePaginationFooter } from "@/components/table-pagination-footer";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { initials } from "@/lib/initials";
+import { formatRelativeTime } from "@/lib/time-format";
+import type { AuditEntry, Props } from "./audit.server";
+
+/**
+ * Human-readable label per audit action string. Keyed by the same values
+ * `AUDIT_ACTIONS` (`src/lib/audit.ts`) emits; an unknown action falls back to
+ * the raw string so the page never blanks out on a future action.
+ */
+const ACTION_LABELS: Record<string, string> = {
+  "invite.mint": "Invited a teammate",
+  "invite.revoke": "Revoked an invite",
+  "invite.accept": "Accepted an invite",
+  "member.remove": "Removed a member",
+  "member.leave": "Left the team",
+  "member.role_change": "Changed a member's role",
+  "key.mint": "Created an API key",
+  "key.revoke": "Revoked an API key",
+  "team.rename": "Renamed the team",
+  "team.delete": "Deleted the team",
+  "project.create": "Created a project",
+  "project.delete": "Deleted a project",
+};
+
+/** Tone the action badge by whether the action removes/deletes something. */
+function actionVariant(action: string): "secondary" | "error" {
+  return action.endsWith(".revoke") ||
+    action.endsWith(".remove") ||
+    action.endsWith(".delete") ||
+    action.endsWith(".leave")
+    ? "error"
+    : "secondary";
+}
+
+function actionLabel(action: string): string {
+  return ACTION_LABELS[action] ?? action;
+}
+
+/** A "member" target id is a raw user id; everything else is already readable. */
+function targetText(entry: AuditEntry): string {
+  if (!entry.targetId) return "—";
+  // Member targets store a raw user id; surface a role from metadata when one
+  // is present so the row reads "viewer · <id>" rather than a bare opaque id.
+  if (
+    entry.targetType === "member" &&
+    typeof entry.metadata?.role === "string"
+  ) {
+    return `${entry.metadata.role} · ${entry.targetId}`;
+  }
+  return entry.targetId;
+}
+
+export default function SettingsTeamAuditPage({
+  team,
+  entries,
+  totalCount,
+  currentPage,
+  totalPages,
+  fromRow,
+  toRow,
+}: Props) {
+  const pageHref = (page: number) =>
+    page <= 1
+      ? `/settings/teams/${team.slug}/audit`
+      : `/settings/teams/${team.slug}/audit?page=${page}`;
+
+  return (
+    <SettingsPage>
+      <SettingsHeader
+        subtitle="A record of privileged changes — members, invites, API keys, projects, and team settings. Newest first."
+        title={`${team.name} · Audit log`}
+      />
+
+      <SettingsCard
+        className="overflow-hidden"
+        title={`Activity · ${totalCount.toLocaleString()}`}
+      >
+        {entries.length === 0 ? (
+          <p className="py-2 text-[length:var(--text-fs-13)] text-fg-3">
+            No activity recorded yet. Privileged changes will show up here.
+          </p>
+        ) : (
+          <div className="-mx-[18px] -my-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="ps-[18px]">Action</TableHead>
+                  <TableHead>Actor</TableHead>
+                  <TableHead>Target</TableHead>
+                  <TableHead className="pe-[18px] text-right">When</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="ps-[18px]">
+                      <Badge variant={actionVariant(entry.action)}>
+                        {actionLabel(entry.action)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="flex size-6 shrink-0 items-center justify-center rounded-full border border-line-1 bg-bg-3 font-mono font-semibold text-[9.5px] text-fg-3">
+                          {initials(entry.actorName)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-[length:var(--text-fs-13)] text-fg-1">
+                            {entry.actorName}
+                          </div>
+                          {entry.actorEmail && (
+                            <div className="truncate font-mono text-[11px] text-fg-3">
+                              {entry.actorEmail}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-[220px] truncate font-mono text-[12px] text-fg-2">
+                      {targetText(entry)}
+                    </TableCell>
+                    <TableCell
+                      className="pe-[18px] text-right font-mono text-[11.5px] text-fg-3"
+                      title={new Date(entry.createdAt * 1000).toISOString()}
+                    >
+                      {formatRelativeTime(entry.createdAt)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {totalPages > 1 && (
+              <TablePaginationFooter
+                currentPage={currentPage}
+                fromRow={fromRow}
+                itemNoun="event"
+                pageHref={pageHref}
+                toRow={toRow}
+                totalCount={totalCount}
+                totalPages={totalPages}
+              />
+            )}
+          </div>
+        )}
+      </SettingsCard>
+    </SettingsPage>
+  );
+}

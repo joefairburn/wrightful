@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   BarChart2,
   CheckSquare,
+  FileClock,
   FlaskConical,
   Gauge,
   KeyRound,
@@ -331,6 +332,16 @@ function SettingsSidebarMiddle({
       ? selectedProject
       : null;
 
+  // Owner-only nav entries (the audit log) only render when we can confirm the
+  // expanded team is the selected one AND the viewer owns it. The page itself
+  // 404s for non-owners regardless; this just avoids dangling a link a member
+  // can't open. When the expanded team came from the URL (not the selected
+  // workspace) we can't see its role, so we conservatively hide it.
+  const isExpandedTeamOwner =
+    !!expandedTeam &&
+    selectedTeam?.slug === expandedTeam.slug &&
+    selectedTeam.role === "owner";
+
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-2 py-1">
       <div className="flex flex-col gap-0.5">
@@ -381,6 +392,14 @@ function SettingsSidebarMiddle({
             icon={List}
             label="Projects"
           />
+          {isExpandedTeamOwner && (
+            <SettingsNavLink
+              active={pathname === `/settings/teams/${expandedTeam.slug}/audit`}
+              href={`/settings/teams/${expandedTeam.slug}/audit`}
+              icon={FileClock}
+              label="Audit log"
+            />
+          )}
         </div>
       )}
 

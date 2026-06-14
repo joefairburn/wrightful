@@ -71,6 +71,13 @@
       "when": 1781393170960,
       "tag": "20260613232610_odd_gorilla_man",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1781430223650,
+      "tag": "20260614094343_mighty_vargas",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@ import { defineHandler } from "void";
 import { db } from "void/db";
 import { ulid } from "ulid";
 import { apiKeys } from "@schema";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { AuthzError, resolveOwnedProject } from "@/lib/settings-scope";
 import { readBodyField } from "@/lib/form";
 import { SYNTHETIC_KEY_LABEL_PREFIX } from "@/lib/monitors/synthetic-key";
@@ -62,6 +63,18 @@ export const POST = defineHandler(async (c) => {
     createdAt,
     lastUsedAt: null,
     revokedAt: null,
+  });
+
+  // Audit the mint (best-effort). The label is the human-readable target; the
+  // prefix lets an owner correlate the row with a key in the list. Scoped to
+  // the project's team.
+  await recordAudit(c, {
+    teamId: project.teamId,
+    projectId: project.id,
+    action: AUDIT_ACTIONS.KEY_MINT,
+    targetType: "key",
+    targetId: label,
+    metadata: { keyId: id, keyPrefix, projectSlug: project.slug },
   });
 
   return c.json({
