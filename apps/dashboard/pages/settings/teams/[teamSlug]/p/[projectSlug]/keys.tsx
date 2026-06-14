@@ -263,6 +263,58 @@ export default function SettingsProjectKeysPage({
       </SettingsCard>
 
       <SettingsCard
+        subtitle="Read your runs and test results programmatically with a project API key. Same Bearer token as the reporter, in the Authorization header."
+        title="Query & export API"
+      >
+        <div className="flex flex-col gap-3 text-[length:var(--text-fs-13)] text-fg-2 leading-relaxed">
+          <p>
+            Authenticate with{" "}
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+              Authorization: Bearer &lt;key&gt;
+            </code>
+            . Endpoints are scoped to this project — a key never sees another
+            project&apos;s data.
+          </p>
+          <ul className="flex flex-col gap-1 font-mono text-[11.5px] text-fg-3">
+            <li>GET /api/v1/runs</li>
+            <li>GET /api/v1/runs/:runId</li>
+            <li>GET /api/v1/runs/:runId/tests</li>
+          </ul>
+          <p>
+            Lists are cursor-paged: pass{" "}
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+              ?cursor=
+            </code>{" "}
+            from the previous response&apos;s{" "}
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+              nextCursor
+            </code>
+            . Add{" "}
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+              ?format=csv
+            </code>{" "}
+            to download a CSV. See the{" "}
+            <Link
+              className="text-fg-1 underline underline-offset-2 hover:text-accent"
+              href={`/t/${project.teamSlug}/p/${project.slug}`}
+            >
+              runs list
+            </Link>{" "}
+            for an in-dashboard Export button, or the full{" "}
+            <a
+              className="text-fg-1 underline underline-offset-2 hover:text-accent"
+              href="https://github.com/joefairburn/wrightful/blob/main/docs/api/query-export.md"
+              rel="noreferrer"
+              target="_blank"
+            >
+              API reference
+            </a>{" "}
+            for filters and CSV columns.
+          </p>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
         subtitle="Owners are derived by matching each test's file path against this CODEOWNERS file. The reporter sends your repo's CODEOWNERS automatically on each run — paste it here to set or override it (e.g. if your repo has none). Manual owner assignments on the flaky page take precedence."
         title="CODEOWNERS"
       >

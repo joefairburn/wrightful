@@ -86,8 +86,16 @@ export function parseRunsFilters(params: URLSearchParams): RunsFilters {
   const statusRaw = readList(params, "status");
   const statusSet: ReadonlySet<string> = new Set(RUN_STATUSES);
   const status = statusRaw.filter((s): s is RunStatus => statusSet.has(s));
-  const from = params.get("from");
-  const to = params.get("to");
+  const fromRaw = params.get("from");
+  const toRaw = params.get("to");
+  const fromValid = fromRaw && isValidIsoDate(fromRaw) ? fromRaw : null;
+  const toValid = toRaw && isValidIsoDate(toRaw) ? toRaw : null;
+  // Normalize an inverted range: `from > to` would AND two mutually-exclusive
+  // bounds into an always-empty result and a 200 with zero rows — a silent
+  // footgun on the public query/export API. Swap to the obviously-intended
+  // window. ISO yyyy-MM-dd is fixed-width, so a lexical compare is chronological.
+  const inverted =
+    fromValid !== null && toValid !== null && fromValid > toValid;
   return {
     q: params.get("q")?.trim() ?? "",
     status,
@@ -95,8 +103,8 @@ export function parseRunsFilters(params: URLSearchParams): RunsFilters {
     actor: readList(params, "actor"),
     environment: readList(params, "env"),
     origin: parseOrigin(params.get("origin")),
-    from: from && isValidIsoDate(from) ? from : null,
-    to: to && isValidIsoDate(to) ? to : null,
+    from: inverted ? toValid : fromValid,
+    to: inverted ? fromValid : toValid,
     page: parsePage(params.get("page")),
   };
 }

@@ -121,6 +121,30 @@ export async function resolveTenantApiScope(
 }
 
 /**
+ * Member-level scope resolver for a session-authed `/api/t/:teamSlug/p/:projectSlug/*`
+ * READ that has NO `:runId` (e.g. the in-dashboard runs-list export, roadmap
+ * 2.5). The sibling of {@link resolveTenantApiScope} for routes that scope by
+ * project alone. Any member may read/export; same leak-safe-404 contract — a
+ * missing slug param OR a no-membership miss both answer
+ * `404 { error: "Not found" }`.
+ *
+ * Returns the `TenantScope`; short-circuit on a `Response` exactly like the
+ * other resolvers in this module.
+ */
+export async function resolveProjectApiScope(
+  c: Context,
+): Promise<{ scope: TenantScope } | Response> {
+  const user = requireAuth(c);
+  const teamSlug = c.req.param("teamSlug");
+  const projectSlug = c.req.param("projectSlug");
+  if (!teamSlug || !projectSlug) return c.json({ error: "Not found" }, 404);
+
+  const scope = await tenantScopeForUserBySlugs(user.id, teamSlug, projectSlug);
+  if (!scope) return c.json({ error: "Not found" }, 404);
+  return { scope };
+}
+
+/**
  * Session-API sibling of `requireOwnerTenantContext` (`@/lib/tenant-context`),
  * for a MUTATION under `/api/t/:teamSlug/p/:projectSlug/*` (which the page
  * middleware never resolves an `activeProject` for — see the note on

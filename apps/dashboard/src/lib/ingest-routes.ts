@@ -38,3 +38,33 @@ const ARTIFACT_INGEST_RE =
 export function isIngestRoute(path: string): boolean {
   return RUN_INGEST_RE.test(path) || ARTIFACT_INGEST_RE.test(path);
 }
+
+/**
+ * The Bearer-authenticated PUBLIC QUERY / EXPORT surface (`/api/v1/*`), as a
+ * single predicate — the read-path sibling of {@link isIngestRoute} (roadmap
+ * 2.5). Same source-of-truth rationale: both the auth gate (02) and the
+ * throttle gate (03) import it so the two can't drift.
+ *
+ * It is DELIBERATELY a separate auth branch from ingest, not a folding-in:
+ *
+ *   - 02.api-auth does Bearer lookup + `getApiKey` stash here, but NOT
+ *     `negotiateVersionOrResponse`. The query API is a stable read contract for
+ *     CLIs/scripts/spreadsheets and carries no `X-Wrightful-Version` handshake,
+ *     so a missing/invalid key answers a clean 401 — there is NO 409 version
+ *     path on this surface (which is what proves the branch is distinct from
+ *     ingest's version-gated path).
+ *   - 03.rate-limit throttles `/api/v1/*` under the looser `QUERY_RATE_LIMITER`
+ *     (a read pull, possibly large CSV pages, is not the high-frequency
+ *     small-write shape `API_RATE_LIMITER` is budgeted for), still keyed by
+ *     `apiKey.id` with an IP fallback.
+ *
+ * `/api/v1/*` is a fresh, versioned namespace with no overlap with the ingest
+ * routes (`/api/runs/*`, `/api/artifacts/*`) or the session-authed `/api/t/*`,
+ * so the two predicates are disjoint over every `/api/*` path — asserted in
+ * `src/__tests__/ingest-routes.test.ts`.
+ */
+const QUERY_API_RE = /^\/api\/v1(?:\/|$)/;
+
+export function isQueryApiRoute(path: string): boolean {
+  return QUERY_API_RE.test(path);
+}

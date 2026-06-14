@@ -160,6 +160,23 @@ export default defineEnv({
    */
   ALLOW_OPEN_SIGNUP: boolean().default(false),
 
+  // ---------- Data export / public query API (roadmap 2.5) ----------
+
+  /**
+   * Hard cap on the number of rows a single CSV export streams (roadmap 2.5).
+   * Both the Bearer-authed `routes/api/v1/*?format=csv` and the session-authed
+   * `/api/t/.../export/*` cursor-page through the same query and stop once this
+   * many rows have been written, so a single request can't drain an entire
+   * project's history (or blow the Worker CPU/subrequest budget) in one shot.
+   * When the cap is hit the response is NOT silently truncated: the handler sets
+   * an `X-Wrightful-Export-Truncated: true` header and logs the event, so the
+   * caller can detect it and page the rest via the JSON cursor API. Default
+   * 50,000 — generous for an ad-hoc spreadsheet pull, well under a runaway. The
+   * per-DB-page size used to reach it is a separate internal constant
+   * (`EXPORT_PAGE_SIZE` in `src/lib/export.ts`).
+   */
+  WRIGHTFUL_EXPORT_MAX_ROWS: number().default(50000),
+
   // ---------- Synthetic monitoring ----------
 
   /**

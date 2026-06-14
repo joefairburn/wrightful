@@ -76,6 +76,7 @@ describe("rate-limit config ⇆ code", () => {
     };
     const auth = limitOf("AUTH_RATE_LIMITER");
     const api = limitOf("API_RATE_LIMITER");
+    const query = limitOf("QUERY_RATE_LIMITER");
     const artifact = limitOf("ARTIFACT_RATE_LIMITER");
     const ingestIp = limitOf("INGEST_IP_RATE_LIMITER");
     expect(auth).toBeLessThan(api);
@@ -84,6 +85,12 @@ describe("rate-limit config ⇆ code", () => {
     // bound failed-auth abuse, and several keys can share one egress IP.
     expect(artifact).toBeLessThan(ingestIp);
     expect(api).toBeLessThan(ingestIp);
+    // The public query/export budget (roadmap 2.5) must be LOOSER than the
+    // ingest API budget — a read pull is lower-frequency than streaming ingest
+    // and one export may page several times — but still well under the pre-auth
+    // IP backstop.
+    expect(query).toBeGreaterThan(api);
+    expect(query).toBeLessThan(ingestIp);
   });
 
   it("gives every limiter a unique namespace_id and a positive period", () => {

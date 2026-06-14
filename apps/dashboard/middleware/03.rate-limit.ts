@@ -1,6 +1,6 @@
 import { defineMiddleware } from "void";
 import { checkRateLimit, clientIp, tooManyRequests } from "@/lib/rate-limit";
-import { isIngestRoute } from "@/lib/ingest-routes";
+import { isIngestRoute, isQueryApiRoute } from "@/lib/ingest-routes";
 
 /**
  * Global rate-limit gate. Runs AFTER `02.api-auth.ts` so the ingest paths can
@@ -14,6 +14,11 @@ import { isIngestRoute } from "@/lib/ingest-routes";
  *                                    → API_RATE_LIMITER      keyed by apiKey.id
  *       (per-tenant, so CI workers sharing an egress IP don't trip each other;
  *        falls back to client IP if the key somehow isn't stashed).
+ *   - /api/v1/*                      → QUERY_RATE_LIMITER    keyed by apiKey.id
+ *       (the public query/export surface, roadmap 2.5 — a LOOSER budget than
+ *        ingest: a read pull / CSV export is lower-frequency than streaming
+ *        per-test ingest, and one export request may itself page several times.
+ *        Same per-tenant keying + IP fallback as ingest.)
  *   - /api/artifacts/:id/download    → ARTIFACT_RATE_LIMITER keyed by artifactId
  *       (per-file, since the trace viewer fetches many ranged chunks of one
  *        trace; bounds unbounded byte egress through the Worker).
@@ -62,6 +67,18 @@ export default defineMiddleware(async (c, next) => {
     const apiKey = c.get("apiKey");
     const key = apiKey?.id ?? clientIp(c.req.raw);
     const allowed = await checkRateLimit(c.env, "API_RATE_LIMITER", key);
+    if (!allowed) return tooManyRequests(60);
+    await next();
+    return;
+  }
+
+  if (isQueryApiRoute(path)) {
+    // Public query/export surface (roadmap 2.5). Same key resolution as ingest
+    // (02.api-auth stashed the key; IP fallback), but a LOOSER per-tenant budget
+    // — see QUERY_RATE_LIMITER in wrangler.jsonc.
+    const apiKey = c.get("apiKey");
+    const key = apiKey?.id ?? clientIp(c.req.raw);
+    const allowed = await checkRateLimit(c.env, "QUERY_RATE_LIMITER", key);
     if (!allowed) return tooManyRequests(60);
     await next();
     return;
