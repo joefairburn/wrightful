@@ -1,6 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { and, db, desc, eq, isNull, ne } from "void/db";
 import { apiKeys, projects } from "@schema";
+import { CODEOWNERS_FILE_MAX } from "@/lib/owner-schemas";
 import { deleteProjectArtifactObjects } from "@/lib/artifacts";
 import { readField } from "@/lib/form";
 import { runBatch } from "@/lib/db-batch";
@@ -31,6 +32,7 @@ export const loader = defineHandler(async (c) => {
   const url = new URL(c.req.url);
   const generalError = url.searchParams.get("generalError");
   const dangerError = url.searchParams.get("dangerError");
+  const codeownersError = url.searchParams.get("codeownersError");
 
   // Explicit column list: loader props serialize into the page payload, and a
   // bare `select()` would ship every key's `keyHash` to the browser. The hash
@@ -48,6 +50,15 @@ export const loader = defineHandler(async (c) => {
     .where(eq(apiKeys.projectId, project.id))
     .orderBy(desc(apiKeys.createdAt));
 
+  const codeownersRows = await db
+    .select({
+      file: projects.codeownersFile,
+      updatedAt: projects.codeownersUpdatedAt,
+    })
+    .from(projects)
+    .where(eq(projects.id, project.id))
+    .limit(1);
+
   return {
     project: {
       id: project.id,
@@ -57,8 +68,13 @@ export const loader = defineHandler(async (c) => {
       teamSlug: project.teamSlug,
     },
     keys,
+    codeowners: {
+      file: codeownersRows[0]?.file ?? "",
+      updatedAt: codeownersRows[0]?.updatedAt ?? null,
+    },
     generalError,
     dangerError,
+    codeownersError,
   };
 });
 
@@ -85,6 +101,54 @@ export const actions = {
           isNull(apiKeys.revokedAt),
         ),
       );
+    return c.redirect(here);
+  }),
+
+  /**
+   * Set (or clear) the project's CODEOWNERS file — the manual paste fallback to
+   * the reporter's automatic ingest (roadmap 2.3). A blank textarea clears the
+   * file (sets it null). The reporter re-populates it from the repo on the next
+   * run when a CODEOWNERS exists; a manual paste here is what you reach for when
+   * the repo has none (or to override before the next run streams).
+   */
+  updateCodeowners: defineHandler(async (c) => {
+    const { project, here } = await requireOwnedProjectScope(c, hereFor);
+
+    const form = await c.req.formData();
+    const raw = readField(form, "codeowners");
+    if (raw.length > CODEOWNERS_FILE_MAX) {
+      return redirectWithParam(
+        c,
+        here,
+        "codeownersError",
+        `CODEOWNERS file is too large (max ${CODEOWNERS_FILE_MAX} characters).`,
+      );
+    }
+    // Trim trailing whitespace; an empty result clears the file (null).
+    const trimmed = raw.trim();
+    const file = trimmed.length > 0 ? trimmed : null;
+
+    try {
+      await db
+        .update(projects)
+        .set({
+          codeownersFile: file,
+          codeownersUpdatedAt: Math.floor(Date.now() / 1000),
+        })
+        .where(eq(projects.id, project.id));
+    } catch (err) {
+      logger.error("update codeowners failed", {
+        projectId: project.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return redirectWithParam(
+        c,
+        here,
+        "codeownersError",
+        "Could not save the CODEOWNERS file.",
+      );
+    }
+
     return c.redirect(here);
   }),
 

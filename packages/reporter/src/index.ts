@@ -26,6 +26,7 @@ import { ArtifactUploader } from "./artifact-uploader.js";
 import { Batcher } from "./batcher.js";
 import { detectCI, generateIdempotencyKey, type CIInfo } from "./ci.js";
 import { AuthError, StreamClient } from "./client.js";
+import { readCodeowners } from "./codeowners-file.js";
 import {
   postPrComment,
   shouldPostPrComment,
@@ -186,6 +187,12 @@ export default class WrightfulReporter implements Reporter {
     new Map(),
   );
   private runUrl: string | null = null;
+  // Resolves once the run is open (or open failed). Awaited in `onEnd` before
+  // `/complete` so a run with zero flushable results — an all-skipped suite, or
+  // an empty one — still reliably opens: the open is now gated behind an async
+  // CODEOWNERS read (roadmap 2.3), so it no longer fires synchronously inside
+  // `onBegin`, and the batcher only awaits it when it has a batch to flush.
+  private openPromise: Promise<void> = Promise.resolve();
   private ci: CIInfo | null = null;
   private batcher: Batcher<EnqueuedTest> | null = null;
   private accumulator = new TestAccumulator();
@@ -303,21 +310,33 @@ export default class WrightfulReporter implements Reporter {
 
     // Open the run in the background so enqueues can start immediately. The
     // batcher's sequential flush chain naturally waits for runId before any
-    // appendResults call fires.
-    const openPromise = this.client.openRun(payload).then(
-      (r) => {
-        this.runId = r.runId;
-        this.runUrl = r.runUrl;
-      },
-      (err: Error) => {
-        if (err instanceof AuthError) {
-          warn(err.message);
-        } else {
-          warn(`openRun failed: ${err.message}. Streaming disabled.`);
-        }
-        this.client = null;
-      },
-    );
+    // appendResults call fires. Read the repo's CODEOWNERS off disk first and
+    // attach it to the payload (roadmap 2.3) so the dashboard can derive test
+    // ownership — best-effort: a missing/oversize file yields null and the
+    // field is simply omitted (`readCodeowners` never throws).
+    const client = this.client;
+    const rootDir = this.rootDir;
+    const openPromise = readCodeowners(rootDir)
+      .then((codeowners) =>
+        client.openRun(codeowners ? { ...payload, codeowners } : payload),
+      )
+      .then(
+        (r) => {
+          this.runId = r.runId;
+          this.runUrl = r.runUrl;
+        },
+        (err: Error) => {
+          if (err instanceof AuthError) {
+            warn(err.message);
+          } else {
+            warn(`openRun failed: ${err.message}. Streaming disabled.`);
+          }
+          this.client = null;
+        },
+      );
+    // Expose the open to `onEnd` so a result-less suite still awaits the open
+    // before /complete (the batcher only awaits it on a flush).
+    this.openPromise = openPromise;
 
     const batchSize = this.options.batchSize ?? DEFAULT_BATCH_SIZE;
     const flushIntervalMs =
@@ -676,6 +695,14 @@ export default class WrightfulReporter implements Reporter {
     }
 
     const durationMs = Date.now() - this.startedAt;
+
+    // Ensure the run is open before /complete. A flushing suite already awaited
+    // this inside the batcher, but a result-less suite (all-skipped / empty)
+    // never flushed, so without this the open — now gated behind an async
+    // CODEOWNERS read (roadmap 2.3) rather than firing synchronously in
+    // onBegin — could still be in flight here and /complete would be skipped.
+    // `openPromise` never rejects (its handler catches + nulls the client).
+    await this.openPromise;
 
     let completeFailed = false;
     let runStatus: ReturnType<typeof mapFullResultStatus> | null = null;

@@ -56,6 +56,17 @@ export interface PlannedTestDescriptor {
 
 export interface OpenRunPayload {
   idempotencyKey: string;
+  /**
+   * The repo's CODEOWNERS file contents (roadmap 2.3). The reporter reads it
+   * off disk at `onBegin` (`.github/CODEOWNERS`, then `CODEOWNERS`, then
+   * `docs/CODEOWNERS` — first found wins) and includes it here when present;
+   * the dashboard's `openRun` upserts it onto the project so test-ownership
+   * derivation reflects the latest committed file. Omitted when there is no
+   * CODEOWNERS (or it exceeds the size cap), in which case the dashboard leaves
+   * any manually-pasted file untouched. Mirrors the optional `codeowners` field
+   * on `OpenRunPayloadSchema` in apps/dashboard/src/lib/schemas.ts.
+   */
+  codeowners?: string;
   run: {
     ciProvider: string | null;
     ciBuildId: string | null;

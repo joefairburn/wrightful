@@ -2,6 +2,7 @@ import { ulid } from "ulid";
 import { and, db, eq, inArray, sql } from "void/db";
 import { logger } from "void/log";
 import {
+  projects,
   runs,
   testAnnotations,
   testResultAttempts,
@@ -712,6 +713,60 @@ export async function reconcileAndBroadcast(
 }
 
 /**
+ * Whether an open-run payload's `codeowners` field should update the project's
+ * stored CODEOWNERS file. PURE — unit-testable. The reporter sends the field
+ * only when it found a CODEOWNERS on disk; an absent OR empty/whitespace-only
+ * value must NOT clobber a file an owner pasted manually in settings (the only
+ * way to clear it is the settings textarea). So we update iff the payload
+ * carries non-blank content.
+ */
+export function shouldUpdateCodeowners(
+  codeowners: string | undefined,
+): codeowners is string {
+  return typeof codeowners === "string" && codeowners.trim().length > 0;
+}
+
+/**
+ * Upsert the project's CODEOWNERS file from an open-run payload, when present
+ * (roadmap 2.3). No-op when the payload omits it or sends only whitespace, so
+ * an empty repo file never clobbers a manually-pasted one. Stamps
+ * `codeownersUpdatedAt`. Project-scoped; awaited per the no-fire-and-forget
+ * rule. Best-effort: a failure is logged but never fails the run open (a
+ * missing CODEOWNERS just leaves ownership derivation on the previous file).
+ */
+export async function maybeUpdateCodeowners(
+  scope: TenantScope,
+  codeowners: string | undefined,
+  nowSeconds: number,
+): Promise<void> {
+  if (!shouldUpdateCodeowners(codeowners)) return;
+  // Store the trimmed content so the unchanged-check below is stable run over
+  // run (the reporter re-sends the on-disk file on every open).
+  const next = codeowners.trim();
+  try {
+    const [row] = await db
+      .select({ file: projects.codeownersFile })
+      .from(projects)
+      .where(eq(projects.id, scope.projectId))
+      .limit(1);
+    // Unchanged → skip the write entirely. `codeownersUpdatedAt` is surfaced as
+    // "Last updated" in settings, so it must move only on a REAL edit, not on
+    // every CI run for a stable file (which would also churn a pointless D1
+    // write per run open).
+    if ((row?.file ?? null) === next) return;
+    await db
+      .update(projects)
+      .set({ codeownersFile: next, codeownersUpdatedAt: nowSeconds })
+      .where(eq(projects.id, scope.projectId));
+  } catch (err) {
+    logger.error("update codeowners from ingest failed", {
+      projectId: scope.projectId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
  * Bump `teams.lastActivityAt`. Awaited per the no-fire-and-forget rule —
  * workerd terminates orphaned promises after the response so an unawaited
  * write can be silently dropped.
@@ -859,6 +914,12 @@ export async function openRun(
   payload: OpenRunPayload,
   nowSeconds: number,
 ): Promise<OpenRunResult> {
+  // Refresh the project's CODEOWNERS from the reporter's on-disk copy when it
+  // sent one (roadmap 2.3). Runs on both the fresh-open and duplicate (CI
+  // re-run / late shard) paths so an updated repo file is always picked up;
+  // a no-op when the payload omits it, so a manually-pasted file is preserved.
+  await maybeUpdateCodeowners(scope, payload.codeowners, nowSeconds);
+
   const existing = await db
     .select({ id: runs.id })
     .from(runs)

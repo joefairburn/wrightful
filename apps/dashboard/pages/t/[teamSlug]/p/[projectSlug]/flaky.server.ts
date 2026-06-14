@@ -17,6 +17,7 @@ import { loadProjectBranches } from "@/lib/branches-query";
 import { runRows } from "@/lib/db-run";
 import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
 import type { QuarantineMode } from "@/lib/quarantine-schemas";
+import { type OwnerEntry, resolveTestOwners } from "@/lib/owners-repo";
 import type { TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -125,14 +126,22 @@ export const loader = defineHandler(async (c) => {
     string,
     { mode: QuarantineMode; reason: string | null }
   > = {};
+  // testId → its owners (manual + CODEOWNERS-derived, manual-wins). Only
+  // testIds with at least one owner appear; absent → no owner.
+  const ownersByTestId: Record<string, OwnerEntry[]> = {};
 
   if (testIds.length > 0) {
-    const [sparkRows, failRows, tagRows, quarantineRows] = await Promise.all([
-      loadSparklinesAndMeta(scope, testIds, branchFilter, SPARKLINE_SIZE),
-      loadRecentFailures(scope, testIds, branchFilter, RECENT_FAILURES),
-      loadTagsByTestId(scope.projectId, testIds),
-      loadQuarantineByTestId(scope.projectId, testIds),
-    ]);
+    const [sparkRows, failRows, tagRows, quarantineRows, ownerMap] =
+      await Promise.all([
+        loadSparklinesAndMeta(scope, testIds, branchFilter, SPARKLINE_SIZE),
+        loadRecentFailures(scope, testIds, branchFilter, RECENT_FAILURES),
+        loadTagsByTestId(scope.projectId, testIds),
+        loadQuarantineByTestId(scope.projectId, testIds),
+        resolveTestOwners(scope, testIds),
+      ]);
+    for (const [testId, owners] of ownerMap) {
+      ownersByTestId[testId] = owners;
+    }
     for (const q of quarantineRows) {
       quarantinedByTestId[q.testId] = { mode: q.mode, reason: q.reason };
     }
@@ -186,6 +195,8 @@ export const loader = defineHandler(async (c) => {
       // Only owners get the quarantine/unquarantine control (the mutation is
       // owner-gated server-side too); non-owners just see the badge.
       canManageQuarantine: project.role === "owner",
+      // Same owner-gating for the manual test-ownership assign/remove controls.
+      canManageOwners: project.role === "owner",
     },
     range,
     branchParam,
@@ -201,9 +212,15 @@ export const loader = defineHandler(async (c) => {
     failsByTest: Object.fromEntries(failsByTest),
     // testId → quarantine state for the per-row badge + control.
     quarantinedByTestId,
+    // testId → resolved owners (manual + CODEOWNERS, manual-wins) for the
+    // per-row owner chips + assign/remove control.
+    ownersByTestId,
     // Set by the quarantine mutation route on a validation / conflict failure
     // (it redirects back here with ?quarantineError=…). Surfaced as a banner.
     quarantineError: url.searchParams.get("quarantineError"),
+    // Set by the owner mutation route on a validation / conflict failure
+    // (it redirects back here with ?ownerError=…). Surfaced as a banner.
+    ownerError: url.searchParams.get("ownerError"),
     pathname: url.pathname,
     fullPath: url.pathname + url.search,
     ranges: RANGES,

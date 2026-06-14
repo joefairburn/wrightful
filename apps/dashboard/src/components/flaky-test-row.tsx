@@ -1,6 +1,6 @@
 import { Link } from "@void/react";
 import type React from "react";
-import { ActorAvatar } from "@/components/actor-avatar";
+import { OwnerCell, type OwnerChip } from "@/components/owner-cell";
 import {
   QuarantineCell,
   type QuarantineState,
@@ -39,6 +39,11 @@ export interface FlakyTestRowProps {
   quarantineActionPath: string;
   quarantineRedirectTo: string;
   canManageQuarantine: boolean;
+  /** Resolved owners for this test (manual + CODEOWNERS, manual-wins). */
+  owners: OwnerChip[];
+  ownerActionPath: string;
+  ownerRedirectTo: string;
+  canManageOwners: boolean;
 }
 
 function pctTone(pct: number): string {
@@ -61,8 +66,10 @@ function displayTitle(title: string, file: string): string {
 
 /**
  * Flaky test row. Layout mirrors the design bundle's `FlakyRow`
- * (`wrightful/project/screen-flaky-tests.jsx:84-122`):
- *   [glyph 40] [Test flex] [Flake rate 110 r] [Nd trend 180] [Last failure 280] [Owner 120] [Last seen 90 r]
+ * (`wrightful/project/screen-flaky-tests.jsx:84-122`), with the Owner column
+ * widened to host the ownership chips + owner-gated assign/remove control
+ * (roadmap 2.3):
+ *   [glyph 40] [Test flex] [Flake rate 110 r] [Nd trend 180] [Last failure 280] [Owner 210] [Last seen 90 r] [Quarantine 170]
  *
  * Test cell is two lines:
  *   - Line 1 (sans 13px, weight 450): describe-path + test title.
@@ -86,6 +93,10 @@ export function FlakyTestRow({
   quarantineActionPath,
   quarantineRedirectTo,
   canManageQuarantine,
+  owners,
+  ownerActionPath,
+  ownerRedirectTo,
+  canManageOwners,
 }: FlakyTestRowProps): React.ReactElement {
   const tone = pctTone(pct);
   const latest = recentFailures[0];
@@ -150,17 +161,15 @@ export function FlakyTestRow({
             : "—"}
         </div>
       </TableCell>
-      <TableCell className="w-[120px] px-4 py-3 align-middle">
-        {latest?.actor ? (
-          <div className="flex min-w-0 items-center gap-1.5">
-            <ActorAvatar actor={latest.actor} size={16} />
-            <span className="truncate text-[12px] text-fg-2">
-              {latest.actor}
-            </span>
-          </div>
-        ) : (
-          <span className="text-[12px] text-muted-foreground">—</span>
-        )}
+      <TableCell className="w-[210px] px-4 py-3 align-middle">
+        <OwnerCell
+          actionPath={ownerActionPath}
+          canManage={canManageOwners}
+          owners={owners}
+          redirectTo={ownerRedirectTo}
+          testId={testId}
+          title={cleanTitle}
+        />
       </TableCell>
       <TableCell className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
         {latest ? formatRelativeTime(latest.createdAt) : "—"}

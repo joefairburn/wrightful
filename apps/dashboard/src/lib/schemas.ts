@@ -56,6 +56,10 @@ const MAX = {
   MESSAGE: 65536,
   STACK: 131072,
   COMMIT_MSG: 16384,
+  // CODEOWNERS file contents sent on the open-run payload (roadmap 2.3). The
+  // reporter already skips files larger than ~64 KiB before sending; the
+  // dashboard caps here too as defense against a hand-crafted payload.
+  CODEOWNERS: 65536,
 } as const;
 
 // Array caps.
@@ -163,6 +167,16 @@ const BackdateSeconds = z.number().int().min(0).optional();
 export const OpenRunPayloadSchema = z.object({
   idempotencyKey: z.string().min(1).max(MAX.ID),
   run: z.object(RunMetaCommon),
+  /**
+   * The repo's CODEOWNERS file contents (roadmap 2.3). The reporter reads it
+   * off disk at `onBegin` and sends it here when present; `openRun` upserts it
+   * onto `projects.codeownersFile` so test-ownership derivation always reflects
+   * the latest committed file. Optional — omitted when the repo has no
+   * CODEOWNERS, in which case `openRun` leaves any manually-pasted file intact
+   * (an absent field never clobbers). Length-capped (the reporter skips
+   * oversize files before sending).
+   */
+  codeowners: z.string().max(MAX.CODEOWNERS).optional(),
   createdAt: BackdateSeconds,
 });
 export type OpenRunPayload = z.infer<typeof OpenRunPayloadSchema>;

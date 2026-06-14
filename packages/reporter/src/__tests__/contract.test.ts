@@ -31,6 +31,7 @@ import {
   WRIGHTFUL_VERSION_HEADER as REPORTER_VERSION_HEADER,
   type AppendResultsResponse,
   type ArtifactRegistration,
+  type OpenRunPayload,
   type OpenRunResponse,
   type QuarantineResponse,
   type RegisterArtifactsResponse,
@@ -194,6 +195,58 @@ describe("reporter ↔ dashboard wire contract", () => {
 
     const parsed = OpenRunPayloadSchema.safeParse(openPayload);
     expect(parsed.success).toBe(true);
+  });
+
+  it("an open-run payload with a CODEOWNERS string parses through OpenRunPayloadSchema", () => {
+    // roadmap 2.3: the reporter attaches the repo's CODEOWNERS file contents as
+    // an optional top-level `codeowners` string on the open-run payload; the
+    // dashboard upserts it onto the project. Guard the field both ways: a
+    // payload carrying it parses (and the value survives), and a payload
+    // omitting it still parses (the dashboard leaves any pasted file intact).
+    const tests = [
+      makeTest({
+        id: "t1",
+        outcome: "expected",
+        title: "checkout",
+        file: "tests/checkout.spec.ts",
+      }),
+    ];
+    const plannedTests = tests.map((t) => buildTestDescriptor(t, null));
+    const base = {
+      idempotencyKey: "deterministic-key",
+      run: {
+        ciProvider: null,
+        ciBuildId: null,
+        branch: null,
+        environment: null,
+        commitSha: null,
+        commitMessage: null,
+        prNumber: null,
+        repo: null,
+        actor: null,
+        reporterVersion: "0.1.1",
+        playwrightVersion: "1.59.0",
+        expectedTotalTests: plannedTests.length,
+        plannedTests,
+      },
+    };
+
+    const withCodeowners: OpenRunPayload = {
+      ...base,
+      codeowners: "/tests/checkout/  @team/payments\n*.spec.ts  @team/qa\n",
+    };
+    const parsedWith = OpenRunPayloadSchema.safeParse(withCodeowners);
+    expect(parsedWith.success).toBe(true);
+    expect(parsedWith.success && parsedWith.data.codeowners).toContain(
+      "@team/payments",
+    );
+
+    // Omitting it is still valid; the dashboard treats absence as "don't touch".
+    const parsedWithout = OpenRunPayloadSchema.safeParse(base);
+    expect(parsedWithout.success).toBe(true);
+    expect(
+      parsedWithout.success && parsedWithout.data.codeowners,
+    ).toBeUndefined();
   });
 
   it("CompleteRunPayloadSchema accepts all reporter-emitted statuses", () => {

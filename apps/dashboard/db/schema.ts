@@ -78,6 +78,18 @@ export const projects = sqliteTable(
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     createdAt: integer("createdAt").notNull(),
+    /**
+     * The project's CODEOWNERS file contents, source of the CODEOWNERS-derived
+     * leg of test ownership (roadmap 2.3). Populated automatically from the
+     * reporter at `onBegin` (it reads the repo's CODEOWNERS off disk and sends
+     * it on the open-run payload — see `openRun`), and editable as a manual
+     * paste fallback in project settings. Null until first seen. `matchOwners`
+     * (`src/lib/codeowners.ts`) matches each test's `file` against this to
+     * derive owners; manual `testOwners` rows override the derived set.
+     */
+    codeownersFile: text("codeownersFile"),
+    /** Epoch-seconds the `codeownersFile` was last set (manually or via ingest). */
+    codeownersUpdatedAt: integer("codeownersUpdatedAt"),
   },
   (t) => [uniqueIndex("projects_team_slug_idx").on(t.teamId, t.slug)],
 );
@@ -729,6 +741,54 @@ export const quarantinedTests = sqliteTable(
   ],
 );
 
+/**
+ * Per-project test ownership, keyed by the stable `testId` (roadmap 2.3).
+ *
+ * Layered with two sources. A `source = 'manual'` row is an explicit
+ * assignment made from the flaky page (owner-gated) — the SOURCE OF TRUTH, it
+ * overrides any CODEOWNERS-derived owner. A `source = 'codeowners'` row is the
+ * (currently unused on the write side) materialized form of a CODEOWNERS match;
+ * v1 derives the CODEOWNERS leg on the fly from `projects.codeownersFile` in
+ * `resolveTestOwners` rather than persisting it, so manual rows are the only
+ * writers today. The column stays so a future "materialize CODEOWNERS at
+ * ingest" pass is additive.
+ *
+ * Like `quarantinedTests`, every row carries denormalized `projectId` so tenant
+ * isolation needs no join. `owner` is an OPAQUE label — a team handle
+ * (`@team/web`) or an email — never resolved against `user`/`memberships`.
+ */
+export const testOwners = sqliteTable(
+  "testOwners",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("projectId")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    testId: text("testId").notNull(),
+    /** Opaque owner label, e.g. "@team/web" or "alice@example.com". */
+    owner: text("owner").notNull(),
+    /**
+     * 'manual': an explicit owner-gated assignment (the source of truth that
+     * overrides CODEOWNERS). 'codeowners': a materialized CODEOWNERS match
+     * (reserved — v1 derives these on the fly, never inserts them).
+     */
+    source: text("source").$type<"manual" | "codeowners">().notNull(),
+    createdAt: integer("createdAt").notNull(),
+  },
+  (t) => [
+    // One row per (project, test, owner) — assigning the same owner twice is an
+    // upsert/ignore, not a duplicate.
+    uniqueIndex("testOwners_project_testId_owner_idx").on(
+      t.projectId,
+      t.testId,
+      t.owner,
+    ),
+    // Serves the per-test owner lookup (`projectId = ? AND testId IN (…)`) the
+    // page-badge join (`resolveTestOwners`) runs.
+    index("testOwners_project_testId_idx").on(t.projectId, t.testId),
+  ],
+);
+
 // ---------- Type aliases for downstream code ----------
 
 export type Team = typeof teams.$inferSelect;
@@ -749,3 +809,4 @@ export type Artifact = typeof artifacts.$inferSelect;
 export type Monitor = typeof monitors.$inferSelect;
 export type MonitorExecution = typeof monitorExecutions.$inferSelect;
 export type QuarantinedTest = typeof quarantinedTests.$inferSelect;
+export type TestOwner = typeof testOwners.$inferSelect;
