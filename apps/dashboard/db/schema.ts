@@ -5,7 +5,13 @@
 import { sql } from "void/_db";
 import { index, integer, sqliteTable, text, uniqueIndex } from "void/schema-d1";
 
-export type MembershipRole = "owner" | "member";
+/**
+ * A user's role within a team. The column is `text().$type<MembershipRole>()`,
+ * so widening this union (roadmap 3.1: adding `"viewer"`) is a pure TYPE change
+ * with NO migration — SQLite stores it as text either way. Capability gating
+ * lives in `src/lib/roles.ts` (`can(role, action)`), not in the column type.
+ */
+export type MembershipRole = "owner" | "member" | "viewer";
 
 /**
  * Single-D1 schema for the Void dashboard.

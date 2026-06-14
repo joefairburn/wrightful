@@ -1,7 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { db, desc, eq } from "void/db";
 import { projects } from "@schema";
-import { requireMemberScope } from "@/lib/settings-scope";
+import { requireRoleScope } from "@/lib/settings-scope";
 
 export type Props = InferProps<typeof loader>;
 
@@ -11,7 +11,7 @@ export type Props = InferProps<typeof loader>;
  * `./p/[projectSlug]/keys`.
  */
 export const loader = defineHandler(async (c) => {
-  const { team } = await requireMemberScope(c);
+  const { team } = await requireRoleScope(c, "viewSettings");
 
   const projectRows = await db
     .select({

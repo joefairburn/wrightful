@@ -12,9 +12,11 @@ import type { TeamRole } from "@/lib/authz";
  * settings-scope seams concentrate: a missing-or-unauthorized team yields a
  * 404 (signalled by `null`), never a 403 — so non-members can't tell a private
  * team apart from a nonexistent one. The async `requireOwnerScope` /
- * `requireMemberScope` seams resolve the membership row, hand it here, and turn
- * a `null` result into a `Response(404)`. Pinning the gate directly keeps the
- * leak-avoidance rule under test without needing the DB resolve.
+ * `requireMemberScope` / `requireRoleScope` seams resolve the membership row,
+ * hand it here, and turn a `null` result into a `Response(404)`. Since 3.1 the
+ * gate is keyed on a CAPABILITY (`can(role, action)`), not a role string, so
+ * the owner/member/viewer ladder lives in `roles.ts`. Pinning the gate directly
+ * keeps the leak-avoidance rule under test without needing the DB resolve.
  */
 
 function team(role: TeamRole) {
@@ -22,7 +24,7 @@ function team(role: TeamRole) {
 }
 
 describe("gateTeamScope", () => {
-  describe("member gate (no required role)", () => {
+  describe("bare membership gate (no required capability)", () => {
     it("passes an owner through, preserving its role", () => {
       expect(gateTeamScope(team("owner"))).toEqual({
         id: "team_1",
@@ -33,12 +35,11 @@ describe("gateTeamScope", () => {
     });
 
     it("passes a plain member through (any role is allowed)", () => {
-      expect(gateTeamScope(team("member"))).toEqual({
-        id: "team_1",
-        slug: "acme",
-        name: "Acme",
-        role: "member",
-      });
+      expect(gateTeamScope(team("member"))?.role).toBe("member");
+    });
+
+    it("passes a viewer through (a viewer is still a member for the bare gate)", () => {
+      expect(gateTeamScope(team("viewer"))?.role).toBe("viewer");
     });
 
     it("404s (returns null) when the team is missing / user is not a member", () => {
@@ -46,28 +47,50 @@ describe("gateTeamScope", () => {
     });
   });
 
-  describe("owner gate (requiredRole = owner)", () => {
+  describe("capability gate: deleteTeam (the owner-only discriminant)", () => {
     it("passes an owner through", () => {
-      expect(gateTeamScope(team("owner"), "owner")).toEqual({
-        id: "team_1",
-        slug: "acme",
-        name: "Acme",
-        role: "owner",
-      });
+      expect(gateTeamScope(team("owner"), "deleteTeam")?.role).toBe("owner");
     });
 
-    it("404s (returns null) for a non-owner member — 404, not 403", () => {
-      expect(gateTeamScope(team("member"), "owner")).toBeNull();
+    it("404s (returns null) for a member — 404, not 403", () => {
+      expect(gateTeamScope(team("member"), "deleteTeam")).toBeNull();
+    });
+
+    it("404s (returns null) for a viewer", () => {
+      expect(gateTeamScope(team("viewer"), "deleteTeam")).toBeNull();
     });
 
     it("404s (returns null) for a missing team", () => {
-      expect(gateTeamScope(null, "owner")).toBeNull();
+      expect(gateTeamScope(null, "deleteTeam")).toBeNull();
     });
   });
 
-  it("preserves the role so member-gated pages can hide owner-only UI", () => {
-    const result = gateTeamScope(team("member"));
-    expect(result?.role).toBe("member");
+  describe("capability gate: viewSettings (the settings-page gate)", () => {
+    it("passes an owner", () => {
+      expect(gateTeamScope(team("owner"), "viewSettings")?.role).toBe("owner");
+    });
+
+    it("passes a member (members read settings, as they did pre-3.1)", () => {
+      expect(gateTeamScope(team("member"), "viewSettings")?.role).toBe(
+        "member",
+      );
+    });
+
+    it("404s a viewer (a viewer reads the dashboard but not settings)", () => {
+      expect(gateTeamScope(team("viewer"), "viewSettings")).toBeNull();
+    });
+  });
+
+  describe("capability gate: manageMembers (owner-only today)", () => {
+    it("passes an owner, denies member + viewer", () => {
+      expect(gateTeamScope(team("owner"), "manageMembers")?.role).toBe("owner");
+      expect(gateTeamScope(team("member"), "manageMembers")).toBeNull();
+      expect(gateTeamScope(team("viewer"), "manageMembers")).toBeNull();
+    });
+  });
+
+  it("preserves the role so gated pages can hide privileged UI", () => {
+    expect(gateTeamScope(team("member"))?.role).toBe("member");
   });
 });
 

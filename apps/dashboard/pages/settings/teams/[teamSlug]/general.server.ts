@@ -17,8 +17,8 @@ import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
 import {
   redirectWithParam,
-  requireMemberScope,
   requireOwnerScope,
+  requireRoleScope,
 } from "@/lib/settings-scope";
 import { isValidSlug, SLUG_ERROR } from "@/lib/slug";
 
@@ -32,7 +32,7 @@ const hereFor = (team: { slug: string }) =>
  * (delete team). Members + Projects + API keys live on sibling routes.
  */
 export const loader = defineHandler(async (c) => {
-  const { team } = await requireMemberScope(c);
+  const { team } = await requireRoleScope(c, "viewSettings");
 
   const url = new URL(c.req.url);
 

@@ -1,7 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { env } from "void/env";
 import { formatBytes, loadTeamUsage } from "@/lib/usage";
-import { requireMemberScope } from "@/lib/settings-scope";
+import { requireRoleScope } from "@/lib/settings-scope";
 
 export type UsageRowTone = "ok" | "warn" | "over";
 
@@ -19,14 +19,15 @@ export type Props = InferProps<typeof loader>;
 
 /**
  * Settings → Team → Usage. Current billing-period meter (runs, test results,
- * artifact storage) against the team's tier limits. Any member can view it.
+ * artifact storage) against the team's tier limits. Gated on `viewSettings`
+ * (owner + member); a viewer 404s, same as every other settings page.
  *
  * All display formatting (byte units, percentages, tone) is computed here in the
  * server-only loader so the page component stays purely presentational and free
  * of the `@/lib/usage` import graph (which pulls in `db`/`env`).
  */
 export const loader = defineHandler(async (c) => {
-  const { team } = await requireMemberScope(c);
+  const { team } = await requireRoleScope(c, "viewSettings");
   const nowSeconds = Math.floor(Date.now() / 1000);
   const usage = await loadTeamUsage(team.id, nowSeconds);
   const warnPct = env.WRIGHTFUL_QUOTA_SOFT_WARN_PCT;

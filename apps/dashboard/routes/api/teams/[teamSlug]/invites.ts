@@ -2,8 +2,9 @@ import { defineHandler } from "void";
 import { requireAuth } from "void/auth";
 import { db } from "void/db";
 import { ulid } from "ulid";
-import { teamInvites } from "@schema";
+import { teamInvites, type MembershipRole } from "@schema";
 import { AuthzError, resolveOwnedTeam } from "@/lib/settings-scope";
+import { roleSchema } from "@/lib/members-repo";
 import { readBodyField } from "@/lib/form";
 import { generateInviteToken, hashInviteToken } from "@/lib/invite-tokens";
 
@@ -62,6 +63,20 @@ export const POST = defineHandler(async (c) => {
     );
   }
 
+  // Role the invitee joins as. Validated against the shared role list; defaults
+  // to `member` (the pre-3.1 hardcoded value) when omitted. Owner-only mint —
+  // the resolveOwnedTeam gate above already requires it — so an owner may
+  // invite at any role, including owner.
+  const rawRole = await readBodyField(c, { jsonKey: "role", formKey: "role" });
+  let role: MembershipRole = "member";
+  if (rawRole !== "") {
+    const parsedRole = roleSchema.safeParse(rawRole);
+    if (!parsedRole.success) {
+      return c.json({ error: "Pick a valid role for the invite." }, 400);
+    }
+    role = parsedRole.data;
+  }
+
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
   const inviteId = ulid();
@@ -73,7 +88,7 @@ export const POST = defineHandler(async (c) => {
       id: inviteId,
       teamId: team.id,
       tokenHash,
-      role: "member",
+      role,
       createdBy: user.id,
       createdAt: nowSeconds,
       expiresAt,
@@ -93,7 +108,7 @@ export const POST = defineHandler(async (c) => {
   return c.json({
     invite: {
       id: inviteId,
-      role: "member",
+      role,
       createdAt: nowSeconds,
       expiresAt,
       email: directed.kind === "email" ? directed.value : null,

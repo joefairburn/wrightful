@@ -32,10 +32,12 @@ export const GET = defineHandler(async (c) => {
     throw new Response("Invalid GitHub setup callback", { status: 400 });
   }
 
-  // Owner-only, 404 (not 403) on a missing team / non-owner — no existence leak.
+  // Owner-only, 404 (not 403) on a missing team / non-owner — no existence
+  // leak. Linking the GitHub App mutates team config, so gate on `writeConfig`
+  // (owner-only in the capability matrix).
   const team = gateTeamScope(
     await resolveTeamBySlug(user.id, teamSlug),
-    "owner",
+    "writeConfig",
   );
   if (!team) throw new Response("Not Found", { status: 404 });
   const here = `/settings/teams/${team.slug}/general`;

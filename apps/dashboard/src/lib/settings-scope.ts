@@ -5,6 +5,7 @@ import {
   resolveTeamBySlug,
   type TeamRole,
 } from "@/lib/authz";
+import { can, type Capability } from "@/lib/roles";
 
 /**
  * Status-agnostic failure raised by the owner-resolution core
@@ -40,19 +41,25 @@ export interface MemberTeam extends OwnedTeam {
  * a missing-or-unauthorized team 404s rather than 403s, so we never leak team
  * existence to a non-member. Given the membership-checked team row from
  * `resolveTeamBySlug` (null when the user isn't a member or the team is
- * missing) and an optional required role, decide pass-through vs 404.
+ * missing) and an optional REQUIRED CAPABILITY, decide pass-through vs 404.
  *
- * Returns the team (carrying its `role`, which member-gated pages use to hide
- * owner-only UI) on success, or `null` to signal "404" — the async seams
+ * The gate is keyed on a {@link Capability} (via `can(role, …)`), not a raw
+ * role string, so the owner-vs-member-vs-viewer ladder lives in one place
+ * (`roles.ts`) — `gateTeamScope(team, "manageMembers")` reads as the intent
+ * rather than re-deriving `role === "owner"` here. Omitting the capability is
+ * the bare membership gate (any role of an actual member passes).
+ *
+ * Returns the team (carrying its `role`, which gated pages use to hide
+ * privileged UI) on success, or `null` to signal "404" — the async seams
  * translate `null` into a `Response`. Kept pure so the leak-avoidance gate is
  * unit-testable independent of the DB resolve.
  */
 export function gateTeamScope(
   team: MemberTeam | null,
-  requiredRole?: TeamRole,
+  requiredCapability?: Capability,
 ): MemberTeam | null {
   if (!team) return null;
-  if (requiredRole && team.role !== requiredRole) return null;
+  if (requiredCapability && !can(team.role, requiredCapability)) return null;
   return team;
 }
 
@@ -91,9 +98,12 @@ export async function resolveOwnedTeam(c: Context): Promise<OwnedTeam> {
   const user = requireAuth(c);
   const teamSlug = c.req.param("teamSlug");
   if (!teamSlug) throw new AuthzError();
+  // "Owner" is defined by capability, not the literal role string: only the
+  // owner role holds `deleteTeam`, so gating on it preserves the exact
+  // owner-only semantics every existing caller relies on.
   const member = gateTeamScope(
     await resolveTeamBySlug(user.id, teamSlug),
-    "owner",
+    "deleteTeam",
   );
   if (!member) throw new AuthzError();
   return { id: member.id, slug: member.slug, name: member.name };
@@ -171,6 +181,42 @@ export async function requireMemberScope(
   const teamSlug = c.req.param("teamSlug");
   if (!teamSlug) throw new Response("Not Found", { status: 404 });
   const team = gateTeamScope(await resolveTeamBySlug(user.id, teamSlug));
+  if (!team) throw new Response("Not Found", { status: 404 });
+  return { team, here: hereFor?.(team) };
+}
+
+/**
+ * The general, capability-keyed team gate (roadmap 3.1) — the seam every
+ * settings page/action should use to express WHAT it needs rather than WHICH
+ * role. Resolves the team slug, requires the signed-in user be a member whose
+ * role grants `action` (via `can(role, action)` in `gateTeamScope`), and
+ * 404s — not 403s — on a missing team, a non-membership, OR an insufficient
+ * role. Same leak-safe rule as {@link requireOwnerScope}.
+ *
+ * Examples:
+ *   - settings-page loaders gate on `"viewSettings"` (member + owner pass; a
+ *     viewer 404s, so a viewer reads the dashboard but never the settings
+ *     surface);
+ *   - member-management actions gate on `"manageMembers"` (owner-only today).
+ *
+ * `hereFor` is optional, mirroring {@link requireMemberScope}: read-only
+ * loaders omit it; actions pass it to build the redirect-back URL.
+ * {@link requireOwnerScope} is left intact for its existing callers — it is the
+ * `deleteTeam`-capability special case with the narrower {@link OwnedTeam}
+ * return shape.
+ */
+export async function requireRoleScope(
+  c: Context,
+  action: Capability,
+  hereFor?: (team: MemberTeam) => string,
+): Promise<{ team: MemberTeam; here: string | undefined }> {
+  const user = requireAuth(c);
+  const teamSlug = c.req.param("teamSlug");
+  if (!teamSlug) throw new Response("Not Found", { status: 404 });
+  const team = gateTeamScope(
+    await resolveTeamBySlug(user.id, teamSlug),
+    action,
+  );
   if (!team) throw new Response("Not Found", { status: 404 });
   return { team, here: hereFor?.(team) };
 }
