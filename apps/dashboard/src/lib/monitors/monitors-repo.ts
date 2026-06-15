@@ -42,6 +42,8 @@ const MONITOR_COLUMNS = {
   name: monitors.name,
   type: monitors.type,
   enabled: monitors.enabled,
+  alertsEnabled: monitors.alertsEnabled,
+  alertTargets: monitors.alertTargets,
   source: monitors.source,
   config: monitors.config,
   intervalSeconds: monitors.intervalSeconds,
@@ -94,6 +96,10 @@ export async function createMonitor(
     name: input.name,
     type: input.type,
     enabled: input.enabled ? 1 : 0,
+    // Alerts on by default for a new monitor; muted later via the detail toggle.
+    alertsEnabled: 1,
+    // null = notify all team members (default); narrowed later via the picker.
+    alertTargets: null,
     // `source` carries the browser spec; `config` the http URL/assertions JSON
     // or the tcp host/port JSON. Each type writes its own field, leaving the
     // others null.
@@ -229,6 +235,40 @@ export async function setMonitorEnabled(
       nextRunAt: enabled ? sql`${now} + ${monitors.intervalSeconds}` : null,
       updatedAt: now,
     })
+    .where(monitorByIdWhere(scope, monitorId));
+}
+
+/**
+ * Enable / silence down+recovery email alerts for a monitor, without touching
+ * its schedule or other config. Independent of `enabled` (a running monitor can
+ * have alerts silenced). One-statement form, like {@link setMonitorEnabled}.
+ */
+export async function setMonitorAlertsEnabled(
+  scope: TenantScope,
+  monitorId: string,
+  alertsEnabled: boolean,
+  now: number,
+): Promise<void> {
+  await db
+    .update(monitors)
+    .set({ alertsEnabled: alertsEnabled ? 1 : 0, updatedAt: now })
+    .where(monitorByIdWhere(scope, monitorId));
+}
+
+/**
+ * Set a monitor's alert recipients. `targetsJson` is the pre-serialized
+ * `alertTargets` value (`null` = all members; else a `{ users, groups }` JSON
+ * string from `serializeAlertTargets`). One-statement, like the toggles.
+ */
+export async function setMonitorAlertTargets(
+  scope: TenantScope,
+  monitorId: string,
+  targetsJson: string | null,
+  now: number,
+): Promise<void> {
+  await db
+    .update(monitors)
+    .set({ alertTargets: targetsJson, updatedAt: now })
     .where(monitorByIdWhere(scope, monitorId));
 }
 

@@ -3,7 +3,14 @@
 // the artifacts unique index below — safe at schema-parse time and for
 // `void db generate`.
 import { sql } from "void/_db";
-import { index, integer, sqliteTable, text, uniqueIndex } from "void/schema-d1";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "void/schema-d1";
 
 /**
  * A user's role within a team. The column is `text().$type<MembershipRole>()`,
@@ -149,6 +156,50 @@ export const teamInvites = sqliteTable(
     index("teamInvites_email_idx").on(t.email),
     index("teamInvites_githubLogin_idx").on(t.githubLogin),
   ],
+);
+
+/**
+ * A named, team-scoped group of members — a reusable primitive for addressing
+ * subsets of a team. Initially the targets of monitor alerts (a monitor's
+ * `alertTargets` may reference groups), but intentionally generic so other
+ * features (notification routing, access scoping) can reuse it. Team-scoped
+ * because membership is team-scoped; a group can only contain members of its
+ * own team (enforced at write time + re-intersected at read time).
+ */
+export const memberGroups = sqliteTable(
+  "memberGroups",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("teamId")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** `user.id` of the creator. Logical FK — see schema header. */
+    createdBy: text("createdBy").notNull(),
+    createdAt: integer("createdAt").notNull(),
+    updatedAt: integer("updatedAt").notNull(),
+  },
+  (t) => [uniqueIndex("memberGroups_team_name_idx").on(t.teamId, t.name)],
+);
+
+/**
+ * Group ↔ member join row. `userId` is a logical ref to the void-owned
+ * `user.id` (no `.references()`, like `memberships.userId`). Cascade-deletes
+ * with the group; a member leaving the team is dropped by the
+ * `setGroupMembers` write (and re-intersected with live members on read).
+ */
+export const memberGroupMembers = sqliteTable(
+  "memberGroupMembers",
+  {
+    groupId: text("groupId")
+      .notNull()
+      .references(() => memberGroups.id, { onDelete: "cascade" }),
+    userId: text("userId").notNull(),
+  },
+  // The composite primary key's index covers all groupId-prefixed lookups
+  // (listGroups, listUserIdsInGroups, replaceMembers' delete), so no separate
+  // single-column index is needed.
+  (t) => [primaryKey({ columns: [t.groupId, t.userId] })],
 );
 
 /**
@@ -598,6 +649,20 @@ export const monitors = sqliteTable(
     type: text("type").notNull(),
     /** 0/1 — paused monitors keep their row but are skipped by the sweep. */
     enabled: integer("enabled").notNull().default(1),
+    /**
+     * 0/1 — whether down/recovery email alerts fire for this monitor (on by
+     * default). Sends require an email sender configured (`EMAIL_FROM`); with
+     * none, alerting is a graceful no-op regardless. Edge-triggered on a
+     * healthy↔down transition — see `src/lib/monitors/alerts.ts`.
+     */
+    alertsEnabled: integer("alertsEnabled").notNull().default(1),
+    /**
+     * Who alerts notify, as JSON. `null` = ALL team members (the default). A
+     * `{ users: string[], groups: string[] }` object = those specific members +
+     * the members of those `memberGroups`, unioned and re-intersected with live
+     * memberships at send time. Parsing/expansion: `src/lib/monitors/alert-targets.ts`.
+     */
+    alertTargets: text("alertTargets"),
     /** Playwright spec source for `type = 'browser'`; null for non-browser types. */
     source: text("source"),
     /** Type-specific config as JSON (e.g. browser: timeout/workers; http: url/assertions). */

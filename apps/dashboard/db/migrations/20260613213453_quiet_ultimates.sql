@@ -1,1 +1,0 @@
-CREATE INDEX `testTags_project_tag_idx` ON `testTags` (`projectId`,`tag`);

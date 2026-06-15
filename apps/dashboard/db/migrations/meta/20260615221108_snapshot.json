@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5a3e6714-cbf3-4cae-abce-4187e0cb64bb",
-  "prevId": "6a6aa920-67bd-43d8-a473-fef8a41b2e69",
+  "id": "7bd6ec11-4917-4259-a0ba-ebae3152845b",
+  "prevId": "14f0da91-5052-45dc-9ef0-a8f3fb810471",
   "tables": {
     "apiKeys": {
       "name": "apiKeys",
@@ -67,12 +67,16 @@
       "indexes": {
         "apiKeys_project_idx": {
           "name": "apiKeys_project_idx",
-          "columns": ["projectId"],
+          "columns": [
+            "projectId"
+          ],
           "isUnique": false
         },
         "apiKeys_keyPrefix_idx": {
           "name": "apiKeys_keyPrefix_idx",
-          "columns": ["keyPrefix"],
+          "columns": [
+            "keyPrefix"
+          ],
           "isUnique": false
         }
       },
@@ -81,8 +85,12 @@
           "name": "apiKeys_projectId_projects_id_fk",
           "tableFrom": "apiKeys",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -183,12 +191,17 @@
       "indexes": {
         "artifacts_testResultId_idx": {
           "name": "artifacts_testResultId_idx",
-          "columns": ["testResultId"],
+          "columns": [
+            "testResultId"
+          ],
           "isUnique": false
         },
         "artifacts_project_createdAt_idx": {
           "name": "artifacts_project_createdAt_idx",
-          "columns": ["projectId", "createdAt"],
+          "columns": [
+            "projectId",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "artifacts_identity_uq": {
@@ -209,8 +222,12 @@
           "name": "artifacts_projectId_projects_id_fk",
           "tableFrom": "artifacts",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -218,8 +235,12 @@
           "name": "artifacts_testResultId_testResults_id_fk",
           "tableFrom": "artifacts",
           "tableTo": "testResults",
-          "columnsFrom": ["testResultId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "testResultId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -298,7 +319,10 @@
       "indexes": {
         "auditLog_team_createdAt_idx": {
           "name": "auditLog_team_createdAt_idx",
-          "columns": ["teamId", "createdAt"],
+          "columns": [
+            "teamId",
+            "createdAt"
+          ],
           "isUnique": false
         }
       },
@@ -307,8 +331,12 @@
           "name": "auditLog_teamId_teams_id_fk",
           "tableFrom": "auditLog",
           "tableTo": "teams",
-          "columnsFrom": ["teamId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "teamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -316,8 +344,12 @@
           "name": "auditLog_projectId_projects_id_fk",
           "tableFrom": "auditLog",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -375,17 +407,23 @@
       "indexes": {
         "githubInstallations_installationId_idx": {
           "name": "githubInstallations_installationId_idx",
-          "columns": ["installationId"],
+          "columns": [
+            "installationId"
+          ],
           "isUnique": true
         },
         "githubInstallations_accountLogin_idx": {
           "name": "githubInstallations_accountLogin_idx",
-          "columns": ["accountLogin"],
+          "columns": [
+            "accountLogin"
+          ],
           "isUnique": true
         },
         "githubInstallations_team_idx": {
           "name": "githubInstallations_team_idx",
-          "columns": ["teamId"],
+          "columns": [
+            "teamId"
+          ],
           "isUnique": false
         }
       },
@@ -394,8 +432,133 @@
           "name": "githubInstallations_teamId_teams_id_fk",
           "tableFrom": "githubInstallations",
           "tableTo": "teams",
-          "columnsFrom": ["teamId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "teamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "memberGroupMembers": {
+      "name": "memberGroupMembers",
+      "columns": {
+        "groupId": {
+          "name": "groupId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "memberGroupMembers_groupId_memberGroups_id_fk": {
+          "name": "memberGroupMembers_groupId_memberGroups_id_fk",
+          "tableFrom": "memberGroupMembers",
+          "tableTo": "memberGroups",
+          "columnsFrom": [
+            "groupId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "memberGroupMembers_groupId_userId_pk": {
+          "columns": [
+            "groupId",
+            "userId"
+          ],
+          "name": "memberGroupMembers_groupId_userId_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "memberGroups": {
+      "name": "memberGroups",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "teamId": {
+          "name": "teamId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "memberGroups_team_name_idx": {
+          "name": "memberGroups_team_name_idx",
+          "columns": [
+            "teamId",
+            "name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "memberGroups_teamId_teams_id_fk": {
+          "name": "memberGroups_teamId_teams_id_fk",
+          "tableFrom": "memberGroups",
+          "tableTo": "teams",
+          "columnsFrom": [
+            "teamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -446,12 +609,17 @@
       "indexes": {
         "memberships_user_team_idx": {
           "name": "memberships_user_team_idx",
-          "columns": ["userId", "teamId"],
+          "columns": [
+            "userId",
+            "teamId"
+          ],
           "isUnique": true
         },
         "memberships_team_idx": {
           "name": "memberships_team_idx",
-          "columns": ["teamId"],
+          "columns": [
+            "teamId"
+          ],
           "isUnique": false
         }
       },
@@ -460,8 +628,12 @@
           "name": "memberships_teamId_teams_id_fk",
           "tableFrom": "memberships",
           "tableTo": "teams",
-          "columnsFrom": ["teamId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "teamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -576,17 +748,26 @@
       "indexes": {
         "monitorExecutions_monitor_created_at_idx": {
           "name": "monitorExecutions_monitor_created_at_idx",
-          "columns": ["monitorId", "createdAt"],
+          "columns": [
+            "monitorId",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "monitorExecutions_project_created_at_idx": {
           "name": "monitorExecutions_project_created_at_idx",
-          "columns": ["projectId", "createdAt"],
+          "columns": [
+            "projectId",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "monitorExecutions_state_created_at_idx": {
           "name": "monitorExecutions_state_created_at_idx",
-          "columns": ["state", "createdAt"],
+          "columns": [
+            "state",
+            "createdAt"
+          ],
           "isUnique": false
         }
       },
@@ -595,8 +776,12 @@
           "name": "monitorExecutions_projectId_projects_id_fk",
           "tableFrom": "monitorExecutions",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -604,8 +789,12 @@
           "name": "monitorExecutions_monitorId_monitors_id_fk",
           "tableFrom": "monitorExecutions",
           "tableTo": "monitors",
-          "columnsFrom": ["monitorId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "monitorId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -659,6 +848,21 @@
           "notNull": true,
           "autoincrement": false,
           "default": 1
+        },
+        "alertsEnabled": {
+          "name": "alertsEnabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "alertTargets": {
+          "name": "alertTargets",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "source": {
           "name": "source",
@@ -749,17 +953,26 @@
       "indexes": {
         "monitors_project_name_idx": {
           "name": "monitors_project_name_idx",
-          "columns": ["projectId", "name"],
+          "columns": [
+            "projectId",
+            "name"
+          ],
           "isUnique": true
         },
         "monitors_project_created_at_idx": {
           "name": "monitors_project_created_at_idx",
-          "columns": ["projectId", "createdAt"],
+          "columns": [
+            "projectId",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "monitors_enabled_next_run_at_idx": {
           "name": "monitors_enabled_next_run_at_idx",
-          "columns": ["enabled", "nextRunAt"],
+          "columns": [
+            "enabled",
+            "nextRunAt"
+          ],
           "isUnique": false
         }
       },
@@ -768,8 +981,12 @@
           "name": "monitors_teamId_teams_id_fk",
           "tableFrom": "monitors",
           "tableTo": "teams",
-          "columnsFrom": ["teamId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "teamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -777,8 +994,12 @@
           "name": "monitors_projectId_projects_id_fk",
           "tableFrom": "monitors",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -843,7 +1064,10 @@
       "indexes": {
         "projects_team_slug_idx": {
           "name": "projects_team_slug_idx",
-          "columns": ["teamId", "slug"],
+          "columns": [
+            "teamId",
+            "slug"
+          ],
           "isUnique": true
         }
       },
@@ -852,8 +1076,12 @@
           "name": "projects_teamId_teams_id_fk",
           "tableFrom": "projects",
           "tableTo": "teams",
-          "columnsFrom": ["teamId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "teamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -919,12 +1147,18 @@
       "indexes": {
         "quarantinedTests_project_testId_idx": {
           "name": "quarantinedTests_project_testId_idx",
-          "columns": ["projectId", "testId"],
+          "columns": [
+            "projectId",
+            "testId"
+          ],
           "isUnique": true
         },
         "quarantinedTests_project_createdAt_idx": {
           "name": "quarantinedTests_project_createdAt_idx",
-          "columns": ["projectId", "createdAt"],
+          "columns": [
+            "projectId",
+            "createdAt"
+          ],
           "isUnique": false
         }
       },
@@ -933,8 +1167,12 @@
           "name": "quarantinedTests_projectId_projects_id_fk",
           "tableFrom": "quarantinedTests",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1154,37 +1392,61 @@
       "indexes": {
         "runs_project_idempotency_key_idx": {
           "name": "runs_project_idempotency_key_idx",
-          "columns": ["projectId", "idempotencyKey"],
+          "columns": [
+            "projectId",
+            "idempotencyKey"
+          ],
           "isUnique": true
         },
         "runs_project_monitor_created_at_idx": {
           "name": "runs_project_monitor_created_at_idx",
-          "columns": ["projectId", "monitorId", "createdAt"],
+          "columns": [
+            "projectId",
+            "monitorId",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "runs_project_created_at_idx": {
           "name": "runs_project_created_at_idx",
-          "columns": ["projectId", "createdAt"],
+          "columns": [
+            "projectId",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "runs_project_branch_created_at_idx": {
           "name": "runs_project_branch_created_at_idx",
-          "columns": ["projectId", "branch", "createdAt"],
+          "columns": [
+            "projectId",
+            "branch",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "runs_project_environment_created_at_idx": {
           "name": "runs_project_environment_created_at_idx",
-          "columns": ["projectId", "environment", "createdAt"],
+          "columns": [
+            "projectId",
+            "environment",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "runs_project_actor_idx": {
           "name": "runs_project_actor_idx",
-          "columns": ["projectId", "actor"],
+          "columns": [
+            "projectId",
+            "actor"
+          ],
           "isUnique": false
         },
         "runs_status_lastActivityAt_idx": {
           "name": "runs_status_lastActivityAt_idx",
-          "columns": ["status", "lastActivityAt"],
+          "columns": [
+            "status",
+            "lastActivityAt"
+          ],
           "isUnique": false
         }
       },
@@ -1193,8 +1455,12 @@
           "name": "runs_teamId_teams_id_fk",
           "tableFrom": "runs",
           "tableTo": "teams",
-          "columnsFrom": ["teamId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "teamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1202,8 +1468,12 @@
           "name": "runs_projectId_projects_id_fk",
           "tableFrom": "runs",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1282,22 +1552,30 @@
       "indexes": {
         "teamInvites_tokenHash_idx": {
           "name": "teamInvites_tokenHash_idx",
-          "columns": ["tokenHash"],
+          "columns": [
+            "tokenHash"
+          ],
           "isUnique": true
         },
         "teamInvites_team_idx": {
           "name": "teamInvites_team_idx",
-          "columns": ["teamId"],
+          "columns": [
+            "teamId"
+          ],
           "isUnique": false
         },
         "teamInvites_email_idx": {
           "name": "teamInvites_email_idx",
-          "columns": ["email"],
+          "columns": [
+            "email"
+          ],
           "isUnique": false
         },
         "teamInvites_githubLogin_idx": {
           "name": "teamInvites_githubLogin_idx",
-          "columns": ["githubLogin"],
+          "columns": [
+            "githubLogin"
+          ],
           "isUnique": false
         }
       },
@@ -1306,8 +1584,12 @@
           "name": "teamInvites_teamId_teams_id_fk",
           "tableFrom": "teamInvites",
           "tableTo": "teams",
-          "columnsFrom": ["teamId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "teamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1380,12 +1662,16 @@
       "indexes": {
         "teams_slug_idx": {
           "name": "teams_slug_idx",
-          "columns": ["slug"],
+          "columns": [
+            "slug"
+          ],
           "isUnique": true
         },
         "teams_lastActivityAt_idx": {
           "name": "teams_lastActivityAt_idx",
-          "columns": ["lastActivityAt"],
+          "columns": [
+            "lastActivityAt"
+          ],
           "isUnique": false
         }
       },
@@ -1436,7 +1722,9 @@
       "indexes": {
         "testAnnotations_testResultId_idx": {
           "name": "testAnnotations_testResultId_idx",
-          "columns": ["testResultId"],
+          "columns": [
+            "testResultId"
+          ],
           "isUnique": false
         }
       },
@@ -1445,8 +1733,12 @@
           "name": "testAnnotations_projectId_projects_id_fk",
           "tableFrom": "testAnnotations",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1454,8 +1746,12 @@
           "name": "testAnnotations_testResultId_testResults_id_fk",
           "tableFrom": "testAnnotations",
           "tableTo": "testResults",
-          "columnsFrom": ["testResultId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "testResultId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1513,12 +1809,19 @@
       "indexes": {
         "testOwners_project_testId_owner_idx": {
           "name": "testOwners_project_testId_owner_idx",
-          "columns": ["projectId", "testId", "owner"],
+          "columns": [
+            "projectId",
+            "testId",
+            "owner"
+          ],
           "isUnique": true
         },
         "testOwners_project_testId_idx": {
           "name": "testOwners_project_testId_idx",
-          "columns": ["projectId", "testId"],
+          "columns": [
+            "projectId",
+            "testId"
+          ],
           "isUnique": false
         }
       },
@@ -1527,8 +1830,12 @@
           "name": "testOwners_projectId_projects_id_fk",
           "tableFrom": "testOwners",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1607,7 +1914,10 @@
       "indexes": {
         "testResultAttempts_testResultId_attempt_uq": {
           "name": "testResultAttempts_testResultId_attempt_uq",
-          "columns": ["testResultId", "attempt"],
+          "columns": [
+            "testResultId",
+            "attempt"
+          ],
           "isUnique": true
         }
       },
@@ -1616,8 +1926,12 @@
           "name": "testResultAttempts_projectId_projects_id_fk",
           "tableFrom": "testResultAttempts",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1625,8 +1939,12 @@
           "name": "testResultAttempts_testResultId_testResults_id_fk",
           "tableFrom": "testResultAttempts",
           "tableTo": "testResults",
-          "columnsFrom": ["testResultId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "testResultId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1741,27 +2059,43 @@
       "indexes": {
         "testResults_testId_createdAt_idx": {
           "name": "testResults_testId_createdAt_idx",
-          "columns": ["testId", "createdAt"],
+          "columns": [
+            "testId",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "testResults_runId_testId_idx": {
           "name": "testResults_runId_testId_idx",
-          "columns": ["runId", "testId"],
+          "columns": [
+            "runId",
+            "testId"
+          ],
           "isUnique": true
         },
         "testResults_project_runId_idx": {
           "name": "testResults_project_runId_idx",
-          "columns": ["projectId", "runId"],
+          "columns": [
+            "projectId",
+            "runId"
+          ],
           "isUnique": false
         },
         "testResults_project_createdAt_idx": {
           "name": "testResults_project_createdAt_idx",
-          "columns": ["projectId", "createdAt"],
+          "columns": [
+            "projectId",
+            "createdAt"
+          ],
           "isUnique": false
         },
         "testResults_project_testId_createdAt_idx": {
           "name": "testResults_project_testId_createdAt_idx",
-          "columns": ["projectId", "testId", "createdAt"],
+          "columns": [
+            "projectId",
+            "testId",
+            "createdAt"
+          ],
           "isUnique": false
         }
       },
@@ -1770,8 +2104,12 @@
           "name": "testResults_projectId_projects_id_fk",
           "tableFrom": "testResults",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1779,8 +2117,12 @@
           "name": "testResults_runId_runs_id_fk",
           "tableFrom": "testResults",
           "tableTo": "runs",
-          "columnsFrom": ["runId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "runId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1824,12 +2166,17 @@
       "indexes": {
         "testTags_testResultId_idx": {
           "name": "testTags_testResultId_idx",
-          "columns": ["testResultId"],
+          "columns": [
+            "testResultId"
+          ],
           "isUnique": false
         },
         "testTags_project_tag_idx": {
           "name": "testTags_project_tag_idx",
-          "columns": ["projectId", "tag"],
+          "columns": [
+            "projectId",
+            "tag"
+          ],
           "isUnique": false
         }
       },
@@ -1838,8 +2185,12 @@
           "name": "testTags_projectId_projects_id_fk",
           "tableFrom": "testTags",
           "tableTo": "projects",
-          "columnsFrom": ["projectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "projectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1847,8 +2198,12 @@
           "name": "testTags_testResultId_testResults_id_fk",
           "tableFrom": "testTags",
           "tableTo": "testResults",
-          "columnsFrom": ["testResultId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "testResultId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1924,7 +2279,10 @@
       "indexes": {
         "usageCounters_team_period_idx": {
           "name": "usageCounters_team_period_idx",
-          "columns": ["teamId", "periodStart"],
+          "columns": [
+            "teamId",
+            "periodStart"
+          ],
           "isUnique": true
         }
       },
@@ -1933,8 +2291,12 @@
           "name": "usageCounters_teamId_teams_id_fk",
           "tableFrom": "usageCounters",
           "tableTo": "teams",
-          "columnsFrom": ["teamId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "teamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1971,7 +2333,9 @@
       "indexes": {
         "userGithubAccounts_githubLogin_idx": {
           "name": "userGithubAccounts_githubLogin_idx",
-          "columns": ["githubLogin"],
+          "columns": [
+            "githubLogin"
+          ],
           "isUnique": false
         }
       },
@@ -2018,8 +2382,12 @@
           "name": "userState_lastTeamId_teams_id_fk",
           "tableFrom": "userState",
           "tableTo": "teams",
-          "columnsFrom": ["lastTeamId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "lastTeamId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -2027,8 +2395,12 @@
           "name": "userState_lastProjectId_projects_id_fk",
           "tableFrom": "userState",
           "tableTo": "projects",
-          "columnsFrom": ["lastProjectId"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "lastProjectId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "set null",
           "onUpdate": "no action"
         }

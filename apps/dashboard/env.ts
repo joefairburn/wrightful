@@ -177,6 +177,23 @@ export default defineEnv({
    */
   WRIGHTFUL_EXPORT_MAX_ROWS: number().default(50000),
 
+  /**
+   * From address for outbound email (verification, password reset, monitor
+   * alerts), e.g. `"Wrightful <noreply@mail.example.com>"` or a bare
+   * `"noreply@mail.example.com"`. Sent via the Cloudflare Email Service
+   * `EMAIL` binding (`send_email` in `wrangler.jsonc`) — the address MUST
+   * belong to a domain you've onboarded to CES, or sends are rejected.
+   *
+   * OPTIONAL: email is an opt-in capability and degrades gracefully. When
+   * unset (or the `EMAIL` binding is absent), `isEmailConfigured()` returns
+   * false and `sendEmail()` skips — returning `{ sent: false, reason:
+   * "not_configured" }` rather than throwing — so a self-hoster who hasn't set
+   * up CES is never blocked (and `void deploy` doesn't hard-fail on this key).
+   * Resolution + the send transport live in `src/lib/email.ts`. Server-only
+   * (no `VITE_` prefix).
+   */
+  EMAIL_FROM: string().optional(),
+
   // ---------- Synthetic monitoring ----------
 
   /**

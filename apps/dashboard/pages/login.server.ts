@@ -18,5 +18,7 @@ export const loader = defineHandler(async (c) => {
   return {
     githubEnabled: githubOAuthEnabled(env),
     signupAllowed: openSignupAllowed(env.ALLOW_OPEN_SIGNUP),
+    // Password reset needs an email sender; hide the entry link without one.
+    resetEnabled: Boolean(env.EMAIL_FROM),
   };
 });

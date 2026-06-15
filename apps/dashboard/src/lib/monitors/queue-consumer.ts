@@ -1,6 +1,7 @@
 import { defineQueue } from "void";
 import { env } from "void/env";
 import { logger } from "void/log";
+import { maybeSendMonitorAlert } from "@/lib/monitors/alerts";
 import { consumeMonitorBatch } from "@/lib/monitors/consume-batch";
 import { runMonitorJob } from "@/lib/monitors/executor";
 import { resolveExecutor } from "@/lib/monitors/executor-registry";
@@ -46,6 +47,9 @@ export function createMonitorConsumer(opts: {
       // Settle events to the project room drive the live monitors list. Same
       // DO-to-DO publish path the ingest pipeline uses; non-fatal by design.
       broadcast: broadcastProjectRoom,
+      // Email the team on a healthy↔down transition. Edge-triggered + best-effort
+      // (self-catching); a no-op when email isn't configured.
+      alert: maybeSendMonitorAlert,
     };
 
     await consumeMonitorBatch(batch.messages, {

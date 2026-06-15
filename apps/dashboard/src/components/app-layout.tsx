@@ -12,6 +12,7 @@ import {
   TriangleAlert,
   UserRound,
   Users,
+  UsersRound,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useRouter, useShared } from "@void/react";
@@ -372,6 +373,12 @@ function SettingsSidebarMiddle({
             href={`/settings/teams/${expandedTeam.slug}/members`}
             icon={Users}
             label="Members"
+          />
+          <SettingsNavLink
+            active={pathname === `/settings/teams/${expandedTeam.slug}/groups`}
+            href={`/settings/teams/${expandedTeam.slug}/groups`}
+            icon={UsersRound}
+            label="Groups"
           />
           <SettingsNavLink
             active={pathname === `/settings/teams/${expandedTeam.slug}/usage`}

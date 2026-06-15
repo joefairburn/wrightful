@@ -13,7 +13,11 @@ import type { Props } from "./login.server";
  * Anonymous users only — server redirects authenticated users to `/` via
  * the colocated loader.
  */
-export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
+export default function LoginPage({
+  githubEnabled,
+  signupAllowed,
+  resetEnabled,
+}: Props) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,7 +76,17 @@ export default function LoginPage({ githubEnabled, signupAllowed }: Props) {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            {resetEnabled && (
+              <Link
+                href="/forgot-password"
+                className="text-muted-foreground text-xs underline"
+              >
+                Forgot password?
+              </Link>
+            )}
+          </div>
           <Input
             id="password"
             type="password"

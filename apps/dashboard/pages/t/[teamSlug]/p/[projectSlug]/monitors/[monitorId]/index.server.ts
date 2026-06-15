@@ -3,7 +3,14 @@ import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
 import { env } from "void/env";
 import { mutationErrorMessage } from "@/lib/action-errors";
-import { firstIssueMessage } from "@/lib/form";
+import { listTeamMembers } from "@/lib/auth-users";
+import { firstIssueMessage, readField } from "@/lib/form";
+import { listGroups } from "@/lib/member-groups";
+import {
+  buildAlertTargets,
+  parseAlertTargets,
+  serializeAlertTargets,
+} from "@/lib/monitors/alert-targets";
 import {
   CreateMonitorSchema,
   parseHttpMonitorConfig,
@@ -27,6 +34,8 @@ import {
   deleteMonitor,
   getMonitor,
   listExecutions,
+  setMonitorAlertsEnabled,
+  setMonitorAlertTargets,
   setMonitorEnabled,
   updateMonitor,
 } from "@/lib/monitors/monitors-repo";
@@ -164,6 +173,17 @@ export const loader = defineHandler(async (c) => {
     }
   }
 
+  // Alert-recipient picker data — owner-only (viewers can't edit recipients,
+  // so skip the reads for them). `members` + `groups` populate the checkboxes;
+  // `alertTargets` is the monitor's current selection (null = all members).
+  const isOwner = project.role === "owner";
+  const [members, groups] = isOwner
+    ? await Promise.all([
+        listTeamMembers(monitor.teamId),
+        listGroups(monitor.teamId),
+      ])
+    : [[], []];
+
   return {
     mode: "detail" as const,
     project: projectProps,
@@ -172,6 +192,11 @@ export const loader = defineHandler(async (c) => {
     httpConfig,
     // Parsed tcp host/port/timeout config for tcp/ping; null otherwise.
     tcpConfig,
+    // Alert recipients: team members + groups for the picker, and the monitor's
+    // current selection (`null` = all members). Empty for non-owners.
+    members,
+    groups: groups.map((g) => ({ id: g.id, name: g.name })),
+    alertTargets: parseAlertTargets(monitor.alertTargets),
     // Real time-based uptime (24h/7d/30d) for http + tcp; null for browser
     // (which uses the count-based `uptime` below). Each is a % or null when
     // nothing countable yet.
@@ -377,6 +402,51 @@ export const actions = {
     const enabled = form.get("enabled") === "true";
     const now = Math.floor(Date.now() / 1000);
     await setMonitorEnabled(scope, monitorId, enabled, now);
+
+    return c.redirect(here);
+  }),
+
+  /** Silence / unsilence down+recovery alerts. Desired state in `alertsEnabled`. */
+  toggleAlerts: defineHandler(async (c) => {
+    const { project, scope } = requireOwnerTenantContext(c);
+    const monitorId = requireMonitorId(c);
+    const here = `/t/${project.teamSlug}/p/${project.slug}/monitors/${monitorId}`;
+
+    const form = await c.req.formData();
+    const alertsEnabled = form.get("alertsEnabled") === "true";
+    const now = Math.floor(Date.now() / 1000);
+    await setMonitorAlertsEnabled(scope, monitorId, alertsEnabled, now);
+
+    return c.redirect(here);
+  }),
+
+  /**
+   * Set who the monitor alerts. `recipientMode=all` ⇒ all members (stored
+   * null); `specific` ⇒ the checked members (`user`) + groups (`group`). The
+   * targets are re-intersected with live members at send time, so storing an
+   * id that later leaves the team is harmless.
+   */
+  setAlertRecipients: defineHandler(async (c) => {
+    const { project, scope } = requireOwnerTenantContext(c);
+    const monitorId = requireMonitorId(c);
+    const here = `/t/${project.teamSlug}/p/${project.slug}/monitors/${monitorId}`;
+
+    const form = await c.req.formData();
+    const asStrings = (key: string): string[] =>
+      form.getAll(key).filter((v): v is string => typeof v === "string");
+    const mode = readField(form, "recipientMode") || "all";
+    const targets = buildAlertTargets(
+      mode,
+      asStrings("user"),
+      asStrings("group"),
+    );
+    const now = Math.floor(Date.now() / 1000);
+    await setMonitorAlertTargets(
+      scope,
+      monitorId,
+      serializeAlertTargets(targets),
+      now,
+    );
 
     return c.redirect(here);
   }),

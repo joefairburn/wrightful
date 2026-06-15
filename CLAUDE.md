@@ -107,7 +107,7 @@ Two auth systems coexist:
 
 **Query scoping rule:** there is no DO boundary — isolation is logical. Every query against `runs` / `testResults` / `testResultAttempts` / `testTags` / `testAnnotations` / `artifacts` **must** filter by `projectId` (and `teamId` where present). The branded `AuthorizedProjectId` on `TenantScope` exists to make this impossible to forget.
 
-**Env vars** (declared in `apps/dashboard/env.ts`): required `WRIGHTFUL_PUBLIC_URL`, `BETTER_AUTH_SECRET`. Optional `AUTH_GITHUB_CLIENT_ID` + `AUTH_GITHUB_CLIENT_SECRET`, `WRIGHTFUL_MAX_ARTIFACT_BYTES` (default 50 MiB), `WRIGHTFUL_RUN_STALE_MINUTES` (default 30), `ALLOW_OPEN_SIGNUP` (default false). Read values via `import { env } from "void/env"`.
+**Env vars** (declared in `apps/dashboard/env.ts`): required `WRIGHTFUL_PUBLIC_URL`, `BETTER_AUTH_SECRET`. Optional `AUTH_GITHUB_CLIENT_ID` + `AUTH_GITHUB_CLIENT_SECRET`, `WRIGHTFUL_MAX_ARTIFACT_BYTES` (default 50 MiB), `WRIGHTFUL_RUN_STALE_MINUTES` (default 30), `ALLOW_OPEN_SIGNUP` (default false), `EMAIL_FROM` (enables verification/reset/monitor-alert email via the Cloudflare Email Service `EMAIL` binding; unset = email features off and graceful no-ops). Read values via `import { env } from "void/env"`.
 
 ## Worklogs
 

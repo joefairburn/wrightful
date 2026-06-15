@@ -1,5 +1,7 @@
 import {
   ArrowRight,
+  Bell,
+  BellOff,
   Check,
   ChevronDown,
   Clock,
@@ -207,11 +209,18 @@ function MonitorDetailView({
   editing,
   formError,
   dangerError,
+  members,
+  groups,
+  alertTargets,
 }: DetailProps) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
   const monitorsBase = `${base}/monitors`;
   const here = `${monitorsBase}/${monitor.id}`;
   const enabled = monitor.enabled === 1;
+  const alertsOn = monitor.alertsEnabled === 1;
+  // Current alert-recipient selection (null = all members) for the picker.
+  const selectedUsers = new Set(alertTargets?.users ?? []);
+  const selectedGroups = new Set(alertTargets?.groups ?? []);
   const status = monitorDisplayStatus(monitor);
   const isHttp = monitor.type === "http";
   const isTcp = monitor.type === "tcp" || monitor.type === "ping";
@@ -280,6 +289,27 @@ function MonitorDetailView({
                   </Button>
                 </form>
 
+                {/* Silence / unsilence alerts — POSTs the desired next state. */}
+                <form
+                  action={`${here}?toggleAlerts`}
+                  className="m-0"
+                  method="post"
+                >
+                  <input
+                    name="alertsEnabled"
+                    type="hidden"
+                    value={alertsOn ? "false" : "true"}
+                  />
+                  <Button size="sm" type="submit" variant="outline">
+                    {alertsOn ? (
+                      <BellOff className="size-3.5" />
+                    ) : (
+                      <Bell className="size-3.5" />
+                    )}
+                    {alertsOn ? "Mute alerts" : "Unmute alerts"}
+                  </Button>
+                </form>
+
                 {/* Edit toggle — flips `?edit=1` (server-rendered, no island). */}
                 <Button
                   render={<Link href={editing ? here : `${here}?edit=1`} />}
@@ -314,6 +344,7 @@ function MonitorDetailView({
               }
             />
             <MetaItem label="State" value={enabled ? "Enabled" : "Paused"} />
+            <MetaItem label="Alerts" value={alertsOn ? "On" : "Muted"} />
             <MetaItem
               label="Last run"
               value={
@@ -384,6 +415,110 @@ function MonitorDetailView({
                   />
                 )}
               </div>
+            </section>
+          )}
+
+          {/* Alert recipients (owner-only). Edge-triggered down/recovery
+              emails go to these people; "All team members" stores null so new
+              members are auto-included. Server-rendered, no island. */}
+          {isOwner && (
+            <section className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+              <div className="border-b border-line-1 px-[18px] py-3">
+                <h3 className="text-[13.5px] font-semibold">
+                  Alert recipients
+                </h3>
+                <p className="mt-0.5 text-[12px] text-fg-3">
+                  Who gets the down/recovery emails for this monitor.{" "}
+                  <Link
+                    className="underline"
+                    href={`/settings/teams/${project.teamSlug}/groups`}
+                  >
+                    Manage groups
+                  </Link>
+                  .
+                </p>
+              </div>
+              <form
+                action={`${here}?setAlertRecipients`}
+                className="m-0 px-[18px] py-4"
+                method="post"
+              >
+                <div className="mb-4 flex flex-col gap-1.5 text-[13px]">
+                  <label className="flex items-center gap-2">
+                    <input
+                      defaultChecked={alertTargets === null}
+                      name="recipientMode"
+                      type="radio"
+                      value="all"
+                    />
+                    All team members
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      defaultChecked={alertTargets !== null}
+                      name="recipientMode"
+                      type="radio"
+                      value="specific"
+                    />
+                    Specific members or groups
+                  </label>
+                </div>
+
+                {groups.length > 0 && (
+                  <div className="mb-3.5">
+                    <div className="mb-1.5 text-[11.5px] font-medium uppercase tracking-wider text-fg-3">
+                      Groups
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {groups.map((g) => (
+                        <label
+                          key={g.id}
+                          className="flex items-center gap-2 text-[13px]"
+                        >
+                          <input
+                            defaultChecked={selectedGroups.has(g.id)}
+                            name="group"
+                            type="checkbox"
+                            value={g.id}
+                          />
+                          {g.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mb-4">
+                  <div className="mb-1.5 text-[11.5px] font-medium uppercase tracking-wider text-fg-3">
+                    Members
+                  </div>
+                  {members.length === 0 ? (
+                    <p className="text-[13px] text-fg-3">No members.</p>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {members.map((m) => (
+                        <label
+                          key={m.userId}
+                          className="flex items-center gap-2 text-[13px]"
+                        >
+                          <input
+                            defaultChecked={selectedUsers.has(m.userId)}
+                            name="user"
+                            type="checkbox"
+                            value={m.userId}
+                          />
+                          <span className="font-medium">{m.name}</span>
+                          <span className="text-fg-3">{m.email}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <Button size="sm" type="submit">
+                  Save recipients
+                </Button>
+              </form>
             </section>
           )}
 

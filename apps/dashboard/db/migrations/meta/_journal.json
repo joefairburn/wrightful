@@ -33,50 +33,8 @@
     {
       "idx": 4,
       "version": "6",
-      "when": 1781367620679,
-      "tag": "20260613162020_solid_echo",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1781367966213,
-      "tag": "20260613162606_bored_edwin_jarvis",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1781368514942,
-      "tag": "20260613163514_true_the_stranger",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1781386493943,
-      "tag": "20260613213453_quiet_ultimates",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1781391586908,
-      "tag": "20260613225946_motionless_the_initiative",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1781393170960,
-      "tag": "20260613232610_odd_gorilla_man",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1781430223650,
-      "tag": "20260614094343_mighty_vargas",
+      "when": 1781561468521,
+      "tag": "20260615221108_moaning_gressill",
       "breakpoints": true
     }
   ]

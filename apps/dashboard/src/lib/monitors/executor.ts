@@ -65,6 +65,20 @@ export interface RunMonitorJobDeps {
    * — `runMonitorJob` guards every call so a throw here can't flip the decision.
    */
   broadcast: (projectId: string, event: ProjectRoomEvent) => Promise<void>;
+  /**
+   * Fire a down/recovery email alert for the settled result, given the monitor's
+   * PRIOR `lastStatus` (captured before `recordResult` overwrites it) so the
+   * transition can be classified. Wired to `maybeSendMonitorAlert`
+   * (`@/lib/monitors/alerts`) in the queue consumers. OPTIONAL + NON-FATAL: like
+   * `broadcast`, the result is already in D1, so a throw here must never change
+   * the ack/retry outcome — `runMonitorJob` guards every call. Omitted by tests
+   * that don't exercise alerting.
+   */
+  alert?: (
+    monitor: Monitor,
+    result: ExecutionResult,
+    prevStatus: string | null,
+  ) => Promise<void>;
 }
 
 /** The consumer's per-message decision: ack the message or retry it. */
@@ -140,6 +154,26 @@ async function safeBroadcast(
 }
 
 /**
+ * Fire the down/recovery alert, swallowing any failure for the same reason as
+ * {@link safeBroadcast}: the result is already recorded, so an alert hiccup must
+ * not flip the ack/retry decision. `maybeSendMonitorAlert` already catches its
+ * own errors; this is belt-and-braces (and a no-op when no `alert` dep is wired).
+ */
+async function safeAlert(
+  deps: RunMonitorJobDeps,
+  monitor: Monitor,
+  result: ExecutionResult,
+  prevStatus: string | null,
+): Promise<void> {
+  if (!deps.alert) return;
+  try {
+    await deps.alert(monitor, result, prevStatus);
+  } catch {
+    // intentionally ignored — see docstring
+  }
+}
+
+/**
  * Run one monitor job to a terminal record + an ack/retry decision. See the
  * module docstring for the full contract; the branch order here is the tested
  * surface (`executor.test.ts`):
@@ -178,6 +212,11 @@ export async function runMonitorJob(
     return { action: "ack" };
   }
 
+  // The monitor's CURRENT lastStatus is the PRIOR result — captured here, before
+  // `recordResult` overwrites it — so the alert can classify the health
+  // transition (healthy↔down) and only email on an edge, not every interval.
+  const prevStatus = monitor.lastStatus;
+
   // Claim the execution before running (CAS). A lost claim means another
   // delivery already owns it (Cloudflare Queues is at-least-once) or it already
   // reached a terminal success — ack without launching a container or recording
@@ -195,6 +234,7 @@ export async function runMonitorJob(
       monitor.projectId,
       monitorResultEvent(monitor, execution, result, settledAt),
     );
+    await safeAlert(deps, monitor, result, prevStatus);
     return { action: result.infraError ? "retry" : "ack" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -206,6 +246,7 @@ export async function runMonitorJob(
       monitor.projectId,
       monitorResultEvent(monitor, execution, result, settledAt),
     );
+    await safeAlert(deps, monitor, result, prevStatus);
     return { action: "retry" };
   }
 }
