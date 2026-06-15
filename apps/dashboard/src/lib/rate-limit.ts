@@ -21,6 +21,7 @@ interface RateLimiterBinding {
 export const RATE_LIMITER_BINDING_NAMES = [
   "AUTH_RATE_LIMITER",
   "API_RATE_LIMITER",
+  "QUERY_RATE_LIMITER",
   "ARTIFACT_RATE_LIMITER",
   "INGEST_IP_RATE_LIMITER",
 ] as const;

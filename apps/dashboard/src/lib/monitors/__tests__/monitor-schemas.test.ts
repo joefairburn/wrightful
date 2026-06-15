@@ -5,6 +5,10 @@ import {
   HttpMonitorConfigSchema,
   HTTP_INTERVAL_PRESETS_V1,
   parseHttpMonitorConfig,
+  parseTcpMonitorConfig,
+  parseTcpResultDetail,
+  TcpMonitorConfigSchema,
+  TcpResultDetailSchema,
 } from "@/lib/monitors/monitor-schemas";
 
 /**
@@ -59,6 +63,113 @@ describe("CreateMonitorSchema — discriminated union", () => {
       config: { url: "http://192.168.0.1" },
     });
     expect(r.success).toBe(false);
+  });
+
+  it("accepts a tcp monitor with a host + port", () => {
+    const r = CreateMonitorSchema.safeParse({
+      type: "tcp",
+      name: "Database",
+      intervalSeconds: 60,
+      enabled: "on",
+      config: { host: "db.example.com", port: "5432" },
+    });
+    expect(r.success).toBe(true);
+    if (r.success && r.data.type === "tcp") {
+      expect(r.data.config.port).toBe(5432);
+      // connectTimeoutMs default applied.
+      expect(r.data.config.connectTimeoutMs).toBe(5000);
+    }
+  });
+
+  it("rejects a tcp monitor with a private-network host (SSRF guard)", () => {
+    const r = CreateMonitorSchema.safeParse({
+      type: "tcp",
+      name: "Internal DB",
+      intervalSeconds: 60,
+      config: { host: "10.0.0.5", port: 5432 },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects a tcp monitor missing its config", () => {
+    const r = CreateMonitorSchema.safeParse({
+      type: "tcp",
+      name: "DB",
+      intervalSeconds: 60,
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("TcpMonitorConfigSchema — port + timeout bounds", () => {
+  it("rejects a port above 65535 and below 1", () => {
+    expect(
+      TcpMonitorConfigSchema.safeParse({ host: "example.com", port: 70000 })
+        .success,
+    ).toBe(false);
+    expect(
+      TcpMonitorConfigSchema.safeParse({ host: "example.com", port: 0 })
+        .success,
+    ).toBe(false);
+  });
+
+  it("rejects a connect timeout over the 30s cap", () => {
+    expect(
+      TcpMonitorConfigSchema.safeParse({
+        host: "example.com",
+        port: 443,
+        connectTimeoutMs: 40000,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("coerces a string port + timeout (form fields)", () => {
+    const r = TcpMonitorConfigSchema.safeParse({
+      host: "example.com",
+      port: "443",
+      connectTimeoutMs: "2000",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.port).toBe(443);
+      expect(r.data.connectTimeoutMs).toBe(2000);
+    }
+  });
+});
+
+describe("parseTcpMonitorConfig", () => {
+  it("parses valid stored JSON", () => {
+    const config = parseTcpMonitorConfig(
+      JSON.stringify({ host: "db.example.com", port: 5432 }),
+    );
+    expect(config?.host).toBe("db.example.com");
+    expect(config?.port).toBe(5432);
+  });
+
+  it("returns null for null / malformed / invalid (incl. a blocked host)", () => {
+    expect(parseTcpMonitorConfig(null)).toBe(null);
+    expect(parseTcpMonitorConfig("{not json")).toBe(null);
+    expect(
+      parseTcpMonitorConfig(JSON.stringify({ host: "127.0.0.1", port: 5432 })),
+    ).toBe(null);
+  });
+});
+
+describe("TcpResultDetail round-trip", () => {
+  it("validates a stored result detail and rejects a malformed one", () => {
+    const detail = {
+      host: "db.example.com",
+      port: 5432,
+      timings: { connectMs: 12, totalMs: 14 },
+    };
+    expect(TcpResultDetailSchema.safeParse(detail).success).toBe(true);
+    expect(parseTcpResultDetail(JSON.stringify(detail))).toEqual(detail);
+    expect(parseTcpResultDetail(null)).toBe(null);
+    expect(parseTcpResultDetail("{not json")).toBe(null);
+    // Missing nested timings → degrades to null, never throws.
+    expect(parseTcpResultDetail(JSON.stringify({ host: "x", port: 1 }))).toBe(
+      null,
+    );
   });
 });
 

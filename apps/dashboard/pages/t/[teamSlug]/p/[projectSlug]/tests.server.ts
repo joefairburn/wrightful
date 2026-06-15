@@ -2,12 +2,17 @@ import { defineHandler, type InferProps } from "void";
 import { sql } from "void/db";
 import { z } from "zod";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { loadProjectTags } from "@/lib/tags-query";
+import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
+import type { QuarantineMode } from "@/lib/quarantine-schemas";
 import { runRows } from "@/lib/db-run";
 import {
   branchFragment,
   searchFragment,
+  tagFragment,
   testResultsScopeJoin,
 } from "@/lib/analytics/filters";
+import type { CatalogGroupMode } from "@/lib/group-catalog-rows";
 import {
   normalizeBranchFilter,
   resolveAnalyticsWindow,
@@ -83,6 +88,10 @@ export const loader = defineHandler.withValidator({
     range: z.enum(RANGES).optional(),
     branch: z.string().optional(),
     q: z.string().optional(),
+    /** Comma-separated tag filter (ANY-match). */
+    tag: z.string().optional(),
+    /** Presentational grouping of the current page. */
+    group: z.enum(["file", "suite"]).optional(),
     page: z.coerce.number().int().min(1).optional(),
   }),
 })(async (c, { query }) => {
@@ -91,13 +100,23 @@ export const loader = defineHandler.withValidator({
   const range: RangeKey = query.range ?? "14d";
   const { branchParam, branchFilter } = normalizeBranchFilter(query.branch);
   const q = (query.q ?? "").trim();
+  const tags = (query.tag ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const tagParam = tags.length > 0 ? tags.join(",") : null;
+  const group: CatalogGroupMode | null = query.group ?? null;
   const requestedPage = query.page ?? 1;
 
-  const branches = await loadProjectBranches(scope);
+  const [branches, availableTags] = await Promise.all([
+    loadProjectBranches(scope),
+    loadProjectTags(scope),
+  ]);
   const { windowStartSec } = resolveAnalyticsWindow(range);
 
   const branchSql = branchFragment(branchFilter);
   const qSql = searchFragment(q || null);
+  const tagSql = tagFragment(tags);
 
   const offset = (requestedPage - 1) * PAGE_SIZE;
   let pageRows = await runPageQuery(
@@ -105,6 +124,7 @@ export const loader = defineHandler.withValidator({
     windowStartSec,
     branchSql,
     qSql,
+    tagSql,
     offset,
   );
 
@@ -119,6 +139,7 @@ export const loader = defineHandler.withValidator({
       windowStartSec,
       branchSql,
       qSql,
+      tagSql,
       (currentPage - 1) * PAGE_SIZE,
     );
   } else {
@@ -126,15 +147,20 @@ export const loader = defineHandler.withValidator({
   }
 
   let rows: TestsPageRow[] = [];
+  const quarantinedByTestId: Record<
+    string,
+    { mode: QuarantineMode; reason: string | null }
+  > = {};
   if (pageRows.length > 0) {
     const lastSeenById = new Map(pageRows.map((r) => [r.testId, r.lastSeen]));
     const testIds = pageRows.map((r) => r.testId);
-    const aggById = await runAggregateQuery(
-      scope,
-      windowStartSec,
-      branchSql,
-      testIds,
-    );
+    const [aggById, quarantineRows] = await Promise.all([
+      runAggregateQuery(scope, windowStartSec, branchSql, tagSql, testIds),
+      loadQuarantineByTestId(scope.projectId, testIds),
+    ]);
+    for (const q of quarantineRows) {
+      quarantinedByTestId[q.testId] = { mode: q.mode, reason: q.reason };
+    }
     rows = testIds.flatMap((id) => {
       const a = aggById.get(id);
       const lastSeen = lastSeenById.get(id) ?? 0;
@@ -174,19 +200,31 @@ export const loader = defineHandler.withValidator({
       slug: project.slug,
       name: project.name,
       teamSlug: project.teamSlug,
+      // Owner-only quarantine control; non-owners see only the badge.
+      canManageQuarantine: project.role === "owner",
     },
     range,
     branchParam,
     branchFilter,
     branches,
     q,
+    tagParam,
+    tags,
+    availableTags,
+    group,
     rows,
+    // testId → quarantine state for the per-row badge + control.
+    quarantinedByTestId,
+    // Set by the quarantine mutation route on a validation / conflict failure
+    // (it redirects back here with ?quarantineError=…). Surfaced as a banner.
+    quarantineError: url.searchParams.get("quarantineError"),
     totalUniqueTests,
     currentPage,
     totalPages,
     fromRow,
     toRow,
     pathname: url.pathname,
+    fullPath: url.pathname + url.search,
     ranges: RANGES,
   };
 });
@@ -196,6 +234,7 @@ async function runPageQuery(
   windowStartSec: number,
   branchSql: ReturnType<typeof sql>,
   qSql: ReturnType<typeof sql>,
+  tagSql: ReturnType<typeof sql>,
   offset: number,
 ): Promise<PageQueryRow[]> {
   return runRows<PageQueryRow>(sql`
@@ -209,6 +248,7 @@ async function runPageQuery(
         and runs."createdAt" >= ${windowStartSec}
         ${branchSql}
         ${qSql}
+        ${tagSql}
       group by tr."testId"
     )
     select "testId", "lastSeen", "totalDistinct"
@@ -223,6 +263,7 @@ async function runAggregateQuery(
   scope: TenantScope,
   windowStartSec: number,
   branchSql: ReturnType<typeof sql>,
+  tagSql: ReturnType<typeof sql>,
   testIds: readonly string[],
 ): Promise<Map<string, AggregateRow>> {
   const rows = await runRows<AggregateRow>(sql`
@@ -245,6 +286,10 @@ async function runAggregateQuery(
           sql`, `,
         )})
         ${branchSql}
+        -- Same tag predicate as runPageQuery so per-test counts/duration reflect
+        -- ONLY the tag-filtered results, not the test's full history. Without it
+        -- a tag-filtered page shows correct membership but inflated counts.
+        ${tagSql}
     )
     select
       "testId",

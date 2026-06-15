@@ -243,6 +243,17 @@ export default function RunDetailPage({
               ) : null}
             </Link>
           ))}
+          <div className="flex-1" />
+          {/* Compare affordance (roadmap 2.4): diff this run against a baseline
+           * (most recent passing run on the same branch). Sits at the trailing
+           * edge of the tab bar so it doesn't shift the tab pills. */}
+          <Link
+            aria-label="Compare this run against a baseline"
+            className="-mb-px py-2 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+            href={`${base}/runs/${runId}/diff`}
+          >
+            Compare <span aria-hidden="true">↗</span>
+          </Link>
         </div>
 
         {/* Tab content — scrolls with the rest of the page */}

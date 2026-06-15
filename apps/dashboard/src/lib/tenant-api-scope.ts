@@ -1,6 +1,12 @@
 import type { Context } from "hono";
 import { requireAuth } from "void/auth";
-import { type TenantScope, tenantScopeForUserBySlugs } from "@/lib/scope";
+import { resolveProjectBySlugs } from "@/lib/authz";
+import { can } from "@/lib/roles";
+import {
+  makeTenantScope,
+  type TenantScope,
+  tenantScopeForUserBySlugs,
+} from "@/lib/scope";
 
 /**
  * The route params every `/api/t/:teamSlug/p/:projectSlug/runs/:runId/*` read
@@ -113,4 +119,71 @@ export async function resolveTenantApiScope(
     return { scope, runId: params.runId, testResultId: params.testResultId };
   }
   return { scope, runId: params.runId };
+}
+
+/**
+ * Member-level scope resolver for a session-authed `/api/t/:teamSlug/p/:projectSlug/*`
+ * READ that has NO `:runId` (e.g. the in-dashboard runs-list export, roadmap
+ * 2.5). The sibling of {@link resolveTenantApiScope} for routes that scope by
+ * project alone. Any member may read/export; same leak-safe-404 contract — a
+ * missing slug param OR a no-membership miss both answer
+ * `404 { error: "Not found" }`.
+ *
+ * Returns the `TenantScope`; short-circuit on a `Response` exactly like the
+ * other resolvers in this module.
+ */
+export async function resolveProjectApiScope(
+  c: Context,
+): Promise<{ scope: TenantScope } | Response> {
+  const user = requireAuth(c);
+  const teamSlug = c.req.param("teamSlug");
+  const projectSlug = c.req.param("projectSlug");
+  if (!teamSlug || !projectSlug) return c.json({ error: "Not found" }, 404);
+
+  const scope = await tenantScopeForUserBySlugs(user.id, teamSlug, projectSlug);
+  if (!scope) return c.json({ error: "Not found" }, 404);
+  return { scope };
+}
+
+/**
+ * Session-API sibling of `requireOwnerTenantContext` (`@/lib/tenant-context`),
+ * for a MUTATION under `/api/t/:teamSlug/p/:projectSlug/*` (which the page
+ * middleware never resolves an `activeProject` for — see the note on
+ * {@link resolveTenantApiScope}). Resolves the project + membership in one join,
+ * then gates on `can(role, "writeConfig")` — its callers (quarantine,
+ * test-ownership edits) are project-config mutations, so the project
+ * authorization decision lives in `roles.ts` rather than as a literal
+ * `role === "owner"` here.
+ *
+ * 404 (never 403) on a missing param, a no-membership miss, OR an insufficient
+ * role — mirroring the settings owner seam: it denies without confirming the
+ * resource exists and routes through the styled not-found page. A non-owner only
+ * reaches a mutation via a crafted request (the UI hides the control), so the
+ * leak-shaped 404 is the consistent choice.
+ *
+ * Returns the `TenantScope` for the scoped repo calls. Short-circuit on a
+ * `Response` exactly like {@link resolveTenantApiScope}.
+ */
+export async function resolveOwnerTenantApiScope(
+  c: Context,
+): Promise<{ scope: TenantScope } | Response> {
+  const user = requireAuth(c);
+  const teamSlug = c.req.param("teamSlug");
+  const projectSlug = c.req.param("projectSlug");
+  if (!teamSlug || !projectSlug) return c.json({ error: "Not found" }, 404);
+
+  const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
+  // A no-membership miss AND an insufficient role both answer 404 — don't leak
+  // existence or the viewer's role.
+  if (!project || !can(project.role, "writeConfig")) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  return {
+    scope: makeTenantScope({
+      teamId: project.teamId,
+      projectId: project.id,
+      teamSlug: project.teamSlug,
+      projectSlug: project.slug,
+    }),
+  };
 }

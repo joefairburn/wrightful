@@ -60,6 +60,17 @@
       "simple": { "limit": 120, "period": 60 },
     },
     {
+      // Public query / export API (/api/v1/*, roadmap 2.5). Keyed by apiKey.id
+      // (tenant-scoped, IP fallback) like ingest, but a LOOSER budget than the
+      // ingest API_RATE_LIMITER (120): a read pull / CSV export is lower-
+      // frequency than streaming per-test ingest, and a single export may itself
+      // page several times under one request. Must stay > API (asserted in
+      // src/__tests__/rate-limit-config.test.ts).
+      "name": "QUERY_RATE_LIMITER",
+      "namespace_id": "1005",
+      "simple": { "limit": 600, "period": 60 },
+    },
+    {
       // Token-authenticated artifact download. Keyed by artifactId — per-file
       // rather than per-caller, since trace.playwright.dev fetches many ranged
       // chunks of the same trace.

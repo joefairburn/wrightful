@@ -35,12 +35,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardPanel } from "@/components/ui/card";
 import { CodeEditor } from "@/components/ui/code-editor";
 import { cn } from "@/lib/cn";
-import { parseHttpResultDetail } from "@/lib/monitors/monitor-schemas";
-import type { HttpResultDetail } from "@/lib/monitors/types";
+import {
+  parseHttpResultDetail,
+  parseTcpResultDetail,
+} from "@/lib/monitors/monitor-schemas";
+import type { HttpResultDetail, TcpResultDetail } from "@/lib/monitors/types";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { MonitorExecution } from "@schema";
 import { HttpMonitorForm } from "../http-monitor-form";
 import { MonitorForm } from "../monitor-form";
+import { TcpMonitorForm } from "../tcp-monitor-form";
 import { humanizeInterval, monitorTypeLabel } from "../monitors-ui.shared";
 import type { Props } from "./index.server";
 
@@ -68,6 +72,7 @@ function MonitorCreateView({ project, type, formError }: CreateProps) {
   const monitorsBase = `/t/${project.teamSlug}/p/${project.slug}/monitors`;
   const action = `${monitorsBase}/new?createMonitor`;
   const isHttp = type === "http";
+  const isTcp = type === "tcp";
   const isBrowser = type === "browser";
 
   return (
@@ -92,15 +97,24 @@ function MonitorCreateView({ project, type, formError }: CreateProps) {
         <p className="mt-1 text-[12.5px] text-fg-3">
           {isHttp
             ? "Check a URL on a schedule — status, response time, headers, and body."
-            : isBrowser
-              ? "Author a Playwright test and pick how often it should run against production."
-              : "Choose what to monitor."}
+            : isTcp
+              ? "Check a host:port is reachable on a schedule — opens a raw TCP connection."
+              : isBrowser
+                ? "Author a Playwright test and pick how often it should run against production."
+                : "Choose what to monitor."}
         </p>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[860px] px-6 pt-6 pb-16">
           {isHttp ? (
             <HttpMonitorForm
+              action={action}
+              cancelHref={monitorsBase}
+              error={formError}
+              submitLabel="Create monitor"
+            />
+          ) : isTcp ? (
+            <TcpMonitorForm
               action={action}
               cancelHref={monitorsBase}
               error={formError}
@@ -125,7 +139,7 @@ function MonitorCreateView({ project, type, formError }: CreateProps) {
 /** The "what do you want to monitor?" cards at `/monitors/new`. */
 function TypeChooser({ monitorsBase }: { monitorsBase: string }) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <TypeCard
         description="Run a Playwright test on a schedule — full browser flows like login or checkout, producing a run report."
         glyph="browser"
@@ -137,6 +151,12 @@ function TypeChooser({ monitorsBase }: { monitorsBase: string }) {
         glyph="http"
         href={`${monitorsBase}/new?type=http`}
         title="Uptime check"
+      />
+      <TypeCard
+        description="Check a host:port is reachable — a raw TCP connect for databases, SMTP, Redis, or anything that listens on a port."
+        glyph="tcp"
+        href={`${monitorsBase}/new?type=tcp`}
+        title="TCP check"
       />
     </div>
   );
@@ -181,6 +201,7 @@ function MonitorDetailView({
   monitor,
   executions,
   httpConfig,
+  tcpConfig,
   uptimeWindows,
   responseTrend,
   uptime,
@@ -202,15 +223,16 @@ function MonitorDetailView({
   const selectedGroups = new Set(alertTargets?.groups ?? []);
   const status = monitorDisplayStatus(monitor);
   const isHttp = monitor.type === "http";
+  const isTcp = monitor.type === "tcp" || monitor.type === "ping";
   // Members get a read-only detail view; only owners can edit/pause/delete (the
   // actions are owner-gated server-side). `editingOpen` also defends against a
   // member hand-typing `?edit=1`: the edit section stays hidden AND the
   // read-only definition still shows (it keys off `!editingOpen`, not `!editing`).
   const isOwner = project.role === "owner";
   const editingOpen = isOwner && editing;
-  // For http, the header "Uptime 24h" shows the real time-based 24h number; for
-  // browser it shows the count-based window uptime.
-  const headerUptime = isHttp ? (uptimeWindows?.d1 ?? null) : uptime;
+  // For http + tcp, the header "Uptime 24h" shows the real time-based 24h
+  // number; for browser it shows the count-based window uptime.
+  const headerUptime = isHttp || isTcp ? (uptimeWindows?.d1 ?? null) : uptime;
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
@@ -369,6 +391,17 @@ function MonitorDetailView({
                     error={formError}
                     submitLabel="Save changes"
                   />
+                ) : isTcp ? (
+                  <TcpMonitorForm
+                    action={`${here}?updateMonitor`}
+                    cancelHref={here}
+                    defaultConfig={tcpConfig ?? undefined}
+                    defaultEnabled={enabled}
+                    defaultIntervalSeconds={monitor.intervalSeconds}
+                    defaultName={monitor.name}
+                    error={formError}
+                    submitLabel="Save changes"
+                  />
                 ) : (
                   <MonitorForm
                     action={`${here}?updateMonitor`}
@@ -489,8 +522,8 @@ function MonitorDetailView({
             </section>
           )}
 
-          {/* http: time-based uptime + response-time trend. */}
-          {isHttp && uptimeWindows && (
+          {/* http + tcp: time-based uptime (both); response-time trend (http). */}
+          {(isHttp || isTcp) && uptimeWindows && (
             <section className="grid grid-cols-3 gap-3">
               <UptimeStat label="Uptime · 24h" value={uptimeWindows.d1} />
               <UptimeStat label="Uptime · 7d" value={uptimeWindows.d7} />
@@ -536,6 +569,12 @@ function MonitorDetailView({
                       key={ex.id}
                       last={i === executions.length - 1}
                     />
+                  ) : isTcp ? (
+                    <TcpExecRow
+                      exec={ex}
+                      key={ex.id}
+                      last={i === executions.length - 1}
+                    />
                   ) : (
                     <ExecRow
                       base={base}
@@ -569,6 +608,25 @@ function MonitorDetailView({
                   title="Request"
                 />
                 <HttpConfigSummary config={httpConfig} />
+              </section>
+            ) : isTcp ? (
+              <section>
+                <SectionTitle
+                  right={
+                    isOwner ? (
+                      <Button
+                        render={<Link href={`${here}?edit=1`} />}
+                        size="xs"
+                        variant="ghost"
+                      >
+                        <Settings className="size-[11px]" />
+                        Edit
+                      </Button>
+                    ) : null
+                  }
+                  title="Connection"
+                />
+                <TcpConfigSummary config={tcpConfig} />
               </section>
             ) : (
               <section>
@@ -611,6 +669,7 @@ function MonitorDetailView({
                   <p className="mt-1 text-[12px] leading-relaxed text-fg-3">
                     Stops the schedule and removes this monitor.
                     {!isHttp &&
+                      !isTcp &&
                       " Run reports it already produced are retained."}
                   </p>
                 </div>
@@ -1049,6 +1108,141 @@ function HttpExecDetail({ detail }: { detail: HttpResultDetail }) {
           {detail.bodyExcerpt}
         </pre>
       )}
+    </div>
+  );
+}
+
+/** Read-only summary of a tcp monitor's connection config (host:port + timeout). */
+function TcpConfigSummary({ config }: { config: DetailProps["tcpConfig"] }) {
+  if (!config) {
+    return (
+      <div className="rounded-[9px] border border-fail/30 bg-fail-soft px-[18px] py-4 text-[12.5px] text-fail">
+        This monitor's configuration is missing or invalid — edit it to fix.
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+      <div className="flex items-center gap-2 border-b border-line-1 px-[18px] py-3">
+        <span className="rounded bg-bg-3 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-fg-2">
+          TCP
+        </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-foreground">
+          {config.host}:{config.port}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 px-[18px] py-3.5 text-[12.5px]">
+        <ConfigField label="Host" value={config.host} />
+        <ConfigField label="Port" value={String(config.port)} />
+        <ConfigField
+          label="Connect timeout"
+          value={`${config.connectTimeoutMs}ms`}
+        />
+        <ConfigField label="Probe" value="TCP connect" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One tcp execution row — an expandable `<details>` (no-JS) whose summary shows
+ * the result line + connect duration, and whose body shows the host:port dialed
+ * and the connect/total timing phases from `resultDetail`.
+ */
+function TcpExecRow({ exec, last }: { exec: MonitorExecution; last: boolean }) {
+  const isRunning = exec.state === "running";
+  const detail = parseTcpResultDetail(exec.resultDetail);
+  const expandable = detail != null;
+
+  const summary = (
+    <div
+      className={cn(
+        "flex items-center gap-3 px-[18px] py-[11px] transition-colors hover:bg-bg-2",
+        expandable && "cursor-pointer",
+      )}
+    >
+      <MonGlyph size={14} state={exec.state} />
+      <div className="w-[92px] shrink-0">
+        <MonBadge size="sm" state={exec.state} />
+      </div>
+      <div
+        className="min-w-0 flex-1 truncate text-[12.5px] text-fg-2"
+        title={exec.errorMessage ?? undefined}
+      >
+        {isRunning ? (
+          <span className="text-running">connecting now…</span>
+        ) : exec.errorMessage ? (
+          exec.errorMessage
+        ) : detail ? (
+          <span className="text-fg-3">
+            connected to{" "}
+            <span className="font-mono text-fg-2">
+              {detail.host}:{detail.port}
+            </span>
+          </span>
+        ) : (
+          <span className="text-fg-3">connected</span>
+        )}
+      </div>
+      <span className="w-[70px] text-right font-mono text-[11.5px] tabular-nums text-fg-3">
+        {exec.durationMs != null ? formatDuration(exec.durationMs) : "—"}
+      </span>
+      <span className="w-[96px] text-right text-[12px]">
+        {isRunning ? (
+          <span className="text-running">now</span>
+        ) : (
+          <span className="text-fg-2">
+            {formatRelativeTime(exec.createdAt)}
+          </span>
+        )}
+      </span>
+      <span className="flex w-[18px] justify-end">
+        {expandable && (
+          <ChevronDown className="size-3.5 text-fg-3 transition-transform group-open:rotate-180" />
+        )}
+      </span>
+    </div>
+  );
+
+  const rail = cn(
+    "border-l-2",
+    last ? "border-b-0" : "border-b border-b-line-1",
+    exec.state === "fail"
+      ? "border-l-fail"
+      : exec.state === "error"
+        ? "border-l-error"
+        : "border-l-transparent",
+  );
+
+  if (!expandable) {
+    return <div className={rail}>{summary}</div>;
+  }
+
+  return (
+    <details className={cn("group", rail)}>
+      <summary className="list-none [&::-webkit-details-marker]:hidden">
+        {summary}
+      </summary>
+      {detail && <TcpExecDetail detail={detail} />}
+    </details>
+  );
+}
+
+/** The expanded body of a tcp execution row: host:port + connect/total timings. */
+function TcpExecDetail({ detail }: { detail: TcpResultDetail }) {
+  return (
+    <div className="border-t border-line-1 bg-bg-0 px-[18px] py-3.5">
+      <div
+        className="mb-1.5 truncate font-mono text-[12px] text-fg-2"
+        title={`${detail.host}:${detail.port}`}
+      >
+        <span className="text-fg-3">target </span>
+        {detail.host}:{detail.port}
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 font-mono text-[11.5px] text-fg-3">
+        <span>connect {Math.round(detail.timings.connectMs)}ms</span>
+        <span>total {Math.round(detail.timings.totalMs)}ms</span>
+      </div>
     </div>
   );
 }

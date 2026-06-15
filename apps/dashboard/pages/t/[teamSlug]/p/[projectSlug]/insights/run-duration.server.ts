@@ -6,7 +6,7 @@ import {
   type Segment,
 } from "@/lib/analytics/bucketing";
 import { bucketExpr, percentilePick } from "@/lib/analytics/bucketing-sql";
-import { branchFragment } from "@/lib/analytics/filters";
+import { branchFragment, ciRunsScopeRawWhere } from "@/lib/analytics/filters";
 import {
   normalizeBranchFilter,
   resolveAnalyticsWindow,
@@ -80,8 +80,7 @@ export const loader = defineHandler(async (c) => {
         row_number() over (partition by ${expr} order by runs."durationMs") as rn,
         count(*) over (partition by ${expr}) as cnt
       from runs
-      where runs."projectId" = ${scope.projectId}
-        and runs.origin <> 'synthetic'
+      ${ciRunsScopeRawWhere(scope)}
         and runs."durationMs" > 0
         and runs."createdAt" >= ${windowStartSec}
         ${branchSql}
@@ -103,8 +102,7 @@ export const loader = defineHandler(async (c) => {
         row_number() over (order by runs."durationMs") as rn,
         count(*) over () as cnt
       from runs
-      where runs."projectId" = ${scope.projectId}
-        and runs.origin <> 'synthetic'
+      ${ciRunsScopeRawWhere(scope)}
         and runs."durationMs" > 0
         and runs."createdAt" >= ${windowStartSec}
         ${branchSql}

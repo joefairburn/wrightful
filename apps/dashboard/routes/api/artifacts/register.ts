@@ -53,6 +53,18 @@ export const POST = defineHandler.withValidator({
         },
         400,
       );
+    case "quotaExceeded":
+      // Team is over its monthly artifact-byte allowance. 429 → the reporter
+      // backs off; raising the tier (or the next billing period) clears it.
+      return c.json(
+        {
+          error:
+            "Monthly artifact storage quota exceeded for this team. Upgrade the plan or wait for the next billing period.",
+          limit: result.limit,
+          used: result.used,
+        },
+        429,
+      );
     case "ok":
       return c.json({ uploads: result.uploads }, 201);
   }

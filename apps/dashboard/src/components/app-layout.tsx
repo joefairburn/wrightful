@@ -2,7 +2,9 @@ import {
   ArrowLeft,
   BarChart2,
   CheckSquare,
+  FileClock,
   FlaskConical,
+  Gauge,
   KeyRound,
   List,
   Radar,
@@ -12,10 +14,9 @@ import {
   Users,
   UsersRound,
 } from "lucide-react";
+import { useState } from "react";
 import { Link, useRouter, useShared } from "@void/react";
-// Command menu is wired up but temporarily hidden — re-enable by uncommenting
-// the trigger button below + the `<CommandMenu>` + shortcut hook usage.
-// import { CommandMenu, useCommandMenuShortcut } from "@/components/command-menu";
+import { CommandMenu, useCommandMenuShortcut } from "@/components/command-menu";
 import { QueryProvider } from "@/components/query-provider";
 import { SidebarUserMenu } from "@/components/sidebar-user-menu";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
@@ -77,8 +78,8 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
   const pathname = router.path;
   const user = auth?.user ?? null;
 
-  // const [cmdOpen, setCmdOpen] = useState(false);
-  // useCommandMenuShortcut(setCmdOpen);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  useCommandMenuShortcut(setCmdOpen);
 
   return (
     <QueryProvider>
@@ -131,14 +132,14 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
         </main>
       </div>
 
-      {/* <CommandMenu
+      <CommandMenu
         activeProject={selectedProject}
         activeTeam={selectedTeam}
         onOpenChange={setCmdOpen}
         open={cmdOpen}
         projects={teamProjects}
         teams={userTeams}
-      /> */}
+      />
     </QueryProvider>
   );
 }
@@ -331,6 +332,16 @@ function SettingsSidebarMiddle({
       ? selectedProject
       : null;
 
+  // Owner-only nav entries (the audit log) only render when we can confirm the
+  // expanded team is the selected one AND the viewer owns it. The page itself
+  // 404s for non-owners regardless; this just avoids dangling a link a member
+  // can't open. When the expanded team came from the URL (not the selected
+  // workspace) we can't see its role, so we conservatively hide it.
+  const isExpandedTeamOwner =
+    !!expandedTeam &&
+    selectedTeam?.slug === expandedTeam.slug &&
+    selectedTeam.role === "owner";
+
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-2 py-1">
       <div className="flex flex-col gap-0.5">
@@ -370,6 +381,12 @@ function SettingsSidebarMiddle({
             label="Groups"
           />
           <SettingsNavLink
+            active={pathname === `/settings/teams/${expandedTeam.slug}/usage`}
+            href={`/settings/teams/${expandedTeam.slug}/usage`}
+            icon={Gauge}
+            label="Usage"
+          />
+          <SettingsNavLink
             active={
               pathname.startsWith(
                 `/settings/teams/${expandedTeam.slug}/projects`,
@@ -381,6 +398,14 @@ function SettingsSidebarMiddle({
             icon={List}
             label="Projects"
           />
+          {isExpandedTeamOwner && (
+            <SettingsNavLink
+              active={pathname === `/settings/teams/${expandedTeam.slug}/audit`}
+              href={`/settings/teams/${expandedTeam.slug}/audit`}
+              icon={FileClock}
+              label="Audit log"
+            />
+          )}
         </div>
       )}
 

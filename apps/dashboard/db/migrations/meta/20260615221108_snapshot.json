@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6ceecbb3-d152-4c3e-9b53-d521ff1ff82d",
-  "prevId": "197b9064-9849-4569-b2c7-623126834d31",
+  "id": "7bd6ec11-4917-4259-a0ba-ebae3152845b",
+  "prevId": "14f0da91-5052-45dc-9ef0-a8f3fb810471",
   "tables": {
     "apiKeys": {
       "name": "apiKeys",
@@ -186,6 +186,11 @@
           "columns": ["testResultId"],
           "isUnique": false
         },
+        "artifacts_project_createdAt_idx": {
+          "name": "artifacts_project_createdAt_idx",
+          "columns": ["projectId", "createdAt"],
+          "isUnique": false
+        },
         "artifacts_identity_uq": {
           "name": "artifacts_identity_uq",
           "columns": [
@@ -214,6 +219,182 @@
           "tableFrom": "artifacts",
           "tableTo": "testResults",
           "columnsFrom": ["testResultId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "auditLog": {
+      "name": "auditLog",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "teamId": {
+          "name": "teamId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actorUserId": {
+          "name": "actorUserId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "targetType": {
+          "name": "targetType",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "targetId": {
+          "name": "targetId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "auditLog_team_createdAt_idx": {
+          "name": "auditLog_team_createdAt_idx",
+          "columns": ["teamId", "createdAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "auditLog_teamId_teams_id_fk": {
+          "name": "auditLog_teamId_teams_id_fk",
+          "tableFrom": "auditLog",
+          "tableTo": "teams",
+          "columnsFrom": ["teamId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "auditLog_projectId_projects_id_fk": {
+          "name": "auditLog_projectId_projects_id_fk",
+          "tableFrom": "auditLog",
+          "tableTo": "projects",
+          "columnsFrom": ["projectId"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "githubInstallations": {
+      "name": "githubInstallations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "teamId": {
+          "name": "teamId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "installationId": {
+          "name": "installationId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accountLogin": {
+          "name": "accountLogin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "githubInstallations_installationId_idx": {
+          "name": "githubInstallations_installationId_idx",
+          "columns": ["installationId"],
+          "isUnique": true
+        },
+        "githubInstallations_accountLogin_idx": {
+          "name": "githubInstallations_accountLogin_idx",
+          "columns": ["accountLogin"],
+          "isUnique": true
+        },
+        "githubInstallations_team_idx": {
+          "name": "githubInstallations_team_idx",
+          "columns": ["teamId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "githubInstallations_teamId_teams_id_fk": {
+          "name": "githubInstallations_teamId_teams_id_fk",
+          "tableFrom": "githubInstallations",
+          "tableTo": "teams",
+          "columnsFrom": ["teamId"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -765,6 +946,20 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "codeownersFile": {
+          "name": "codeownersFile",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "codeownersUpdatedAt": {
+          "name": "codeownersUpdatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -780,6 +975,87 @@
           "tableFrom": "projects",
           "tableTo": "teams",
           "columnsFrom": ["teamId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "quarantinedTests": {
+      "name": "quarantinedTests",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testId": {
+          "name": "testId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'skip'"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "quarantinedTests_project_testId_idx": {
+          "name": "quarantinedTests_project_testId_idx",
+          "columns": ["projectId", "testId"],
+          "isUnique": true
+        },
+        "quarantinedTests_project_createdAt_idx": {
+          "name": "quarantinedTests_project_createdAt_idx",
+          "columns": ["projectId", "createdAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "quarantinedTests_projectId_projects_id_fk": {
+          "name": "quarantinedTests_projectId_projects_id_fk",
+          "tableFrom": "quarantinedTests",
+          "tableTo": "projects",
+          "columnsFrom": ["projectId"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -988,6 +1264,13 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "githubCheckRunId": {
+          "name": "githubCheckRunId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1192,6 +1475,28 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "tier": {
+          "name": "tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'free'"
+        },
+        "retentionArtifactDays": {
+          "name": "retentionArtifactDays",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "retentionTestResultsDays": {
+          "name": "retentionTestResultsDays",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1272,6 +1577,79 @@
           "tableFrom": "testAnnotations",
           "tableTo": "testResults",
           "columnsFrom": ["testResultId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "testOwners": {
+      "name": "testOwners",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "testId": {
+          "name": "testId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "testOwners_project_testId_owner_idx": {
+          "name": "testOwners_project_testId_owner_idx",
+          "columns": ["projectId", "testId", "owner"],
+          "isUnique": true
+        },
+        "testOwners_project_testId_idx": {
+          "name": "testOwners_project_testId_idx",
+          "columns": ["projectId", "testId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "testOwners_projectId_projects_id_fk": {
+          "name": "testOwners_projectId_projects_id_fk",
+          "tableFrom": "testOwners",
+          "tableTo": "projects",
+          "columnsFrom": ["projectId"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -1570,6 +1948,11 @@
           "name": "testTags_testResultId_idx",
           "columns": ["testResultId"],
           "isUnique": false
+        },
+        "testTags_project_tag_idx": {
+          "name": "testTags_project_tag_idx",
+          "columns": ["projectId", "tag"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1587,6 +1970,92 @@
           "tableFrom": "testTags",
           "tableTo": "testResults",
           "columnsFrom": ["testResultId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "usageCounters": {
+      "name": "usageCounters",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "teamId": {
+          "name": "teamId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "periodStart": {
+          "name": "periodStart",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runsCount": {
+          "name": "runsCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "testResultsCount": {
+          "name": "testResultsCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "artifactBytes": {
+          "name": "artifactBytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "artifactCount": {
+          "name": "artifactCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "usageCounters_team_period_idx": {
+          "name": "usageCounters_team_period_idx",
+          "columns": ["teamId", "periodStart"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "usageCounters_teamId_teams_id_fk": {
+          "name": "usageCounters_teamId_teams_id_fk",
+          "tableFrom": "usageCounters",
+          "tableTo": "teams",
+          "columnsFrom": ["teamId"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"

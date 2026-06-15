@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vite-plus/test";
 import { bucketExpr } from "@/lib/analytics/bucketing-sql";
 import { buildRunsWhere, escapeLike } from "@/lib/runs-filters-where";
-import { EMPTY_FILTERS } from "@/lib/runs-filters";
+import { EMPTY_FILTERS, parseRunsFilters } from "@/lib/runs-filters";
 
 /**
  * `escapeLike` hand-writes the LIKE-metacharacter escaping that the typed
@@ -179,5 +179,37 @@ describe("bucketExpr literal inlining", () => {
     const chunk = asChunk(bucketExpr("day"));
     const col = chunk.args[0] as SqlChunk;
     expect(col.strings.join("")).toContain('runs."createdAt"');
+  });
+});
+
+/**
+ * `parseRunsFilters` date-range normalization. An inverted range (`from > to`)
+ * would AND two mutually-exclusive bounds into an always-empty page — a silent
+ * footgun on the public query/export API — so it is swapped to the intended
+ * window. (roadmap 2.5 review)
+ */
+describe("parseRunsFilters date range", () => {
+  it("swaps an inverted from/to into the intended window", () => {
+    const f = parseRunsFilters(
+      new URLSearchParams({ from: "2026-06-14", to: "2020-01-01" }),
+    );
+    expect(f.from).toBe("2020-01-01");
+    expect(f.to).toBe("2026-06-14");
+  });
+
+  it("leaves a correctly-ordered range untouched", () => {
+    const f = parseRunsFilters(
+      new URLSearchParams({ from: "2020-01-01", to: "2026-06-14" }),
+    );
+    expect(f.from).toBe("2020-01-01");
+    expect(f.to).toBe("2026-06-14");
+  });
+
+  it("ignores an invalid date and never swaps a one-sided range", () => {
+    const f = parseRunsFilters(
+      new URLSearchParams({ from: "2026-06-14", to: "not-a-date" }),
+    );
+    expect(f.from).toBe("2026-06-14");
+    expect(f.to).toBeNull();
   });
 });

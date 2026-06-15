@@ -45,10 +45,12 @@ function makeBuilder(kind: string): BuilderNode {
   for (const m of [
     "from",
     "innerJoin",
+    "leftJoin",
     "set",
     "where",
     "limit",
     "values",
+    "onConflictDoUpdate",
   ] as const) {
     node[m] = chain;
   }
@@ -67,7 +69,27 @@ vi.mock("void/db", () => ({
   },
   and: (...args: unknown[]) => ({ __op: "and", args }),
   eq: (...args: unknown[]) => ({ __op: "eq", args }),
+  gte: (...args: unknown[]) => ({ __op: "gte", args }),
   inArray: (...args: unknown[]) => ({ __op: "inArray", args }),
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...args: unknown[]) => ({
+      __op: "sql",
+      strings,
+      args,
+    }),
+    { raw: (s: string) => ({ __op: "sql.raw", s }) },
+  ),
+}));
+
+// The usage meter (`usageBumpStatement`) + quota gate (`checkQuota`) read the
+// free-tier env limits. Provide them so a small test artifact is never blocked.
+vi.mock("void/env", () => ({
+  env: {
+    WRIGHTFUL_FREE_MONTHLY_RUNS: 1000,
+    WRIGHTFUL_FREE_MONTHLY_TEST_RESULTS: 100000,
+    WRIGHTFUL_FREE_ARTIFACT_BYTES: 5368709120,
+    WRIGHTFUL_QUOTA_SOFT_WARN_PCT: 90,
+  },
 }));
 
 const putSpy = vi.fn<
@@ -517,8 +539,13 @@ describe("registerArtifacts", () => {
 
   it("inserts a fresh row with a tenant-prefixed key and returns its upload", async () => {
     // [0] ownerRun found; [1] testResults validation → tr-1 valid;
-    // [2] existing-artifacts SELECT → none.
-    awaitResults = [[{ id: "run-1" }], [{ id: "tr-1" }], []];
+    // [2] existing-artifacts SELECT → none; [3] usage-quota SELECT → free, unused.
+    awaitResults = [
+      [{ id: "run-1" }],
+      [{ id: "tr-1" }],
+      [],
+      [{ tier: "free", runsCount: 0, testResultsCount: 0, artifactBytes: 0 }],
+    ];
     const payload: RegisterArtifactsPayload = {
       runId: "run-1",
       artifacts: [artifact()],
@@ -532,13 +559,18 @@ describe("registerArtifacts", () => {
       `t/team-1/p/proj-1/runs/run-1/tr-1/${upload.artifactId}/shot.png`,
     );
     expect(upload.uploadUrl).toBe(`/api/artifacts/${upload.artifactId}/upload`);
-    // A single fresh row inserts via the directly-awaited single statement, not
-    // db.batch (batch is only used for >1 chunk).
-    expect(batchSpy).not.toHaveBeenCalled();
+    // The fresh-row insert now batches with the usage-meter bump (artifact bytes
+    // are metered atomically with the row), so the write goes through db.batch.
+    expect(batchSpy).toHaveBeenCalled();
   });
 
   it("de-dupes identical artifacts within one request to a single inserted row", async () => {
-    awaitResults = [[{ id: "run-1" }], [{ id: "tr-1" }], []];
+    awaitResults = [
+      [{ id: "run-1" }],
+      [{ id: "tr-1" }],
+      [],
+      [{ tier: "free", runsCount: 0, testResultsCount: 0, artifactBytes: 0 }],
+    ];
     const payload: RegisterArtifactsPayload = {
       runId: "run-1",
       artifacts: [artifact(), artifact()],

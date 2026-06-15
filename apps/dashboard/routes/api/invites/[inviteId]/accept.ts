@@ -3,6 +3,7 @@ import { requireAuth } from "void/auth";
 import { and, db, eq, gt } from "void/db";
 import { ulid } from "ulid";
 import { memberships, teamInvites } from "@schema";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { buildInviteMatchConds, getUserIdentity } from "@/lib/auth-users";
 import { runBatch } from "@/lib/db-batch";
 
@@ -78,6 +79,16 @@ export const POST = defineHandler(async (c) => {
     }),
     db.delete(teamInvites).where(eq(teamInvites.id, invite.id)),
   ]);
+
+  // Audit the genuine join only (the idempotent re-accept branch above creates
+  // no membership). The actor IS the invitee; record the role they joined as.
+  await recordAudit(c, {
+    teamId: invite.teamId,
+    action: AUDIT_ACTIONS.INVITE_ACCEPT,
+    targetType: "member",
+    targetId: user.id,
+    metadata: { role: invite.role, inviteId: invite.id },
+  });
 
   return c.json({ ok: true, teamId: invite.teamId });
 });

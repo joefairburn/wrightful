@@ -2,11 +2,13 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   CreateMonitorSchema,
   type CreateHttpMonitorInput,
+  type CreateTcpMonitorInput,
 } from "@/lib/monitors/monitor-schemas";
 import {
   formType,
   httpConfigFromForm,
   parseAssertionsField,
+  tcpConfigFromForm,
 } from "@/lib/monitors/monitor-form-parse";
 
 /**
@@ -23,11 +25,13 @@ function fd(entries: Record<string, string>): FormData {
 }
 
 describe("formType", () => {
-  it("returns http only for an explicit http type, browser otherwise", () => {
+  it("returns http/tcp for an explicit type, browser otherwise", () => {
     expect(formType(fd({ type: "http" }))).toBe("http");
+    expect(formType(fd({ type: "tcp" }))).toBe("tcp");
     expect(formType(fd({ type: "browser" }))).toBe("browser");
     expect(formType(fd({}))).toBe("browser");
-    expect(formType(fd({ type: "tcp" }))).toBe("browser");
+    // An unknown / reserved value defaults to browser.
+    expect(formType(fd({ type: "ping" }))).toBe("browser");
   });
 });
 
@@ -143,5 +147,65 @@ describe("round-trip through CreateMonitorSchema (http branch)", () => {
       expect(config.assertions).toHaveLength(1);
       expect(config.assertions[0]?.source).toBe("JSON_BODY");
     }
+  });
+});
+
+describe("tcpConfigFromForm — host/port/timeout coalescing", () => {
+  it("passes host verbatim and numeric fields through, undefined when absent", () => {
+    const present = tcpConfigFromForm(
+      fd({ host: "db.example.com", port: "5432", connectTimeoutMs: "2000" }),
+    );
+    expect(present.host).toBe("db.example.com");
+    expect(present.port).toBe("5432");
+    expect(present.connectTimeoutMs).toBe("2000");
+
+    const absent = tcpConfigFromForm(fd({ host: "db.example.com" }));
+    expect(absent.port).toBeUndefined();
+    expect(absent.connectTimeoutMs).toBeUndefined();
+  });
+});
+
+describe("round-trip through CreateMonitorSchema (tcp branch)", () => {
+  it("parses a form into a valid tcp config with the default timeout applied", () => {
+    const form = fd({
+      type: "tcp",
+      name: "Database",
+      intervalSeconds: "60",
+      host: "db.example.com",
+      port: "5432",
+    });
+    const parsed = CreateMonitorSchema.safeParse({
+      type: formType(form),
+      name: form.get("name"),
+      intervalSeconds: form.get("intervalSeconds"),
+      enabled: form.get("enabled") ?? "",
+      config: tcpConfigFromForm(form),
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.type === "tcp") {
+      const config = (parsed.data as CreateTcpMonitorInput).config;
+      expect(config.host).toBe("db.example.com");
+      expect(config.port).toBe(5432);
+      // numeric default applies when the field was absent
+      expect(config.connectTimeoutMs).toBe(5000);
+    }
+  });
+
+  it("rejects a tcp form whose host is internal (SSRF guard at the boundary)", () => {
+    const form = fd({
+      type: "tcp",
+      name: "Internal",
+      intervalSeconds: "60",
+      host: "169.254.169.254",
+      port: "80",
+    });
+    const parsed = CreateMonitorSchema.safeParse({
+      type: formType(form),
+      name: form.get("name"),
+      intervalSeconds: form.get("intervalSeconds"),
+      enabled: form.get("enabled") ?? "",
+      config: tcpConfigFromForm(form),
+    });
+    expect(parsed.success).toBe(false);
   });
 });

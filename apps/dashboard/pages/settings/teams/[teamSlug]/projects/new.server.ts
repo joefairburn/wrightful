@@ -1,4 +1,5 @@
 import { defineHandler, type InferProps } from "void";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
 import { createProjectForTeam, SlugDerivationError } from "@/lib/provisioning";
@@ -40,7 +41,14 @@ export const action = defineHandler(async (c) => {
   }
 
   try {
-    await createProjectForTeam(team.id, name);
+    const { slug } = await createProjectForTeam(team.id, name);
+    await recordAudit(c, {
+      teamId: team.id,
+      action: AUDIT_ACTIONS.PROJECT_CREATE,
+      targetType: "project",
+      targetId: slug,
+      metadata: { projectName: name },
+    });
   } catch (err) {
     if (err instanceof SlugDerivationError) {
       return c.redirect(`${formUrl}?error=${encodeURIComponent(err.message)}`);

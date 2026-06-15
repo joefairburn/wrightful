@@ -14,7 +14,13 @@ import {
 import { cn } from "@/lib/cn";
 import { initials } from "@/lib/initials";
 import { formatRelativeTime } from "@/lib/time-format";
+import type { MembershipRole } from "@schema";
 import type { Props } from "./members.server";
+
+/** Title-case a role for display in the selectors ("owner" → "Owner"). */
+function roleLabel(role: string): string {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
 
 interface CreateInviteResponse {
   invite: {
@@ -27,6 +33,16 @@ interface CreateInviteResponse {
   };
   url: string;
 }
+
+/**
+ * Native `<select>` styled to match the `Input` wrapper. The members page is a
+ * no-JS-friendly form surface (member-remove / leave / revoke all POST plain
+ * `<form>`s), so the role pickers use a real native select that submits its
+ * value rather than the JS-only Base UI `ui/select` — it works without
+ * hydration and the per-row form posts the selected value directly.
+ */
+const roleSelectClassName =
+  "min-h-8 rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none ring-ring/24 focus-visible:border-ring focus-visible:ring-[3px]";
 
 function formatExpiresIn(
   expiresAt: number,
@@ -47,12 +63,17 @@ export default function SettingsTeamMembersPage({
   invites,
   currentUserId,
   membersError,
+  assignableRoles,
+  roleDescriptions,
 }: Props) {
   const router = useRouter();
-  const isOwner = team.role === "owner";
+  // `manageMembers` is owner-only today; the role/remove controls render only
+  // for owners. `viewSettings` (member) sees the read-only list.
+  const canManageMembers = team.role === "owner";
   const here = `/settings/teams/${team.slug}/members`;
 
   const [identifier, setIdentifier] = useState("");
+  const [inviteRole, setInviteRole] = useState<MembershipRole>("member");
   const [revealedInviteUrl, setRevealedInviteUrl] = useState<string | null>(
     null,
   );
@@ -60,14 +81,14 @@ export default function SettingsTeamMembersPage({
   const createInvite = useMutation<
     CreateInviteResponse,
     Error,
-    { identifier: string }
+    { identifier: string; role: string }
   >({
-    mutationFn: async ({ identifier: id }) => {
+    mutationFn: async ({ identifier: id, role }) => {
       const res = await fetch(`/api/teams/${team.slug}/invites`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ identifier: id }),
+        body: JSON.stringify({ identifier: id, role }),
       });
       if (!res.ok) {
         const body: unknown = await res.json().catch(() => null);
@@ -112,7 +133,7 @@ export default function SettingsTeamMembersPage({
         </pre>
       </RevealOnceDialog>
 
-      {isOwner && (
+      {canManageMembers && (
         <SettingsCard
           subtitle="They'll get an invite link valid for 7 days."
           title="Invite a teammate"
@@ -121,7 +142,10 @@ export default function SettingsTeamMembersPage({
             className="m-0 flex flex-col gap-2 sm:flex-row sm:items-end"
             onSubmit={(e) => {
               e.preventDefault();
-              createInvite.mutate({ identifier: identifier.trim() });
+              createInvite.mutate({
+                identifier: identifier.trim(),
+                role: inviteRole,
+              });
             }}
           >
             <div className="flex-1">
@@ -136,6 +160,26 @@ export default function SettingsTeamMembersPage({
                 value={identifier}
               />
             </div>
+            <select
+              aria-label="Invite role"
+              className={cn(roleSelectClassName, "sm:w-32")}
+              name="role"
+              // The options are exactly `assignableRoles`; resolve the emitted
+              // value back to that typed list (defaulting to member) rather than
+              // casting — keeps `inviteRole` a real MembershipRole.
+              onChange={(e) =>
+                setInviteRole(
+                  assignableRoles.find((r) => r === e.target.value) ?? "member",
+                )
+              }
+              value={inviteRole}
+            >
+              {assignableRoles.map((r) => (
+                <option key={r} value={r}>
+                  {roleLabel(r)}
+                </option>
+              ))}
+            </select>
             <Button
               disabled={createInvite.isPending}
               loading={createInvite.isPending}
@@ -145,6 +189,9 @@ export default function SettingsTeamMembersPage({
               Send invite
             </Button>
           </form>
+          <p className="mt-2 text-[11.5px] text-fg-3">
+            {roleDescriptions[inviteRole]}
+          </p>
           <p className="mt-2 text-[11.5px] text-fg-3">
             Email invites match accounts with a verified email (currently GitHub
             sign-ins). For password accounts, invite by GitHub username instead.
@@ -190,17 +237,42 @@ export default function SettingsTeamMembersPage({
                   {m.email}
                 </div>
               </div>
-              <span
-                className={cn(
-                  "rounded-sm px-2 py-0.5 font-mono text-[11px] capitalize",
-                  m.role === "owner"
-                    ? "bg-accent-soft text-accent"
-                    : "bg-bg-3 text-fg-2",
-                )}
-              >
-                {m.role}
-              </span>
-              {isOwner && m.userId !== currentUserId && (
+              {canManageMembers ? (
+                <form
+                  action={`${here}?updateMemberRole`}
+                  className="m-0 flex items-center gap-1.5"
+                  method="post"
+                >
+                  <input name="userId" type="hidden" value={m.userId} />
+                  <select
+                    aria-label={`Role for ${m.name}`}
+                    className={roleSelectClassName}
+                    defaultValue={m.role}
+                    name="role"
+                  >
+                    {assignableRoles.map((r) => (
+                      <option key={r} value={r}>
+                        {roleLabel(r)}
+                      </option>
+                    ))}
+                  </select>
+                  <Button size="xs" type="submit" variant="outline">
+                    Save
+                  </Button>
+                </form>
+              ) : (
+                <span
+                  className={cn(
+                    "rounded-sm px-2 py-0.5 font-mono text-[11px] capitalize",
+                    m.role === "owner"
+                      ? "bg-accent-soft text-accent"
+                      : "bg-bg-3 text-fg-2",
+                  )}
+                >
+                  {m.role}
+                </span>
+              )}
+              {canManageMembers && m.userId !== currentUserId && (
                 <form
                   action={`${here}?removeMember`}
                   className="m-0"
@@ -263,7 +335,7 @@ export default function SettingsTeamMembersPage({
                 <span className="rounded-sm bg-bg-3 px-2 py-0.5 font-mono text-[11px] capitalize text-fg-2">
                   {inv.role}
                 </span>
-                {isOwner && (
+                {canManageMembers && (
                   <form
                     action={`${here}?revokeInvite`}
                     className="m-0"

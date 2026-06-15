@@ -1,9 +1,19 @@
 import type { Context } from "hono";
+import type { ZodError } from "zod";
 
 /** Read a string field from FormData. Files and missing fields return "". */
 export function readField(form: FormData, name: string): string {
   const v = form.get(name);
   return typeof v === "string" ? v : "";
+}
+
+/**
+ * The first Zod issue's message for a no-JS form flash, or `fallback` when the
+ * error somehow carries none. Collapses the `error.issues[0]?.message ?? "…"`
+ * extraction the slow-path mutation handlers all repeat into one place.
+ */
+export function firstIssueMessage(error: ZodError, fallback: string): string {
+  return error.issues[0]?.message ?? fallback;
 }
 
 /**

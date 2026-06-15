@@ -9,12 +9,16 @@ import {
   CompleteRunPayloadSchema,
   OpenRunPayloadSchema,
   OpenRunResponseSchema,
+  MAX as DASHBOARD_MAX,
+  QuarantineResponseSchema,
   RegisterArtifactsPayloadSchema,
   RegisterArtifactsResponseSchema,
   SUPPORTED_VERSIONS,
   TestAttemptSchema,
   WRIGHTFUL_VERSION_HEADER as DASHBOARD_VERSION_HEADER,
 } from "../../../../apps/dashboard/src/lib/schemas.js";
+import { MAX_IDEMPOTENCY_KEY_LENGTH } from "../ci.js";
+import { MAX_CODEOWNERS_BYTES } from "../codeowners-file.js";
 import {
   normalizeContentType,
   SAFE_CONTENT_TYPES as REPORTER_SAFE_CONTENT_TYPES,
@@ -30,7 +34,9 @@ import {
   WRIGHTFUL_VERSION_HEADER as REPORTER_VERSION_HEADER,
   type AppendResultsResponse,
   type ArtifactRegistration,
+  type OpenRunPayload,
   type OpenRunResponse,
+  type QuarantineResponse,
   type RegisterArtifactsResponse,
   type TestResultPayload,
 } from "../types.js";
@@ -192,6 +198,58 @@ describe("reporter ↔ dashboard wire contract", () => {
 
     const parsed = OpenRunPayloadSchema.safeParse(openPayload);
     expect(parsed.success).toBe(true);
+  });
+
+  it("an open-run payload with a CODEOWNERS string parses through OpenRunPayloadSchema", () => {
+    // roadmap 2.3: the reporter attaches the repo's CODEOWNERS file contents as
+    // an optional top-level `codeowners` string on the open-run payload; the
+    // dashboard upserts it onto the project. Guard the field both ways: a
+    // payload carrying it parses (and the value survives), and a payload
+    // omitting it still parses (the dashboard leaves any pasted file intact).
+    const tests = [
+      makeTest({
+        id: "t1",
+        outcome: "expected",
+        title: "checkout",
+        file: "tests/checkout.spec.ts",
+      }),
+    ];
+    const plannedTests = tests.map((t) => buildTestDescriptor(t, null));
+    const base = {
+      idempotencyKey: "deterministic-key",
+      run: {
+        ciProvider: null,
+        ciBuildId: null,
+        branch: null,
+        environment: null,
+        commitSha: null,
+        commitMessage: null,
+        prNumber: null,
+        repo: null,
+        actor: null,
+        reporterVersion: "0.1.1",
+        playwrightVersion: "1.59.0",
+        expectedTotalTests: plannedTests.length,
+        plannedTests,
+      },
+    };
+
+    const withCodeowners: OpenRunPayload = {
+      ...base,
+      codeowners: "/tests/checkout/  @team/payments\n*.spec.ts  @team/qa\n",
+    };
+    const parsedWith = OpenRunPayloadSchema.safeParse(withCodeowners);
+    expect(parsedWith.success).toBe(true);
+    expect(parsedWith.success && parsedWith.data.codeowners).toContain(
+      "@team/payments",
+    );
+
+    // Omitting it is still valid; the dashboard treats absence as "don't touch".
+    const parsedWithout = OpenRunPayloadSchema.safeParse(base);
+    expect(parsedWithout.success).toBe(true);
+    expect(
+      parsedWithout.success && parsedWithout.data.codeowners,
+    ).toBeUndefined();
   });
 
   it("CompleteRunPayloadSchema accepts all reporter-emitted statuses", () => {
@@ -549,6 +607,31 @@ describe("dashboard ↔ reporter response contract", () => {
     });
     expect(parsed.success).toBe(false);
   });
+
+  it("GET /api/runs/quarantine response parses through QuarantineResponseSchema", () => {
+    // Shape returned by routes/api/runs/quarantine.ts ({ tests }). The reporter
+    // reads `testId`/`mode`/`reason` off each entry (see quarantine.ts).
+    const response: QuarantineResponse = {
+      tests: [
+        { testId: "t1", mode: "skip", reason: "known flaky" },
+        { testId: "t2", mode: "soft", reason: null },
+      ],
+    };
+    const parsed = QuarantineResponseSchema.safeParse(response);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("QuarantineResponseSchema accepts an empty list (nothing quarantined)", () => {
+    const parsed = QuarantineResponseSchema.safeParse({ tests: [] });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("QuarantineResponseSchema rejects an entry with an unknown mode (catches enum drift)", () => {
+    const parsed = QuarantineResponseSchema.safeParse({
+      tests: [{ testId: "t1", mode: "nope", reason: null }],
+    });
+    expect(parsed.success).toBe(false);
+  });
 });
 
 // The reporter mirrors the dashboard's artifact content-type allowlist so a
@@ -677,5 +760,21 @@ describe("reporter ↔ dashboard wire shape (structural equivalence)", () => {
     const emitted = Object.keys(descriptor).sort();
 
     expect(emitted).toEqual(expected);
+  });
+});
+
+// The shape/enum/version checks above guard the wire STRUCTURE, but the
+// reporter's two numeric preflight caps — the idempotency-key length and the
+// CODEOWNERS byte size — are hand-mirrored from the dashboard's `MAX` table and
+// escaped the canary entirely. A dashboard cap tightening the reporter didn't
+// track would emit an over-long value the live server 400s on (a failed open
+// loses the whole run, non-retryably). Pin each === its dashboard source.
+describe("reporter ↔ dashboard preflight caps", () => {
+  it("the reporter's idempotency-key cap equals the dashboard's MAX.ID", () => {
+    expect(MAX_IDEMPOTENCY_KEY_LENGTH).toBe(DASHBOARD_MAX.ID);
+  });
+
+  it("the reporter's CODEOWNERS byte cap equals the dashboard's MAX.CODEOWNERS", () => {
+    expect(MAX_CODEOWNERS_BYTES).toBe(DASHBOARD_MAX.CODEOWNERS);
   });
 });

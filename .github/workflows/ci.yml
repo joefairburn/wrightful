@@ -28,8 +28,20 @@ jobs:
       - name: Prepare Void codegen
         run: pnpm --filter @wrightful/dashboard exec void prepare
 
+      # Redirect `vp check`'s output to a file rather than letting it stream to
+      # the CI capture pipe. Vite+ floods stdout with lint diagnostics from
+      # parallel worker threads, and on the runner that pipe breaks mid-write —
+      # the Rust binary then panics in std `io/stdio.rs` ("failed printing to
+      # stdout") and aborts with exit 134 ("Vite+ panicked. This is a bug in
+      # Vite+, not your code."), regardless of whether there are real lint
+      # errors. Writing to a regular file removes the pipe (a file write can't
+      # EPIPE); we then print the captured output and preserve the real exit
+      # code so genuine format/lint/type errors still fail the job.
       - name: Check (format, lint, typecheck)
-        run: pnpm check
+        run: |
+          pnpm check > check-output.log 2>&1 || code=$?
+          cat check-output.log
+          exit "${code:-0}"
 
   test-reporter:
     name: Reporter Tests

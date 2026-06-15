@@ -18,6 +18,7 @@ import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
+import { DATE_RANGE_PRESETS, presetRange } from "@/lib/date-range-presets";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import {
   type RunOriginFilter,
@@ -236,27 +237,50 @@ function DateRangeFilter({
     <Popover>
       <PopoverTrigger
         render={
+          // Unset = all time: the loader applies NO default date window
+          // (`buildRunsWhere` only adds bounds when `from`/`to` are set), so an
+          // empty range is honestly labelled "All time", not "Last 24 hours".
           <FilterTriggerButton
             aria-label="Date range"
             hasValue={hasValue}
             icon={<CalendarIcon />}
-            label={dateLabel ?? "Last 24 hours"}
+            label={dateLabel ?? "All time"}
             muted={!hasValue}
             onClear={() => onApply(null, null)}
           />
         }
       />
       <PopoverPopup align="end" className="p-2">
-        <Calendar
-          mode="range"
-          onSelect={(selected: DateRange | undefined) =>
-            onApply(
-              selected?.from ? toIsoDate(selected.from) : null,
-              selected?.to ? toIsoDate(selected.to) : null,
-            )
-          }
-          selected={range}
-        />
+        <div className="flex gap-2">
+          {/* Preset column — each calls the existing `onApply(from, to)` with a
+              computed yyyy-MM-dd range; the URL/refetch plumbing is unchanged. */}
+          <div className="flex w-32 shrink-0 flex-col gap-0.5 border-r border-border pr-2">
+            {DATE_RANGE_PRESETS.map((preset) => (
+              <Button
+                className="justify-start"
+                key={preset.id}
+                onClick={() => {
+                  const { from, to } = presetRange(preset.id);
+                  onApply(from, to);
+                }}
+                size="xs"
+                variant="ghost"
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+          <Calendar
+            mode="range"
+            onSelect={(selected: DateRange | undefined) =>
+              onApply(
+                selected?.from ? toIsoDate(selected.from) : null,
+                selected?.to ? toIsoDate(selected.to) : null,
+              )
+            }
+            selected={range}
+          />
+        </div>
         {hasValue && (
           <div className="flex justify-end pt-2">
             <Button

@@ -78,6 +78,39 @@ export interface HttpResultDetail {
 }
 
 /**
+ * Inline result detail for a `tcp` / `ping` execution — serialized as JSON into
+ * `monitorExecutions.resultDetail`, the TCP twin of {@link HttpResultDetail}. A
+ * TCP check has no HTTP response, so it carries only the connection facts: the
+ * host:port it dialed and the time the raw socket took to OPEN (TCP handshake
+ * completing). The detail page renders these instead of the http
+ * status/assertion view.
+ *
+ * Workers cannot send ICMP, so a `ping`-type monitor is modelled as the SAME
+ * TCP-connect probe — see `tcp/tcp-run.ts` for the full rationale; the detail
+ * shape is identical for both.
+ */
+export interface TcpResultDetail {
+  host: string;
+  port: number;
+  timings: {
+    /** Time for the TCP connection to open (handshake), ms. */
+    connectMs: number;
+    /** Total wall-clock of the check, ms (connect + close). */
+    totalMs: number;
+  };
+}
+
+/**
+ * The inline result detail an http OR tcp execution stores on
+ * `monitorExecutions.resultDetail`. A browser execution stores `null` (its
+ * detail lives in the linked `runs` row). Discriminated structurally by the
+ * detail-parsers, NOT by a tag field — each type's executor writes its own
+ * shape, and the matching read-path parser (`parseHttpResultDetail` /
+ * `parseTcpResultDetail`) validates it.
+ */
+export type MonitorResultDetail = HttpResultDetail | TcpResultDetail;
+
+/**
  * Outcome of executing one monitor attempt, returned by a {@link MonitorExecutor}.
  *
  * `infraError` is the load-bearing distinction for the queue consumer:
@@ -87,7 +120,9 @@ export interface HttpResultDetail {
  *   - `true` → we could not execute the monitor (sandbox unavailable, token
  *     mint failed, transient infra). The consumer should `retry()` the message.
  *
- * `statusCode` / `resultDetail` are filled by the `http` executor and are `null`
+ * `statusCode` is filled by the `http` executor only (null for tcp/browser).
+ * `resultDetail` is filled by the `http` AND `tcp`/`ping` executors (each its
+ * own shape — {@link HttpResultDetail} / {@link TcpResultDetail}) and is `null`
  * for `browser` executions (whose rich detail lives in the linked run).
  */
 export interface ExecutionResult {
@@ -97,10 +132,10 @@ export interface ExecutionResult {
   durationMs: number | null;
   errorMessage: string | null;
   infraError: boolean;
-  /** HTTP response status code (http type); null for browser / no response. */
+  /** HTTP response status code (http type); null for tcp / browser / no response. */
   statusCode: number | null;
-  /** Inline HTTP result detail (http type); null for browser. */
-  resultDetail: HttpResultDetail | null;
+  /** Inline result detail (http or tcp type); null for browser. */
+  resultDetail: MonitorResultDetail | null;
 }
 
 /**

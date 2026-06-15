@@ -100,10 +100,14 @@ export async function createMonitor(
     alertsEnabled: 1,
     // null = notify all team members (default); narrowed later via the picker.
     alertTargets: null,
-    // `source` carries the browser spec; `config` the http URL/assertions JSON.
-    // Each type writes its own field and leaves the other null.
+    // `source` carries the browser spec; `config` the http URL/assertions JSON
+    // or the tcp host/port JSON. Each type writes its own field, leaving the
+    // others null.
     source: input.type === "browser" ? input.source : null,
-    config: input.type === "http" ? JSON.stringify(input.config) : null,
+    config:
+      input.type === "http" || input.type === "tcp"
+        ? JSON.stringify(input.config)
+        : null,
     intervalSeconds: input.intervalSeconds,
     schedulingStrategy: "round_robin",
     retryConfig: null,
@@ -168,14 +172,17 @@ export async function updateMonitor(
   // the update schemas omit it and this never reassigns it.
   const set: Partial<typeof monitors.$inferInsert> = { updatedAt: now };
   if (patch.name !== undefined) set.name = patch.name;
-  // `source` is browser-only, `config` http-only — gate each by the stored type
-  // so a stray cross-type field can't contaminate the row. The action's per-type
-  // dispatch already prevents this; this is the repo-level backstop for a direct
-  // or future caller (`UpdateMonitorInput` permits both fields).
+  // `source` is browser-only, `config` is http/tcp — gate each by the stored
+  // type so a stray cross-type field can't contaminate the row. The action's
+  // per-type dispatch already prevents this; this is the repo-level backstop for
+  // a direct or future caller (`UpdateMonitorInput` permits both fields).
   if (current.type === "browser" && patch.source !== undefined) {
     set.source = patch.source;
   }
-  if (current.type === "http" && patch.config !== undefined) {
+  if (
+    (current.type === "http" || current.type === "tcp") &&
+    patch.config !== undefined
+  ) {
     set.config = JSON.stringify(patch.config);
   }
   if (patch.intervalSeconds !== undefined) {
@@ -267,11 +274,12 @@ export async function setMonitorAlertTargets(
 
 /**
  * Count of monitors in the project — for per-project cap enforcement. With a
- * `type`, counts only that kind: browser and http have SEPARATE caps
- * (`WRIGHTFUL_MONITOR_MAX_PER_PROJECT` vs `WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT`)
- * because a container run and a plain `fetch()` have very different costs, so a
- * project can hold many cheap uptime checks without eating its browser budget.
- * Without a `type` (the list header) it counts all monitors in the project.
+ * `type`, counts only that kind: browser, http, and tcp have SEPARATE caps
+ * (`WRIGHTFUL_MONITOR_MAX_PER_PROJECT` / `WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT`
+ * / `WRIGHTFUL_TCP_MONITOR_MAX_PER_PROJECT`) because a container run, a plain
+ * `fetch()`, and a raw socket `connect()` have very different costs, so a project
+ * can hold many cheap uptime checks without eating its browser budget. Without a
+ * `type` (the list header) it counts all monitors in the project.
  */
 export async function countMonitors(
   scope: TenantScope,
