@@ -3,6 +3,7 @@ import {
   branchFragment,
   ciRunsJoinFragment,
   ciRunsJoinOn,
+  ciRunsScopeRawWhere,
   searchFragment,
   tagFragment,
   testResultsScopeJoin,
@@ -88,6 +89,37 @@ describe("ciRunsJoinFragment", () => {
       .strings.join("")
       .replace(/\s+/g, " ");
     expect(scoped.startsWith(join)).toBe(true);
+  });
+});
+
+describe("ciRunsScopeRawWhere", () => {
+  it("binds BOTH the projectId AND the teamId (the team half run-duration used to drop)", () => {
+    const scope = makeTenantScope({
+      teamId: "team_01",
+      projectId: "proj_42",
+      teamSlug: "acme",
+      projectSlug: "web",
+    });
+    const op = readSql(ciRunsScopeRawWhere(scope));
+    // Both tenant ids ride as bound params — never interpolated into the text.
+    expect(op.args).toEqual(["proj_42", "team_01"]);
+    const text = op.strings.join("");
+    expect(text).not.toContain("proj_42");
+    expect(text).not.toContain("team_01");
+  });
+
+  it("scopes by projectId AND teamId and excludes synthetic monitor traffic", () => {
+    const scope = makeTenantScope({
+      teamId: "team_01",
+      projectId: "proj_42",
+      teamSlug: "acme",
+      projectSlug: "web",
+    });
+    const text = readSql(ciRunsScopeRawWhere(scope)).strings.join("");
+    expect(text).toContain(`runs."projectId" =`);
+    expect(text).toContain(`runs."teamId" =`);
+    expect(text).toContain(`runs.origin <> 'synthetic'`);
+    expect(text.trimStart().startsWith("where")).toBe(true);
   });
 });
 

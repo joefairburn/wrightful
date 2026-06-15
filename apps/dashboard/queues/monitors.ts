@@ -1,16 +1,4 @@
-import { defineQueue } from "void";
-import { env } from "void/env";
-import { logger } from "void/log";
-import { runMonitorJob } from "@/lib/monitors/executor";
-import { resolveExecutor } from "@/lib/monitors/executor-registry";
-import {
-  claimExecution,
-  loadExecutionById,
-  loadMonitorById,
-  recordExecutionResult,
-} from "@/lib/monitors/monitors-repo";
-import type { MonitorJob } from "@/lib/monitors/types";
-import { broadcastProjectRoom } from "@/realtime/publish";
+import { createMonitorConsumer } from "@/lib/monitors/queue-consumer";
 
 /**
  * The `"monitors"` queue consumer — the system-internal half of synthetic
@@ -19,17 +7,12 @@ import { broadcastProjectRoom } from "@/realtime/publish";
  * the consumer runs the user's check in a container (or the stub) and records
  * its outcome.
  *
- * This file is the THIN ADAPTER — it owns only the wiring, not the logic. The
- * ack/retry decision lives in the PURE `runMonitorJob` (`@/lib/monitors/executor`)
- * with its IO injected: the `monitors-repo` system-internal functions
- * (load/claim/record by id, scoped by the row's own projectId — like
- * `finalizeStaleRun`), the executor resolved from `WRIGHTFUL_MONITOR_EXECUTOR`,
- * and a `Date.now`-based clock. Keeping the decision pure is what lets it be
- * unit-tested without the `void/*` runtime the harness can't resolve.
- *
- * `recordExecutionResult` ALREADY writes both the execution terminal row AND the
- * monitor's `lastStatus`/`lastRunAt` in one atomic batch, so the consumer does
- * NOT touch the monitor row separately — it just hands `recordResult` through.
+ * This file is the THIN ADAPTER — it owns only the Void tuning constants below;
+ * the consume-and-decide body is shared via `createMonitorConsumer`
+ * (`@/lib/monitors/queue-consumer`), and the ack/retry decision itself lives in
+ * the PURE `runMonitorJob` (`@/lib/monitors/executor`). `recordExecutionResult`
+ * (wired inside the factory) ALREADY writes both the execution terminal row AND
+ * the monitor's `lastStatus`/`lastRunAt` in one atomic batch.
  */
 
 /**
@@ -65,39 +48,7 @@ export const maxRetries = 2;
  */
 export const retryDelay = 30;
 
-export default defineQueue<MonitorJob>(async (batch) => {
-  const executor = resolveExecutor(env.WRIGHTFUL_MONITOR_EXECUTOR);
-  const deps = {
-    loadMonitor: loadMonitorById,
-    loadExecution: loadExecutionById,
-    claim: claimExecution,
-    recordResult: recordExecutionResult,
-    executor,
-    now: () => Math.floor(Date.now() / 1000),
-    // Settle events to the project room drive the live monitors list. Same
-    // DO-to-DO publish path the ingest pipeline uses; non-fatal by design.
-    broadcast: broadcastProjectRoom,
-  };
-
-  for (const message of batch.messages) {
-    try {
-      const { action } = await runMonitorJob(message.body, deps);
-      if (action === "retry") {
-        message.retry({ delaySeconds: retryDelay });
-      } else {
-        message.ack();
-      }
-    } catch (err) {
-      // `runMonitorJob` already converts executor throws into a recorded error
-      // result; reaching here means an UNEXPECTED throw (e.g. a recordResult DB
-      // failure), so retry the delivery and surface it to Cloudflare Tail.
-      logger.error("monitor job failed unexpectedly", {
-        monitorId: message.body.monitorId,
-        executionId: message.body.executionId,
-        attempts: message.attempts,
-        message: err instanceof Error ? err.message : String(err),
-      });
-      message.retry({ delaySeconds: retryDelay });
-    }
-  }
+export default createMonitorConsumer({
+  label: "monitor",
+  retryDelaySeconds: retryDelay,
 });

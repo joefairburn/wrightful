@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { requireAuth } from "void/auth";
 import { resolveProjectBySlugs } from "@/lib/authz";
+import { can } from "@/lib/roles";
 import {
   makeTenantScope,
   type TenantScope,
@@ -149,12 +150,15 @@ export async function resolveProjectApiScope(
  * for a MUTATION under `/api/t/:teamSlug/p/:projectSlug/*` (which the page
  * middleware never resolves an `activeProject` for — see the note on
  * {@link resolveTenantApiScope}). Resolves the project + membership in one join,
- * then gates on `role === "owner"`.
+ * then gates on `can(role, "writeConfig")` — its callers (quarantine,
+ * test-ownership edits) are project-config mutations, so the project
+ * authorization decision lives in `roles.ts` rather than as a literal
+ * `role === "owner"` here.
  *
- * 404 (never 403) on a missing param, a no-membership miss, OR a non-owner —
- * mirroring the settings owner seam: it denies without confirming the resource
- * exists and routes through the styled not-found page. A non-owner only reaches
- * a mutation via a crafted request (the UI hides the control), so the
+ * 404 (never 403) on a missing param, a no-membership miss, OR an insufficient
+ * role — mirroring the settings owner seam: it denies without confirming the
+ * resource exists and routes through the styled not-found page. A non-owner only
+ * reaches a mutation via a crafted request (the UI hides the control), so the
  * leak-shaped 404 is the consistent choice.
  *
  * Returns the `TenantScope` for the scoped repo calls. Short-circuit on a
@@ -169,9 +173,9 @@ export async function resolveOwnerTenantApiScope(
   if (!teamSlug || !projectSlug) return c.json({ error: "Not found" }, 404);
 
   const project = await resolveProjectBySlugs(user.id, teamSlug, projectSlug);
-  // A no-membership miss AND a non-owner both answer 404 — don't leak existence
-  // or the viewer's role.
-  if (!project || project.role !== "owner") {
+  // A no-membership miss AND an insufficient role both answer 404 — don't leak
+  // existence or the viewer's role.
+  if (!project || !can(project.role, "writeConfig")) {
     return c.json({ error: "Not found" }, 404);
   }
   return {

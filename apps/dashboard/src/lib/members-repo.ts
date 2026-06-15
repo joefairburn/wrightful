@@ -139,3 +139,39 @@ export async function removeMemberGuarded(
   if (stillThere.length === 0) return { ok: false, reason: "noop" };
   return { ok: false, reason: "lastOwner" };
 }
+
+/** Outcome of the self-leave guarded delete — narrower than {@link GuardedWriteResult}. */
+export type LeaveTeamResult = { ok: true } | { ok: false; reason: "lastOwner" };
+
+/**
+ * Remove the ACTOR'S OWN membership from `teamId`, guarded so the team's last
+ * owner can't leave — the same `notLastOwner` owner-count-subquery-in-the-WHERE
+ * shape as {@link removeMemberGuarded}, so the guarded-DELETE plumbing lives in
+ * one place (this repo) and rides its test surface rather than being open-coded
+ * in the members page action.
+ *
+ * Unlike {@link removeMemberGuarded} — which targets an arbitrary user whose
+ * row may have vanished concurrently and so must disambiguate `noop` vs
+ * `lastOwner` — this is only reachable after a member-scope check has already
+ * proven the actor's own membership is live (`requireMemberScope` →
+ * `resolveTeamBySlug` inner-joins `memberships`). A zero-row result can
+ * therefore ONLY mean the guard blocked a last-owner leave, so the result is
+ * narrower (no `noop`) and there is no vanished-vs-blocked re-check.
+ */
+export async function leaveTeamGuarded(
+  teamId: string,
+  userId: string,
+): Promise<LeaveTeamResult> {
+  const deleted = await db
+    .delete(memberships)
+    .where(
+      and(
+        eq(memberships.teamId, teamId),
+        eq(memberships.userId, userId),
+        notLastOwner(teamId),
+      ),
+    )
+    .returning({ id: memberships.id });
+
+  return deleted.length > 0 ? { ok: true } : { ok: false, reason: "lastOwner" };
+}

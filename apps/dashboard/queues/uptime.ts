@@ -1,16 +1,4 @@
-import { defineQueue } from "void";
-import { env } from "void/env";
-import { logger } from "void/log";
-import { runMonitorJob } from "@/lib/monitors/executor";
-import { resolveExecutor } from "@/lib/monitors/executor-registry";
-import {
-  claimExecution,
-  loadExecutionById,
-  loadMonitorById,
-  recordExecutionResult,
-} from "@/lib/monitors/monitors-repo";
-import type { MonitorJob } from "@/lib/monitors/types";
-import { broadcastProjectRoom } from "@/realtime/publish";
+import { createMonitorConsumer } from "@/lib/monitors/queue-consumer";
 
 /**
  * The `"uptime"` queue consumer — the system-internal half of the lightweight
@@ -27,12 +15,12 @@ import { broadcastProjectRoom } from "@/realtime/publish";
  * throughput or risk head-of-line blocking. Tuning each queue independently is
  * why they're split.
  *
- * Like `monitors.ts` this is the THIN ADAPTER: the ack/retry decision lives in
- * the pure `runMonitorJob`, with the same `monitors-repo` IO injected. The
- * executor is the same TYPE-DISPATCHING `resolveExecutor` — for an http job it
- * resolves to `HttpExecutor` and for a tcp/ping job to `TcpExecutor`, regardless
- * of `WRIGHTFUL_MONITOR_EXECUTOR` (which only selects the BROWSER stub/sandbox),
- * so uptime checks run with the real `fetch` / `connect()` in every environment.
+ * Like `monitors.ts` this is the THIN ADAPTER — only the tuning consts below are
+ * its own; the consume body is shared via `createMonitorConsumer` and the
+ * ack/retry decision lives in the pure `runMonitorJob`. The type-dispatching
+ * `resolveExecutor` (wired in the factory) resolves an http job to `HttpExecutor`
+ * and a tcp/ping job to `TcpExecutor` regardless of `WRIGHTFUL_MONITOR_EXECUTOR`
+ * (which only selects the BROWSER stub/sandbox).
  */
 
 /**
@@ -61,37 +49,7 @@ export const maxRetries = 2;
  */
 export const retryDelay = 5;
 
-export default defineQueue<MonitorJob>(async (batch) => {
-  const executor = resolveExecutor(env.WRIGHTFUL_MONITOR_EXECUTOR);
-  const deps = {
-    loadMonitor: loadMonitorById,
-    loadExecution: loadExecutionById,
-    claim: claimExecution,
-    recordResult: recordExecutionResult,
-    executor,
-    now: () => Math.floor(Date.now() / 1000),
-    broadcast: broadcastProjectRoom,
-  };
-
-  for (const message of batch.messages) {
-    try {
-      const { action } = await runMonitorJob(message.body, deps);
-      if (action === "retry") {
-        message.retry({ delaySeconds: retryDelay });
-      } else {
-        message.ack();
-      }
-    } catch (err) {
-      // `runMonitorJob` converts executor throws into a recorded error result;
-      // reaching here means an UNEXPECTED throw (e.g. a recordResult DB
-      // failure), so retry the delivery and surface it to Cloudflare Tail.
-      logger.error("uptime job failed unexpectedly", {
-        monitorId: message.body.monitorId,
-        executionId: message.body.executionId,
-        attempts: message.attempts,
-        message: err instanceof Error ? err.message : String(err),
-      });
-      message.retry({ delaySeconds: retryDelay });
-    }
-  }
+export default createMonitorConsumer({
+  label: "uptime",
+  retryDelaySeconds: retryDelay,
 });

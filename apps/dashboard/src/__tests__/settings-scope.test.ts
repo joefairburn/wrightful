@@ -116,17 +116,27 @@ function ownedProject(role: TeamRole): OwnedProject {
 }
 
 describe("gateOwnedProject", () => {
-  it("passes an owner-role project through unchanged", () => {
+  it("passes an owner-role project through unchanged (default mintKeys)", () => {
     const project = ownedProject("owner");
     expect(gateOwnedProject(project)).toEqual(project);
   });
 
-  it("denies (returns null) a non-owner member — owner-only operation", () => {
+  it("denies (returns null) a member — lacks the default mintKeys capability", () => {
     expect(gateOwnedProject(ownedProject("member"))).toBeNull();
+  });
+
+  it("denies (returns null) a viewer", () => {
+    expect(gateOwnedProject(ownedProject("viewer"))).toBeNull();
   });
 
   it("denies (returns null) a missing project / non-membership", () => {
     expect(gateOwnedProject(null)).toBeNull();
+  });
+
+  it("keys on the requested capability — owner passes writeConfig, member is denied", () => {
+    const project = ownedProject("owner");
+    expect(gateOwnedProject(project, "writeConfig")).toEqual(project);
+    expect(gateOwnedProject(ownedProject("member"), "writeConfig")).toBeNull();
   });
 });
 

@@ -3,9 +3,8 @@ import { and, db, desc, eq, isNull, ne } from "void/db";
 import { apiKeys, projects } from "@schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { CODEOWNERS_FILE_MAX } from "@/lib/owner-schemas";
-import { deleteProjectArtifactObjects } from "@/lib/artifacts";
 import { readField } from "@/lib/form";
-import { runBatch } from "@/lib/db-batch";
+import { teardownProject } from "@/lib/project-teardown";
 import {
   redirectWithParam,
   requireOwnedProjectScope,
@@ -225,9 +224,16 @@ export const actions = {
     return c.redirect(`/settings/teams/${project.teamSlug}/p/${slug}/keys`);
   }),
 
-  /** Delete project + its keys. */
+  /** Delete project + all its dependent rows (and reclaim its R2 bytes). */
   deleteProject: defineHandler(async (c) => {
-    const { project, here } = await requireOwnedProjectScope(c, hereFor);
+    // Deleting a project is a config mutation, so gate on `writeConfig` (not the
+    // default `mintKeys`) — both are owner-only in the matrix, but the verb
+    // names the operation.
+    const { project, here } = await requireOwnedProjectScope(
+      c,
+      hereFor,
+      "writeConfig",
+    );
 
     const form = await c.req.formData();
     const confirm = readField(form, "confirm").trim();
@@ -254,10 +260,7 @@ export const actions = {
     });
 
     try {
-      await runBatch([
-        db.delete(apiKeys).where(eq(apiKeys.projectId, project.id)),
-        db.delete(projects).where(eq(projects.id, project.id)),
-      ]);
+      await teardownProject(c, project.teamId, project.id);
     } catch (err) {
       logger.error("delete project failed", {
         projectId: project.id,
@@ -270,22 +273,6 @@ export const actions = {
         "Could not delete project — please try again.",
       );
     }
-
-    // Best-effort R2 byte cleanup AFTER the authoritative row deletion, via
-    // waitUntil so the sweep (up to ~200 R2 subrequests) never blocks the
-    // user's redirect. A failure must not resurrect the project in the user's
-    // eyes — log it and move on (the orphaned objects are unreferenced and
-    // unguessable).
-    c.executionCtx.waitUntil(
-      deleteProjectArtifactObjects(project.teamId, project.id).catch(
-        (err: unknown) => {
-          logger.error("project artifact R2 sweep failed", {
-            projectId: project.id,
-            message: err instanceof Error ? err.message : String(err),
-          });
-        },
-      ),
-    );
 
     return c.redirect(`/settings/teams/${project.teamSlug}`);
   }),

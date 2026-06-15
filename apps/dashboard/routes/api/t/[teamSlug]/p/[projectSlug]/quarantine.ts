@@ -1,11 +1,13 @@
 import { defineHandler } from "void";
 import { requireAuth } from "void/auth";
 import { mutationErrorMessage } from "@/lib/action-errors";
+import { firstIssueMessage, readField } from "@/lib/form";
 import {
   QuarantineTestSchema,
   UnquarantineTestSchema,
 } from "@/lib/quarantine-schemas";
 import { quarantineTest, unquarantineTest } from "@/lib/quarantine-repo";
+import { redirectWithParam } from "@/lib/settings-scope";
 import { resolveOwnerTenantApiScope } from "@/lib/tenant-api-scope";
 import { safeNextPath } from "@/lib/safe-next-path";
 
@@ -38,24 +40,20 @@ export const POST = defineHandler(async (c) => {
   // `redirectTo` from the originating page (flaky / tests). `safeNextPath`
   // rejects absolute URLs / protocol-relative paths (returning "/"); fall back
   // to the catalog rather than bouncing to the app root on a rejected value.
-  const rawRedirect = toStr(form.get("redirectTo"));
+  const rawRedirect = readField(form, "redirectTo");
   const safeRedirect = rawRedirect ? safeNextPath(rawRedirect) : "/";
   const redirectTo = safeRedirect === "/" ? `${base}/tests` : safeRedirect;
-  const fail = (msg: string) => {
-    const sep = redirectTo.includes("?") ? "&" : "?";
-    return c.redirect(
-      `${redirectTo}${sep}quarantineError=${encodeURIComponent(msg)}`,
-    );
-  };
+  const fail = (msg: string) =>
+    redirectWithParam(c, redirectTo, "quarantineError", msg);
 
-  const intent = toStr(form.get("intent"));
+  const intent = readField(form, "intent");
 
   if (intent === "unquarantine") {
     const parsed = UnquarantineTestSchema.safeParse({
-      testId: toStr(form.get("testId")),
+      testId: readField(form, "testId"),
     });
     if (!parsed.success) {
-      return fail(parsed.error.issues[0]?.message ?? "Invalid test.");
+      return fail(firstIssueMessage(parsed.error, "Invalid test."));
     }
     await unquarantineTest(scope, parsed.data.testId);
     return c.redirect(redirectTo);
@@ -63,13 +61,13 @@ export const POST = defineHandler(async (c) => {
 
   if (intent === "quarantine") {
     const parsed = QuarantineTestSchema.safeParse({
-      testId: toStr(form.get("testId")),
+      testId: readField(form, "testId"),
       // A missing `mode` field defaults to "skip" via the schema.
       mode: form.get("mode") ?? undefined,
       reason: form.get("reason") ?? undefined,
     });
     if (!parsed.success) {
-      return fail(parsed.error.issues[0]?.message ?? "Invalid quarantine.");
+      return fail(firstIssueMessage(parsed.error, "Invalid quarantine."));
     }
     const now = Math.floor(Date.now() / 1000);
     try {
@@ -88,8 +86,3 @@ export const POST = defineHandler(async (c) => {
 
   return fail("Unknown action.");
 });
-
-/** Read a FormData entry as a string (files / nulls collapse to ""). */
-function toStr(value: FormDataEntryValue | null): string {
-  return typeof value === "string" ? value : "";
-}

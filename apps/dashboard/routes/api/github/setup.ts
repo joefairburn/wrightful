@@ -42,13 +42,10 @@ export const GET = defineHandler(async (c) => {
   if (!team) throw new Response("Not Found", { status: 404 });
   const here = `/settings/teams/${team.slug}/general`;
 
+  // `nowSeconds` is reused below for the githubInstallations row timestamps; the
+  // App creds + JWT clock for the lookup now live inside the github-app seam.
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const accountLogin = await fetchInstallationAccountLogin(
-    env.GITHUB_APP_ID!,
-    env.GITHUB_APP_PRIVATE_KEY!,
-    installationId,
-    nowSeconds,
-  );
+  const accountLogin = await fetchInstallationAccountLogin(installationId);
   if (!accountLogin) {
     return redirectWithParam(
       c,

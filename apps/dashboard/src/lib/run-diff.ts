@@ -373,3 +373,60 @@ export async function loadDiffRunRef(
 
   return rows[0] ?? null;
 }
+
+/** The resolved head + base + diff that {@link resolveRunDiff} produces. */
+export interface ResolvedRunDiff {
+  head: DiffRunRef;
+  base: DiffRunRef | null;
+  diff: RunDiff | null;
+}
+
+/**
+ * Decide WHICH two runs get diffed, then diff them — the orchestration the
+ * run-diff page loader and the JSON API route both need. Previously open-coded
+ * verbatim in both adapters; concentrating it here means the decision branches
+ * below have one home (and one test surface) and can't drift between page and
+ * API. The page loader keeps only its extra base-candidate selector query and
+ * prop mapping; the API route keeps only its field projection.
+ *
+ * The decisions, in order:
+ *  - Load the head (project-scoped via {@link loadDiffRunRef}); a missing or
+ *    foreign id is the ONLY 404 case — returned as `{ notFound: true }`.
+ *  - Pick the base: an explicit `baseParam` that is NOT the head itself is
+ *    validated through the SAME project-scoped lookup, and a foreign/missing
+ *    base **degrades to `null` (empty diff, not a 404)**; `baseParam === runId`
+ *    (self-compare guard) yields no base; absent `baseParam` auto-resolves the
+ *    natural baseline via {@link resolveBaseRun}.
+ *  - Load both runs' per-test statuses in parallel (the base side is skipped
+ *    when there is no base).
+ *  - `diffRuns(base, head)` IN THAT ARGUMENT ORDER, or `null` when there is no
+ *    base (the empty-state).
+ */
+export async function resolveRunDiff(
+  scope: TenantScope,
+  runId: string,
+  opts: { baseParam?: string | null } = {},
+): Promise<ResolvedRunDiff | { notFound: true }> {
+  const head = await loadDiffRunRef(scope, runId);
+  if (!head) return { notFound: true };
+
+  // An explicit `?base` is validated via the same project-scoped lookup as the
+  // head (a foreign/missing id → no base, not a 404 — the page degrades to the
+  // empty state). `base === head` (self-compare) yields no base. Otherwise
+  // auto-resolve the natural baseline.
+  const baseParam = opts.baseParam ?? null;
+  let base: DiffRunRef | null = null;
+  if (baseParam && baseParam !== runId) {
+    base = await loadDiffRunRef(scope, baseParam);
+  } else if (!baseParam) {
+    base = await resolveBaseRun(scope, head);
+  }
+
+  const [headStatuses, baseStatuses] = await Promise.all([
+    loadRunTestStatuses(scope, runId),
+    base ? loadRunTestStatuses(scope, base.id) : Promise.resolve([]),
+  ]);
+
+  const diff = base ? diffRuns(baseStatuses, headStatuses) : null;
+  return { head, base, diff };
+}

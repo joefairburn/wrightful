@@ -1,11 +1,5 @@
 import { defineHandler } from "void";
-import {
-  diffRuns,
-  loadDiffRunRef,
-  loadRunTestStatuses,
-  type RunDiff,
-  resolveBaseRun,
-} from "@/lib/run-diff";
+import { resolveRunDiff, type RunDiff } from "@/lib/run-diff";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 
 export type RunDiffResponse = {
@@ -29,23 +23,11 @@ export const GET = defineHandler(async (c) => {
   if (ctx instanceof Response) return ctx;
   const { scope, runId } = ctx;
 
-  const head = await loadDiffRunRef(scope, runId);
-  if (!head) return c.json({ error: "Not found" }, 404);
-
-  const baseParam = c.req.query("base");
-  let base = null;
-  if (baseParam && baseParam !== runId) {
-    base = await loadDiffRunRef(scope, baseParam);
-  } else if (!baseParam) {
-    base = await resolveBaseRun(scope, head);
-  }
-
-  const [headStatuses, baseStatuses] = await Promise.all([
-    loadRunTestStatuses(scope, runId),
-    base ? loadRunTestStatuses(scope, base.id) : Promise.resolve([]),
-  ]);
-
-  const diff = base ? diffRuns(baseStatuses, headStatuses) : null;
+  const resolved = await resolveRunDiff(scope, runId, {
+    baseParam: c.req.query("base"),
+  });
+  if ("notFound" in resolved) return c.json({ error: "Not found" }, 404);
+  const { head, base, diff } = resolved;
 
   c.header("Cache-Control", "private, max-age=30");
   return {

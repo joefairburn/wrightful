@@ -1,8 +1,7 @@
 import { defineHandler, type InferProps } from "void";
-import { and, db, eq, inArray, ne } from "void/db";
+import { and, db, eq, ne } from "void/db";
 import { env } from "void/env";
 import {
-  apiKeys,
   githubInstallations,
   memberships,
   projects,
@@ -11,9 +10,9 @@ import {
 } from "@schema";
 import { logger } from "void/log";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
-import { deleteProjectArtifactObjects } from "@/lib/artifacts";
 import { githubAppEnabled } from "@/lib/config";
 import { runBatch } from "@/lib/db-batch";
+import { scheduleProjectArtifactCleanup } from "@/lib/project-teardown";
 import { mutationErrorMessage } from "@/lib/action-errors";
 import { readField } from "@/lib/form";
 import {
@@ -254,21 +253,18 @@ export const actions = {
       metadata: { teamName: team.name, projectCount: projectIds.length },
     });
 
-    const ops: PromiseLike<unknown>[] = [];
-    if (projectIds.length > 0) {
-      ops.push(
-        db.delete(apiKeys).where(inArray(apiKeys.projectId, projectIds)),
-      );
-    }
-    ops.push(
-      db.delete(projects).where(eq(projects.teamId, team.id)),
-      db.delete(memberships).where(eq(memberships.teamId, team.id)),
-      db.delete(teamInvites).where(eq(teamInvites.teamId, team.id)),
-      db.delete(teamsTable).where(eq(teamsTable.id, team.id)),
-    );
-
+    // One atomic batch — all-or-nothing, so a mid-teardown failure can't leave a
+    // half-deleted team (the guarantee `db-batch.ts` documents). Deleting the
+    // project rows cascades every project-scoped child (apiKeys, runs,
+    // testResults, …) via their `onDelete: "cascade"` FKs, so the old explicit
+    // `db.delete(apiKeys)` is redundant and dropped.
     try {
-      await runBatch(ops);
+      await runBatch([
+        db.delete(projects).where(eq(projects.teamId, team.id)),
+        db.delete(memberships).where(eq(memberships.teamId, team.id)),
+        db.delete(teamInvites).where(eq(teamInvites.teamId, team.id)),
+        db.delete(teamsTable).where(eq(teamsTable.id, team.id)),
+      ]);
     } catch (err) {
       logger.error("delete team failed", {
         teamId: team.id,
@@ -282,27 +278,12 @@ export const actions = {
       );
     }
 
-    // Best-effort R2 byte cleanup per deleted project, AFTER the authoritative
-    // row deletion. Runs via waitUntil (the sanctioned post-response mechanism
-    // — see api-key.ts's lastUsedAt bump): a multi-project sweep is up to ~200
-    // R2 subrequests per project, which must not block the user's redirect.
-    // Failures are logged, never surfaced — the team is gone either way, and
-    // leftover objects are unreferenced and unguessable.
-    c.executionCtx.waitUntil(
-      (async () => {
-        for (const projectId of projectIds) {
-          try {
-            await deleteProjectArtifactObjects(team.id, projectId);
-          } catch (err) {
-            logger.error("team artifact R2 sweep failed", {
-              teamId: team.id,
-              projectId,
-              message: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-      })(),
-    );
+    // Best-effort R2 byte cleanup per project, AFTER the atomic row deletion
+    // succeeded — the shared `scheduleProjectArtifactCleanup` (also used by the
+    // single-project delete) so the sweep pattern lives in one place.
+    for (const projectId of projectIds) {
+      scheduleProjectArtifactCleanup(c, team.id, projectId);
+    }
 
     return c.redirect("/settings/profile");
   }),

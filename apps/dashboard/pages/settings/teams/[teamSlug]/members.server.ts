@@ -6,7 +6,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { getUsersByIds } from "@/lib/auth-users";
 import { type TeamRole } from "@/lib/authz";
 import {
-  notLastOwner,
+  leaveTeamGuarded,
   removeMemberGuarded,
   roleSchema,
   setMemberRole,
@@ -243,26 +243,18 @@ export const actions = {
    * SELECT: a check-then-delete pair would let the last two owners leave
    * concurrently — both reads see 2 owners, both deletes land, and the team is
    * permanently ownerless. With the guard in the statement, D1 serializes the
-   * writes and the second delete matches 0 rows. Same atomic-SQL pattern as
-   * `completeRun`'s status merge — and the same predicate the member-role and
-   * member-remove actions reuse via `members-repo`.
+   * writes and the second delete matches 0 rows. That guarded-DELETE plumbing
+   * lives behind `leaveTeamGuarded` in `members-repo` (the same home and test
+   * surface as the member-role and member-remove guarded writes) rather than
+   * being open-coded here.
    */
   leaveTeam: defineHandler(async (c) => {
     const { team, here } = await requireMemberScope(c, hereFor);
     const actor = requireAuth(c);
 
-    const deleted = await db
-      .delete(memberships)
-      .where(
-        and(
-          eq(memberships.teamId, team.id),
-          eq(memberships.userId, actor.id),
-          notLastOwner(team.id),
-        ),
-      )
-      .returning({ id: memberships.id });
+    const result = await leaveTeamGuarded(team.id, actor.id);
 
-    if (deleted.length === 0) {
+    if (!result.ok) {
       // The only guard that can match 0 rows for a live membership is the
       // owner-count subquery — the actor is the last owner.
       return redirectWithParam(

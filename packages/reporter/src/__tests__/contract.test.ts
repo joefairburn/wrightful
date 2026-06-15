@@ -9,6 +9,7 @@ import {
   CompleteRunPayloadSchema,
   OpenRunPayloadSchema,
   OpenRunResponseSchema,
+  MAX as DASHBOARD_MAX,
   QuarantineResponseSchema,
   RegisterArtifactsPayloadSchema,
   RegisterArtifactsResponseSchema,
@@ -16,6 +17,8 @@ import {
   TestAttemptSchema,
   WRIGHTFUL_VERSION_HEADER as DASHBOARD_VERSION_HEADER,
 } from "../../../../apps/dashboard/src/lib/schemas.js";
+import { MAX_IDEMPOTENCY_KEY_LENGTH } from "../ci.js";
+import { MAX_CODEOWNERS_BYTES } from "../codeowners-file.js";
 import {
   normalizeContentType,
   SAFE_CONTENT_TYPES as REPORTER_SAFE_CONTENT_TYPES,
@@ -757,5 +760,21 @@ describe("reporter ↔ dashboard wire shape (structural equivalence)", () => {
     const emitted = Object.keys(descriptor).sort();
 
     expect(emitted).toEqual(expected);
+  });
+});
+
+// The shape/enum/version checks above guard the wire STRUCTURE, but the
+// reporter's two numeric preflight caps — the idempotency-key length and the
+// CODEOWNERS byte size — are hand-mirrored from the dashboard's `MAX` table and
+// escaped the canary entirely. A dashboard cap tightening the reporter didn't
+// track would emit an over-long value the live server 400s on (a failed open
+// loses the whole run, non-retryably). Pin each === its dashboard source.
+describe("reporter ↔ dashboard preflight caps", () => {
+  it("the reporter's idempotency-key cap equals the dashboard's MAX.ID", () => {
+    expect(MAX_IDEMPOTENCY_KEY_LENGTH).toBe(DASHBOARD_MAX.ID);
+  });
+
+  it("the reporter's CODEOWNERS byte cap equals the dashboard's MAX.CODEOWNERS", () => {
+    expect(MAX_CODEOWNERS_BYTES).toBe(DASHBOARD_MAX.CODEOWNERS);
   });
 });

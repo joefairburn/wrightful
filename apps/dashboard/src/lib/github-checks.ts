@@ -164,13 +164,7 @@ export async function maybePostGithubCheck(runId: string): Promise<void> {
     const installationId = installRows[0]?.installationId;
     if (!installationId) return;
 
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const token = await mintInstallationToken(
-      env.GITHUB_APP_ID!,
-      env.GITHUB_APP_PRIVATE_KEY!,
-      installationId,
-      nowSeconds,
-    );
+    const token = await mintInstallationToken(installationId);
 
     const detailsUrl = `${env.WRIGHTFUL_PUBLIC_URL}/t/${run.teamSlug}/p/${run.projectSlug}/runs/${runId}`;
     const checkRunId = await postCheckRun(

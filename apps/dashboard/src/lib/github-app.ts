@@ -1,3 +1,4 @@
+import { env } from "void/env";
 import { base64urlEncode, timingSafeEqualHex } from "@/lib/token-crypto";
 
 /**
@@ -12,6 +13,25 @@ const USER_AGENT = "wrightful-dashboard";
 const REQUEST_TIMEOUT_MS = 10_000;
 
 const encoder = new TextEncoder();
+
+/**
+ * The GitHub App's env-sourced identity (App id + PKCS#8 private key). Reading
+ * the creds HERE — the module that owns App auth — instead of threading them
+ * through every call site means the only place that knows they come from env
+ * (and might be absent) is this function. The App-authenticated entry points
+ * ({@link mintInstallationToken} / {@link fetchInstallationAccountLogin}) call
+ * it so their callers shrink to a single `installationId`. Callers gate on
+ * `githubAppEnabled(env)` upstream, so the throw is unreachable in practice but
+ * keeps the types honest (the env keys are optional).
+ */
+function appCredentials(): { appId: string; privateKeyPem: string } {
+  const appId = env.GITHUB_APP_ID;
+  const privateKeyPem = env.GITHUB_APP_PRIVATE_KEY;
+  if (!appId || !privateKeyPem) {
+    throw new Error("GitHub App credentials are not configured");
+  }
+  return { appId, privateKeyPem };
+}
 
 /** Owner segment of a `"owner/name"` repo string, or null if malformed. PURE. */
 export function parseRepoOwner(repo: string | null | undefined): string | null {
@@ -98,16 +118,20 @@ export async function githubFetch(
 
 /**
  * Exchange the App JWT for a short-lived installation access token, which is
- * what actually authorizes repo-scoped calls (posting a check run). Throws on a
- * non-2xx response so the caller's best-effort wrapper logs and moves on.
+ * what actually authorizes repo-scoped calls (posting a check run). Reads the
+ * App creds + JWT clock internally (see {@link appCredentials}); the caller
+ * supplies only the `installationId`. Throws on a non-2xx response so the
+ * caller's best-effort wrapper logs and moves on.
  */
 export async function mintInstallationToken(
-  appId: string,
-  privateKeyPem: string,
   installationId: number,
-  nowSeconds: number,
 ): Promise<string> {
-  const jwt = await mintAppJwt(appId, privateKeyPem, nowSeconds);
+  const { appId, privateKeyPem } = appCredentials();
+  const jwt = await mintAppJwt(
+    appId,
+    privateKeyPem,
+    Math.floor(Date.now() / 1000),
+  );
   const response = await githubFetch(
     `/app/installations/${installationId}/access_tokens`,
     { method: "POST" },
@@ -126,14 +150,20 @@ export async function mintInstallationToken(
   return body.token;
 }
 
-/** Resolve the account login an installation is installed on (the repo owner). */
+/**
+ * Resolve the account login an installation is installed on (the repo owner).
+ * Reads the App creds + JWT clock internally; the caller supplies only the
+ * `installationId`.
+ */
 export async function fetchInstallationAccountLogin(
-  appId: string,
-  privateKeyPem: string,
   installationId: number,
-  nowSeconds: number,
 ): Promise<string | null> {
-  const jwt = await mintAppJwt(appId, privateKeyPem, nowSeconds);
+  const { appId, privateKeyPem } = appCredentials();
+  const jwt = await mintAppJwt(
+    appId,
+    privateKeyPem,
+    Math.floor(Date.now() / 1000),
+  );
   const response = await githubFetch(
     `/app/installations/${installationId}`,
     { method: "GET" },

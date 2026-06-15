@@ -3,6 +3,7 @@ import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
 import { env } from "void/env";
 import { mutationErrorMessage } from "@/lib/action-errors";
+import { firstIssueMessage } from "@/lib/form";
 import {
   CreateMonitorSchema,
   parseHttpMonitorConfig,
@@ -29,6 +30,7 @@ import {
   setMonitorEnabled,
   updateMonitor,
 } from "@/lib/monitors/monitors-repo";
+import { redirectWithParam } from "@/lib/settings-scope";
 import {
   requireOwnerTenantContext,
   requireTenantContext,
@@ -218,10 +220,14 @@ export const actions = {
     const form = await c.req.formData();
     const type = formType(form);
     // Keep the chosen type on the redirect so the create form re-renders the
-    // right variant (browser vs uptime) with the error.
+    // right variant (browser vs uptime) with the error. `redirectWithParam`
+    // preserves the existing `?type=` and adds the `formError` param.
     const fail = (msg: string) =>
-      c.redirect(
-        `${monitorsBase}/new?type=${type}&formError=${encodeURIComponent(msg)}`,
+      redirectWithParam(
+        c,
+        `${monitorsBase}/new?type=${type}`,
+        "formError",
+        msg,
       );
 
     // Browser, http, and tcp have SEPARATE per-project caps (a container run vs
@@ -271,7 +277,7 @@ export const actions = {
             },
     );
     if (!parsed.success) {
-      return fail(parsed.error.issues[0]?.message ?? "Invalid monitor.");
+      return fail(firstIssueMessage(parsed.error, "Invalid monitor."));
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -300,7 +306,7 @@ export const actions = {
     // Keep the editor open (`edit=1`) on a validation error so the surfaced
     // `formError` lands beside the form the user was filling in.
     const fail = (msg: string) =>
-      c.redirect(`${here}?edit=1&formError=${encodeURIComponent(msg)}`);
+      redirectWithParam(c, `${here}?edit=1`, "formError", msg);
 
     // `type` is immutable — dispatch on the EXISTING monitor's type, not the
     // posted one, and pick the matching update schema (a discriminated union
@@ -334,7 +340,7 @@ export const actions = {
               enabled: form.get("enabled") ?? "",
             });
     if (!parsed.success) {
-      return fail(parsed.error.issues[0]?.message ?? "Invalid monitor.");
+      return fail(firstIssueMessage(parsed.error, "Invalid monitor."));
     }
 
     const now = Math.floor(Date.now() / 1000);

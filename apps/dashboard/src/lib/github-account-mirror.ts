@@ -44,6 +44,11 @@ export async function captureGithubLogin(
   accessToken: string | null | undefined,
 ): Promise<void> {
   if (!accessToken) return;
+  // 10s timeout so a hung GitHub call can't stall the sign-in hook this runs in.
+  // (Kept inline rather than routed through `github-app.ts`'s `githubFetch`
+  // because this module is loaded at `void prepare` config time via `auth.ts`
+  // and must not transitively import the `void/env` the App-auth seam now reads
+  // — see the module note above.)
   const res = await fetch("https://api.github.com/user", {
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -51,6 +56,7 @@ export async function captureGithubLogin(
       "User-Agent": "wrightful-dashboard",
       "X-GitHub-Api-Version": "2022-11-28",
     },
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) return;
   const body = (await res.json()) as { login?: unknown };

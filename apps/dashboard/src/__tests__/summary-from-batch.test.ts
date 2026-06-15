@@ -8,8 +8,8 @@ import {
 /**
  * Guards the summary-extraction convention shared by appendRunResults /
  * completeRun / finalizeStaleRun: the summary-producing statement (a
- * `.returning()` UPDATE or `aggregateSummarySelectStatement` SELECT) is always
- * run LAST in the batch, so the broadcast summary is `batchResults[last][0]`.
+ * `.returning()` UPDATE) is always run LAST in the batch, so the broadcast
+ * summary is `batchResults[last][0]`.
  *
  * Before this seam existed each caller hand-transcribed `batchResults[len-1] as
  * RunAggregateSummary[] | undefined` then `?.[0]`. A trailing non-returning

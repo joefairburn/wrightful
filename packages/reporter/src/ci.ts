@@ -137,7 +137,8 @@ export interface IdempotencyDiscriminators {
 
 // Mirror of the dashboard's `idempotencyKey` cap (MAX.ID in
 // apps/dashboard/src/lib/schemas.ts) — a longer key would 400 the open call.
-const MAX_IDEMPOTENCY_KEY_LENGTH = 1024;
+// Exported so `contract.test.ts` can pin it === the dashboard's MAX.ID.
+export const MAX_IDEMPOTENCY_KEY_LENGTH = 1024;
 
 /**
  * Resolve the run's idempotency key. Precedence:

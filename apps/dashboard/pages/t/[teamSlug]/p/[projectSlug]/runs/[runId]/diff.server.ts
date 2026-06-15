@@ -2,12 +2,7 @@ import { defineHandler, type InferProps } from "void";
 import { and, db, desc, eq } from "void/db";
 import { runs } from "@schema";
 import { runScopeWhere } from "@/lib/scope";
-import {
-  diffRuns,
-  loadDiffRunRef,
-  loadRunTestStatuses,
-  resolveBaseRun,
-} from "@/lib/run-diff";
+import { resolveRunDiff } from "@/lib/run-diff";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -30,31 +25,22 @@ export const loader = defineHandler(async (c) => {
 
   const { project, scope } = requireTenantContext(c);
 
-  const head = await loadDiffRunRef(scope, runId);
-  if (!head) throw new Response("Not Found", { status: 404 });
-
   const url = new URL(c.req.url);
-  const baseParam = url.searchParams.get("base");
-
-  // Resolve the base run. An explicit `?base` is validated via the same
-  // project-scoped lookup as the head (a foreign/missing id → no base, not a
-  // 404 — the page degrades to the empty state). Otherwise auto-resolve.
-  let base = null;
-  if (baseParam && baseParam !== runId) {
-    base = await loadDiffRunRef(scope, baseParam);
-  } else if (!baseParam) {
-    base = await resolveBaseRun(scope, head);
-  }
+  const resolved = await resolveRunDiff(scope, runId, {
+    baseParam: url.searchParams.get("base"),
+  });
+  if ("notFound" in resolved) throw new Response("Not Found", { status: 404 });
+  const { head, base, diff } = resolved;
 
   // Candidate base runs for the selector: recent runs on the same branch other
   // than the head. Cheap, served by `runs_project_branch_created_at_idx`. A
   // null OR empty/whitespace branch has no "same branch" group (an empty string
   // must not match every other branchless run via `eq(branch, "")`).
   const headBranch = head.branch?.trim() ? head.branch : null;
-  const baseCandidatesPromise =
+  const baseCandidates =
     headBranch === null
-      ? Promise.resolve([])
-      : db
+      ? []
+      : await db
           .select({
             id: runs.id,
             status: runs.status,
@@ -66,15 +52,6 @@ export const loader = defineHandler(async (c) => {
           .where(and(runScopeWhere(scope), eq(runs.branch, headBranch)))
           .orderBy(desc(runs.createdAt))
           .limit(BASE_CANDIDATE_LIMIT);
-
-  // Load both runs' test statuses in parallel (only if we have a base).
-  const [headStatuses, baseStatuses, baseCandidates] = await Promise.all([
-    loadRunTestStatuses(scope, runId),
-    base ? loadRunTestStatuses(scope, base.id) : Promise.resolve([]),
-    baseCandidatesPromise,
-  ]);
-
-  const diff = base ? diffRuns(baseStatuses, headStatuses) : null;
 
   return {
     project: {

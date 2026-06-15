@@ -75,15 +75,24 @@ export interface OwnedProject {
 /**
  * Project-owner sibling of {@link gateTeamScope}. Given the membership-checked
  * project row from `resolveProjectBySlugs` (null when the user isn't a member
- * or the project is missing), decide pass-through vs deny: a missing project
- * OR a non-owner member is denied (returns `null`). Kept pure so the
- * owner-only project gate is unit-testable independent of the DB resolve and
- * of how each tier renders the failure (404 page vs 403 JSON).
+ * or the project is missing) and a REQUIRED CAPABILITY, decide pass-through vs
+ * deny: a missing project OR a member whose role doesn't grant the capability
+ * is denied (returns `null`).
+ *
+ * Keyed on a {@link Capability} (via `can(role, …)`) exactly like
+ * {@link gateTeamScope}, so the project-resource authorization ladder lives in
+ * `roles.ts` instead of being re-derived as `role === "owner"` here. Defaults
+ * to `"mintKeys"` — the project-resource capability the API-key page and
+ * monitors enforce — which preserves the historical owner-only behaviour
+ * (only `owner` holds `mintKeys`). Kept pure so the gate is unit-testable
+ * independent of the DB resolve and of how each tier renders the failure
+ * (404 page vs 403 JSON).
  */
 export function gateOwnedProject(
   project: OwnedProject | null,
+  requiredCapability: Capability = "mintKeys",
 ): OwnedProject | null {
-  if (!project || project.role !== "owner") return null;
+  if (!project || !can(project.role, requiredCapability)) return null;
   return project;
 }
 
@@ -111,17 +120,22 @@ export async function resolveOwnedTeam(c: Context): Promise<OwnedTeam> {
 
 /**
  * Status-agnostic owner-resolution core for a project: read `teamSlug` +
- * `projectSlug` from the route, require the signed-in user be the team's
- * owner, and return the owned project — or throw {@link AuthzError}. Mirrors
- * {@link resolveOwnedTeam}; the HTTP status is the caller's decision.
+ * `projectSlug` from the route, require the signed-in user's role grant
+ * `requiredCapability` (default `"mintKeys"`), and return the owned project —
+ * or throw {@link AuthzError}. Mirrors {@link resolveOwnedTeam}; the HTTP
+ * status is the caller's decision.
  */
-export async function resolveOwnedProject(c: Context): Promise<OwnedProject> {
+export async function resolveOwnedProject(
+  c: Context,
+  requiredCapability: Capability = "mintKeys",
+): Promise<OwnedProject> {
   const user = requireAuth(c);
   const teamSlug = c.req.param("teamSlug");
   const projectSlug = c.req.param("projectSlug");
   if (!teamSlug || !projectSlug) throw new AuthzError();
   const project = gateOwnedProject(
     await resolveProjectBySlugs(user.id, teamSlug, projectSlug),
+    requiredCapability,
   );
   if (!project) throw new AuthzError();
   return project;
@@ -222,16 +236,19 @@ export async function requireRoleScope(
 }
 
 /**
- * Resolve the project from `teamSlug` + `projectSlug` route params and
- * require the user be the team's owner. Same 404-on-failure rule.
+ * Resolve the project from `teamSlug` + `projectSlug` route params and require
+ * the user's role grant `requiredCapability` (default `"mintKeys"` — the
+ * key-management bar). Pass `"writeConfig"` for project-config mutations.
+ * Same 404-on-failure rule.
  */
 export async function requireOwnedProjectScope(
   c: Context,
   hereFor: (project: OwnedProject) => string,
+  requiredCapability: Capability = "mintKeys",
 ): Promise<{ project: OwnedProject; here: string }> {
   let project: OwnedProject;
   try {
-    project = await resolveOwnedProject(c);
+    project = await resolveOwnedProject(c, requiredCapability);
   } catch (err) {
     if (err instanceof AuthzError)
       throw new Response("Not Found", { status: 404 });

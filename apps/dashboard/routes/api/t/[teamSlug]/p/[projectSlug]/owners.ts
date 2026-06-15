@@ -1,7 +1,9 @@
 import { defineHandler } from "void";
 import { mutationErrorMessage } from "@/lib/action-errors";
+import { firstIssueMessage, readField } from "@/lib/form";
 import { AssignOwnerSchema, RemoveOwnerSchema } from "@/lib/owner-schemas";
 import { assignOwner, removeOwner } from "@/lib/owners-repo";
+import { redirectWithParam } from "@/lib/settings-scope";
 import { resolveOwnerTenantApiScope } from "@/lib/tenant-api-scope";
 import { safeNextPath } from "@/lib/safe-next-path";
 
@@ -32,25 +34,21 @@ export const POST = defineHandler(async (c) => {
   // Default the post-mutation landing to the flaky page; honor a same-origin
   // `redirectTo`. `safeNextPath` rejects absolute / protocol-relative paths
   // (returning "/"); fall back to the flaky page rather than the app root.
-  const rawRedirect = toStr(form.get("redirectTo"));
+  const rawRedirect = readField(form, "redirectTo");
   const safeRedirect = rawRedirect ? safeNextPath(rawRedirect) : "/";
   const redirectTo = safeRedirect === "/" ? `${base}/flaky` : safeRedirect;
-  const fail = (msg: string) => {
-    const sep = redirectTo.includes("?") ? "&" : "?";
-    return c.redirect(
-      `${redirectTo}${sep}ownerError=${encodeURIComponent(msg)}`,
-    );
-  };
+  const fail = (msg: string) =>
+    redirectWithParam(c, redirectTo, "ownerError", msg);
 
-  const intent = toStr(form.get("intent"));
+  const intent = readField(form, "intent");
 
   if (intent === "remove") {
     const parsed = RemoveOwnerSchema.safeParse({
-      testId: toStr(form.get("testId")),
-      owner: toStr(form.get("owner")),
+      testId: readField(form, "testId"),
+      owner: readField(form, "owner"),
     });
     if (!parsed.success) {
-      return fail(parsed.error.issues[0]?.message ?? "Invalid owner.");
+      return fail(firstIssueMessage(parsed.error, "Invalid owner."));
     }
     await removeOwner(scope, parsed.data.testId, parsed.data.owner);
     return c.redirect(redirectTo);
@@ -58,11 +56,11 @@ export const POST = defineHandler(async (c) => {
 
   if (intent === "assign") {
     const parsed = AssignOwnerSchema.safeParse({
-      testId: toStr(form.get("testId")),
-      owner: toStr(form.get("owner")),
+      testId: readField(form, "testId"),
+      owner: readField(form, "owner"),
     });
     if (!parsed.success) {
-      return fail(parsed.error.issues[0]?.message ?? "Invalid owner.");
+      return fail(firstIssueMessage(parsed.error, "Invalid owner."));
     }
     const now = Math.floor(Date.now() / 1000);
     try {
@@ -81,8 +79,3 @@ export const POST = defineHandler(async (c) => {
 
   return fail("Unknown action.");
 });
-
-/** Read a FormData entry as a string (files / nulls collapse to ""). */
-function toStr(value: FormDataEntryValue | null): string {
-  return typeof value === "string" ? value : "";
-}

@@ -553,32 +553,11 @@ export function aggregateRecomputeStatement(
 }
 
 /**
- * SELECT the publishable summary inside a batch, for any caller that needs a
- * transactionally-consistent snapshot to broadcast WITHOUT writing the run row.
- *
- * The /results no-delta path used to use this, but now bumps `lastActivityAt`
- * via `activityBumpStatement` (an UPDATE with the same `.returning()` shape) so
- * even a zero-bucket-change flush registers as liveness — see
- * `appendRunResults`. This read-only variant is retained as the SELECT form of
- * a summary-producing statement (the counterpart `summaryFromBatchResults`
- * documents) for a future batch that genuinely must not touch the row.
- */
-export function aggregateSummarySelectStatement(
-  scope: TenantScope,
-  runId: string,
-) {
-  return db
-    .select(AGGREGATE_SUMMARY_COLUMNS)
-    .from(runs)
-    .where(runByIdWhere(scope, runId));
-}
-
-/**
  * Extract the publishable summary from a D1 batch result, given the invariant
  * that the summary-producing statement (an `AGGREGATE_SUMMARY_COLUMNS`
- * `.returning()` UPDATE or `aggregateSummarySelectStatement` SELECT) was run
- * LAST. `db.batch` returns one result array per statement in order, so the
- * summary row is the first element of the final result.
+ * `.returning()` UPDATE) was run LAST. `db.batch` returns one result array per
+ * statement in order, so the summary row is the first element of the final
+ * result.
  *
  * This is the single owner of the "last batch row is the summary" cast. Pulled
  * out as a pure function so the positional convention has one unit-tested home

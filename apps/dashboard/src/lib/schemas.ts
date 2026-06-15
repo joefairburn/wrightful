@@ -44,8 +44,12 @@ export const WRIGHTFUL_VERSION_HEADER = "X-Wrightful-Version";
  */
 export const SUPPORTED_VERSIONS = new Set(["3"]);
 
-// String length caps (characters).
-const MAX = {
+// String length caps (characters). Exported so the reporter's `contract.test.ts`
+// canary can pin its own preflight caps (`MAX_IDEMPOTENCY_KEY_LENGTH`,
+// `MAX_CODEOWNERS_BYTES`) against these — a dashboard cap tightening the reporter
+// doesn't track would otherwise surface only as a production 400 on the open
+// call (a failed open loses the whole run).
+export const MAX = {
   ID: 1024,
   TITLE: 2048,
   FILE: 1024,

@@ -50,8 +50,13 @@ vi.mock("void/db", async () => {
   return { ...stub, db };
 });
 
-const { notLastOwner, setMemberRole, removeMemberGuarded, roleSchema } =
-  await import("@/lib/members-repo");
+const {
+  notLastOwner,
+  setMemberRole,
+  removeMemberGuarded,
+  leaveTeamGuarded,
+  roleSchema,
+} = await import("@/lib/members-repo");
 
 type RecordedOp = { __op: string; args: readonly unknown[]; strings?: unknown };
 
@@ -147,6 +152,24 @@ describe("removeMemberGuarded — last-owner-safe removal", () => {
     resultQueue = [[], []];
     const result = await removeMemberGuarded("team_1", "ghost");
     expect(result).toEqual({ ok: false, reason: "noop" });
+  });
+});
+
+describe("leaveTeamGuarded — last-owner-safe self-leave", () => {
+  it("carries the owner-count guard in the DELETE WHERE and reports ok on a deleted row", async () => {
+    resultQueue = [[{ id: "m_1" }]];
+    const result = await leaveTeamGuarded("team_1", "user_2");
+    expect(result).toEqual({ ok: true });
+    expect(findOwnerCountGuard(capturedWhere)).toBe(true);
+  });
+
+  it("reports `lastOwner` on a 0-row delete WITHOUT a vanished-vs-blocked re-check (membership is proven live)", async () => {
+    // Only ONE result set is consumed (the delete's returning()); a second
+    // queued set would be left untouched if a re-check fired — assert it isn't.
+    resultQueue = [[], [{ role: "owner" }]];
+    const result = await leaveTeamGuarded("team_1", "user_1");
+    expect(result).toEqual({ ok: false, reason: "lastOwner" });
+    expect(resultQueue.length).toBe(1); // the existence-check set was NOT consumed
   });
 });
 
