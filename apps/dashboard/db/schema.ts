@@ -102,7 +102,11 @@ export const teamInvites = sqliteTable(
     email: text("email"),
     /**
      * Directed invite: matched against `userGithubAccounts.githubLogin` when
-     * the invitee signs in via the GitHub provider.
+     * the invitee signs in via the GitHub provider. SECURITY: matched ONLY on
+     * the secret `/invite/:token` share-link path (as a second factor behind
+     * the token) — never on the tokenless picker/accept/decline path, because
+     * a GitHub login is mutable/reusable and a freed handle could otherwise be
+     * re-registered to hijack the invite. See `buildInviteMatchConds`.
      */
     githubLogin: text("githubLogin"),
   },
