@@ -5,6 +5,7 @@
   // exists only for the binding types Void's config schema doesn't accept:
   //
   //   - Cloudflare-native rate limiters (`ratelimits` block)
+  //   - Cloudflare Email Service send binding (`send_email` block)
   //
   // Void picks this file up at deploy time and merges these blocks into the
   // generated worker manifest. Do NOT add `main`, `migrations`, or DO bindings
@@ -21,6 +22,27 @@
   // pure overhead here. This is a dev/preview-only switch — `void deploy` still
   // ships the container via the sandbox `platformImage`.
   "dev": { "enable_containers": false },
+  // Cloudflare Email Service (CES) outbound send binding. `env.EMAIL.send(...)`
+  // routes through CES in production; the binding is read via `cloudflare:workers`
+  // `env.EMAIL` in `src/lib/email.ts`.
+  //
+  // Deliberately NO `"remote": true`. With `remote`, the LOCAL dev binding sends
+  // REAL email through CES — which would require CF-account auth + an onboarded
+  // domain just to run `pnpm dev`, and would fire real mail on every
+  // signup/reset/alert during dev + e2e. We don't want that as the default.
+  //
+  // Without `remote`, `vite dev`/tests use Miniflare's built-in simulator: it
+  // does NOT deliver — it LOGS each message to the dev console
+  // ("send_email binding called with MessageBuilder: …") and writes the rendered
+  // html/text bodies to a temp dir, printing their absolute paths (open the
+  // `.html` to inspect). So local dev never sends real mail and needs no
+  // credentials. (To do a real end-to-end send from your machine, set
+  // `"remote": true` locally — but don't commit it.)
+  //
+  // Production sending requires a domain onboarded to CES (auto-configures
+  // SPF/DKIM/DMARC) with the `from` address (`EMAIL_FROM` env) on that domain;
+  // CES Email Sending needs a Workers Paid plan and is in public beta.
+  "send_email": [{ "name": "EMAIL" }],
   "ratelimits": [
     {
       // Unauthenticated /api/auth/* (void auth). Keyed by IP + pathname as a

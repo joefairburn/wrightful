@@ -20,5 +20,11 @@ export const loader = defineHandler(async (c) => {
   if (!openSignupAllowed(env.ALLOW_OPEN_SIGNUP)) {
     return c.redirect("/login");
   }
-  return { githubEnabled: githubOAuthEnabled(env) };
+  // When a sender is configured, signup requires email verification (see
+  // auth.ts `emailConfigured`) — `signUp.email` then returns without a session
+  // and the page shows a "check your inbox" state instead of routing to `/`.
+  return {
+    githubEnabled: githubOAuthEnabled(env),
+    verifyEmail: Boolean(env.EMAIL_FROM),
+  };
 });
