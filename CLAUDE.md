@@ -12,7 +12,7 @@ pnpm workspace, `apps/*` + `packages/*`:
 
 - **`apps/dashboard`** — the dashboard app (`@wrightful/dashboard`), built on [Void](https://void.cloud) (a fullstack Vite plugin + deploy platform for Cloudflare). Hono file-based API routing (`routes/`) + Inertia-style server-rendered pages (`pages/` + `@void/react`) with co-located `*.server.ts` loaders/actions. **Single D1 database + Drizzle** (`void/db`, schema in `db/schema.ts`) holds everything — users, teams, projects, memberships, API keys, invites, runs, and derived tables; tenant isolation is logical (every run-scoped query filters by `teamId AND projectId`). R2 for artifact bytes. Styled with Tailwind v4 + Base UI primitives wrapped as a local component library in `src/components/ui/`. Dashboard auth is Better Auth via `void/auth` (sessions, email + password, optional GitHub OAuth); API auth is Bearer API keys. Serves the streaming ingest + artifact API (`/api/runs/*`, `/api/artifacts/*`) and the tenant-scoped UI (`/t/:teamSlug/p/:projectSlug/…`).
 - **`packages/reporter`** — Playwright reporter (`@wrightful/reporter`). Streams results + artifacts to the dashboard as each test completes. Built with tsdown via `vp pack`. Per-test emission: one row per test at its final outcome, with retries aggregated into `flaky`. Opt-in `postPrComment` upserts a GitHub PR summary comment from CI.
-- **`packages/e2e`** — Playwright E2E tests (demo suite used to generate test reports for dogfooding). Uses the reporter when `WRIGHTFUL_URL` / `WRIGHTFUL_TOKEN` env is set. (Note: the dashboard-boot fixtures here still target the pre-Void dashboard and need reworking for Void.)
+- **`packages/e2e`** — Playwright E2E tests. Two suites: a **demo suite** (`tests/`, `playwright.config.ts`) that drives a sample app to generate reports for dogfooding (uses the reporter when `WRIGHTFUL_URL` / `WRIGHTFUL_TOKEN` is set), and the **canonical dashboard suite** (`tests-dashboard/`, `playwright.dashboard.config.ts`, self-booting on `:5189`). Both the dashboard Playwright suite and the Vitest e2e suite (`src/e2e.test.ts`) boot a real Void dashboard via the shared `src/dashboard-fixture.ts` (`bootDashboard` — `.env.local` + `void db reset`). Run the dashboard suite with `pnpm --filter @wrightful/e2e test:dashboard`.
 
 ## Commands
 
@@ -107,7 +107,7 @@ Two auth systems coexist:
 
 **Query scoping rule:** there is no DO boundary — isolation is logical. Every query against `runs` / `testResults` / `testResultAttempts` / `testTags` / `testAnnotations` / `artifacts` **must** filter by `projectId` (and `teamId` where present). The branded `AuthorizedProjectId` on `TenantScope` exists to make this impossible to forget.
 
-**Env vars** (declared in `apps/dashboard/env.ts`): required `WRIGHTFUL_PUBLIC_URL`, `BETTER_AUTH_SECRET`. Optional `AUTH_GITHUB_CLIENT_ID` + `AUTH_GITHUB_CLIENT_SECRET`, `WRIGHTFUL_MAX_ARTIFACT_BYTES` (default 50 MiB), `WRIGHTFUL_RUN_STALE_MINUTES` (default 30), `ALLOW_OPEN_SIGNUP` (default false). Read values via `import { env } from "void/env"`.
+**Env vars** (declared in `apps/dashboard/env.ts`): required `WRIGHTFUL_PUBLIC_URL`, `BETTER_AUTH_SECRET`. Optional `AUTH_GITHUB_CLIENT_ID` + `AUTH_GITHUB_CLIENT_SECRET`, `WRIGHTFUL_MAX_ARTIFACT_BYTES` (default 50 MiB), `WRIGHTFUL_RUN_STALE_MINUTES` (default 30), `ALLOW_OPEN_SIGNUP` (default false), `EMAIL_FROM` (enables verification/reset/monitor-alert email via the Cloudflare Email Service `EMAIL` binding; unset = email features off and graceful no-ops). Read values via `import { env } from "void/env"`.
 
 ## Worklogs
 

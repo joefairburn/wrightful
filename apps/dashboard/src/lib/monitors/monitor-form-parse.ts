@@ -6,9 +6,12 @@
  * the per-type update schemas.
  */
 
-/** The posted monitor type, defaulted to browser (only the two v1 types). */
-export function formType(form: FormData): "browser" | "http" {
-  return form.get("type") === "http" ? "http" : "browser";
+/** The posted monitor type, defaulted to browser. */
+export function formType(form: FormData): "browser" | "http" | "tcp" {
+  const type = form.get("type");
+  if (type === "http") return "http";
+  if (type === "tcp") return "tcp";
+  return "browser";
 }
 
 /**
@@ -41,5 +44,21 @@ export function httpConfigFromForm(form: FormData): Record<string, unknown> {
     degradedResponseTimeMs: form.get("degradedResponseTimeMs") ?? undefined,
     maxResponseTimeMs: form.get("maxResponseTimeMs") ?? undefined,
     assertions: parseAssertionsField(form.get("assertions")),
+  };
+}
+
+/**
+ * Assemble the raw tcp-config object from the flat form fields for the schema to
+ * validate — the tcp twin of {@link httpConfigFromForm}. `host` passes through
+ * verbatim (the schema's host-policy refinement validates it); `port` and
+ * `connectTimeoutMs` pass `?? undefined` so a missing field falls to the schema
+ * default rather than coercing `null` to `0`. There are no checkboxes — a tcp
+ * config has no booleans.
+ */
+export function tcpConfigFromForm(form: FormData): Record<string, unknown> {
+  return {
+    host: form.get("host"),
+    port: form.get("port") ?? undefined,
+    connectTimeoutMs: form.get("connectTimeoutMs") ?? undefined,
   };
 }

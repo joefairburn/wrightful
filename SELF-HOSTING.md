@@ -1,6 +1,6 @@
 # Self-hosting Wrightful
 
-Wrightful's dashboard is a [Void](https://void.cloud) app that runs on Cloudflare Workers: one Worker for the dashboard + ingest API, a single D1 database (auth, tenancy, runs, and test data), and one R2 bucket for artifact bytes. It uses exactly two Cloudflare bindings — `DB` (D1) and `STORAGE` (R2); no KV.
+Wrightful's dashboard is a [Void](https://void.cloud) app that runs on Cloudflare Workers: one Worker for the dashboard + ingest API, a single D1 database (auth, tenancy, runs, and test data), and one R2 bucket for artifact bytes. Its two storage bindings are `DB` (D1) and `STORAGE` (R2) — no KV. Synthetic monitoring (optional) adds two Cloudflare **Queues** (`monitors`, `uptime`) and, for **browser** monitors, a **Sandbox container**; five rate-limiter bindings ship in `wrangler.jsonc`. See [Synthetic monitors](#synthetic-monitors-optional) for what a self-hoster needs to provision (HTTP/TCP monitors need only the queues; browser monitors need the container — or set `WRIGHTFUL_MONITOR_EXECUTOR=stub` to skip both).
 
 There are two ways to deploy:
 
@@ -156,7 +156,8 @@ Every key is declared and validated in `apps/dashboard/env.ts`. For local dev, c
 **Optional:**
 
 - `AUTH_GITHUB_CLIENT_ID` / `AUTH_GITHUB_CLIENT_SECRET` — enable "Continue with GitHub". Register an [OAuth app](https://github.com/settings/developers) with callback `${WRIGHTFUL_PUBLIC_URL}/api/auth/callback/github`. Both must be set or the button stays hidden.
-- `ALLOW_OPEN_SIGNUP` (`true`/`false`, default `false`) — allow anyone to register. Off by default because email verification isn't wired up yet; leave off for public instances and add users via invites.
+- `ALLOW_OPEN_SIGNUP` (`true`/`false`, default `false`) — allow anyone to register. Off by default; on a public instance, pair it with `EMAIL_FROM` so new registrations must verify their address before signing in. Left off, add users via invites.
+- `EMAIL_FROM` — From address for outbound email (account verification, password reset, monitor alerts), e.g. `Wrightful <noreply@mail.example.com>`. Sent via the Cloudflare Email Service (CES) `EMAIL` binding, so the address must live on a domain you've [onboarded to CES](https://developers.cloudflare.com/email-service/) (CES provisions SPF/DKIM/DMARC). CES sending needs a Workers Paid plan and is in public beta. **Optional** — leave it unset and all email features stay off and degrade gracefully: signup needs no verification, the password-reset page reports email isn't configured, and monitor alerts are skipped.
 - `ARTIFACT_TOKEN_SECRET` — optional dedicated signer for the short-lived artifact-download tokens. Defaults to `BETTER_AUTH_SECRET`; set a separate value to revoke leaked artifact links by rotating it, without invalidating every user session.
 - `REALTIME_INTERNAL_SECRET` — pins the secret that authenticates the dashboard's internal realtime broadcasts (ingest worker → WebSocket room). Defaults to a fresh random value baked into each build; see [Production notes](#production-notes) for why you may want to pin it.
 
@@ -168,10 +169,70 @@ Every key is declared and validated in `apps/dashboard/env.ts`. For local dev, c
 | `AUTH_GITHUB_CLIENT_ID`        | No        | —                    | Enables "Continue with GitHub" sign-in.                                                                                |
 | `AUTH_GITHUB_CLIENT_SECRET`    | No        | —                    | Pair with `AUTH_GITHUB_CLIENT_ID`.                                                                                     |
 | `ALLOW_OPEN_SIGNUP`            | No        | `false`              | Allow public sign-up.                                                                                                  |
+| `EMAIL_FROM`                   | No        | —                    | From address for verification / password-reset / monitor-alert email (Cloudflare Email Service). Unset = email off.    |
 | `WRIGHTFUL_MAX_ARTIFACT_BYTES` | No        | 50 MiB               | Per-artifact upload size cap.                                                                                          |
 | `WRIGHTFUL_RUN_STALE_MINUTES`  | No        | 30                   | How long a run can sit `running` before the cron watchdog interrupts it.                                               |
 | `WRIGHTFUL_SWEEP_BATCH_SIZE`   | No        | 200                  | Max stale runs the watchdog finalizes per cron invocation.                                                             |
 | `REALTIME_INTERNAL_SECRET`     | No        | per-build random     | Pins the internal realtime-broadcast secret across deploys. 32+ random bytes.                                          |
+
+The keys above are the foundation set. The feature areas below add their own optional keys — all defaulted, so an instance runs without setting any of them.
+
+### GitHub Checks (PR commit status)
+
+Posts a check run on a PR's head commit reflecting the run outcome. **All-or-nothing**: enabled only when `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY` + `GITHUB_APP_WEBHOOK_SECRET` are all set. This is a GitHub **App** (mints an installation token that works on fork PRs) — distinct from the `AUTH_GITHUB_*` OAuth creds used for sign-in.
+
+| Name                        | Required?  | Default | Purpose                                                                                                                                                  |
+| --------------------------- | ---------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_APP_ID`             | For Checks | —       | GitHub App id.                                                                                                                                           |
+| `GITHUB_APP_PRIVATE_KEY`    | For Checks | —       | App private key, **PKCS#8** PEM (`BEGIN PRIVATE KEY`). Convert GitHub's PKCS#1: `openssl pkcs8 -topk8 -nocrypt -in key.pem`.                             |
+| `GITHUB_APP_WEBHOOK_SECRET` | For Checks | —       | Verifies inbound App webhooks (installation / check-run).                                                                                                |
+| `GITHUB_APP_SLUG`           | No         | —       | The App's public slug (`github.com/apps/<slug>`). Drives the one-click "Install" button on team settings; without it the page shows manual instructions. |
+
+### Usage quotas
+
+Bind only for teams on the `free` tier (other tiers are unlimited). Runs + artifact-bytes are **hard-blocked** at the limit; test-results is metered + soft-warned only. To run an instance with no limits, leave teams off the free tier (or raise these).
+
+| Name                                  | Default | Purpose                                                                      |
+| ------------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `WRIGHTFUL_FREE_MONTHLY_RUNS`         | 1000    | Free-tier monthly run-open allowance (hard block on `POST /api/runs`).       |
+| `WRIGHTFUL_FREE_MONTHLY_TEST_RESULTS` | 100000  | Free-tier monthly test-result allowance (soft-warn only, not blocked).       |
+| `WRIGHTFUL_FREE_ARTIFACT_BYTES`       | 5 GiB   | Free-tier monthly artifact-byte allowance (hard block on fresh bytes).       |
+| `WRIGHTFUL_QUOTA_SOFT_WARN_PCT`       | 90      | Percent of a limit at which the ingest response warns before the 100% block. |
+
+### Data retention
+
+Two independent axes (artifact bytes vs. test-result rows) swept by the `sweep-retention` cron. These are instance-wide defaults; a team can override its own windows in team settings. **Invariant:** `WRIGHTFUL_RETENTION_ARTIFACT_DAYS` ≤ `WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS`.
+
+| Name                                    | Default | Purpose                                                                                  |
+| --------------------------------------- | ------- | ---------------------------------------------------------------------------------------- |
+| `WRIGHTFUL_RETENTION_ARTIFACT_DAYS`     | 30      | Age after which artifact R2 objects + rows are swept.                                    |
+| `WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS` | 90      | Age after which `testResults` rows (+ cascaded children) are swept (run summaries kept). |
+| `WRIGHTFUL_RETENTION_SWEEP_BATCH_SIZE`  | 200     | Max rows per axis per project per cron pass (drains across passes).                      |
+
+### Data export / query API
+
+| Name                        | Default | Purpose                                                                                                                                                                                        |
+| --------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WRIGHTFUL_EXPORT_MAX_ROWS` | 50000   | Hard cap on rows a single CSV export streams (`/api/v1/*?format=csv`, `/api/t/.../export/*`). Past it, the response sets `X-Wrightful-Export-Truncated: true` rather than silently truncating. |
+
+The Bearer-authed read/query API lives under `/api/v1/*` (rate-limited via the `QUERY` limiter). See [`docs/api/query-export.md`](./docs/api/query-export.md).
+
+### Synthetic monitors (optional)
+
+Scheduled browser / HTTP / TCP·ping checks. The `sweep-monitors` cron enqueues due monitors to the `monitors` (browser) / `uptime` (http·tcp) Queues; the consumers run them via the configured executor. **HTTP/TCP monitors** need only the two Queues (plain `fetch()` / `connect()` — no container). **Browser monitors** additionally need a Sandbox container running the user's Playwright. To skip synthetic monitoring entirely in production, set `WRIGHTFUL_MONITOR_EXECUTOR` accordingly and don't create browser monitors.
+
+Container provisioning on the Cloudflare path: build `apps/dashboard/Dockerfile.sandbox`, push it to a registry, and replace the `REPLACE_WITH_REGISTRY/wrightful-sandbox:latest` placeholder in `apps/dashboard/void.json`'s `sandbox` block. Queue creation + container wiring follow Void's [Cloudflare integration guide](https://void.cloud/integrations/cloudflare). On the Void managed path these are provisioned automatically.
+
+| Name                                        | Default   | Purpose                                                                                     |
+| ------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `WRIGHTFUL_MONITOR_EXECUTOR`                | `sandbox` | `sandbox` (Void Sandbox container) or `stub` (in-process synthetic run; dev/CI, no Docker). |
+| `WRIGHTFUL_MONITOR_MAX_PER_PROJECT`         | 25        | Per-project cap on **browser** monitors (each multiplies container runs).                   |
+| `WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT`    | 50        | Per-project cap on HTTP (uptime) monitors.                                                  |
+| `WRIGHTFUL_TCP_MONITOR_MAX_PER_PROJECT`     | 50        | Per-project cap on TCP/ping monitors.                                                       |
+| `WRIGHTFUL_HTTP_CHECK_MAX_BODY_BYTES`       | 256 KiB   | Max response-body bytes buffered for an HTTP body/JSON assertion.                           |
+| `WRIGHTFUL_MONITOR_MAX_DURATION_SECONDS`    | 300       | Hard per-execution wall-clock cap for a browser run.                                        |
+| `WRIGHTFUL_MONITOR_EXECUTION_STALE_MINUTES` | 30        | Minutes a `queued`/`running` execution can sit before the reaper marks it `error`.          |
+| `WRIGHTFUL_MONITOR_SWEEP_BATCH_SIZE`        | 200       | Max due monitors the sweep cron enqueues per invocation.                                    |
 
 ---
 
@@ -182,6 +243,12 @@ Every key is declared and validated in `apps/dashboard/env.ts`. For local dev, c
 **Rate limiting needs a trusted client-IP header** — the auth/API rate limiters key unauthenticated requests by `CF-Connecting-IP`, falling back to the first hop of `X-Forwarded-For`. When the Worker runs on Cloudflare (both deploy paths above), `CF-Connecting-IP` is always set by the edge and cannot be spoofed. If you front the instance with anything else — or proxy to it through your own infrastructure — note that `X-Forwarded-For` is client-controlled: a sender can rotate it freely to dodge per-IP limits. Make sure your edge sets `CF-Connecting-IP` (or strips and rewrites `X-Forwarded-For`) from the real client address before the request reaches the Worker.
 
 **What "closed signup" actually closes** — with `ALLOW_OPEN_SIGNUP=false`, email/password registration is disabled, but GitHub OAuth sign-in (when configured) can still create accounts. That is deliberate: invites don't create accounts, so OAuth signup is how an invited teammate gets one on a closed instance. The resource boundary is enforced one step later — a self-registered account with no team membership cannot **create a team** (and therefore can't reach projects, API keys, or synthetic monitors). The only exception is a fresh instance with zero teams, so the first user — you — can bootstrap. Existing members can always create additional teams.
+
+**Features fail closed when unconfigured** — these shipped surfaces silently no-op (rather than erroring) until configured, so an unconfigured instance is fine: GitHub Checks are skipped unless the three `GITHUB_APP_*` secrets are set (the `/api/github/webhook` 404s otherwise); browser monitors error at execution if `WRIGHTFUL_MONITOR_EXECUTOR=sandbox` but no container is wired (HTTP/TCP monitors still work); usage quotas only bind for `free`-tier teams.
+
+**Email is optional (`EMAIL_FROM`)** — account verification, password reset, and monitor down/recovery alerts only send when `EMAIL_FROM` is set and its domain is onboarded to Cloudflare Email Service. Without it the dashboard runs normally: signup skips verification (so a public instance with open signup but no email lets anyone in unverified — set `EMAIL_FROM` for public instances), the password-reset page reports that email isn't configured, and monitor alerts are silently skipped. In local `vp dev` the send is **simulated** — logged to the console with the rendered HTML/text written to a temp file — so you never send real mail while developing.
+
+**Retention is destructive + invariant-checked** — the `sweep-retention` cron permanently deletes aged artifact bytes and test-result rows. Keep `WRIGHTFUL_RETENTION_ARTIFACT_DAYS` ≤ `WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS` (artifacts are the costly axis, swept sooner). Both are instance defaults; teams can widen/narrow their own windows in settings.
 
 ---
 
@@ -236,4 +303,4 @@ Results stream to your dashboard as tests run.
 
 ## What's under the hood
 
-See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full architecture overview (single D1 + Drizzle, logical tenancy, R2 artifact storage, `void/live` realtime, streaming ingest protocol). For the exact binding-merge semantics on the Cloudflare path, see the Void [Cloudflare integration guide](https://void.cloud/integrations/cloudflare#deploy-to-your-own-cloudflare-account).
+See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full architecture overview (single D1 + Drizzle, logical tenancy, R2 artifact storage, `void/ws` realtime rooms, the streaming ingest protocol, and the cron/queue background work). For the exact binding-merge semantics on the Cloudflare path, see the Void [Cloudflare integration guide](https://void.cloud/integrations/cloudflare#deploy-to-your-own-cloudflare-account).

@@ -1,27 +1,26 @@
-import { defineQueue } from "void";
-import { makeMonitorQueueHandler } from "@/lib/monitors/queue-consumer";
-import type { MonitorJob } from "@/lib/monitors/types";
+import { createMonitorConsumer } from "@/lib/monitors/queue-consumer";
 
 /**
- * The `"uptime"` queue consumer — the system-internal half of HTTP (uptime)
- * monitoring, the lightweight sibling of `queues/monitors.ts`. The sweep cron
- * routes `type === 'http'` jobs here (browser jobs go to `monitors`); each
- * message runs the user's check as a plain `fetch` (no container) and records
- * its outcome.
+ * The `"uptime"` queue consumer — the system-internal half of the lightweight
+ * uptime monitoring family (`http`, plus `tcp`/`ping`), the sibling of
+ * `queues/monitors.ts`. The sweep cron routes those types here (browser jobs go
+ * to `monitors`); each message runs the user's check WITHOUT a container — an
+ * http check as a plain `fetch`, a tcp/ping check as a raw `connect()` socket —
+ * and records its outcome.
  *
  * Why a DEDICATED queue rather than sharing `monitors`: that queue is tuned for
  * container jobs (`maxBatchSize = 1`, because one browser job can hold a
- * container for minutes). HTTP checks finish in <=~30s and benefit from
+ * container for minutes). Uptime checks finish in <=~30s and benefit from
  * batching — coupling them to the container-tuned settings would either starve
  * throughput or risk head-of-line blocking. Tuning each queue independently is
  * why they're split.
  *
- * Like `monitors.ts` this is the THIN ADAPTER: the ack/retry decision lives in
- * the pure `runMonitorJob`, with the same `monitors-repo` IO injected. The
- * executor is the same TYPE-DISPATCHING `resolveExecutor` — for an http job it
- * resolves to `HttpExecutor` regardless of `WRIGHTFUL_MONITOR_EXECUTOR` (which
- * only selects the BROWSER stub/sandbox), so http checks run with real `fetch`
- * in every environment.
+ * Like `monitors.ts` this is the THIN ADAPTER — only the tuning consts below are
+ * its own; the consume body is shared via `createMonitorConsumer` and the
+ * ack/retry decision lives in the pure `runMonitorJob`. The type-dispatching
+ * `resolveExecutor` (wired in the factory) resolves an http job to `HttpExecutor`
+ * and a tcp/ping job to `TcpExecutor` regardless of `WRIGHTFUL_MONITOR_EXECUTOR`
+ * (which only selects the BROWSER stub/sandbox).
  */
 
 /**
@@ -50,6 +49,7 @@ export const maxRetries = 2;
  */
 export const retryDelay = 5;
 
-export default defineQueue<MonitorJob>(
-  makeMonitorQueueHandler("uptime", retryDelay),
-);
+export default createMonitorConsumer({
+  label: "uptime",
+  retryDelaySeconds: retryDelay,
+});

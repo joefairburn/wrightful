@@ -3,9 +3,22 @@
 // the artifacts unique index below — safe at schema-parse time and for
 // `void db generate`.
 import { sql } from "void/_db";
-import { index, integer, sqliteTable, text, uniqueIndex } from "void/schema-d1";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "void/schema-d1";
 
-export type MembershipRole = "owner" | "member";
+/**
+ * A user's role within a team. The column is `text().$type<MembershipRole>()`,
+ * so widening this union (roadmap 3.1: adding `"viewer"`) is a pure TYPE change
+ * with NO migration — SQLite stores it as text either way. Capability gating
+ * lives in `src/lib/roles.ts` (`can(role, action)`), not in the column type.
+ */
+export type MembershipRole = "owner" | "member" | "viewer";
 
 /**
  * Single-D1 schema for the Void dashboard.
@@ -42,6 +55,25 @@ export const teams = sqliteTable(
     name: text("name").notNull(),
     createdAt: integer("createdAt").notNull(),
     lastActivityAt: integer("lastActivityAt"),
+    /**
+     * Billing tier — drives which limit set `checkQuota` (`src/lib/usage.ts`)
+     * enforces. `'free'` (default) → the env-configured `WRIGHTFUL_FREE_*`
+     * ceilings; any other tier is treated as unlimited (no quota block). Stripe
+     * binding (a `stripeCustomerId` column flipped by a webhook) is a later,
+     * additive change — the metering + enforcement layer is tier-agnostic.
+     */
+    tier: text("tier").notNull().default("free"),
+    /**
+     * Two-axis data-retention windows in DAYS, both nullable (null → the
+     * `WRIGHTFUL_RETENTION_*` env default). Separate because the cost/value
+     * profiles differ: `retentionArtifactDays` bounds R2 bytes (the storage
+     * cost), `retentionTestResultsDays` bounds the testResults row history (D1
+     * size). The `sweep-retention` cron enforces both. The artifact window must
+     * stay ≤ the testResults window (validated in the settings editor) so an
+     * expiring testResult's FK cascade never orphans still-live R2 objects.
+     */
+    retentionArtifactDays: integer("retentionArtifactDays"),
+    retentionTestResultsDays: integer("retentionTestResultsDays"),
   },
   (t) => [
     uniqueIndex("teams_slug_idx").on(t.slug),
@@ -59,6 +91,18 @@ export const projects = sqliteTable(
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     createdAt: integer("createdAt").notNull(),
+    /**
+     * The project's CODEOWNERS file contents, source of the CODEOWNERS-derived
+     * leg of test ownership (roadmap 2.3). Populated automatically from the
+     * reporter at `onBegin` (it reads the repo's CODEOWNERS off disk and sends
+     * it on the open-run payload — see `openRun`), and editable as a manual
+     * paste fallback in project settings. Null until first seen. `matchOwners`
+     * (`src/lib/codeowners.ts`) matches each test's `file` against this to
+     * derive owners; manual `testOwners` rows override the derived set.
+     */
+    codeownersFile: text("codeownersFile"),
+    /** Epoch-seconds the `codeownersFile` was last set (manually or via ingest). */
+    codeownersUpdatedAt: integer("codeownersUpdatedAt"),
   },
   (t) => [uniqueIndex("projects_team_slug_idx").on(t.teamId, t.slug)],
 );
@@ -119,6 +163,50 @@ export const teamInvites = sqliteTable(
 );
 
 /**
+ * A named, team-scoped group of members — a reusable primitive for addressing
+ * subsets of a team. Initially the targets of monitor alerts (a monitor's
+ * `alertTargets` may reference groups), but intentionally generic so other
+ * features (notification routing, access scoping) can reuse it. Team-scoped
+ * because membership is team-scoped; a group can only contain members of its
+ * own team (enforced at write time + re-intersected at read time).
+ */
+export const memberGroups = sqliteTable(
+  "memberGroups",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("teamId")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** `user.id` of the creator. Logical FK — see schema header. */
+    createdBy: text("createdBy").notNull(),
+    createdAt: integer("createdAt").notNull(),
+    updatedAt: integer("updatedAt").notNull(),
+  },
+  (t) => [uniqueIndex("memberGroups_team_name_idx").on(t.teamId, t.name)],
+);
+
+/**
+ * Group ↔ member join row. `userId` is a logical ref to the void-owned
+ * `user.id` (no `.references()`, like `memberships.userId`). Cascade-deletes
+ * with the group; a member leaving the team is dropped by the
+ * `setGroupMembers` write (and re-intersected with live members on read).
+ */
+export const memberGroupMembers = sqliteTable(
+  "memberGroupMembers",
+  {
+    groupId: text("groupId")
+      .notNull()
+      .references(() => memberGroups.id, { onDelete: "cascade" }),
+    userId: text("userId").notNull(),
+  },
+  // The composite primary key's index covers all groupId-prefixed lookups
+  // (listGroups, listUserIdsInGroups, replaceMembers' delete), so no separate
+  // single-column index is needed.
+  (t) => [primaryKey({ columns: [t.groupId, t.userId] })],
+);
+
+/**
  * Captures the GitHub login (`@octocat`) for a user that signed in via the
  * GitHub OAuth provider. Better Auth's `account` row stores `accountId` (the
  * numeric id) but not the human-readable login, which we need to resolve
@@ -175,6 +263,73 @@ export const apiKeys = sqliteTable(
   (t) => [
     index("apiKeys_project_idx").on(t.projectId),
     index("apiKeys_keyPrefix_idx").on(t.keyPrefix),
+  ],
+);
+
+// ---------- Billing / usage metering ----------
+
+/**
+ * Per-team usage meter, one row per (team, calendar-month). The live counter
+ * the ingest pipeline increments in the SAME `db.batch` as its writes
+ * (`usageBumpStatement` in `src/lib/usage.ts`) — so a run open / results flush /
+ * artifact registration bumps usage atomically with the data it meters, never a
+ * separate round-trip. `periodStart` is the UTC month-boundary epoch-seconds
+ * (`monthStartSeconds`), so a new month lands on a fresh row via the upsert's
+ * `onConflictDoUpdate` — no reset job. `checkQuota` reads the current row to
+ * gate ingest against the team's tier limits; the `rollup-usage` cron
+ * recomputes a period's counters from the authoritative rows to correct drift.
+ */
+export const usageCounters = sqliteTable(
+  "usageCounters",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("teamId")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** UTC start-of-month epoch-seconds — the rolling billing window key. */
+    periodStart: integer("periodStart").notNull(),
+    runsCount: integer("runsCount").notNull().default(0),
+    testResultsCount: integer("testResultsCount").notNull().default(0),
+    artifactBytes: integer("artifactBytes").notNull().default(0),
+    artifactCount: integer("artifactCount").notNull().default(0),
+    updatedAt: integer("updatedAt").notNull(),
+  },
+  (t) => [
+    // The upsert conflict target AND the seek key for `checkQuota` /
+    // `loadTeamUsage` ("this team's row for this period").
+    uniqueIndex("usageCounters_team_period_idx").on(t.teamId, t.periodStart),
+  ],
+);
+
+// ---------- GitHub App (check runs) ----------
+
+/**
+ * A GitHub App installation linked to a Wrightful team. Created by the setup
+ * callback (`routes/api/github/setup.ts`, which knows the team from the install
+ * `state`) and removed by the `installation.deleted` webhook. `accountLogin` is
+ * the org/user the App is installed on — the resolution key from a run's
+ * `repo` ("owner/name") to the installation that can post a check on it.
+ */
+export const githubInstallations = sqliteTable(
+  "githubInstallations",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("teamId")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /** GitHub's numeric installation id — what we mint installation tokens for. */
+    installationId: integer("installationId").notNull(),
+    /** The org/user login the App is installed on (the `repo` owner segment). */
+    accountLogin: text("accountLogin").notNull(),
+    createdAt: integer("createdAt").notNull(),
+    updatedAt: integer("updatedAt").notNull(),
+  },
+  (t) => [
+    uniqueIndex("githubInstallations_installationId_idx").on(t.installationId),
+    // Resolve "which installation can post a check for repo owner X" without a
+    // scan. Account logins are unique per installation, so this is a point seek.
+    uniqueIndex("githubInstallations_accountLogin_idx").on(t.accountLogin),
+    index("githubInstallations_team_idx").on(t.teamId),
   ],
 );
 
@@ -254,6 +409,12 @@ export const runs = sqliteTable(
      * a missing monitor gracefully).
      */
     monitorId: text("monitorId"),
+    /**
+     * The GitHub check-run id created for this run, or null. Lets the terminal
+     * path (`completeRun` / `finalizeStaleRun` → `maybePostGithubCheck`) PATCH
+     * the existing check on a re-complete instead of POSTing a duplicate.
+     */
+    githubCheckRunId: integer("githubCheckRunId"),
   },
   (t) => [
     uniqueIndex("runs_project_idempotency_key_idx").on(
@@ -351,10 +512,12 @@ export const testTags = sqliteTable(
     tag: text("tag").notNull(),
   },
   (t) => [
-    // No standalone (tag) index — nothing filters `WHERE tag = ?`; the only tag
-    // reads group by tag from a testResults-driven scan. Re-add (projectId, tag)
-    // if a tag-filter feature lands. See worklog §2.
     index("testTags_testResultId_idx").on(t.testResultId),
+    // Serves the tag-filter feature: `loadProjectTags`' `SELECT DISTINCT tag
+    // WHERE projectId = ?` runs as an index-only skip-scan, and the EXISTS
+    // tag-filter subquery (`tagFragment`) has a covering lookup. (The schema
+    // pre-authorized this once a tag-filter feature landed — it now has.)
+    index("testTags_project_tag_idx").on(t.projectId, t.tag),
   ],
 );
 
@@ -438,6 +601,13 @@ export const artifacts = sqliteTable(
   (t) => [
     index("artifacts_testResultId_idx").on(t.testResultId),
     /**
+     * Serves the retention sweep's age scan (`projectId = ? AND createdAt < ?`):
+     * lets D1 seek the project's oldest artifacts in createdAt order for the
+     * bounded delete slice, instead of scanning the project partition via
+     * `artifacts_testResultId_idx`. Mirrors `testResults_project_createdAt_idx`.
+     */
+    index("artifacts_project_createdAt_idx").on(t.projectId, t.createdAt),
+    /**
      * Artifact idempotency identity. A retried `/results` flush re-registers
      * the same artifact set; this tuple is what makes two registrations "the
      * same artifact" so the reporter's PUT overwrites one R2 object instead of
@@ -486,6 +656,20 @@ export const monitors = sqliteTable(
     type: text("type").notNull(),
     /** 0/1 — paused monitors keep their row but are skipped by the sweep. */
     enabled: integer("enabled").notNull().default(1),
+    /**
+     * 0/1 — whether down/recovery email alerts fire for this monitor (on by
+     * default). Sends require an email sender configured (`EMAIL_FROM`); with
+     * none, alerting is a graceful no-op regardless. Edge-triggered on a
+     * healthy↔down transition — see `src/lib/monitors/alerts.ts`.
+     */
+    alertsEnabled: integer("alertsEnabled").notNull().default(1),
+    /**
+     * Who alerts notify, as JSON. `null` = ALL team members (the default). A
+     * `{ users: string[], groups: string[] }` object = those specific members +
+     * the members of those `memberGroups`, unioned and re-intersected with live
+     * memberships at send time. Parsing/expansion: `src/lib/monitors/alert-targets.ts`.
+     */
+    alertTargets: text("alertTargets"),
     /** Playwright spec source for `type = 'browser'`; null for non-browser types. */
     source: text("source"),
     /** Type-specific config as JSON (e.g. browser: timeout/workers; http: url/assertions). */
@@ -587,6 +771,176 @@ export const monitorExecutions = sqliteTable(
   ],
 );
 
+/**
+ * Per-project flaky-test quarantine list, keyed by the stable `testId`.
+ *
+ * The reporter pulls this at `onBegin` (`GET /api/runs/quarantine`) and, for v1
+ * enforcement, DEMOTES a quarantined test's hard failure to `skipped` on the
+ * wire so a known-flaky test can't redden a run while it's being stabilised
+ * (a reporter is observe-only — it can't skip execution). The dashboard UI
+ * (flaky + tests catalog) lets an owner add/remove entries.
+ *
+ * Like `testTags`, every row carries denormalized `projectId` so tenant
+ * isolation needs no join. `createdBy` is the void-managed `user.id` of the
+ * actor — a LOGICAL FK (no `.references()`), matching `monitors.createdBy`.
+ */
+export const quarantinedTests = sqliteTable(
+  "quarantinedTests",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("projectId")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    testId: text("testId").notNull(),
+    /** Optional human note explaining why the test is quarantined. */
+    reason: text("reason"),
+    /**
+     * 'skip' (v1 default): demote a quarantined hard failure to `skipped` so it
+     * doesn't count as a failure. 'soft': reserved for a future "still report
+     * the failure but don't fail the run" mode (not enforced differently in v1).
+     */
+    mode: text("mode").notNull().$type<"skip" | "soft">().default("skip"),
+    /** void-managed `user.id` of the creator. Logical FK — see schema header. */
+    createdBy: text("createdBy").notNull(),
+    createdAt: integer("createdAt").notNull(),
+  },
+  (t) => [
+    // One quarantine entry per (project, test). Re-quarantining the same test
+    // upserts onto this index (mode/reason updated) rather than erroring.
+    uniqueIndex("quarantinedTests_project_testId_idx").on(
+      t.projectId,
+      t.testId,
+    ),
+    // Backs the project-scoped list (`projectId = ?` ordered by `createdAt`).
+    index("quarantinedTests_project_createdAt_idx").on(
+      t.projectId,
+      t.createdAt,
+    ),
+  ],
+);
+
+/**
+ * Per-project test ownership, keyed by the stable `testId` (roadmap 2.3).
+ *
+ * Layered with two sources. A `source = 'manual'` row is an explicit
+ * assignment made from the flaky page (owner-gated) — the SOURCE OF TRUTH, it
+ * overrides any CODEOWNERS-derived owner. A `source = 'codeowners'` row is the
+ * (currently unused on the write side) materialized form of a CODEOWNERS match;
+ * v1 derives the CODEOWNERS leg on the fly from `projects.codeownersFile` in
+ * `resolveTestOwners` rather than persisting it, so manual rows are the only
+ * writers today. The column stays so a future "materialize CODEOWNERS at
+ * ingest" pass is additive.
+ *
+ * Like `quarantinedTests`, every row carries denormalized `projectId` so tenant
+ * isolation needs no join. `owner` is an OPAQUE label — a team handle
+ * (`@team/web`) or an email — never resolved against `user`/`memberships`.
+ */
+export const testOwners = sqliteTable(
+  "testOwners",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("projectId")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    testId: text("testId").notNull(),
+    /** Opaque owner label, e.g. "@team/web" or "alice@example.com". */
+    owner: text("owner").notNull(),
+    /**
+     * 'manual': an explicit owner-gated assignment (the source of truth that
+     * overrides CODEOWNERS). 'codeowners': a materialized CODEOWNERS match
+     * (reserved — v1 derives these on the fly, never inserts them).
+     */
+    source: text("source").$type<"manual" | "codeowners">().notNull(),
+    createdAt: integer("createdAt").notNull(),
+  },
+  (t) => [
+    // One row per (project, test, owner) — assigning the same owner twice is an
+    // upsert/ignore, not a duplicate.
+    uniqueIndex("testOwners_project_testId_owner_idx").on(
+      t.projectId,
+      t.testId,
+      t.owner,
+    ),
+    // Serves the per-test owner lookup (`projectId = ? AND testId IN (…)`) the
+    // page-badge join (`resolveTestOwners`) runs.
+    index("testOwners_project_testId_idx").on(t.projectId, t.testId),
+  ],
+);
+
+// ---------- Audit log ----------
+
+/**
+ * Append-only team audit log (roadmap 3.2). One row per privileged mutation
+ * (invite mint/revoke/accept, member remove/leave/role-change, key mint/revoke,
+ * team rename/delete, project create/delete) written by `recordAudit`
+ * (`src/lib/audit.ts`). Reverse-chron, owner-only viewer at
+ * `/settings/teams/:teamSlug/audit`.
+ *
+ * **An audit row must OUTLIVE the entity it records.** A "project deleted" /
+ * "team renamed" row has to survive the thing it describes, which dictates the
+ * two FK onDelete choices below:
+ *
+ *  - `teamId` → teams `onDelete: "cascade"`. The audit log is *team*-scoped —
+ *    when the team itself is deleted there is no longer anyone who could read
+ *    its log (the viewer page is owner-only and the team's memberships cascade
+ *    away too), so retaining orphaned audit rows for a dead team buys nothing.
+ *    Cascade is therefore both acceptable AND the simplest choice. The
+ *    `team.delete` row is still captured: `recordAudit` is awaited SYNCHRONOUSLY
+ *    *before* the delete batch runs, so the actor/target context is persisted
+ *    and (briefly) readable up to the moment the cascade removes the whole team.
+ *
+ *  - `projectId` → projects `onDelete: "set null"` (NULLABLE). A project delete
+ *    must NOT cascade-delete the audit rows that record it — the "project
+ *    deleted" entry is exactly the row a team owner wants to keep. So the FK
+ *    nulls the column on project delete and the row persists under its team.
+ *    The human-readable identity of the gone project (slug/name) is captured in
+ *    `targetId` / `metadata` so the row stays meaningful after the project row
+ *    is gone.
+ *
+ * `actorUserId` is the void-managed `user.id` of the actor — a LOGICAL FK (no
+ * `.references()`), matching `memberships.userId` / `monitors.createdBy`.
+ */
+export const auditLog = sqliteTable(
+  "auditLog",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("teamId")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    /**
+     * Nullable + `set null` on project delete so a `project.delete` row
+     * survives the project it records. See table doc-comment.
+     */
+    projectId: text("projectId").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    /** void-managed `user.id` of the actor. Logical FK — see schema header. */
+    actorUserId: text("actorUserId").notNull(),
+    /**
+     * Stable enum-ish action string (e.g. "invite.mint", "member.role_change",
+     * "key.revoke", "team.delete", "project.create"). The canonical set lives in
+     * `AUDIT_ACTIONS` (`src/lib/audit.ts`) so call sites don't stringly-drift.
+     */
+    action: text("action").notNull(),
+    /** The kind of thing acted on ("invite" | "member" | "key" | "team" | "project"). */
+    targetType: text("targetType"),
+    /**
+     * Human-readable identifier of the target (an email/login for invites, a key
+     * label, a project slug, …) — captured here so the row stays meaningful even
+     * after the underlying entity is deleted.
+     */
+    targetId: text("targetId"),
+    /** Extra structured context as a JSON string (serialized by `recordAudit`). */
+    metadata: text("metadata"),
+    createdAt: integer("createdAt").notNull(),
+  },
+  (t) => [
+    // Serves the reverse-chron viewer page: WHERE teamId = ? ORDER BY createdAt
+    // DESC — D1 seeks the team partition and walks it newest-first.
+    index("auditLog_team_createdAt_idx").on(t.teamId, t.createdAt),
+  ],
+);
+
 // ---------- Type aliases for downstream code ----------
 
 export type Team = typeof teams.$inferSelect;
@@ -596,6 +950,8 @@ export type TeamInvite = typeof teamInvites.$inferSelect;
 export type UserGithubAccount = typeof userGithubAccounts.$inferSelect;
 export type UserStateRow = typeof userState.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
+export type UsageCounter = typeof usageCounters.$inferSelect;
+export type GithubInstallation = typeof githubInstallations.$inferSelect;
 export type Run = typeof runs.$inferSelect;
 export type TestResult = typeof testResults.$inferSelect;
 export type TestTag = typeof testTags.$inferSelect;
@@ -604,3 +960,6 @@ export type TestResultAttempt = typeof testResultAttempts.$inferSelect;
 export type Artifact = typeof artifacts.$inferSelect;
 export type Monitor = typeof monitors.$inferSelect;
 export type MonitorExecution = typeof monitorExecutions.$inferSelect;
+export type QuarantinedTest = typeof quarantinedTests.$inferSelect;
+export type TestOwner = typeof testOwners.$inferSelect;
+export type AuditLogRow = typeof auditLog.$inferSelect;

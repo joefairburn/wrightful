@@ -33,14 +33,16 @@ export default defineConfig({
 
 Options:
 
-| option            | default               | notes                                                                |
-| ----------------- | --------------------- | -------------------------------------------------------------------- |
-| `url`             | `WRIGHTFUL_URL` env   | Dashboard base URL                                                   |
-| `token`           | `WRIGHTFUL_TOKEN` env | Bearer API key — project-scoped; mint from the dashboard's keys page |
-| `batchSize`       | `20`                  | Max results per flush                                                |
-| `flushIntervalMs` | `500`                 | Max ms to wait between flushes                                       |
-| `environment`     | —                     | Environment tag for the run                                          |
-| `artifacts`       | `'failed'`            | Which tests' attachments to upload: `'all' \| 'failed' \| 'none'`    |
+| option              | default               | notes                                                                                                                                                                                                            |
+| ------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`               | `WRIGHTFUL_URL` env   | Dashboard base URL                                                                                                                                                                                               |
+| `token`             | `WRIGHTFUL_TOKEN` env | Bearer API key — project-scoped; mint from the dashboard's keys page                                                                                                                                             |
+| `batchSize`         | `20`                  | Max results per flush                                                                                                                                                                                            |
+| `flushIntervalMs`   | `500`                 | Max ms to wait between flushes                                                                                                                                                                                   |
+| `environment`       | —                     | Environment tag for the run                                                                                                                                                                                      |
+| `artifacts`         | `'failed'`            | Which tests' attachments to upload: `'all' \| 'failed' \| 'none'`                                                                                                                                                |
+| `shutdownTimeoutMs` | `600000` (10 min)     | Wall-clock budget for the `onEnd` drain (pending batches + in-flight uploads), with a slice reserved for `/complete`. On expiry the reporter completes the run anyway, so a slow dashboard can't hang the suite. |
+| `postPrComment`     | `false`               | Upsert a sticky GitHub PR summary comment when the run completes (see [GitHub PR comment](#github-pr-comment)).                                                                                                  |
 
 ## Protocol
 
@@ -83,8 +85,28 @@ follows the `artifacts` option:
 - `'all'`: upload for every test.
 - `'none'`: skip artifact uploads entirely.
 
-Semantics match the CLI's `--artifacts` flag. Per-file failures are logged
-to stderr and do not block the run or other artifact uploads.
+Per-file failures are logged to stderr and do not block the run or other
+artifact uploads.
+
+## GitHub PR comment
+
+With `postPrComment: true`, the reporter upserts a single sticky summary
+comment on the PR when the run completes. It requires GitHub Actions context
+(`GITHUB_ACTIONS=true`), a PR-triggered workflow (so the PR number is set),
+a detected `repo`, and a `GITHUB_TOKEN` (or `WRIGHTFUL_GITHUB_TOKEN`) in env —
+grant the workflow `permissions: pull-requests: write`. The comment is keyed by
+a hidden HTML marker, so re-running the same workflow updates the existing
+comment in place rather than posting a new one. Cross-fork PRs get a read-only
+token (the POST 403s); that's logged and ignored — it never fails the suite.
+
+## Quarantine
+
+If the dashboard has quarantined any of the project's tests, the reporter
+fetches that list at `onBegin` and reports a quarantined test's _hard failure_
+as `skipped` (with a `quarantined` annotation) instead — observe-only
+enforcement, since a reporter can't stop a test from running. A `passed` or
+already-`skipped` outcome is left untouched. The fetch is best-effort: if it
+fails, quarantine is simply a no-op for that run.
 
 ## Data sent to the dashboard
 
@@ -108,6 +130,11 @@ environment variables (GitHub Actions, GitLab CI, CircleCI, or generic
 repo slug, and triggering actor. When no CI env is present these fields are
 sent as `null`.
 
+If a **CODEOWNERS** file is present (`.github/CODEOWNERS`, then `CODEOWNERS`,
+then `docs/CODEOWNERS` — GitHub's resolution order, first found wins), its
+contents are attached to the open-run payload so the dashboard can derive
+test ownership. Best-effort: a missing or oversized file is simply omitted.
+
 Error messages and stack traces can echo the values your tests interacted
 with (payloads, environment values, file paths). If your assertions can
 touch secrets, they'll be visible in the dashboard — scope API keys and
@@ -120,5 +147,4 @@ environment variable content outside the fields listed above.
 
 Retried tests are aggregated into one row at their final outcome — a
 fails-then-passes test streams as a single `flaky` row (not two separate
-attempts), matching the bulk CLI upload. Non-retried tests stream as soon as
-their single attempt completes.
+attempts). Non-retried tests stream as soon as their single attempt completes.

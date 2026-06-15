@@ -44,8 +44,12 @@ export const WRIGHTFUL_VERSION_HEADER = "X-Wrightful-Version";
  */
 export const SUPPORTED_VERSIONS = new Set(["3"]);
 
-// String length caps (characters).
-const MAX = {
+// String length caps (characters). Exported so the reporter's `contract.test.ts`
+// canary can pin its own preflight caps (`MAX_IDEMPOTENCY_KEY_LENGTH`,
+// `MAX_CODEOWNERS_BYTES`) against these — a dashboard cap tightening the reporter
+// doesn't track would otherwise surface only as a production 400 on the open
+// call (a failed open loses the whole run).
+export const MAX = {
   ID: 1024,
   TITLE: 2048,
   FILE: 1024,
@@ -56,6 +60,10 @@ const MAX = {
   MESSAGE: 65536,
   STACK: 131072,
   COMMIT_MSG: 16384,
+  // CODEOWNERS file contents sent on the open-run payload (roadmap 2.3). The
+  // reporter already skips files larger than ~64 KiB before sending; the
+  // dashboard caps here too as defense against a hand-crafted payload.
+  CODEOWNERS: 65536,
 } as const;
 
 // Array caps.
@@ -163,6 +171,16 @@ const BackdateSeconds = z.number().int().min(0).optional();
 export const OpenRunPayloadSchema = z.object({
   idempotencyKey: z.string().min(1).max(MAX.ID),
   run: z.object(RunMetaCommon),
+  /**
+   * The repo's CODEOWNERS file contents (roadmap 2.3). The reporter reads it
+   * off disk at `onBegin` and sends it here when present; `openRun` upserts it
+   * onto `projects.codeownersFile` so test-ownership derivation always reflects
+   * the latest committed file. Optional — omitted when the repo has no
+   * CODEOWNERS, in which case `openRun` leaves any manually-pasted file intact
+   * (an absent field never clobbers). Length-capped (the reporter skips
+   * oversize files before sending).
+   */
+  codeowners: z.string().max(MAX.CODEOWNERS).optional(),
   createdAt: BackdateSeconds,
 });
 export type OpenRunPayload = z.infer<typeof OpenRunPayloadSchema>;
@@ -280,3 +298,24 @@ export const RegisterArtifactsResponseSchema = z
 export type RegisterArtifactsResponse = z.infer<
   typeof RegisterArtifactsResponseSchema
 >;
+
+/**
+ * `GET /api/runs/quarantine` response (server → reporter). The reporter pulls
+ * the project's flaky-test quarantine list at `onBegin` and demotes a
+ * quarantined hard failure to `skipped` on the wire. Reporter-consumed fields
+ * only; `.passthrough()` tolerates any extra the handler adds. Mirrors
+ * `QuarantineResponse` in `@wrightful/reporter`'s `types.ts`.
+ */
+export const QuarantineEntrySchema = z.object({
+  testId: z.string().min(1).max(MAX.ID),
+  mode: z.enum(["skip", "soft"]),
+  reason: z.string().nullable(),
+});
+export type QuarantineEntryWire = z.infer<typeof QuarantineEntrySchema>;
+
+export const QuarantineResponseSchema = z
+  .object({
+    tests: z.array(QuarantineEntrySchema),
+  })
+  .passthrough();
+export type QuarantineResponse = z.infer<typeof QuarantineResponseSchema>;

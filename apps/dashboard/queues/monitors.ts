@@ -1,6 +1,4 @@
-import { defineQueue } from "void";
-import { makeMonitorQueueHandler } from "@/lib/monitors/queue-consumer";
-import type { MonitorJob } from "@/lib/monitors/types";
+import { createMonitorConsumer } from "@/lib/monitors/queue-consumer";
 
 /**
  * The `"monitors"` queue consumer — the system-internal half of synthetic
@@ -9,17 +7,12 @@ import type { MonitorJob } from "@/lib/monitors/types";
  * the consumer runs the user's check in a container (or the stub) and records
  * its outcome.
  *
- * This file is the THIN ADAPTER — it owns only the wiring, not the logic. The
- * ack/retry decision lives in the PURE `runMonitorJob` (`@/lib/monitors/executor`)
- * with its IO injected: the `monitors-repo` system-internal functions
- * (load/claim/record by id, scoped by the row's own projectId — like
- * `finalizeStaleRun`), the executor resolved from `WRIGHTFUL_MONITOR_EXECUTOR`,
- * and a `Date.now`-based clock. Keeping the decision pure is what lets it be
- * unit-tested without the `void/*` runtime the harness can't resolve.
- *
- * `recordExecutionResult` ALREADY writes both the execution terminal row AND the
- * monitor's `lastStatus`/`lastRunAt` in one atomic batch, so the consumer does
- * NOT touch the monitor row separately — it just hands `recordResult` through.
+ * This file is the THIN ADAPTER — it owns only the Void tuning constants below;
+ * the consume-and-decide body is shared via `createMonitorConsumer`
+ * (`@/lib/monitors/queue-consumer`), and the ack/retry decision itself lives in
+ * the PURE `runMonitorJob` (`@/lib/monitors/executor`). `recordExecutionResult`
+ * (wired inside the factory) ALREADY writes both the execution terminal row AND
+ * the monitor's `lastStatus`/`lastRunAt` in one atomic batch.
  */
 
 /**
@@ -55,6 +48,7 @@ export const maxRetries = 2;
  */
 export const retryDelay = 30;
 
-export default defineQueue<MonitorJob>(
-  makeMonitorQueueHandler("monitor", retryDelay),
-);
+export default createMonitorConsumer({
+  label: "monitor",
+  retryDelaySeconds: retryDelay,
+});

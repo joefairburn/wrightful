@@ -36,6 +36,15 @@ import type {
  *     direct DB write can't be fixed by retrying, so settle it (don't loop).
  */
 
+/**
+ * An {@link ExecutionResult} whose `resultDetail` is precisely an http detail
+ * (never the tcp variant of the storage union) — so callers + tests narrow to
+ * `HttpResultDetail` fields without a guard. Assignable to `ExecutionResult`.
+ */
+export type HttpExecutionResult = Omit<ExecutionResult, "resultDetail"> & {
+  resultDetail: HttpResultDetail | null;
+};
+
 /** Hard wall-clock cap on a single check, ms. Not a knob — see plan §9. */
 export const HTTP_HARD_TIMEOUT_MS = 30_000;
 /** Max bytes of body kept as the failure excerpt in `resultDetail`. */
@@ -60,7 +69,7 @@ export interface HttpRunDeps {
 }
 
 /** Settle an invalid-config monitor terminally (never retried). */
-function configError(message: string, durationMs: number): ExecutionResult {
+function configError(message: string, durationMs: number): HttpExecutionResult {
   return {
     state: "error",
     runId: null,
@@ -138,7 +147,7 @@ function describeAssertion(a: AssertionResult): string {
 export async function runHttpCheck(
   input: { monitor: Monitor; execution: MonitorExecution },
   deps: HttpRunDeps,
-): Promise<ExecutionResult> {
+): Promise<HttpExecutionResult> {
   const startedAt = deps.now();
   const config = parseHttpMonitorConfig(input.monitor.config);
   if (!config) {

@@ -7,8 +7,7 @@
     "test": "vp test run",
     "test:playwright": "npx playwright test",
     "test:dashboard": "npx playwright test --config=playwright.dashboard.config.ts",
-    "test:load": "bash scripts/run-load-test.sh",
-    "test:upload": "node scripts/test-upload.js"
+    "test:load": "bash scripts/run-load-test.sh"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",

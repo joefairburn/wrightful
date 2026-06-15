@@ -10,6 +10,12 @@ const schemaPath = fileURLToPath(new URL("./db/schema.ts", import.meta.url));
 const voidDbStubPath = fileURLToPath(
   new URL("./src/__tests__/helpers/void-db-stub.ts", import.meta.url),
 );
+const cloudflareWorkersStubPath = fileURLToPath(
+  new URL(
+    "./src/__tests__/helpers/cloudflare-workers-stub.ts",
+    import.meta.url,
+  ),
+);
 
 // `vp test` sets mode to "test"; under test we skip voidPlugin/voidReact so
 // the test runner doesn't try to bootstrap D1 migrations or wrap tests as
@@ -48,10 +54,14 @@ export default defineConfig({
           // Tests run without the void plugin, so the virtual `@schema` and
           // `void/db` modules aren't materialized — alias them to real files
           // (the schema source, and a stub that re-exports drizzle operators
-          // and a guarded `db` placeholder).
+          // and a guarded `db` placeholder). `cloudflare:workers` is a workerd
+          // built-in unresolvable in plain Node — alias it to an empty-`env`
+          // stub so modules that read bindings (e.g. `src/lib/email.ts`) import
+          // cleanly; tests that exercise a binding `vi.mock("cloudflare:workers")`.
           "@": srcDir,
           "@schema": schemaPath,
           "void/db": voidDbStubPath,
+          "cloudflare:workers": cloudflareWorkersStubPath,
         }
       : {
           "@": srcDir,

@@ -3,7 +3,15 @@
 A Playwright test reporting dashboard. Ships as two pieces:
 
 - **`@wrightful/reporter`** — Playwright reporter that streams results and artifacts to the dashboard live as each test completes.
-- **`@wrightful/dashboard`** — a Cloudflare app built on [Void](https://void.cloud) (Vite + React, server-rendered pages; a single D1 database via Drizzle for auth/tenancy and test data; R2 for artifacts) that ingests results and serves the UI.
+- **`@wrightful/dashboard`** — a Cloudflare app built on [Void](https://void.cloud) (Vite + React, server-rendered pages; a single D1 database via Drizzle for auth/tenancy and test data; R2 for artifacts) that ingests results, serves the UI, runs synthetic monitors, and exposes a query/export API.
+
+## Features
+
+- **Live test reporting** — streaming ingest with realtime run progress (`void/ws`); one row per test at its final outcome, retries aggregated into `flaky`; artifacts (traces, screenshots, video) streamed through the worker into R2.
+- **Triage & analytics** — test catalog with tag filtering + file/suite grouping, flaky detection with a **quarantine** workflow, **test ownership** (auto-derived from CODEOWNERS), **run-to-run diff**, and duration/uptime insights.
+- **Synthetic monitoring** — scheduled **browser / HTTP / TCP·ping** uptime checks, run on a cron→queue→executor pipeline.
+- **Integrations** — **GitHub Checks** (PR commit status, fork-PR safe via a GitHub App) and a Bearer-authed **query + CSV export API** under `/api/v1/*` (see [`docs/api/query-export.md`](./docs/api/query-export.md)).
+- **Team & admin** — teams/projects/members with **granular RBAC** (owner/member/viewer), an **audit log**, **usage metering + quotas**, and **two-axis data retention**. Everything is behind auth (no anonymous/public views).
 
 ## Deploy your own dashboard
 

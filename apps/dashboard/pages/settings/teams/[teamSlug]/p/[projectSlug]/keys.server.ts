@@ -1,9 +1,10 @@
 import { defineHandler, type InferProps } from "void";
 import { and, db, desc, eq, isNull, ne } from "void/db";
 import { apiKeys, projects } from "@schema";
-import { deleteProjectArtifactObjects } from "@/lib/artifacts";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
+import { CODEOWNERS_FILE_MAX } from "@/lib/owner-schemas";
 import { readField } from "@/lib/form";
-import { runBatch } from "@/lib/db-batch";
+import { teardownProject } from "@/lib/project-teardown";
 import {
   redirectWithParam,
   requireOwnedProjectScope,
@@ -31,6 +32,7 @@ export const loader = defineHandler(async (c) => {
   const url = new URL(c.req.url);
   const generalError = url.searchParams.get("generalError");
   const dangerError = url.searchParams.get("dangerError");
+  const codeownersError = url.searchParams.get("codeownersError");
 
   // Explicit column list: loader props serialize into the page payload, and a
   // bare `select()` would ship every key's `keyHash` to the browser. The hash
@@ -48,6 +50,15 @@ export const loader = defineHandler(async (c) => {
     .where(eq(apiKeys.projectId, project.id))
     .orderBy(desc(apiKeys.createdAt));
 
+  const codeownersRows = await db
+    .select({
+      file: projects.codeownersFile,
+      updatedAt: projects.codeownersUpdatedAt,
+    })
+    .from(projects)
+    .where(eq(projects.id, project.id))
+    .limit(1);
+
   return {
     project: {
       id: project.id,
@@ -57,8 +68,13 @@ export const loader = defineHandler(async (c) => {
       teamSlug: project.teamSlug,
     },
     keys,
+    codeowners: {
+      file: codeownersRows[0]?.file ?? "",
+      updatedAt: codeownersRows[0]?.updatedAt ?? null,
+    },
     generalError,
     dangerError,
+    codeownersError,
   };
 });
 
@@ -75,7 +91,7 @@ export const actions = {
     const form = await c.req.formData();
     const keyId = readField(form, "keyId");
     if (!keyId) return c.redirect(here);
-    await db
+    const revoked = await db
       .update(apiKeys)
       .set({ revokedAt: Math.floor(Date.now() / 1000) })
       .where(
@@ -84,7 +100,72 @@ export const actions = {
           eq(apiKeys.projectId, project.id),
           isNull(apiKeys.revokedAt),
         ),
+      )
+      .returning({ label: apiKeys.label, keyPrefix: apiKeys.keyPrefix });
+    // Idempotent revoke: a foreign/already-revoked key matches 0 rows. Only
+    // audit a genuine state change.
+    if (revoked[0]) {
+      await recordAudit(c, {
+        teamId: project.teamId,
+        projectId: project.id,
+        action: AUDIT_ACTIONS.KEY_REVOKE,
+        targetType: "key",
+        targetId: revoked[0].label,
+        metadata: {
+          keyId,
+          keyPrefix: revoked[0].keyPrefix,
+          projectSlug: project.slug,
+        },
+      });
+    }
+    return c.redirect(here);
+  }),
+
+  /**
+   * Set (or clear) the project's CODEOWNERS file — the manual paste fallback to
+   * the reporter's automatic ingest (roadmap 2.3). A blank textarea clears the
+   * file (sets it null). The reporter re-populates it from the repo on the next
+   * run when a CODEOWNERS exists; a manual paste here is what you reach for when
+   * the repo has none (or to override before the next run streams).
+   */
+  updateCodeowners: defineHandler(async (c) => {
+    const { project, here } = await requireOwnedProjectScope(c, hereFor);
+
+    const form = await c.req.formData();
+    const raw = readField(form, "codeowners");
+    if (raw.length > CODEOWNERS_FILE_MAX) {
+      return redirectWithParam(
+        c,
+        here,
+        "codeownersError",
+        `CODEOWNERS file is too large (max ${CODEOWNERS_FILE_MAX} characters).`,
       );
+    }
+    // Trim trailing whitespace; an empty result clears the file (null).
+    const trimmed = raw.trim();
+    const file = trimmed.length > 0 ? trimmed : null;
+
+    try {
+      await db
+        .update(projects)
+        .set({
+          codeownersFile: file,
+          codeownersUpdatedAt: Math.floor(Date.now() / 1000),
+        })
+        .where(eq(projects.id, project.id));
+    } catch (err) {
+      logger.error("update codeowners failed", {
+        projectId: project.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return redirectWithParam(
+        c,
+        here,
+        "codeownersError",
+        "Could not save the CODEOWNERS file.",
+      );
+    }
+
     return c.redirect(here);
   }),
 
@@ -143,9 +224,16 @@ export const actions = {
     return c.redirect(`/settings/teams/${project.teamSlug}/p/${slug}/keys`);
   }),
 
-  /** Delete project + its keys. */
+  /** Delete project + all its dependent rows (and reclaim its R2 bytes). */
   deleteProject: defineHandler(async (c) => {
-    const { project, here } = await requireOwnedProjectScope(c, hereFor);
+    // Deleting a project is a config mutation, so gate on `writeConfig` (not the
+    // default `mintKeys`) — both are owner-only in the matrix, but the verb
+    // names the operation.
+    const { project, here } = await requireOwnedProjectScope(
+      c,
+      hereFor,
+      "writeConfig",
+    );
 
     const form = await c.req.formData();
     const confirm = readField(form, "confirm").trim();
@@ -158,11 +246,21 @@ export const actions = {
       );
     }
 
+    // Record the audit row SYNCHRONOUSLY *before* the delete (roadmap 3.2): the
+    // delete cascades and nulls this row's `projectId`, so we capture the
+    // project's slug/name as the human-readable target NOW, while the entity
+    // still exists. The row persists under its team after the project is gone.
+    await recordAudit(c, {
+      teamId: project.teamId,
+      projectId: project.id,
+      action: AUDIT_ACTIONS.PROJECT_DELETE,
+      targetType: "project",
+      targetId: project.slug,
+      metadata: { projectName: project.name, projectId: project.id },
+    });
+
     try {
-      await runBatch([
-        db.delete(apiKeys).where(eq(apiKeys.projectId, project.id)),
-        db.delete(projects).where(eq(projects.id, project.id)),
-      ]);
+      await teardownProject(c, project.teamId, project.id);
     } catch (err) {
       logger.error("delete project failed", {
         projectId: project.id,
@@ -175,22 +273,6 @@ export const actions = {
         "Could not delete project — please try again.",
       );
     }
-
-    // Best-effort R2 byte cleanup AFTER the authoritative row deletion, via
-    // waitUntil so the sweep (up to ~200 R2 subrequests) never blocks the
-    // user's redirect. A failure must not resurrect the project in the user's
-    // eyes — log it and move on (the orphaned objects are unreferenced and
-    // unguessable).
-    c.executionCtx.waitUntil(
-      deleteProjectArtifactObjects(project.teamId, project.id).catch(
-        (err: unknown) => {
-          logger.error("project artifact R2 sweep failed", {
-            projectId: project.id,
-            message: err instanceof Error ? err.message : String(err),
-          });
-        },
-      ),
-    );
 
     return c.redirect(`/settings/teams/${project.teamSlug}`);
   }),

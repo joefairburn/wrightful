@@ -37,6 +37,33 @@ export default defineEnv({
   AUTH_GITHUB_CLIENT_ID: string().optional(),
   AUTH_GITHUB_CLIENT_SECRET: string().secret().optional(),
 
+  // ---------- GitHub App (check runs) ----------
+
+  /**
+   * GitHub App credentials for posting check runs that gate PR merges. The
+   * feature is enabled only when ALL of APP_ID + PRIVATE_KEY + WEBHOOK_SECRET
+   * are set (`githubAppEnabled` in `src/lib/config.ts`); leave them unset to
+   * disable. Distinct from the OAuth `AUTH_GITHUB_*` creds (sign-in) — a check
+   * run needs an *installation* token, which only a GitHub App can mint, and
+   * works on fork PRs where a CI `GITHUB_TOKEN` is read-only.
+   *
+   * `GITHUB_APP_PRIVATE_KEY` must be a **PKCS#8** PEM (`BEGIN PRIVATE KEY`);
+   * convert GitHub's default PKCS#1 key with
+   * `openssl pkcs8 -topk8 -nocrypt -in key.pem`. WebCrypto's `importKey("pkcs8")`
+   * only accepts PKCS#8.
+   */
+  GITHUB_APP_ID: string().optional(),
+  GITHUB_APP_PRIVATE_KEY: string().secret().optional(),
+  GITHUB_APP_WEBHOOK_SECRET: string().secret().optional(),
+
+  /**
+   * The GitHub App's public slug (from its settings URL,
+   * `github.com/apps/<slug>`). Used to build the "Install" link on the team
+   * settings page. Optional — without it the settings card shows manual setup
+   * instructions instead of a one-click install button.
+   */
+  GITHUB_APP_SLUG: string().optional(),
+
   /**
    * Per-artifact upload size cap. The cap binds in exactly one place:
    * /api/artifacts/register rejects any artifact whose declared sizeBytes
@@ -68,12 +95,104 @@ export default defineEnv({
    */
   WRIGHTFUL_SWEEP_BATCH_SIZE: number().default(200),
 
+  // ---------- Billing / usage quotas ----------
+
+  /**
+   * `'free'`-tier monthly run-open allowance. `checkQuota` (`src/lib/usage.ts`)
+   * blocks `POST /api/runs` once a team's `usageCounters.runsCount` for the
+   * current month would exceed this. Non-free tiers are unlimited (no block).
+   * Default 1000.
+   */
+  WRIGHTFUL_FREE_MONTHLY_RUNS: number().default(1000),
+
+  /**
+   * `'free'`-tier monthly test-result allowance. Metered (fresh testResults
+   * rows per month) but NOT hard-blocked in v1 — surfaced on the usage page and
+   * used for the soft-warn signal. Default 100000.
+   */
+  WRIGHTFUL_FREE_MONTHLY_TEST_RESULTS: number().default(100000),
+
+  /**
+   * `'free'`-tier monthly artifact-byte allowance (R2). `registerArtifacts`
+   * blocks once a team's `usageCounters.artifactBytes` for the month would
+   * exceed this — enforced on FRESH bytes only, so an idempotent re-registration
+   * is never blocked. Default 5 GiB.
+   */
+  WRIGHTFUL_FREE_ARTIFACT_BYTES: number().default(5368709120),
+
+  /**
+   * Percent of a tier limit at which `checkQuota` returns `softWarn` (the
+   * ingest response sets an `X-Wrightful-Quota-Warning` header and the usage
+   * page shows an amber bar) before the hard block at 100%. Default 90.
+   */
+  WRIGHTFUL_QUOTA_SOFT_WARN_PCT: number().default(90),
+
+  // ---------- Data retention ----------
+
+  /**
+   * Default age (DAYS) after which artifact R2 objects + rows are swept, when a
+   * team hasn't set its own `retentionArtifactDays`. The storage-cost axis —
+   * shorter than run history because bytes (traces/videos) dominate R2 spend.
+   * Must stay ≤ `WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS`. Default 30.
+   */
+  WRIGHTFUL_RETENTION_ARTIFACT_DAYS: number().default(30),
+
+  /**
+   * Default age (DAYS) after which `testResults` rows (+ their cascaded
+   * attempts/tags/annotations/artifact rows) are swept, when a team hasn't set
+   * its own `retentionTestResultsDays`. The D1-size axis; `runs` summary rows
+   * are kept (they hold the aggregate counters). Default 90.
+   */
+  WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS: number().default(90),
+
+  /**
+   * Max rows of EACH retention axis the sweep deletes per project per cron
+   * invocation. Bounds the per-pass D1 + R2 work so a large backlog drains
+   * across successive daily passes instead of blowing the subrequest budget.
+   * Mirrors `WRIGHTFUL_SWEEP_BATCH_SIZE`. Default 200.
+   */
+  WRIGHTFUL_RETENTION_SWEEP_BATCH_SIZE: number().default(200),
+
   /**
    * Enable open email/password signup. Off by default — email verification
    * isn't wired yet, so self-hosters running multi-user need to leave this
    * `false` and create users via invites.
    */
   ALLOW_OPEN_SIGNUP: boolean().default(false),
+
+  // ---------- Data export / public query API (roadmap 2.5) ----------
+
+  /**
+   * Hard cap on the number of rows a single CSV export streams (roadmap 2.5).
+   * Both the Bearer-authed `routes/api/v1/*?format=csv` and the session-authed
+   * `/api/t/.../export/*` cursor-page through the same query and stop once this
+   * many rows have been written, so a single request can't drain an entire
+   * project's history (or blow the Worker CPU/subrequest budget) in one shot.
+   * When the cap is hit the response is NOT silently truncated: the handler sets
+   * an `X-Wrightful-Export-Truncated: true` header and logs the event, so the
+   * caller can detect it and page the rest via the JSON cursor API. Default
+   * 50,000 — generous for an ad-hoc spreadsheet pull, well under a runaway. The
+   * per-DB-page size used to reach it is a separate internal constant
+   * (`EXPORT_PAGE_SIZE` in `src/lib/export.ts`).
+   */
+  WRIGHTFUL_EXPORT_MAX_ROWS: number().default(50000),
+
+  /**
+   * From address for outbound email (verification, password reset, monitor
+   * alerts), e.g. `"Wrightful <noreply@mail.example.com>"` or a bare
+   * `"noreply@mail.example.com"`. Sent via the Cloudflare Email Service
+   * `EMAIL` binding (`send_email` in `wrangler.jsonc`) — the address MUST
+   * belong to a domain you've onboarded to CES, or sends are rejected.
+   *
+   * OPTIONAL: email is an opt-in capability and degrades gracefully. When
+   * unset (or the `EMAIL` binding is absent), `isEmailConfigured()` returns
+   * false and `sendEmail()` skips — returning `{ sent: false, reason:
+   * "not_configured" }` rather than throwing — so a self-hoster who hasn't set
+   * up CES is never blocked (and `void deploy` doesn't hard-fail on this key).
+   * Resolution + the send transport live in `src/lib/email.ts`. Server-only
+   * (no `VITE_` prefix).
+   */
+  EMAIL_FROM: string().optional(),
 
   // ---------- Synthetic monitoring ----------
 
@@ -101,6 +220,18 @@ export default defineEnv({
    * caps never cross-contaminate. Default 50.
    */
   WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT: number().default(50),
+
+  /**
+   * Per-project cap on TCP / ping (uptime) monitors. Separate from the http +
+   * browser caps for the same reason they're separate from each other: a tcp
+   * check is a single raw `connect()` from the queue consumer — no container,
+   * ~free — so a project can hold many without eating its other budgets.
+   * Enforced by a TYPE-SCOPED `countMonitors(scope, "tcp")`, so the caps never
+   * cross-contaminate. Counts `tcp` rows only — a `ping` monitor is stored with
+   * `type = 'tcp'` (a ping IS a TCP-connect probe; see `tcp/tcp-run.ts`), so it
+   * falls under this cap. Default 50.
+   */
+  WRIGHTFUL_TCP_MONITOR_MAX_PER_PROJECT: number().default(50),
 
   /**
    * Max bytes of an HTTP check's response body the executor buffers for

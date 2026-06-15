@@ -3,15 +3,26 @@ import { defineHandler, type InferProps } from "void";
 import { requireAuth } from "void/auth";
 import { env } from "void/env";
 import { mutationErrorMessage } from "@/lib/action-errors";
+import { listTeamMembers } from "@/lib/auth-users";
+import { firstIssueMessage, readField } from "@/lib/form";
+import { listGroups } from "@/lib/member-groups";
+import {
+  buildAlertTargets,
+  parseAlertTargets,
+  serializeAlertTargets,
+} from "@/lib/monitors/alert-targets";
 import {
   CreateMonitorSchema,
   parseHttpMonitorConfig,
+  parseTcpMonitorConfig,
   UpdateBrowserMonitorSchema,
   UpdateHttpMonitorSchema,
+  UpdateTcpMonitorSchema,
 } from "@/lib/monitors/monitor-schemas";
 import {
   formType,
   httpConfigFromForm,
+  tcpConfigFromForm,
 } from "@/lib/monitors/monitor-form-parse";
 import {
   httpResponseTimeBuckets,
@@ -23,9 +34,12 @@ import {
   deleteMonitor,
   getMonitor,
   listExecutions,
+  setMonitorAlertsEnabled,
+  setMonitorAlertTargets,
   setMonitorEnabled,
   updateMonitor,
 } from "@/lib/monitors/monitors-repo";
+import { redirectWithParam } from "@/lib/settings-scope";
 import {
   requireOwnerTenantContext,
   requireTenantContext,
@@ -84,8 +98,8 @@ export const loader = defineHandler(async (c) => {
     return {
       mode: "create" as const,
       project: projectProps,
-      // Which create form to show: `?type=http` → uptime form, `?type=browser`
-      // → browser form, absent → the type chooser. (Only the two v1 types.)
+      // Which create form to show: `?type=http` → uptime form, `?type=tcp` →
+      // TCP form, `?type=browser` → browser form, absent → the type chooser.
       type: url.searchParams.get("type"),
       formError: url.searchParams.get("formError"),
     };
@@ -97,10 +111,15 @@ export const loader = defineHandler(async (c) => {
   const executions = await listExecutions(scope, monitorId, EXECUTIONS_LIMIT);
 
   // HTTP monitors carry inline config + their own analytics (SQL-computed,
-  // time-based uptime + a response-time trend); browser monitors carry none of
-  // these (their detail lives in the linked run reports).
+  // time-based uptime + a response-time trend). TCP monitors carry inline config
+  // too, and reuse the SAME time-based uptime windows (a tcp execution settles to
+  // the same pass/fail states), but have no response-time-vs-status trend — a tcp
+  // check has no status code. Browser monitors carry none of these (their detail
+  // lives in the linked run reports).
   const isHttp = monitor.type === "http";
+  const isTcp = monitor.type === "tcp" || monitor.type === "ping";
   const httpConfig = isHttp ? parseHttpMonitorConfig(monitor.config) : null;
+  const tcpConfig = isTcp ? parseTcpMonitorConfig(monitor.config) : null;
 
   let uptimeWindows: {
     d1: number | null;
@@ -114,37 +133,56 @@ export const loader = defineHandler(async (c) => {
     p95: number | null;
   }> | null = null;
 
-  if (isHttp) {
+  // Both http AND tcp settle to the same pass/degraded/fail/error states, so the
+  // time-based uptime windows (`httpUptimeWindows`, which keys off `state`, not
+  // any http-only column) serve both. The response-time TREND is http-only: it
+  // requires `statusCode is not null`, and a tcp check has no status code — so
+  // tcp gets the uptime windows but no trend chart.
+  if (isHttp || isTcp) {
     const nowSec = Math.floor(Date.now() / 1000);
-    // 24 hourly slots ending at the current hour.
-    const nowHour = Math.floor(nowSec / 3600);
-    const windowStartSec = (nowHour - 23) * 3600;
-    // Two independent reads — run them concurrently so the page waits on the
-    // slower of the two, not their sum.
-    const [windows, rows] = await Promise.all([
-      httpUptimeWindows({ scope, monitorId, nowSec }),
-      httpResponseTimeBuckets({ scope, monitorId, windowStartSec }),
-    ]);
+    const windows = await httpUptimeWindows({ scope, monitorId, nowSec });
     uptimeWindows = {
       d1: windowPct(windows.d1),
       d7: windowPct(windows.d7),
       d30: windowPct(windows.d30),
     };
-    // left-join the SQL rows onto the continuous skeleton so empty hours render
-    // as gaps in the chart.
-    const byBucket = new Map(rows.map((r) => [r.bucket, r]));
-    responseTrend = Array.from({ length: 24 }, (_, i) => {
-      const slot = nowHour - 23 + i;
-      const r = byBucket.get(slot);
-      const hour = new Date(slot * 3600 * 1000).getUTCHours();
-      return {
-        key: String(slot),
-        label: `${String(hour).padStart(2, "0")}:00`,
-        p50: r?.p50 ?? null,
-        p95: r?.p95 ?? null,
-      };
-    });
+
+    if (isHttp) {
+      // 24 hourly slots ending at the current hour.
+      const nowHour = Math.floor(nowSec / 3600);
+      const windowStartSec = (nowHour - 23) * 3600;
+      const rows = await httpResponseTimeBuckets({
+        scope,
+        monitorId,
+        windowStartSec,
+      });
+      // left-join the SQL rows onto the continuous skeleton so empty hours render
+      // as gaps in the chart.
+      const byBucket = new Map(rows.map((r) => [r.bucket, r]));
+      responseTrend = Array.from({ length: 24 }, (_, i) => {
+        const slot = nowHour - 23 + i;
+        const r = byBucket.get(slot);
+        const hour = new Date(slot * 3600 * 1000).getUTCHours();
+        return {
+          key: String(slot),
+          label: `${String(hour).padStart(2, "0")}:00`,
+          p50: r?.p50 ?? null,
+          p95: r?.p95 ?? null,
+        };
+      });
+    }
   }
+
+  // Alert-recipient picker data — owner-only (viewers can't edit recipients,
+  // so skip the reads for them). `members` + `groups` populate the checkboxes;
+  // `alertTargets` is the monitor's current selection (null = all members).
+  const isOwner = project.role === "owner";
+  const [members, groups] = isOwner
+    ? await Promise.all([
+        listTeamMembers(monitor.teamId),
+        listGroups(monitor.teamId),
+      ])
+    : [[], []];
 
   return {
     mode: "detail" as const,
@@ -152,11 +190,18 @@ export const loader = defineHandler(async (c) => {
     monitor,
     executions,
     httpConfig,
-    // Real time-based uptime (24h/7d/30d) for http; null for browser (which
-    // uses the count-based `uptime` below). Each is a % or null when nothing
-    // countable yet.
+    // Parsed tcp host/port/timeout config for tcp/ping; null otherwise.
+    tcpConfig,
+    // Alert recipients: team members + groups for the picker, and the monitor's
+    // current selection (`null` = all members). Empty for non-owners.
+    members,
+    groups: groups.map((g) => ({ id: g.id, name: g.name })),
+    alertTargets: parseAlertTargets(monitor.alertTargets),
+    // Real time-based uptime (24h/7d/30d) for http + tcp; null for browser
+    // (which uses the count-based `uptime` below). Each is a % or null when
+    // nothing countable yet.
     uptimeWindows,
-    // 24-slot hourly response-time trend (p50/p95) for http; null for browser.
+    // 24-slot hourly response-time trend (p50/p95) for http; null for tcp/browser.
     responseTrend,
     // Count-based uptime over the loaded window (null until there's something
     // countable). The page colors it by the same >99 / >95 thresholds as the
@@ -200,21 +245,29 @@ export const actions = {
     const form = await c.req.formData();
     const type = formType(form);
     // Keep the chosen type on the redirect so the create form re-renders the
-    // right variant (browser vs uptime) with the error.
+    // right variant (browser vs uptime) with the error. `redirectWithParam`
+    // preserves the existing `?type=` and adds the `formError` param.
     const fail = (msg: string) =>
-      c.redirect(
-        `${monitorsBase}/new?type=${type}&formError=${encodeURIComponent(msg)}`,
+      redirectWithParam(
+        c,
+        `${monitorsBase}/new?type=${type}`,
+        "formError",
+        msg,
       );
 
-    // Browser and http have SEPARATE per-project caps (a container run vs a
-    // plain fetch); count + limit by the chosen type so they don't interfere.
+    // Browser, http, and tcp have SEPARATE per-project caps (a container run vs
+    // a plain fetch vs a raw socket connect); count + limit by the chosen type so
+    // they don't interfere.
     const cap =
       type === "http"
         ? env.WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT
-        : env.WRIGHTFUL_MONITOR_MAX_PER_PROJECT;
+        : type === "tcp"
+          ? env.WRIGHTFUL_TCP_MONITOR_MAX_PER_PROJECT
+          : env.WRIGHTFUL_MONITOR_MAX_PER_PROJECT;
     const count = await countMonitors(scope, type);
     if (count >= cap) {
-      const kind = type === "http" ? "uptime" : "browser";
+      const kind =
+        type === "http" ? "uptime" : type === "tcp" ? "TCP" : "browser";
       return fail(
         `This project has reached its limit of ${cap} ${kind} monitors. Delete one before creating another.`,
       );
@@ -229,19 +282,27 @@ export const actions = {
             enabled: form.get("enabled") ?? "",
             config: httpConfigFromForm(form),
           }
-        : {
-            type,
-            name: form.get("name"),
-            source: form.get("source"),
-            intervalSeconds: form.get("intervalSeconds"),
-            // A paused switch omits the field. Coalesce `null` → `""` (not
-            // `undefined`): `checkboxBoolean` maps a non-"on" string to `false`,
-            // whereas `undefined` would trigger the schema's `.default(true)`.
-            enabled: form.get("enabled") ?? "",
-          },
+        : type === "tcp"
+          ? {
+              type,
+              name: form.get("name"),
+              intervalSeconds: form.get("intervalSeconds"),
+              enabled: form.get("enabled") ?? "",
+              config: tcpConfigFromForm(form),
+            }
+          : {
+              type,
+              name: form.get("name"),
+              source: form.get("source"),
+              intervalSeconds: form.get("intervalSeconds"),
+              // A paused switch omits the field. Coalesce `null` → `""` (not
+              // `undefined`): `checkboxBoolean` maps a non-"on" string to
+              // `false`, whereas `undefined` would trigger `.default(true)`.
+              enabled: form.get("enabled") ?? "",
+            },
     );
     if (!parsed.success) {
-      return fail(parsed.error.issues[0]?.message ?? "Invalid monitor.");
+      return fail(firstIssueMessage(parsed.error, "Invalid monitor."));
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -270,7 +331,7 @@ export const actions = {
     // Keep the editor open (`edit=1`) on a validation error so the surfaced
     // `formError` lands beside the form the user was filling in.
     const fail = (msg: string) =>
-      c.redirect(`${here}?edit=1&formError=${encodeURIComponent(msg)}`);
+      redirectWithParam(c, `${here}?edit=1`, "formError", msg);
 
     // `type` is immutable — dispatch on the EXISTING monitor's type, not the
     // posted one, and pick the matching update schema (a discriminated union
@@ -287,17 +348,24 @@ export const actions = {
             enabled: form.get("enabled") ?? "",
             config: httpConfigFromForm(form),
           })
-        : UpdateBrowserMonitorSchema.safeParse({
-            name: form.get("name") ?? undefined,
-            source: form.get("source") ?? undefined,
-            intervalSeconds: form.get("intervalSeconds") ?? undefined,
-            // The edit form always submits the switch state (an absent value
-            // means "unchecked"), so coerce undefined → false rather than
-            // leaving enabled untouched — matches the visible toggle.
-            enabled: form.get("enabled") ?? "",
-          });
+        : existing.type === "tcp" || existing.type === "ping"
+          ? UpdateTcpMonitorSchema.safeParse({
+              name: form.get("name") ?? undefined,
+              intervalSeconds: form.get("intervalSeconds") ?? undefined,
+              enabled: form.get("enabled") ?? "",
+              config: tcpConfigFromForm(form),
+            })
+          : UpdateBrowserMonitorSchema.safeParse({
+              name: form.get("name") ?? undefined,
+              source: form.get("source") ?? undefined,
+              intervalSeconds: form.get("intervalSeconds") ?? undefined,
+              // The edit form always submits the switch state (an absent value
+              // means "unchecked"), so coerce undefined → false rather than
+              // leaving enabled untouched — matches the visible toggle.
+              enabled: form.get("enabled") ?? "",
+            });
     if (!parsed.success) {
-      return fail(parsed.error.issues[0]?.message ?? "Invalid monitor.");
+      return fail(firstIssueMessage(parsed.error, "Invalid monitor."));
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -334,6 +402,51 @@ export const actions = {
     const enabled = form.get("enabled") === "true";
     const now = Math.floor(Date.now() / 1000);
     await setMonitorEnabled(scope, monitorId, enabled, now);
+
+    return c.redirect(here);
+  }),
+
+  /** Silence / unsilence down+recovery alerts. Desired state in `alertsEnabled`. */
+  toggleAlerts: defineHandler(async (c) => {
+    const { project, scope } = requireOwnerTenantContext(c);
+    const monitorId = requireMonitorId(c);
+    const here = `/t/${project.teamSlug}/p/${project.slug}/monitors/${monitorId}`;
+
+    const form = await c.req.formData();
+    const alertsEnabled = form.get("alertsEnabled") === "true";
+    const now = Math.floor(Date.now() / 1000);
+    await setMonitorAlertsEnabled(scope, monitorId, alertsEnabled, now);
+
+    return c.redirect(here);
+  }),
+
+  /**
+   * Set who the monitor alerts. `recipientMode=all` ⇒ all members (stored
+   * null); `specific` ⇒ the checked members (`user`) + groups (`group`). The
+   * targets are re-intersected with live members at send time, so storing an
+   * id that later leaves the team is harmless.
+   */
+  setAlertRecipients: defineHandler(async (c) => {
+    const { project, scope } = requireOwnerTenantContext(c);
+    const monitorId = requireMonitorId(c);
+    const here = `/t/${project.teamSlug}/p/${project.slug}/monitors/${monitorId}`;
+
+    const form = await c.req.formData();
+    const asStrings = (key: string): string[] =>
+      form.getAll(key).filter((v): v is string => typeof v === "string");
+    const mode = readField(form, "recipientMode") || "all";
+    const targets = buildAlertTargets(
+      mode,
+      asStrings("user"),
+      asStrings("group"),
+    );
+    const now = Math.floor(Date.now() / 1000);
+    await setMonitorAlertTargets(
+      scope,
+      monitorId,
+      serializeAlertTargets(targets),
+      now,
+    );
 
     return c.redirect(here);
   }),

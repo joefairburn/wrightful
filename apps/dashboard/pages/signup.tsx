@@ -11,13 +11,16 @@ import type { Props } from "./signup.server";
  * `ALLOW_OPEN_SIGNUP` is enabled (the colocated loader bounces to /login
  * otherwise). Authenticated users are redirected to `/` by the loader.
  */
-export default function SignupPage({ githubEnabled }: Props) {
+export default function SignupPage({ githubEnabled, verifyEmail }: Props) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // When email verification is required, signup doesn't create a session —
+  // show a "check your inbox" panel instead of routing to the dashboard.
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
   // Sign-up runs client-side (`auth.signUp`); disable submit until hydrated so
   // a pre-hydration native submit can't GET this page with the password in the
   // query string. `useEffect` only runs after hydration. (Mirrors login.tsx.)
@@ -34,12 +37,34 @@ export default function SignupPage({ githubEnabled }: Props) {
         setError(result.error.message ?? "Sign-up failed");
         return;
       }
+      if (verifyEmail) {
+        setAwaitingVerification(true);
+        return;
+      }
       void router.visit("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-up failed");
     } finally {
       setBusy(false);
     }
+  }
+
+  if (awaitingVerification) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-6 text-center">
+        <header className="space-y-2">
+          <h1 className="text-2xl font-semibold">Check your inbox</h1>
+          <p className="text-muted-foreground text-sm">
+            We sent a verification link to{" "}
+            <span className="text-foreground font-medium">{email}</span>. Click
+            it to finish setting up your account, then sign in.
+          </p>
+        </header>
+        <Link href="/login" className="text-sm underline">
+          Back to sign in
+        </Link>
+      </main>
+    );
   }
 
   return (

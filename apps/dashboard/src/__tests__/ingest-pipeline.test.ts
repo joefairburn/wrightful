@@ -77,6 +77,7 @@ function makeBuilder(kind: string): BuilderNode {
     "values",
     "returning",
     "onConflictDoNothing",
+    "onConflictDoUpdate",
     "innerJoin",
   ] as const) {
     node[m] = chain;
@@ -124,6 +125,11 @@ vi.mock("@/realtime/publish", () => ({
   broadcastProjectRoom: broadcastProjectSpy,
   broadcastRunRoom: broadcastRunSpy,
 }));
+
+// completeRun calls `maybePostGithubCheck`, which reads the GitHub App env to
+// decide whether to fire. Empty env → App disabled → an immediate no-op (no DB
+// read, no GitHub call), keeping these ingest-pipeline assertions unchanged.
+vi.mock("void/env", () => ({ env: {} }));
 
 const { openRun, appendRunResults, completeRun } = await import("@/lib/ingest");
 
@@ -192,10 +198,11 @@ describe("openRun", () => {
     expect(out.duplicate).toBe(false);
     expect(typeof out.runId).toBe("string");
     expect(out.runId.length).toBeGreaterThan(0);
-    // One run insert + one prefill insert chunk → batched together (atomic open).
+    // One run insert + one prefill insert chunk + the usage-meter bump (also an
+    // insert/upsert) → batched together (atomic open).
     expect(batchSpy).toHaveBeenCalledTimes(1);
     const batched = batchSpy.mock.calls[0]![0] as BuilderNode[];
-    expect(batched).toHaveLength(2);
+    expect(batched).toHaveLength(3);
     expect(batched.every((s) => s.__kind === "insert")).toBe(true);
     // Initial snapshot is synthesized inline (no DB read) and broadcast to the
     // run room — totals reflect the planned-test count, status "running".

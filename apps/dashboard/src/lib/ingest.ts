@@ -2,6 +2,7 @@ import { ulid } from "ulid";
 import { and, db, eq, inArray, sql } from "void/db";
 import { logger } from "void/log";
 import {
+  projects,
   runs,
   testAnnotations,
   testResultAttempts,
@@ -10,7 +11,9 @@ import {
   teams,
 } from "@schema";
 import { isUniqueViolation, runBatch } from "@/lib/db-batch";
+import { maybePostGithubCheck } from "@/lib/github-checks";
 import { runByIdWhere, staleRunFilter, type TenantScope } from "@/lib/scope";
+import { monthStartSeconds, usageBumpStatement } from "@/lib/usage";
 import { broadcastProjectRoom, broadcastRunRoom } from "@/realtime/publish";
 import type {
   AppendResultsPayload,
@@ -558,32 +561,11 @@ export function aggregateRecomputeStatement(
 }
 
 /**
- * SELECT the publishable summary inside a batch, for any caller that needs a
- * transactionally-consistent snapshot to broadcast WITHOUT writing the run row.
- *
- * The /results no-delta path used to use this, but now bumps `lastActivityAt`
- * via `activityBumpStatement` (an UPDATE with the same `.returning()` shape) so
- * even a zero-bucket-change flush registers as liveness — see
- * `appendRunResults`. This read-only variant is retained as the SELECT form of
- * a summary-producing statement (the counterpart `summaryFromBatchResults`
- * documents) for a future batch that genuinely must not touch the row.
- */
-export function aggregateSummarySelectStatement(
-  scope: TenantScope,
-  runId: string,
-) {
-  return db
-    .select(AGGREGATE_SUMMARY_COLUMNS)
-    .from(runs)
-    .where(runByIdWhere(scope, runId));
-}
-
-/**
  * Extract the publishable summary from a D1 batch result, given the invariant
  * that the summary-producing statement (an `AGGREGATE_SUMMARY_COLUMNS`
- * `.returning()` UPDATE or `aggregateSummarySelectStatement` SELECT) was run
- * LAST. `db.batch` returns one result array per statement in order, so the
- * summary row is the first element of the final result.
+ * `.returning()` UPDATE) was run LAST. `db.batch` returns one result array per
+ * statement in order, so the summary row is the first element of the final
+ * result.
  *
  * This is the single owner of the "last batch row is the summary" cast. Pulled
  * out as a pure function so the positional convention has one unit-tested home
@@ -715,6 +697,60 @@ export async function reconcileAndBroadcast(
     await broadcastProjectRoom(recomputeScope.projectId, event);
   }
   return summary;
+}
+
+/**
+ * Whether an open-run payload's `codeowners` field should update the project's
+ * stored CODEOWNERS file. PURE — unit-testable. The reporter sends the field
+ * only when it found a CODEOWNERS on disk; an absent OR empty/whitespace-only
+ * value must NOT clobber a file an owner pasted manually in settings (the only
+ * way to clear it is the settings textarea). So we update iff the payload
+ * carries non-blank content.
+ */
+export function shouldUpdateCodeowners(
+  codeowners: string | undefined,
+): codeowners is string {
+  return typeof codeowners === "string" && codeowners.trim().length > 0;
+}
+
+/**
+ * Upsert the project's CODEOWNERS file from an open-run payload, when present
+ * (roadmap 2.3). No-op when the payload omits it or sends only whitespace, so
+ * an empty repo file never clobbers a manually-pasted one. Stamps
+ * `codeownersUpdatedAt`. Project-scoped; awaited per the no-fire-and-forget
+ * rule. Best-effort: a failure is logged but never fails the run open (a
+ * missing CODEOWNERS just leaves ownership derivation on the previous file).
+ */
+export async function maybeUpdateCodeowners(
+  scope: TenantScope,
+  codeowners: string | undefined,
+  nowSeconds: number,
+): Promise<void> {
+  if (!shouldUpdateCodeowners(codeowners)) return;
+  // Store the trimmed content so the unchanged-check below is stable run over
+  // run (the reporter re-sends the on-disk file on every open).
+  const next = codeowners.trim();
+  try {
+    const [row] = await db
+      .select({ file: projects.codeownersFile })
+      .from(projects)
+      .where(eq(projects.id, scope.projectId))
+      .limit(1);
+    // Unchanged → skip the write entirely. `codeownersUpdatedAt` is surfaced as
+    // "Last updated" in settings, so it must move only on a REAL edit, not on
+    // every CI run for a stable file (which would also churn a pointless D1
+    // write per run open).
+    if ((row?.file ?? null) === next) return;
+    await db
+      .update(projects)
+      .set({ codeownersFile: next, codeownersUpdatedAt: nowSeconds })
+      .where(eq(projects.id, scope.projectId));
+  } catch (err) {
+    logger.error("update codeowners from ingest failed", {
+      projectId: scope.projectId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**
@@ -865,6 +901,12 @@ export async function openRun(
   payload: OpenRunPayload,
   nowSeconds: number,
 ): Promise<OpenRunResult> {
+  // Refresh the project's CODEOWNERS from the reporter's on-disk copy when it
+  // sent one (roadmap 2.3). Runs on both the fresh-open and duplicate (CI
+  // re-run / late shard) paths so an updated repo file is always picked up;
+  // a no-op when the payload omits it, so a manually-pasted file is preserved.
+  await maybeUpdateCodeowners(scope, payload.codeowners, nowSeconds);
+
   const existing = await db
     .select({ id: runs.id })
     .from(runs)
@@ -897,9 +939,19 @@ export async function openRun(
     .insert(runs)
     .values(buildRunInsertValues(runId, scope, payload, nowSeconds));
 
+  // Meter the run open in the SAME batch as the row insert — usage is bumped
+  // atomically with the data it counts. Only the fresh-open path bumps (a
+  // duplicate re-open of a sharded suite / CI re-run does not create a new run).
+  const usageBump = usageBumpStatement(
+    scope.teamId,
+    monthStartSeconds(nowSeconds),
+    { runs: 1 },
+    nowSeconds,
+  );
   const stmts = [
     runInsert,
     ...buildQueuePrefillStatements(scope, runId, plannedTests, nowSeconds),
+    ...(usageBump ? [usageBump] : []),
   ];
   try {
     if (stmts.length === 1) {
@@ -1101,6 +1153,19 @@ export async function appendRunResults(
     existingIds,
     assignedIds,
   );
+  // Meter FRESH testResults rows only (testIds not already present on this run),
+  // so a re-streamed/retried flush doesn't double-count. Joins the same batch.
+  const freshResultCount = results.reduce(
+    (n, r) => (existingIds.has(r.testId) ? n : n + 1),
+    0,
+  );
+  const usageBump = usageBumpStatement(
+    scope.teamId,
+    monthStartSeconds(nowSeconds),
+    { testResults: freshResultCount },
+    nowSeconds,
+  );
+  if (usageBump) statements.push(usageBump);
   const deltaStmt = aggregateDeltaStatement(
     scope,
     runId,
@@ -1275,6 +1340,10 @@ export async function completeRun(
 
   const summary = await reconcileAndBroadcast(runId, statusUpdate, scope);
   await bumpTeamActivity(scope.teamId, nowSeconds);
+  // Best-effort GitHub check run (no-op unless the App is configured + the
+  // repo's org installed it). Awaited per the no-fire-and-forget rule; it
+  // swallows its own errors so a GitHub outage never fails /complete.
+  await maybePostGithubCheck(runId);
 
   return { kind: "ok", status: summary?.status ?? payload.status };
 }
@@ -1319,6 +1388,9 @@ export async function finalizeStaleRun(
     { projectId: run.projectId },
     { requireStatusFlip: true },
   );
+  // Watchdog-finalized runs (CI killed before /complete) still post their check
+  // — same best-effort, self-silencing path as completeRun.
+  await maybePostGithubCheck(run.id);
 }
 
 /** Counts a watchdog sweep emits: rows seen, finalized, and failed. */

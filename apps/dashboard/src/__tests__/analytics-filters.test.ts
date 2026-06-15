@@ -3,7 +3,9 @@ import {
   branchFragment,
   ciRunsJoinFragment,
   ciRunsJoinOn,
+  ciRunsScopeRawWhere,
   searchFragment,
+  tagFragment,
   testResultsScopeJoin,
 } from "@/lib/analytics/filters";
 import { makeTenantScope } from "@/lib/scope";
@@ -90,6 +92,37 @@ describe("ciRunsJoinFragment", () => {
   });
 });
 
+describe("ciRunsScopeRawWhere", () => {
+  it("binds BOTH the projectId AND the teamId (the team half run-duration used to drop)", () => {
+    const scope = makeTenantScope({
+      teamId: "team_01",
+      projectId: "proj_42",
+      teamSlug: "acme",
+      projectSlug: "web",
+    });
+    const op = readSql(ciRunsScopeRawWhere(scope));
+    // Both tenant ids ride as bound params — never interpolated into the text.
+    expect(op.args).toEqual(["proj_42", "team_01"]);
+    const text = op.strings.join("");
+    expect(text).not.toContain("proj_42");
+    expect(text).not.toContain("team_01");
+  });
+
+  it("scopes by projectId AND teamId and excludes synthetic monitor traffic", () => {
+    const scope = makeTenantScope({
+      teamId: "team_01",
+      projectId: "proj_42",
+      teamSlug: "acme",
+      projectSlug: "web",
+    });
+    const text = readSql(ciRunsScopeRawWhere(scope)).strings.join("");
+    expect(text).toContain(`runs."projectId" =`);
+    expect(text).toContain(`runs."teamId" =`);
+    expect(text).toContain(`runs.origin <> 'synthetic'`);
+    expect(text.trimStart().startsWith("where")).toBe(true);
+  });
+});
+
 describe("ciRunsJoinOn", () => {
   type RecordedOp = { __op: string; args: readonly unknown[] };
   const colName = (node: unknown) => (node as { name?: unknown })?.name;
@@ -172,5 +205,31 @@ describe("searchFragment", () => {
     // the user's term matches literally (same semantics as the runs search).
     expect(op.args).toEqual(["%50\\%%", "%50\\%%"]);
     expect(op.strings.join("")).not.toContain("50%");
+  });
+});
+
+describe("tagFragment", () => {
+  it("is empty for an empty tag list (the no-tag-filter case)", () => {
+    expect(isEmptyFragment(tagFragment([]))).toBe(true);
+  });
+
+  it("emits an EXISTS correlated subquery against testTags on tr.id", () => {
+    const op = readSql(tagFragment(["smoke"]));
+    const text = op.strings.join("").replace(/\s+/g, " ").trim();
+    expect(text).toContain(
+      `and exists (select 1 from "testTags" tt where tt."testResultId" = tr.id and tt.tag in (`,
+    );
+  });
+
+  it("binds every tag as a parameter, never interpolating it", () => {
+    const op = readSql(tagFragment(["smoke", "slow"]));
+    // The IN list is a `sql.join` node whose chunks each carry one bound tag.
+    const join = op.args[0] as { __op: string; chunks: unknown[] };
+    expect(join.__op).toBe("sql.join");
+    const tagValues = join.chunks.map((c) => readSql(c).args[0]);
+    expect(tagValues).toEqual(["smoke", "slow"]);
+    // No tag value leaks into the literal SQL text — injection-safe.
+    expect(op.strings.join("")).not.toContain("smoke");
+    expect(op.strings.join("")).not.toContain("slow");
   });
 });

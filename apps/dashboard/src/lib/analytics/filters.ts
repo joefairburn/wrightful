@@ -40,6 +40,28 @@ export function testResultsScopeJoin(scope: TenantScope): SqlFilterFragment {
 }
 
 /**
+ * The runs-table sibling of {@link testResultsScopeJoin}, for the percentile
+ * loaders (run-duration) that aggregate over `runs` DIRECTLY rather than
+ * `testResults`→`runs`. Emits `where runs."projectId" = ? and runs."teamId" = ?
+ * and runs.origin <> 'synthetic'`.
+ *
+ * Before this fragment existed there was no member of the CI-scope family for
+ * the raw-SQL runs-table case, so run-duration hand-rolled the predicate and
+ * bound `projectId` ALONE — dropping the `(teamId, projectId)` pair every other
+ * runs reader carries via the branded `runScopeWhere`/`ciRunsScopeWhere` in
+ * `scope.ts`. That's not exploitable (`runs.id` is a unique ULID PK) but it sat
+ * OUTSIDE the brand the `AuthorizedProjectId`/`AuthorizedTeamId` design exists
+ * to enforce. Both ids are BOUND parameters off the branded {@link TenantScope}
+ * (so a raw `string` can't reach the loader and the team half can't be silently
+ * dropped). Like {@link testResultsScopeJoin} it emits the leading
+ * `where … and runs.origin <> 'synthetic'`; callers continue the WHERE with
+ * `and …` fragments (duration filter, time window, branch).
+ */
+export function ciRunsScopeRawWhere(scope: TenantScope): SqlFilterFragment {
+  return sql`where runs."projectId" = ${scope.projectId} and runs."teamId" = ${scope.teamId} and runs.origin <> 'synthetic'`;
+}
+
+/**
  * Optional `and runs.branch = <branch>` predicate for the raw-SQL analytics
  * loaders (tests / slowest-tests / run-duration / flaky). A `null` branch — the
  * "all branches" case, already normalized by `parseBranchParam` — yields an
@@ -101,4 +123,25 @@ export function searchFragment(query: string | null): SqlFilterFragment {
   if (!query) return sql``;
   const pattern = `%${escapeLike(query)}%`;
   return sql`and (tr.title like ${pattern} escape '\\' or tr.file like ${pattern} escape '\\')`;
+}
+
+/**
+ * Optional `and exists (… testTags …)` predicate for the test-catalog tag
+ * filter: keep only tests that carry ANY of `tags` on at least one of their
+ * results. An empty list yields an empty fragment so it drops out of the
+ * surrounding WHERE.
+ *
+ * Correlates on `tr.id` (the testResults row), so D1 seeks the tag rows for
+ * each candidate via `testTags_testResultId_idx`. Each tag is a BOUND parameter
+ * (`sql\`${t}\``) — never interpolated — so the filter is injection-safe like
+ * its sibling fragments. ANY-match (`tag in (…)`) rather than ALL: selecting two
+ * tags broadens the catalog, matching how list filters conventionally behave.
+ */
+export function tagFragment(tags: readonly string[]): SqlFilterFragment {
+  if (tags.length === 0) return sql``;
+  const list = sql.join(
+    tags.map((t) => sql`${t}`),
+    sql`, `,
+  );
+  return sql`and exists (select 1 from "testTags" tt where tt."testResultId" = tr.id and tt.tag in (${list}))`;
 }

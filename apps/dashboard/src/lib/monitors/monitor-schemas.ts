@@ -1,18 +1,26 @@
 import { z } from "zod";
 import { checkUrlPolicy } from "@/lib/monitors/http/url-policy";
-import type { AssertionResult, HttpResultDetail } from "@/lib/monitors/types";
+import { checkTcpHostPolicy } from "@/lib/monitors/tcp/host-policy";
+import type {
+  AssertionResult,
+  HttpResultDetail,
+  TcpResultDetail,
+} from "@/lib/monitors/types";
 
 /**
  * Validation contract for monitor create/edit. Shared by the page actions
  * (`monitors/new` + `monitors/[monitorId]` edit) and unit tests.
  *
- * Two monitor types validate here, discriminated on `type`:
+ * Three monitor types validate here, discriminated on `type`:
  *   - `"browser"` — a scheduled Playwright run; carries `source` (the spec).
  *   - `"http"` — a Checkly-style uptime check; carries `config` (URL +
  *     thresholds + assertions), no `source`.
+ *   - `"tcp"` — a raw-socket connect check; carries `config` (host + port +
+ *     timeout), no `source`. (`"ping"` is the same TCP-connect probe — Workers
+ *     can't send ICMP — so it shares this config; see `tcp/tcp-run.ts`.)
  *
  * Sizes are bounded so a monitor row can't blow D1 limits (the Playwright
- * `source` is the one large field; the http `config` is small + capped).
+ * `source` is the one large field; the http / tcp `config` is small + capped).
  */
 
 /**
@@ -65,6 +73,12 @@ const httpInterval = z.coerce
       (HTTP_INTERVAL_PRESETS as readonly number[]).includes(v),
     { message: "Unsupported interval" },
   );
+
+// A tcp check is a single raw-socket connect — as cheap as an http `fetch`, no
+// container — so it reuses the http interval grid (full Checkly-style range; the
+// v1 UI offers only the `>= 60s` subset, the schema accepts all for the later
+// sub-minute scheduling phase).
+const tcpInterval = httpInterval;
 
 /**
  * Form checkbox → boolean. An unchecked checkbox is absent from FormData
@@ -340,6 +354,104 @@ export function parseHttpResultDetail(
   return result.success ? result.data : null;
 }
 
+// ─── TCP / ping config (host + port + timeout) ──────────────────────────────
+
+/** Max connect-timeout a tcp check can wait for the socket to open, ms. */
+export const TCP_TIMEOUT_MAX_MS = 30_000;
+/** Highest valid TCP port. */
+export const TCP_PORT_MAX = 65_535;
+
+/**
+ * The stored `monitors.config` shape for a `tcp` (and `ping`) monitor — the
+ * wire/storage contract validated at every boundary (form write, executor read,
+ * detail display), the raw-socket twin of {@link HttpMonitorConfigSchema}.
+ *
+ * `host` is validated through {@link checkTcpHostPolicy} — the SSRF guard that
+ * rejects loopback/private/link-local/metadata targets — at the SAME two points
+ * the http URL is (config write, and re-vetted every run because the executor
+ * parses the stored config back through this schema). `port` is a real TCP port;
+ * `connectTimeoutMs` bounds how long the socket may take to open before the
+ * check fails as DOWN. There are no assertions — a tcp check's only signal is
+ * "did the connection open within the timeout", so success is connectivity.
+ */
+export const TcpMonitorConfigSchema = z.object({
+  host: z
+    .string()
+    .min(1)
+    .max(255)
+    .superRefine((val, ctx) => {
+      const result = checkTcpHostPolicy(val);
+      if (!result.ok) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: result.reason,
+        });
+      }
+    }),
+  port: z.coerce.number().int().min(1).max(TCP_PORT_MAX),
+  connectTimeoutMs: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(TCP_TIMEOUT_MAX_MS)
+    .default(5000),
+});
+export type TcpMonitorConfig = z.infer<typeof TcpMonitorConfigSchema>;
+
+/**
+ * Parse + validate a stored `monitors.config` JSON string into a
+ * {@link TcpMonitorConfig}, or `null` if it's absent / malformed / invalid. The
+ * single read-path parser shared by the executor (`tcp-run.ts`) and the detail
+ * display loader — the tcp twin of {@link parseHttpMonitorConfig}.
+ */
+export function parseTcpMonitorConfig(
+  config: string | null,
+): TcpMonitorConfig | null {
+  if (!config) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(config);
+  } catch {
+    return null;
+  }
+  const parsed = TcpMonitorConfigSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Zod mirror of {@link TcpResultDetail} (`types.ts`). `satisfies z.ZodType<…>`
+ * pins it to the interface so the schema and the type can't drift — the tcp twin
+ * of {@link HttpResultDetailSchema}.
+ */
+export const TcpResultDetailSchema = z.object({
+  host: z.string(),
+  port: z.number(),
+  timings: z.object({
+    connectMs: z.number(),
+    totalMs: z.number(),
+  }),
+}) satisfies z.ZodType<TcpResultDetail>;
+
+/**
+ * Parse + validate a stored `monitorExecutions.resultDetail` JSON string into a
+ * {@link TcpResultDetail}, or `null` if absent / malformed / structurally
+ * invalid. The tcp twin of {@link parseHttpResultDetail} — a bad row degrades to
+ * `null` instead of crashing the detail render.
+ */
+export function parseTcpResultDetail(
+  raw: string | null,
+): TcpResultDetail | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const result = TcpResultDetailSchema.safeParse(parsed);
+  return result.success ? result.data : null;
+}
+
 // ─── Create schemas (discriminated on `type`) ───────────────────────────────
 
 export const CreateBrowserMonitorSchema = z.object({
@@ -373,14 +485,31 @@ export const CreateHttpMonitorSchema = z.object({
 export type CreateHttpMonitorInput = z.infer<typeof CreateHttpMonitorSchema>;
 
 /**
+ * The `tcp` (raw-socket connect) create schema. `type` is a literal `"tcp"`:
+ * `"ping"` shares this exact config and executor (Workers can't send ICMP, so a
+ * ping is modelled as the same TCP-connect probe), and the v1 form only offers
+ * `tcp` — there is no separate "ping" form. Carries `config` (host/port/timeout),
+ * no `source`.
+ */
+export const CreateTcpMonitorSchema = z.object({
+  type: z.literal("tcp"),
+  name,
+  intervalSeconds: tcpInterval,
+  enabled: checkboxBoolean.default(true),
+  config: TcpMonitorConfigSchema,
+});
+export type CreateTcpMonitorInput = z.infer<typeof CreateTcpMonitorSchema>;
+
+/**
  * The create contract — a discriminated union on `type`. The action dispatches
  * on the posted `type` field (defaulting to `"browser"`); the matching branch
- * strips the other type's fields, so the browser branch never requires `config`
- * and the http branch never requires `source`.
+ * strips the other types' fields, so the browser branch never requires `config`
+ * and the http/tcp branches never require `source`.
  */
 export const CreateMonitorSchema = z.discriminatedUnion("type", [
   CreateBrowserMonitorSchema,
   CreateHttpMonitorSchema,
+  CreateTcpMonitorSchema,
 ]);
 export type CreateMonitorInput = z.infer<typeof CreateMonitorSchema>;
 
@@ -404,25 +533,37 @@ export const UpdateHttpMonitorSchema = CreateHttpMonitorSchema.omit({
 }).partial();
 export type UpdateHttpMonitorInput = z.infer<typeof UpdateHttpMonitorSchema>;
 
+export const UpdateTcpMonitorSchema = CreateTcpMonitorSchema.omit({
+  type: true,
+}).partial();
+export type UpdateTcpMonitorInput = z.infer<typeof UpdateTcpMonitorSchema>;
+
 /**
  * The combined patch shape the repo's `updateMonitor` accepts — every field
- * optional; `source` is browser-only, `config` http-only. Derived from the two
- * per-type update schemas (so adding/renaming a field on either flows through
- * here automatically) rather than hand-listed, which kept it free to drift. Both
- * per-type inferred outputs are assignable to it, so the action validates with
- * the type-specific schema and hands the result straight to the repo.
+ * optional; `source` is browser-only, `config` is http OR tcp. Derived from the
+ * three per-type update schemas (so adding/renaming a field on any flows through
+ * here automatically) rather than hand-listed, which kept it free to drift. Each
+ * per-type inferred output is assignable to it, so the action validates with the
+ * type-specific schema and hands the result straight to the repo.
  *
- * `intervalSeconds` is the one field NOT taken from the schemas: the browser and
- * http schemas carry DIFFERENT interval-preset unions, whose intersection would
- * wrongly narrow this to their common members (rejecting a valid http-only
- * sub-minute preset). The column is a plain integer the repo re-derives the
- * schedule from, so `number` is the correct combined type — hence it's omitted
- * from both halves and re-added as `number`.
+ * `intervalSeconds` and `config` are the fields NOT taken via intersection:
+ *   - `intervalSeconds` — the three schemas carry DIFFERENT interval-preset
+ *     unions, whose intersection would wrongly narrow this to their common
+ *     members (rejecting a valid http/tcp sub-minute preset). The column is a
+ *     plain integer the repo re-derives the schedule from, so `number` is the
+ *     correct combined type.
+ *   - `config` — the http and tcp `config` shapes are DISJOINT objects, whose
+ *     intersection would be an impossible "must be both" type. The repo stores it
+ *     as a JSON string gated by the monitor's stored type, so the union is the
+ *     correct combined type.
+ * Both are omitted from the per-type halves and re-added here.
  */
 export type UpdateMonitorInput = Omit<
   UpdateBrowserMonitorInput,
   "intervalSeconds"
 > &
-  Omit<UpdateHttpMonitorInput, "intervalSeconds"> & {
+  Omit<UpdateHttpMonitorInput, "intervalSeconds" | "config"> &
+  Omit<UpdateTcpMonitorInput, "intervalSeconds" | "config"> & {
     intervalSeconds?: number;
+    config?: HttpMonitorConfig | TcpMonitorConfig;
   };
