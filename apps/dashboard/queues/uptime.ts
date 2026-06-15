@@ -1,6 +1,7 @@
 import { defineQueue } from "void";
 import { env } from "void/env";
 import { logger } from "void/log";
+import { maybeSendMonitorAlert } from "@/lib/monitors/alerts";
 import { runMonitorJob } from "@/lib/monitors/executor";
 import { resolveExecutor } from "@/lib/monitors/executor-registry";
 import {
@@ -70,6 +71,9 @@ export default defineQueue<MonitorJob>(async (batch) => {
     executor,
     now: () => Math.floor(Date.now() / 1000),
     broadcast: broadcastProjectRoom,
+    // Email the team on a healthy↔down transition. Edge-triggered + best-effort
+    // (self-catching); a no-op when email isn't configured.
+    alert: maybeSendMonitorAlert,
   };
 
   for (const message of batch.messages) {

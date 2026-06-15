@@ -1,6 +1,7 @@
 import { test as base } from "@playwright/test";
 
 import { ApiKeysPage } from "./pages/api-keys.page";
+import { GroupsPage } from "./pages/groups.page";
 import { LoginPage } from "./pages/login.page";
 import { MonitorsPage } from "./pages/monitors.page";
 import { RunDetailPage } from "./pages/run-detail.page";
@@ -26,6 +27,7 @@ export interface DashboardFixtures {
   runDetailPage: RunDetailPage;
   apiKeysPage: ApiKeysPage;
   monitorsPage: MonitorsPage;
+  groupsPage: GroupsPage;
 }
 
 export const test = base.extend<
@@ -65,6 +67,10 @@ export const test = base.extend<
 
   monitorsPage: async ({ page, ctx }, use) => {
     await use(new MonitorsPage(page, ctx.teamSlug, ctx.projectSlug));
+  },
+
+  groupsPage: async ({ page, ctx }, use) => {
+    await use(new GroupsPage(page, ctx.teamSlug));
   },
 });
 

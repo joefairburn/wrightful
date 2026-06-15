@@ -1,5 +1,5 @@
 import { db, eq, or, sql } from "void/db";
-import { teamInvites, userGithubAccounts } from "@schema";
+import { memberships, teamInvites, userGithubAccounts } from "@schema";
 import { runRow, runRows } from "@/lib/db-run";
 
 /**
@@ -143,6 +143,36 @@ export async function getUsersByIds(
     }
   }
   return out;
+}
+
+/** A team member with their resolved profile. */
+export interface TeamMember {
+  userId: string;
+  name: string;
+  email: string;
+}
+
+/**
+ * List a team's members with their profiles (`memberships ⋈ user`), via the
+ * same raw-`user`-read seam (`getUsersByIds`) the members settings page uses.
+ * Members whose `user` row is missing are dropped (matches INNER JOIN
+ * semantics). Used by the alert-recipient picker, the groups settings page, and
+ * monitor alert resolution. Sorted by name for stable picker rendering.
+ */
+export async function listTeamMembers(teamId: string): Promise<TeamMember[]> {
+  const rows = await db
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .where(eq(memberships.teamId, teamId));
+  const profiles = await getUsersByIds(rows.map((r) => r.userId));
+  return rows
+    .flatMap((r) => {
+      const profile = profiles.get(r.userId);
+      return profile
+        ? [{ userId: r.userId, name: profile.name, email: profile.email }]
+        : [];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**

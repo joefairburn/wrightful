@@ -180,4 +180,69 @@ export class MonitorsPage {
   get runLinks(): Locator {
     return this.page.getByRole("link", { name: /view run/i });
   }
+
+  // ─── Alert controls (owner-only, detail page) ───────────────────────────────
+  //
+  // The Mute/Unmute button and the alert-recipients picker are server-rendered
+  // forms that POST and redirect back to the detail page — no island. The
+  // button label is the unambiguous state signal (alerts on ⇒ "Mute alerts").
+
+  get muteAlertsButton(): Locator {
+    return this.page.getByRole("button", { name: /^mute alerts$/i });
+  }
+
+  get unmuteAlertsButton(): Locator {
+    return this.page.getByRole("button", { name: /^unmute alerts$/i });
+  }
+
+  /** Mute alerts and wait for the control to flip to "Unmute alerts". */
+  async muteAlerts(): Promise<void> {
+    await this.muteAlertsButton.click();
+    await expect(this.unmuteAlertsButton).toBeVisible();
+  }
+
+  /** Unmute alerts and wait for the control to flip back to "Mute alerts". */
+  async unmuteAlerts(): Promise<void> {
+    await this.unmuteAlertsButton.click();
+    await expect(this.muteAlertsButton).toBeVisible();
+  }
+
+  private get recipientsForm(): Locator {
+    return this.page.locator('form[action*="setAlertRecipients"]');
+  }
+
+  recipientModeRadio(mode: "all" | "specific"): Locator {
+    return this.recipientsForm.locator(
+      `input[name="recipientMode"][value="${mode}"]`,
+    );
+  }
+
+  /** The member checkbox (name="user") whose label carries `email`. */
+  recipientMemberCheckbox(email: string): Locator {
+    return this.recipientsForm
+      .locator("label")
+      .filter({ hasText: email })
+      .getByRole("checkbox");
+  }
+
+  get saveRecipientsButton(): Locator {
+    return this.recipientsForm.getByRole("button", {
+      name: /save recipients/i,
+    });
+  }
+
+  /** Pick "specific" recipients (the given member emails) and save. */
+  async setSpecificRecipients(memberEmails: string[]): Promise<void> {
+    await this.recipientModeRadio("specific").check();
+    for (const email of memberEmails) {
+      await this.recipientMemberCheckbox(email).check();
+    }
+    await this.saveRecipientsButton.click();
+  }
+
+  /** Reset recipients back to "All team members" and save. */
+  async setAllRecipients(): Promise<void> {
+    await this.recipientModeRadio("all").check();
+    await this.saveRecipientsButton.click();
+  }
 }

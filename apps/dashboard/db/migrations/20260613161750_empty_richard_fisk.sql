@@ -1,0 +1,1 @@
+ALTER TABLE `monitors` ADD `alertsEnabled` integer DEFAULT 1 NOT NULL;

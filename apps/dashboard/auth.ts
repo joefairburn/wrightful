@@ -57,6 +57,34 @@ const githubClientSecret = process.env.AUTH_GITHUB_CLIENT_SECRET;
 const openSignupAllowed = /^(true|1)$/i.test(
   process.env.ALLOW_OPEN_SIGNUP ?? "",
 );
+// Email verification turns on ONLY when an email sender is configured. Read
+// from `process.env` (not `void/env`) for the same reason as the creds above:
+// this file is evaluated at `void prepare` config time too, before void's typed
+// `env` proxy is bound. Mirrors the optional-by-default contract in
+// `src/lib/email.ts` — no `EMAIL_FROM` ⇒ no verification requirement, so a
+// self-hoster who hasn't set up CES is unaffected (and the send hooks below are
+// graceful no-ops via `sendEmail`).
+const emailConfigured = Boolean(process.env.EMAIL_FROM);
+
+// Auth emails (verification + reset) are rendered + sent through a request-time
+// dynamic import for the same config-time-loadability reason as the github
+// mirror above: `@/lib/auth-email` pulls in the React-Email renderer + the
+// `cloudflare:workers` email binding, neither of which resolves at `void
+// prepare`. The Better Auth hooks fire only at request time, so deferring is safe.
+function sendVerificationEmail(args: {
+  email: string;
+  name?: string | null;
+  url: string;
+}): Promise<void> {
+  return import("@/lib/auth-email").then((m) => m.sendVerificationEmail(args));
+}
+function sendPasswordResetEmail(args: {
+  email: string;
+  name?: string | null;
+  url: string;
+}): Promise<void> {
+  return import("@/lib/auth-email").then((m) => m.sendPasswordResetEmail(args));
+}
 
 // The github-login mirror is imported dynamically (deferred to request time)
 // for the same config-time-loadability reason as the dynamic `void/db` /
@@ -82,8 +110,27 @@ export default defineAuth(({ defaults }) => ({
   emailAndPassword: {
     ...defaults.emailAndPassword,
     enabled: true,
-    requireEmailVerification: false,
+    // On only when a sender is configured (see `emailConfigured`); unset
+    // EMAIL_FROM keeps today's no-verification behavior.
+    requireEmailVerification: emailConfigured,
     disableSignUp: !openSignupAllowed,
+    // 30 minutes — must match the "expires in 30 minutes" copy in the reset
+    // email (`src/emails/reset-password.tsx`). Better Auth's default is 1 hour.
+    resetPasswordTokenExpiresIn: 60 * 30,
+    sendResetPassword: ({ user, url }) =>
+      sendPasswordResetEmail({ email: user.email, name: user.name, url }),
+  },
+  emailVerification: {
+    ...defaults.emailVerification,
+    // Send the verification email on signup, and sign the user in once they
+    // verify. Only auto-send when a sender is configured.
+    sendOnSignUp: emailConfigured,
+    autoSignInAfterVerification: true,
+    // 24 hours — must match the "expires in 24 hours" copy in the verification
+    // email (`src/emails/verify-email.tsx`). Better Auth's default is 1 hour.
+    expiresIn: 60 * 60 * 24,
+    sendVerificationEmail: ({ user, url }) =>
+      sendVerificationEmail({ email: user.email, name: user.name, url }),
   },
   socialProviders: {
     ...defaults.socialProviders,

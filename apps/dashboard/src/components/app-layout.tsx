@@ -10,6 +10,7 @@ import {
   TriangleAlert,
   UserRound,
   Users,
+  UsersRound,
 } from "lucide-react";
 import { Link, useRouter, useShared } from "@void/react";
 // Command menu is wired up but temporarily hidden — re-enable by uncommenting
@@ -361,6 +362,12 @@ function SettingsSidebarMiddle({
             href={`/settings/teams/${expandedTeam.slug}/members`}
             icon={Users}
             label="Members"
+          />
+          <SettingsNavLink
+            active={pathname === `/settings/teams/${expandedTeam.slug}/groups`}
+            href={`/settings/teams/${expandedTeam.slug}/groups`}
+            icon={UsersRound}
+            label="Groups"
           />
           <SettingsNavLink
             active={
