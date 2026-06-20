@@ -1,6 +1,6 @@
 import { and, db, desc, eq, lt, or } from "void/db";
 import { runs, testResults } from "@schema";
-import { runByIdWhere, type TenantScope } from "@/lib/scope";
+import { childByRunWhere, runByIdWhere, type TenantScope } from "@/lib/scope";
 import type { RunProgressTest } from "@/realtime/run-progress";
 
 export const DEFAULT_RUN_RESULTS_LIMIT = 200;
@@ -97,10 +97,7 @@ export async function loadRunResultsPage(
 
   const limit = clampRunResultsLimit(opts.limit);
 
-  const conditions = [
-    eq(testResults.projectId, scope.projectId),
-    eq(testResults.runId, runId),
-  ];
+  const conditions = [childByRunWhere(testResults, scope, runId)];
   if (opts.status) {
     conditions.push(eq(testResults.status, opts.status));
   }

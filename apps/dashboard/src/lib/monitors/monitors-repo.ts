@@ -4,7 +4,11 @@ import { monitorExecutions, monitors } from "@schema";
 import type { Monitor, MonitorExecution } from "@schema";
 import { runBatch } from "@/lib/db-batch";
 import { numericSql } from "@/lib/db/sql-ops";
-import type { TenantScope } from "@/lib/scope";
+import {
+  childByIdWhere,
+  childProjectScopeWhere,
+  type TenantScope,
+} from "@/lib/scope";
 import type {
   CreateMonitorInput,
   UpdateMonitorInput,
@@ -60,17 +64,15 @@ const MONITOR_COLUMNS = {
 } as const;
 
 /**
- * The blessed single-monitor predicate within a tenant: `(projectId, id)`. Like
- * `runByIdWhere`, scopes by `projectId` alone — `monitors.id` is a globally
- * unique ULID, so the project filter is sufficient isolation and matches the
- * `monitors_project_created_at_idx` access path. Brand load-bearing: requires a
- * `TenantScope`, so the id is always auth-checked.
+ * The blessed single-monitor predicate within a tenant: `(projectId, id)`,
+ * built from the shared {@link childByIdWhere} family — `monitors.id` is a
+ * globally unique ULID, so (as for `runByIdWhere`) the project filter is
+ * sufficient isolation and matches the `monitors_project_created_at_idx` access
+ * path. Brand load-bearing: requires a `TenantScope`, so the id is always
+ * auth-checked.
  */
 function monitorByIdWhere(scope: TenantScope, monitorId: string) {
-  return and(
-    eq(monitors.projectId, scope.projectId),
-    eq(monitors.id, monitorId),
-  );
+  return childByIdWhere(monitors, scope, monitorId);
 }
 
 // ─── User-facing (branded TenantScope) ──────────────────────────────────────
@@ -129,7 +131,7 @@ export function listMonitors(scope: TenantScope): Promise<Monitor[]> {
   return db
     .select(MONITOR_COLUMNS)
     .from(monitors)
-    .where(eq(monitors.projectId, scope.projectId))
+    .where(childProjectScopeWhere(monitors.projectId, scope))
     .orderBy(desc(monitors.createdAt));
 }
 
@@ -292,7 +294,7 @@ export async function countMonitors(
     .where(
       type
         ? and(eq(monitors.projectId, scope.projectId), eq(monitors.type, type))
-        : eq(monitors.projectId, scope.projectId),
+        : childProjectScopeWhere(monitors.projectId, scope),
     );
   return rows[0]?.count ?? 0;
 }
@@ -349,12 +351,7 @@ export async function getExecution(
   const rows = await db
     .select()
     .from(monitorExecutions)
-    .where(
-      and(
-        eq(monitorExecutions.projectId, scope.projectId),
-        eq(monitorExecutions.id, executionId),
-      ),
-    )
+    .where(childByIdWhere(monitorExecutions, scope, executionId))
     .limit(1);
   return rows[0] ?? null;
 }

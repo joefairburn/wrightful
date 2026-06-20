@@ -1,6 +1,7 @@
 import { defineHandler } from "void";
 import { and, db, eq } from "void/db";
 import { runs, testResults } from "@schema";
+import { childProjectScopeWhere } from "@/lib/scope";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 
 export type TestResultSummaryResponse = {
@@ -51,7 +52,7 @@ export const GET = defineHandler(async (c) => {
     .innerJoin(runs, eq(runs.id, testResults.runId))
     .where(
       and(
-        eq(testResults.projectId, scope.projectId),
+        childProjectScopeWhere(testResults.projectId, scope),
         eq(testResults.id, testResultId),
         eq(testResults.runId, runId),
         eq(runs.projectId, scope.projectId),

@@ -6,7 +6,6 @@ import { loadProjectBranches } from "@/lib/branches-query";
 import { loadRunResultsPage } from "@/lib/run-results-page";
 import { runByIdWhere, runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
-import { loadFailingArtifactActions } from "@/lib/test-artifact-actions";
 
 export type Props = InferProps<typeof loader>;
 
@@ -15,9 +14,8 @@ const TESTS_LIMIT = 200;
 
 /**
  * Run detail loader. Resolves the active run + its history strip + the
- * first page of tests + per-test artifact actions in a single batch. The
- * page component subscribes via `useRunRoom(runId)` for live updates merged on
- * top of these SSR-seeded rows.
+ * first page of tests in a single batch. The page component subscribes via
+ * `useRunRoom(runId)` for live updates merged on top of these SSR-seeded rows.
  */
 export const loader = defineHandler(async (c) => {
   const runId = c.req.param("runId");
@@ -39,8 +37,6 @@ export const loader = defineHandler(async (c) => {
   const effectiveBranch = branchParam ?? defaultBranch;
   const tabParam = url.searchParams.get("tab");
   const tab: "tests" | "env" = tabParam === "env" ? "env" : "tests";
-
-  const origin = url.origin;
 
   // History: last HISTORY_LIMIT runs, optionally filtered by branch.
   const historyConditions = [runScopeWhere(scope)];
@@ -78,16 +74,6 @@ export const loader = defineHandler(async (c) => {
   // run is owned here; loadRunResultsPage's own ownership probe agrees.
   const tests = resultsPage?.results ?? [];
 
-  const artifactActionsByTestId = await loadFailingArtifactActions(
-    scope,
-    tests.map((t) => ({
-      id: t.id,
-      status: t.status,
-      retryCount: t.retryCount,
-    })),
-    origin,
-  );
-
   return {
     project: {
       id: project.id,
@@ -107,6 +93,5 @@ export const loader = defineHandler(async (c) => {
     tab,
     pathname: url.pathname,
     tests,
-    artifactActionsByTestId,
   };
 });

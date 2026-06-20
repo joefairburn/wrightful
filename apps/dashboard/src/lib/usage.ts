@@ -18,7 +18,7 @@ import {
  * Two layers, deliberately split:
  *
  *   - **Metering** is a live counter (`usageCounters`, one row per team-month)
- *     bumped in the SAME `db.batch` as the ingest write it meters
+ *     bumped in the SAME transaction as the ingest write it meters
  *     (`usageBumpStatement`, wired into `openRun` / `appendRunResults` /
  *     `registerArtifacts`). Atomic with the data, no extra round-trip. Counts
  *     FRESH rows only (a new run, newly-inserted testResults, newly-inserted
@@ -110,7 +110,7 @@ export interface UsageDelta {
 /**
  * The metering statement: upsert this team-month's counter, incrementing each
  * dimension by its delta. Built as a Drizzle statement (NOT awaited) so callers
- * append it to their existing `db.batch` — usage is bumped atomically with the
+ * append it to their existing transaction — usage is bumped atomically with the
  * ingest write it meters. A fresh month inserts a new row; an existing one is
  * incremented via `onConflictDoUpdate` on the `(teamId, periodStart)` unique
  * index. Returns `null` for a no-op delta so callers can skip appending it.
@@ -120,7 +120,7 @@ export function usageBumpStatement(
   periodStart: number,
   delta: UsageDelta,
   nowSeconds: number,
-  exec: BatchExecutor = db,
+  exec: BatchExecutor,
 ) {
   const runsDelta = delta.runs ?? 0;
   const testResultsDelta = delta.testResults ?? 0;

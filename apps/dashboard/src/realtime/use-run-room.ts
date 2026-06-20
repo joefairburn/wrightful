@@ -1,55 +1,37 @@
 "use client";
 
-import { useRouter } from "@void/react";
 import {
   applyRunProgressEvent,
   seedRunProgressState,
   type RunProgressState,
   type UseRunProgressOptions,
 } from "@/realtime/run-progress";
-import { requestReconnectRefresh } from "@/realtime/reconnect-refresh";
-import { useRoom } from "@/realtime/use-room";
-import { useSeededState } from "@/realtime/use-seeded-state";
+import { useFeedRoom } from "@/realtime/use-feed-room";
 
 export type UseRunRoomOptions = UseRunProgressOptions;
 
 /**
  * Run-detail realtime hook: subscribe to the run's `void/ws` room and fold each
  * `progress` event through the pure reducer (`applyRunProgressEvent`), seeded
- * from SSR data. Shared by `<RunSummaryLive>` and `<RunProgress>`.
+ * from SSR data. Shared by `<RunSummaryLive>` and `<RunProgress>`. A thin
+ * specialization of `useFeedRoom` (run path + run-progress reducer); see that
+ * hook for the reseed + coalesced-reconnect-refresh policy.
  *
- * The live state reseeds whenever the seed identity (`runId` + the seed-prop
- * references) changes — see `useSeededState` for the unkeyed-navigation
- * rationale and the referential-stability requirement on the seed props.
- *
- * On a WS re-open after a drop (rooms have no replay, so any broadcast missed
- * while disconnected is gone — per-test rows included) the hook triggers
- * `router.refresh()`: the loader re-runs with fresh tests + summary and the
- * reseed above folds them in. Coalesced via `requestReconnectRefresh` so the
- * several leaves sharing this room's socket issue ONE refresh per reconnect
- * burst, not one each.
+ * The seed-prop references (`initialTests` / `initialSummary`) must be
+ * referentially STABLE across re-renders of the same page instance — see
+ * `useSeededState` for the requirement (the run-detail page memoizes
+ * `initialSummary` on a loader prop).
  */
 export function useRunRoom(
   runId: string,
   options: UseRunRoomOptions = {},
 ): RunProgressState {
-  const router = useRouter();
-
-  const [state, setState] = useSeededState<RunProgressState>(
-    [runId, options.initialTests, options.initialSummary],
-    () => seedRunProgressState(options.initialTests, options.initialSummary),
-  );
-
-  useRoom(
+  const [state] = useFeedRoom(
     "/ws/run/:runId",
     { runId },
-    (event) => {
-      setState((prev) => applyRunProgressEvent(prev, event));
-    },
-    () => {
-      requestReconnectRefresh(() => router.refresh());
-    },
+    [runId, options.initialTests, options.initialSummary],
+    () => seedRunProgressState(options.initialTests, options.initialSummary),
+    (prev, event) => applyRunProgressEvent(prev, event),
   );
-
   return state;
 }

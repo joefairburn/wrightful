@@ -2,7 +2,11 @@ import { ulid } from "ulid";
 import { and, asc, db, eq, inArray } from "void/db";
 import { quarantinedTests } from "@schema";
 import type { QuarantinedTest } from "@schema";
-import type { TenantScope } from "@/lib/scope";
+import {
+  childByTestIdWhere,
+  childProjectScopeWhere,
+  type TenantScope,
+} from "@/lib/scope";
 import type { QuarantineMode } from "@/lib/quarantine-schemas";
 
 /**
@@ -29,19 +33,6 @@ export interface QuarantineEntry {
 }
 
 /**
- * The blessed single-test predicate within a tenant: `(projectId, testId)` —
- * the unique index. Like `runByIdWhere`, scopes by `projectId` so a leaked
- * testId can't be mutated outside its project. Brand load-bearing: requires a
- * `TenantScope`, so the project id is always auth-checked.
- */
-function quarantineByTestIdWhere(scope: TenantScope, testId: string) {
-  return and(
-    eq(quarantinedTests.projectId, scope.projectId),
-    eq(quarantinedTests.testId, testId),
-  );
-}
-
-/**
  * All quarantine entries in the project, oldest first. The reporter pulls this
  * at `onBegin`; the projection is exactly the fields the wire contract carries.
  */
@@ -55,7 +46,7 @@ export async function listQuarantine(
       reason: quarantinedTests.reason,
     })
     .from(quarantinedTests)
-    .where(eq(quarantinedTests.projectId, scope.projectId))
+    .where(childProjectScopeWhere(quarantinedTests.projectId, scope))
     .orderBy(asc(quarantinedTests.createdAt));
   return rows;
 }
@@ -106,7 +97,7 @@ export async function unquarantineTest(
 ): Promise<void> {
   await db
     .delete(quarantinedTests)
-    .where(quarantineByTestIdWhere(scope, testId));
+    .where(childByTestIdWhere(quarantinedTests, scope, testId));
 }
 
 /**

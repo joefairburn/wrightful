@@ -10,7 +10,12 @@ import {
   RUN_WRITE_GUARD_COLUMNS,
   runClosedForWrites,
 } from "@/lib/ingest";
-import type { TenantScope } from "@/lib/scope";
+import {
+  childByIdWhere,
+  childByRunWhere,
+  childProjectScopeWhere,
+  type TenantScope,
+} from "@/lib/scope";
 import type { RegisterArtifactsPayload } from "@/lib/schemas";
 import { checkQuota, monthStartSeconds, usageBumpStatement } from "@/lib/usage";
 
@@ -302,8 +307,7 @@ export async function registerArtifacts(
       .from(testResults)
       .where(
         and(
-          eq(testResults.projectId, scope.projectId),
-          eq(testResults.runId, payload.runId),
+          childByRunWhere(testResults, scope, payload.runId),
           inArray(testResults.id, chunk),
         ),
       );
@@ -397,7 +401,7 @@ async function fetchExistingArtifactRows(
       .from(artifacts)
       .where(
         and(
-          eq(artifacts.projectId, scope.projectId),
+          childProjectScopeWhere(artifacts.projectId, scope),
           inArray(artifacts.testResultId, chunk),
         ),
       );
@@ -448,12 +452,7 @@ export async function storeArtifactUpload(
     // the testResult row.
     .innerJoin(testResults, eq(testResults.id, artifacts.testResultId))
     .innerJoin(runs, eq(runs.id, testResults.runId))
-    .where(
-      and(
-        eq(artifacts.projectId, scope.projectId),
-        eq(artifacts.id, artifactId),
-      ),
-    )
+    .where(childByIdWhere(artifacts, scope, artifactId))
     .limit(1);
   const row = rows[0];
   if (!row) return { kind: "notFound" };

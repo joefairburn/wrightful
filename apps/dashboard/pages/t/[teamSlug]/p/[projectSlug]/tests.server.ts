@@ -6,6 +6,7 @@ import { loadProjectTags } from "@/lib/tags-query";
 import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
 import type { QuarantineMode } from "@/lib/quarantine-schemas";
 import { runRows } from "@/lib/db-run";
+import { intAggExpr, numAggExpr } from "@/lib/db/sql-ops";
 import {
   branchFragment,
   searchFragment,
@@ -22,6 +23,7 @@ import {
   latestPerTestValue,
   statusCounter,
 } from "@/lib/analytics/per-test";
+import { resolveOffsetPage, shouldRefetchClampedPage } from "@/lib/page-window";
 import type { TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -118,32 +120,45 @@ export const loader = defineHandler.withValidator({
   const qSql = searchFragment(q || null);
   const tagSql = tagFragment(tags);
 
-  const offset = (requestedPage - 1) * PAGE_SIZE;
+  // First fetch runs at the *requested* offset so the windowed
+  // `count(*) OVER ()` can report the true total (we don't know it until the
+  // page query returns). Then resolve the page math against that total.
   let pageRows = await runPageQuery(
     scope,
     windowStartSec,
     branchSql,
     qSql,
     tagSql,
-    offset,
+    (requestedPage - 1) * PAGE_SIZE,
   );
 
   const totalUniqueTests = pageRows[0]?.totalDistinct ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalUniqueTests / PAGE_SIZE));
+  const { currentPage, totalPages, offset } = resolveOffsetPage({
+    total: totalUniqueTests,
+    pageSize: PAGE_SIZE,
+    requestedPage,
+  });
 
-  let currentPage = requestedPage;
-  if (pageRows.length === 0 && totalUniqueTests > 0 && requestedPage > 1) {
-    currentPage = totalPages;
+  // Over-the-end `?page=`: the first fetch (at the requested offset) came back
+  // empty even though rows exist. Re-fetch at the clamped last-page offset so
+  // the table shows the last page rather than an empty slice. This is the one
+  // adopter that opts into the refetch dance.
+  if (
+    shouldRefetchClampedPage({
+      total: totalUniqueTests,
+      requestedPage,
+      currentPage,
+      fetchedRowCount: pageRows.length,
+    })
+  ) {
     pageRows = await runPageQuery(
       scope,
       windowStartSec,
       branchSql,
       qSql,
       tagSql,
-      (currentPage - 1) * PAGE_SIZE,
+      offset,
     );
-  } else {
-    currentPage = Math.min(requestedPage, totalPages);
   }
 
   let rows: TestsPageRow[] = [];
@@ -188,9 +203,12 @@ export const loader = defineHandler.withValidator({
     });
   }
 
-  const fromRow =
-    totalUniqueTests === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
-  const toRow = (currentPage - 1) * PAGE_SIZE + rows.length;
+  const { fromRow, toRow } = resolveOffsetPage({
+    total: totalUniqueTests,
+    pageSize: PAGE_SIZE,
+    requestedPage,
+    rowCount: rows.length,
+  });
 
   const url = new URL(c.req.url);
   // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
@@ -245,7 +263,7 @@ async function runPageQuery(
       select
         tr."testId" as "testId",
         max(tr."createdAt") as "lastSeen",
-        count(*) over () as "totalDistinct"
+        ${intAggExpr("count(*) over ()", { alias: `"totalDistinct"` })}
       from "testResults" tr
       ${testResultsScopeJoin(scope)}
         and runs."createdAt" >= ${windowStartSec}
@@ -296,8 +314,8 @@ async function runAggregateQuery(
     )
     select
       "testId",
-      count(*) as n,
-      avg("durationMs") as "avgDurationMs",
+      ${intAggExpr("count(*)", { alias: "n" })},
+      ${numAggExpr(`avg("durationMs")`, { alias: `"avgDurationMs"` })},
       ${latestPerTestValue("title", { alias: "title" })},
       ${latestPerTestValue("file", { alias: "file" })},
       ${latestPerTestValue("status", { alias: `"latestStatus"` })},

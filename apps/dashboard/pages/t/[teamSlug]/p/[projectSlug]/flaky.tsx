@@ -38,6 +38,7 @@ export default function FlakyTestsPage({
   totalFlakyTests,
   truncated,
   ranked,
+  kpis,
   sparkByTest,
   failsByTest,
   quarantinedByTestId,
@@ -57,11 +58,7 @@ export default function FlakyTestsPage({
   });
   const rangeHref = (r: string): string => hrefWith({ range: r });
 
-  const totalFailures = ranked.reduce((sum, r) => sum + r.flakyCount, 0);
-  const avgFlakeRate =
-    ranked.length === 0
-      ? 0
-      : ranked.reduce((sum, r) => sum + r.pct, 0) / ranked.length;
+  const { totalFailures, avgFlakeRate } = kpis;
 
   return (
     <>

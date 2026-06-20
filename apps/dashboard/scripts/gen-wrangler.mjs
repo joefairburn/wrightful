@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 // Generate `wrangler.jsonc` from `wrangler.template.jsonc`, injecting the
 // deployment-specific bindings from env vars — so the committed template carries
-// NO account-specific IDs (see the self-hosting-generic-config rule). This is
-// the wrangler twin of apply-dialect.mjs: a generated artifact materialized from
-// committed sources + one set of env knobs, run in the dev/build/deploy
-// pre-hooks. `wrangler.jsonc` is gitignored, like `db/migrations/`.
+// NO account-specific IDs (see the self-hosting-generic-config rule). It's a
+// generated artifact materialized from a committed template + one set of env
+// knobs, run in the dev/build/deploy pre-hooks; `wrangler.jsonc` is gitignored.
 //
 // Env (DEPLOY-time; read from process.env first, then .env.local / .env). These
 // are build-time config for `wrangler deploy` to your OWN Cloudflare account —
@@ -22,16 +21,26 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const at = (rel) => `${root}/${rel}`;
 
-/** Read a var from process.env, falling back to .env.local / .env (like apply-dialect). */
+/** Read a var from process.env, falling back to .env.local / .env. */
 function fromEnv(key) {
   const v = process.env[key];
   if (v != null && v !== "") return v;
   for (const f of [".env.local", ".env"]) {
     if (!existsSync(at(f))) continue;
+    // Capture the optional opening quote so we can tell quoted from unquoted
+    // values: the body is everything up to a closing quote / newline.
     const m = readFileSync(at(f), "utf8").match(
-      new RegExp(`^\\s*${key}\\s*=\\s*["']?([^"'\\n]+)`, "m"),
+      new RegExp(`^\\s*${key}\\s*=\\s*(["']?)([^"'\\n]+)`, "m"),
     );
-    if (m) return m[1].trim();
+    if (!m) continue;
+    const quoted = m[1] !== "";
+    let value = m[2].trim();
+    // For UNQUOTED values, strip a trailing inline comment ` # …` — the
+    // .env.example / SELF-HOSTING.md hints ship them and the regex would
+    // otherwise capture the comment verbatim into the binding. A `#` inside
+    // an explicitly quoted value is part of the value, so leave it intact.
+    if (!quoted) value = value.replace(/\s+#.*$/, "").trim();
+    return value;
   }
   return undefined;
 }
@@ -58,11 +67,17 @@ if (r2Bucket) {
 
 let out = readFileSync(at("wrangler.template.jsonc"), "utf8");
 out = out.replaceAll("__CF_WORKER_NAME__", workerName);
-// Replace the marker line with the binding blocks (or nothing).
-out = out.replace(
-  /^[ \t]*\/\/ __CF_OWN_ACCOUNT_BINDINGS__[ \t]*$/m,
-  blocks.join("\n"),
-);
+// Replace the marker line with the binding blocks (or nothing). If the marker
+// is ever renamed/removed from the template, .replace would be a silent no-op
+// that drops the own-account bindings while still printing success — so assert
+// it's present whenever we actually have bindings to inject.
+const markerRe = /^[ \t]*\/\/ __CF_OWN_ACCOUNT_BINDINGS__[ \t]*$/m;
+if (blocks.length && !markerRe.test(out)) {
+  throw new Error(
+    "gen-wrangler: __CF_OWN_ACCOUNT_BINDINGS__ marker missing from wrangler.template.jsonc — cannot inject own-account bindings",
+  );
+}
+out = out.replace(markerRe, blocks.join("\n"));
 writeFileSync(at("wrangler.jsonc"), out);
 
 const injected = blocks.length

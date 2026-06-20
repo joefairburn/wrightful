@@ -1,13 +1,11 @@
-// GENERATED FILE — DO NOT EDIT.
-// Produced from `db/schema.d1.ts` by `scripts/gen-pg-schema.mjs` (`pnpm db:generate`).
-// The D1 schema is the single source of truth; this is its Postgres twin.
-// The only divergence is `integer` -> `bigint` for the columns in
-// `db/dialect-columns.mjs` (see that file for why). Drift is caught by
-// `src/__tests__/schema-parity.test.ts`.
+// Hand-authored Postgres (pg-core) schema — the single source of truth for the
+// dashboard's tenant/control tables. Migrations are generated from THIS file via
+// `pnpm db:generate` (= `void db generate`) into `db/migrations/`. Edit the table
+// definitions here, then regenerate; never hand-edit the generated migrations.
 
 // `sql` (from the side-effect-free `void/_db` entry, not `void/db` whose `db`
-// export resolves the D1 binding) backs the `COALESCE(role, '')` expression in
-// the artifacts unique index below — safe at schema-parse time and for
+// export resolves the Postgres binding) backs the `COALESCE(role, '')` expression
+// in the artifacts unique index below — safe at schema-parse time and for
 // `void db generate`.
 import { sql } from "void/_db";
 import {
@@ -20,37 +18,36 @@ import {
   uniqueIndex,
 } from "void/schema-pg";
 
-/** epoch-seconds / external 64-bit ids / cumulative counters — see db/dialect-columns.mjs. */
+/** epoch-seconds / external 64-bit ids / cumulative counters — these use bigint. */
 const big = (name: string) => bigint(name, { mode: "number" });
 
 /**
  * A user's role within a team. The column is `text().$type<MembershipRole>()`,
  * so widening this union (roadmap 3.1: adding `"viewer"`) is a pure TYPE change
- * with NO migration — SQLite stores it as text either way. Capability gating
+ * with NO migration — Postgres stores it as text either way. Capability gating
  * lives in `src/lib/roles.ts` (`can(role, action)`), not in the column type.
  */
 export type MembershipRole = "owner" | "member" | "viewer";
 
 /**
- * Single-D1 schema for the Void dashboard.
+ * Postgres schema for the Void dashboard.
  *
  * Collapses what used to live across two Durable Objects:
  *   - `ControlDO` (auth + tenancy)
  *   - `TenantDO`  (per-team test data: runs and children)
  *
  * Better Auth's core tables (`user`, `session`, `account`, `verification`)
- * are **owned by Void** — they're bootstrapped by `void/auth`'s idempotent
- * migration runner against the same D1, with `CREATE TABLE IF NOT EXISTS`
- * semantics. They live in this database alongside our tables but are
- * intentionally NOT declared here so the two migration runners don't fight
- * over indexes/column shapes. Cross-table joins use raw SQL where needed;
+ * are **owned by Void** — they're bootstrapped idempotently by `void/auth`
+ * against the same database. They live in this database alongside our tables
+ * but are intentionally NOT declared here so the two migration runners don't
+ * fight over indexes/column shapes. Cross-table joins use raw SQL where needed;
  * the current-user context comes from `void/auth#getUser`/`getSession`.
  *
- * Tenant isolation moves from physical (one SQLite file per team) to
- * logical: every run-scoped query MUST filter by `teamId` AND `projectId`.
- * Run-scoped child tables carry both denormalized so query paths don't have
- * to join through `runs` to enforce scope (and so the brand-typed
- * `AuthorizedProjectId` can gate access without runtime joins).
+ * Tenant isolation is logical, not physical: a single shared Postgres store
+ * holds every team's data and every run-scoped query MUST filter by `teamId`
+ * AND `projectId`. Run-scoped child tables carry both denormalized so query
+ * paths don't have to join through `runs` to enforce scope (and so the
+ * brand-typed `AuthorizedProjectId` can gate access without runtime joins).
  *
  * Identifiers are camelCase in both TS and SQL — matches Better Auth's
  * kysely-style field names.
@@ -78,8 +75,9 @@ export const teams = pgTable(
      * Two-axis data-retention windows in DAYS, both nullable (null → the
      * `WRIGHTFUL_RETENTION_*` env default). Separate because the cost/value
      * profiles differ: `retentionArtifactDays` bounds R2 bytes (the storage
-     * cost), `retentionTestResultsDays` bounds the testResults row history (D1
-     * size). The `sweep-retention` cron enforces both. The artifact window must
+     * cost), `retentionTestResultsDays` bounds the testResults row history
+     * (Postgres size). The `sweep-retention` cron enforces both. The artifact
+     * window must
      * stay ≤ the testResults window (validated in the settings editor) so an
      * expiring testResult's FK cascade never orphans still-live R2 objects.
      */
@@ -277,7 +275,7 @@ export const apiKeys = pgTable(
 
 /**
  * Per-team usage meter, one row per (team, calendar-month). The live counter
- * the ingest pipeline increments in the SAME `db.batch` as its writes
+ * the ingest pipeline increments in the SAME transaction as its writes
  * (`usageBumpStatement` in `src/lib/usage.ts`) — so a run open / results flush /
  * artifact registration bumps usage atomically with the data it meters, never a
  * separate round-trip. `periodStart` is the UTC month-boundary epoch-seconds
@@ -385,8 +383,8 @@ export const runs = pgTable(
     /**
      * Liveness signal: the epoch-seconds timestamp of the most recent ingest
      * write to this run. Initialized to `createdAt` at open (so an onBegin-only
-     * dead run is still sweepable) and bumped to "now" in the SAME D1 batch as
-     * every subsequent /results, /complete, and watchdog write — never a
+     * dead run is still sweepable) and bumped to "now" in the SAME transaction
+     * as every subsequent /results, /complete, and watchdog write — never a
      * separate round-trip.
      *
      * The cron watchdog (`crons/sweep-stuck-runs.ts`) keys off THIS, not
@@ -448,8 +446,8 @@ export const runs = pgTable(
     /**
      * Serves the watchdog sweep SELECT (`sweepStaleRuns` / `staleRunFilter`):
      * `status = 'running' AND coalesce(lastActivityAt, createdAt) < cutoff`.
-     * Without it the sweep is a status-filtered table scan; this lets D1 seek
-     * straight to the 'running' rows (a small slice in steady state) and walk
+     * Without it the sweep is a status-filtered table scan; this lets Postgres
+     * seek straight to the 'running' rows (a small slice in steady state) and walk
      * them in lastActivityAt order so the bounded `.limit` slice is cheap.
      * (Supersedes the perf-audit's partial `runs(createdAt) WHERE running`
      * index — the watchdog is now keyed on lastActivityAt, not createdAt.)
@@ -606,7 +604,7 @@ export const artifacts = pgTable(
     index("artifacts_testResultId_idx").on(t.testResultId),
     /**
      * Serves the retention sweep's age scan (`projectId = ? AND createdAt < ?`):
-     * lets D1 seek the project's oldest artifacts in createdAt order for the
+     * lets Postgres seek the project's oldest artifacts in createdAt order for the
      * bounded delete slice, instead of scanning the project partition via
      * `artifacts_testResultId_idx`. Mirrors `testResults_project_createdAt_idx`.
      */
@@ -618,8 +616,8 @@ export const artifacts = pgTable(
      * minting a duplicate row + double-billing storage/egress. It is the DB
      * mirror of `artifactIdentity()` in `src/lib/artifacts.ts` — keep the two
      * in sync (e.g. if `snapshotName` ever joins the identity for visual diffs,
-     * add it to BOTH). `role` is nullable and SQLite treats NULLs as distinct
-     * in unique indexes, which would let role-less artifacts (the common case)
+     * add it to BOTH). `role` is nullable and Postgres treats NULLs as distinct
+     * in unique indexes (by default), which would let role-less artifacts (the common case)
      * dodge the constraint; `COALESCE(role, '')` collapses NULL to the empty
      * string exactly as `artifactIdentity` does (`role ?? ""`) so the index
      * enforces the same identity the application dedupes on and closes the
@@ -688,7 +686,7 @@ export const monitors = pgTable(
     /**
      * Epoch-seconds of the next due execution; the sweep's seek key. Null means
      * "not scheduled" (paused / never armed). Advanced transactionally in the
-     * sweep's D1 batch BEFORE enqueue so a double cron tick can't double-fire.
+     * sweep's transaction BEFORE enqueue so a double cron tick can't double-fire.
      */
     nextRunAt: big("nextRunAt"),
     lastEnqueuedAt: big("lastEnqueuedAt"),
@@ -768,8 +766,8 @@ export const monitorExecutions = pgTable(
      * Serves the stuck-execution reaper SELECT (`sweepStaleExecutions`):
      * `state IN ('queued','running') AND createdAt < cutoff` ORDER BY createdAt.
      * Mirrors how `runs_status_lastActivityAt_idx` serves the stuck-run watchdog
-     * — without it the reaper is a state-filtered table scan; this lets D1 seek
-     * the small non-terminal slice in steady state and walk it in createdAt order.
+     * — without it the reaper is a state-filtered table scan; this lets Postgres
+     * seek the small non-terminal slice in steady state and walk it in createdAt order.
      */
     index("monitorExecutions_state_created_at_idx").on(t.state, t.createdAt),
   ],
@@ -940,7 +938,7 @@ export const auditLog = pgTable(
   },
   (t) => [
     // Serves the reverse-chron viewer page: WHERE teamId = ? ORDER BY createdAt
-    // DESC — D1 seeks the team partition and walks it newest-first.
+    // DESC — Postgres seeks the team partition and walks it newest-first.
     index("auditLog_team_createdAt_idx").on(t.teamId, t.createdAt),
   ],
 );

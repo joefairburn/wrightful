@@ -87,7 +87,7 @@ export const loader = defineHandler(async (c) => {
     )
     select
       bucket,
-      max(cnt) as cnt,
+      cast(max(cnt) as integer) as cnt,
       ${percentilePick(0.5)} as p50,
       ${percentilePick(0.9)} as p90,
       ${percentilePick(0.95)} as p95
@@ -108,7 +108,7 @@ export const loader = defineHandler(async (c) => {
         ${branchSql}
     )
     select
-      max(cnt) as cnt,
+      cast(max(cnt) as integer) as cnt,
       ${percentilePick(0.5)} as p50,
       ${percentilePick(0.9)} as p90,
       ${percentilePick(0.95)} as p95

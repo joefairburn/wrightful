@@ -2,7 +2,6 @@ import { ulid } from "ulid";
 import { and, db, eq, inArray, sql } from "void/db";
 import { logger } from "void/log";
 import {
-  projects,
   runs,
   testAnnotations,
   testResultAttempts,
@@ -13,7 +12,15 @@ import {
 import type { BatchExecutor } from "@/lib/db-batch";
 import { changedRows, isUniqueViolation, runBatch } from "@/lib/db-batch";
 import { maybePostGithubCheck } from "@/lib/github-checks";
-import { runByIdWhere, staleRunFilter, type TenantScope } from "@/lib/scope";
+import { setCodeownersFile } from "@/lib/owners-repo";
+import {
+  childByIdWhere,
+  childByTestResultWhere,
+  childProjectScopeWhere,
+  runByIdWhere,
+  staleRunFilter,
+  type TenantScope,
+} from "@/lib/scope";
 import { monthStartSeconds, usageBumpStatement } from "@/lib/usage";
 import { broadcastProjectRoom, broadcastRunRoom } from "@/realtime/publish";
 import type {
@@ -57,7 +64,7 @@ export type RunAggregateSummary = RunProgressEvent["summary"];
 // chunk size: each statement in a `db.transaction` is its own round-trip, so the
 // large ceiling keeps a big flush to a couple of statements (~4600 rows each)
 // rather than hundreds of round-trips.
-const PG_MAX_BOUND_PARAMS = 65_535;
+export const PG_MAX_BOUND_PARAMS = 65_535;
 
 /**
  * Slice `items` into consecutive sub-arrays of at most `size` (always ≥1, so a
@@ -100,8 +107,9 @@ export function chunkByParams<T>(
  * separate hand-counted column constant that can silently drift from the row
  * shape when a column is added (the classic footgun: a nullable column makes
  * `$inferInsert` optional, so it lands in the row literal with no compile
- * error, and a stale literal count would then pack rows past the 99-param cap
- * and D1 would reject the statement at runtime).
+ * error, and a stale literal count would then pack rows past Postgres's
+ * per-statement bound-param ceiling and the statement would be rejected at
+ * runtime).
  *
  * Every row in a batch binds the same columns (they all flow through one
  * builder), so the first row's key count governs the whole array. An empty
@@ -130,33 +138,25 @@ export async function resolveTestResultIds(
 }> {
   const existingIds = new Map<string, string>();
   const prevStatusByTestId = new Map<string, string>();
-  // Chunk the IN list under D1's 100-bound-param ceiling: each statement also
-  // binds projectId + runId, so the testId slice gets the remaining budget. An
-  // unchunked `inArray` here hard-fails any /results batch with ≳97 unique
-  // testIds — well inside the contract's MAX_RESULTS_PER_BATCH (5000). The
-  // chunks are independent reads, so they run concurrently — a max-size batch
-  // is ~52 chunks, which serialized would add ~1s of pure round-trip latency
-  // to the flush.
-  const idsPerChunk = PG_MAX_BOUND_PARAMS - 2;
-  const chunkRows = await Promise.all(
-    chunkBySize(testIds, idsPerChunk).map((chunk) =>
-      db
-        .select({
-          id: testResults.id,
-          testId: testResults.testId,
-          status: testResults.status,
-        })
-        .from(testResults)
-        .where(
-          and(
-            eq(testResults.projectId, scope.projectId),
-            eq(testResults.runId, runId),
-            inArray(testResults.testId, chunk),
-          ),
-        ),
-    ),
-  );
-  for (const row of chunkRows.flat()) {
+  // One SELECT for the whole batch: a /results batch is hard-capped at
+  // MAX_RESULTS_PER_BATCH (5000) and `dedupeResultsByTestId` only shrinks it, so
+  // `testIds` is always well under Postgres's per-statement bound-param ceiling
+  // — no IN-list chunking is needed.
+  const rows = await db
+    .select({
+      id: testResults.id,
+      testId: testResults.testId,
+      status: testResults.status,
+    })
+    .from(testResults)
+    .where(
+      and(
+        childProjectScopeWhere(testResults.projectId, scope),
+        eq(testResults.runId, runId),
+        inArray(testResults.testId, testIds),
+      ),
+    );
+  for (const row of rows) {
     existingIds.set(row.testId, row.id);
     prevStatusByTestId.set(row.testId, row.status);
   }
@@ -177,7 +177,7 @@ export function buildQueuePrefillStatements(
     projectName?: string | null | undefined;
   }>,
   nowSeconds: number,
-  exec: BatchExecutor = db,
+  exec: BatchExecutor,
 ) {
   if (plannedTests.length === 0) return [];
   const rows = plannedTests.map((p) => ({
@@ -208,8 +208,8 @@ export function buildQueuePrefillStatements(
 
 /**
  * Builds the upsert-and-replace statements for a /results batch. Returns the
- * statement array (to be passed to `db.batch`) plus the clientKey→id map the
- * reporter uses to fire per-test artifact uploads.
+ * statement array (built against the transaction executor `tx` for `runBatch`)
+ * plus the clientKey→id map the reporter uses to fire per-test artifact uploads.
  *
  * Existing rows (matched on `runId, testId`) are UPDATEd in place; child
  * rows (tags, annotations, attempts) for those ids are DELETEd first so the
@@ -222,7 +222,7 @@ export function buildResultInsertStatements(
   nowSeconds: number,
   existingIds: Map<string, string>,
   assignedIds: Map<string, string>,
-  exec: BatchExecutor = db,
+  exec: BatchExecutor,
 ) {
   const insertRows: Array<{
     id: string;
@@ -294,32 +294,17 @@ export function buildResultInsertStatements(
             workerIndex: result.workerIndex ?? null,
             createdAt: nowSeconds,
           })
-          .where(
-            and(
-              eq(testResults.projectId, scope.projectId),
-              eq(testResults.id, testResultId),
-            ),
-          ),
+          .where(childByIdWhere(testResults, scope, testResultId)),
       );
       statements.push(
         exec
           .delete(testTags)
-          .where(
-            and(
-              eq(testTags.projectId, scope.projectId),
-              eq(testTags.testResultId, testResultId),
-            ),
-          ),
+          .where(childByTestResultWhere(testTags, scope, testResultId)),
       );
       statements.push(
         exec
           .delete(testAnnotations)
-          .where(
-            and(
-              eq(testAnnotations.projectId, scope.projectId),
-              eq(testAnnotations.testResultId, testResultId),
-            ),
-          ),
+          .where(childByTestResultWhere(testAnnotations, scope, testResultId)),
       );
     } else {
       insertRows.push({
@@ -345,12 +330,7 @@ export function buildResultInsertStatements(
     statements.push(
       exec
         .delete(testResultAttempts)
-        .where(
-          and(
-            eq(testResultAttempts.projectId, scope.projectId),
-            eq(testResultAttempts.testResultId, testResultId),
-          ),
-        ),
+        .where(childByTestResultWhere(testResultAttempts, scope, testResultId)),
     );
     for (const attempt of result.attempts) {
       attemptRows.push({
@@ -475,7 +455,7 @@ export function aggregateDeltaStatement(
   runId: string,
   delta: AggregateDelta,
   nowSeconds: number,
-  exec: BatchExecutor = db,
+  exec: BatchExecutor,
 ) {
   if (
     delta.totalTests === 0 &&
@@ -515,7 +495,7 @@ export function activityBumpStatement(
   scope: TenantScope,
   runId: string,
   nowSeconds: number,
-  exec: BatchExecutor = db,
+  exec: BatchExecutor,
 ) {
   return exec
     .update(runs)
@@ -542,7 +522,7 @@ function statusMatchSql(statuses: readonly string[]) {
 export function aggregateRecomputeStatement(
   scope: { projectId: string },
   runId: string,
-  exec: BatchExecutor = db,
+  exec: BatchExecutor,
 ) {
   const projectId = scope.projectId;
   const bucketCount = (statuses: readonly string[]) =>
@@ -561,11 +541,11 @@ export function aggregateRecomputeStatement(
 }
 
 /**
- * Extract the publishable summary from a D1 batch result, given the invariant
- * that the summary-producing statement (an `AGGREGATE_SUMMARY_COLUMNS`
- * `.returning()` UPDATE) was run LAST. `db.batch` returns one result array per
- * statement in order, so the summary row is the first element of the final
- * result.
+ * Extract the publishable summary from a transaction's statement results, given
+ * the invariant that the summary-producing statement (an
+ * `AGGREGATE_SUMMARY_COLUMNS` `.returning()` UPDATE) was run LAST. `runBatch`
+ * returns one result array per statement in order, so the summary row is the
+ * first element of the final result.
  *
  * This is the single owner of the "last batch row is the summary" cast. Pulled
  * out as a pure function so the positional convention has one unit-tested home
@@ -577,7 +557,7 @@ export function aggregateRecomputeStatement(
 export function summaryFromBatchResults(
   batchResults: readonly unknown[],
 ): RunAggregateSummary | null {
-  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- D1 batch results are `unknown[]`; the tail statement's `.returning()` shape is the documented contract (single typed home, see fn doc)
+  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- transaction statement results are `unknown[]`; the tail statement's `.returning()` shape is the documented contract (single typed home, see fn doc)
   const summaryRows = batchResults[batchResults.length - 1] as
     | readonly RunAggregateSummary[]
     | undefined;
@@ -586,8 +566,8 @@ export function summaryFromBatchResults(
 
 /**
  * Read how many rows a non-`.returning()` statement changed, from its element in
- * a batch/transaction result. The dialect-specific shape (D1 `meta.changes`,
- * node-postgres `rowCount`, pglite `affectedRows`) is owned by `changedRows`
+ * a transaction result. The dialect-specific shape (node-postgres `rowCount` in
+ * prod, pglite `affectedRows` on the test lane) is owned by `changedRows`
  * (`@/lib/db-batch`); this is the run-scoped alias kept so `reconcileAndBroadcast`
  * reads "did the guarded UPDATE flip a row?" through a name local to the ingest
  * pipeline (the head-of-batch counterpart to `summaryFromBatchResults`).
@@ -600,8 +580,8 @@ export const statementChangedRows = changedRows;
  * final statement returned no row).
  *
  * Owns the convention used by `appendRunResults`: append the summary-producing
- * statement last, run them all in one D1 transaction (`db.batch`), then read back
- * the final result via `summaryFromBatchResults`. `summary` may be any
+ * statement last, run them all in one Postgres transaction (`runBatch`), then read
+ * back the final result via `summaryFromBatchResults`. `summary` may be any
  * summary-producing statement — a `.returning()` UPDATE or a `.select()` — both
  * project `AGGREGATE_SUMMARY_COLUMNS`, so both yield `RunAggregateSummary[]`.
  * Concentrating the append-last + run + read-last positional contract here means
@@ -610,15 +590,16 @@ export const statementChangedRows = changedRows;
  *
  * The terminal paths (`completeRun` / `finalizeStaleRun`) follow the same
  * append-summary-last convention but go through `reconcileAndBroadcast`, which
- * runs the batch directly so it can ALSO read the head element (the status flip's
- * `meta.changes`) to suppress a no-op finalize's broadcast — a read this
- * summary-only helper doesn't surface.
+ * runs the transaction directly so it can ALSO read the head element (the status
+ * flip's affected-row count) to suppress a no-op finalize's broadcast — a read
+ * this summary-only helper doesn't surface.
  *
  * The batch is `PromiseLike<unknown>[]` for the same reason as
- * `buildResultInsertStatements`: Drizzle's batch accepts a heterogeneous tuple
- * of query builders and expressing the union precisely fights the type system
- * more than it helps. The `db.batch` call-signature cast lives once in
- * `runBatch` (`@/lib/db-batch`), which this routes through.
+ * `buildResultInsertStatements`: a transaction runs a heterogeneous tuple of
+ * query builders and expressing the union precisely fights the type system more
+ * than it helps. `runBatch` (`@/lib/db-batch`), which this routes through, builds
+ * every statement against the transaction executor (`tx`) — no cast — so the
+ * statements enroll in the transaction.
  */
 export async function runBatchWithSummary(
   build: (exec: BatchExecutor) => {
@@ -637,7 +618,7 @@ export async function runBatchWithSummary(
  * The terminal reconcile-and-broadcast tail shared by `completeRun` and
  * `finalizeStaleRun`: run the caller's status-flip UPDATE together with a single
  * `aggregateRecomputeStatement` (which projects the broadcast summary via its
- * `.returning()`) in one D1 batch, then broadcast that transactionally-consistent
+ * `.returning()`) in one transaction, then broadcast that transactionally-consistent
  * summary to `run:<runId>` subscribers. The status-flip is FIRST and the
  * recompute is LAST, so `statementChangedRows(batchResults[0])` reads the flip's
  * affected-row count and `summaryFromBatchResults` reads the recompute's
@@ -710,11 +691,17 @@ export function shouldUpdateCodeowners(
 
 /**
  * Upsert the project's CODEOWNERS file from an open-run payload, when present
- * (roadmap 2.3). No-op when the payload omits it or sends only whitespace, so
- * an empty repo file never clobbers a manually-pasted one. Stamps
- * `codeownersUpdatedAt`. Project-scoped; awaited per the no-fire-and-forget
- * rule. Best-effort: a failure is logged but never fails the run open (a
- * missing CODEOWNERS just leaves ownership derivation on the previous file).
+ * (roadmap 2.3). The ingest adapter for `setCodeownersFile`: it owns only the
+ * PRESENCE policy — the reporter sends the field only when it found a CODEOWNERS
+ * on disk, and an absent OR empty/whitespace-only value must NOT clobber a file
+ * an owner pasted manually in settings (the only way to clear it is the settings
+ * textarea). So we forward to the seam iff the payload carries non-blank content.
+ *
+ * The trim-then-normalize and unchanged-guard (skip the write AND the
+ * `codeownersUpdatedAt` bump for a stable repo file) live in `setCodeownersFile`.
+ * Awaited per the no-fire-and-forget rule. Best-effort: a failure is logged but
+ * never fails the run open (a missing CODEOWNERS just leaves ownership
+ * derivation on the previous file).
  */
 export async function maybeUpdateCodeowners(
   scope: TenantScope,
@@ -722,24 +709,8 @@ export async function maybeUpdateCodeowners(
   nowSeconds: number,
 ): Promise<void> {
   if (!shouldUpdateCodeowners(codeowners)) return;
-  // Store the trimmed content so the unchanged-check below is stable run over
-  // run (the reporter re-sends the on-disk file on every open).
-  const next = codeowners.trim();
   try {
-    const [row] = await db
-      .select({ file: projects.codeownersFile })
-      .from(projects)
-      .where(eq(projects.id, scope.projectId))
-      .limit(1);
-    // Unchanged → skip the write entirely. `codeownersUpdatedAt` is surfaced as
-    // "Last updated" in settings, so it must move only on a REAL edit, not on
-    // every CI run for a stable file (which would also churn a pointless D1
-    // write per run open).
-    if ((row?.file ?? null) === next) return;
-    await db
-      .update(projects)
-      .set({ codeownersFile: next, codeownersUpdatedAt: nowSeconds })
-      .where(eq(projects.id, scope.projectId));
+    await setCodeownersFile(scope, codeowners, nowSeconds);
   } catch (err) {
     logger.error("update codeowners from ingest failed", {
       projectId: scope.projectId,
@@ -933,28 +904,29 @@ export async function openRun(
   const runValues = buildRunInsertValues(runId, scope, payload, nowSeconds);
   try {
     // All-or-nothing: the run insert, the queued-test prefill, and the usage
-    // meter bump (run open) commit atomically — `db.batch` on D1, one
-    // `db.transaction` on Postgres (see `runBatch`). Every statement is built
-    // against the passed executor so it enrolls in that boundary.
-    await runBatch((tx) => [
-      tx.insert(runs).values(runValues),
-      ...buildQueuePrefillStatements(
-        scope,
-        runId,
-        plannedTests,
+    // meter bump (run open) commit atomically in one `db.transaction` (see
+    // `runBatch`). Every statement is built against the passed executor so it
+    // enrolls in that boundary.
+    await runBatch((tx) => {
+      const usageBump = usageBumpStatement(
+        scope.teamId,
+        monthStartSeconds(nowSeconds),
+        { runs: 1 },
         nowSeconds,
         tx,
-      ),
-      ...((u) => (u ? [u] : []))(
-        usageBumpStatement(
-          scope.teamId,
-          monthStartSeconds(nowSeconds),
-          { runs: 1 },
+      );
+      return [
+        tx.insert(runs).values(runValues),
+        ...buildQueuePrefillStatements(
+          scope,
+          runId,
+          plannedTests,
           nowSeconds,
           tx,
         ),
-      ),
-    ]);
+        ...(usageBump ? [usageBump] : []),
+      ];
+    });
   } catch (err) {
     // Lost the SELECT-then-INSERT race: sharded suites share one
     // idempotencyKey and open concurrently BY DESIGN, so the loser's insert
@@ -1118,7 +1090,7 @@ export function dedupeResultsByTestId(
  * Append a batch of test results to a streaming run. Verifies the run
  * belongs to `scope.projectId` (404 otherwise), then runs the upsert /
  * tag-replace / annotation-replace / per-attempt-insert / aggregate-delta
- * statements in one D1 batch. The last statement is `.returning()` on the
+ * statements in one transaction. The last statement is `.returning()` on the
  * delta UPDATE (or a SELECT when no delta) so the broadcast summary is
  * transactionally consistent with the per-test writes.
  */
@@ -1149,10 +1121,12 @@ export async function appendRunResults(
   const delta = computeAggregateDelta(results, prevStatusByTestId);
   // The clientKey→testResultId map is produced while building the statements;
   // capture it from inside the batch builder for the post-batch artifact step.
+  // runBatch invokes the builder synchronously at the head of the awaited
+  // transaction, so `mapping` is populated before this await resolves.
   let mapping: ResultMapping[] = [];
   // One atomic write: the per-test upsert/replace statements, the usage meter
-  // bump, and the summary-producing statement (LAST), built against the batch
-  // executor so they enroll in the same `db.batch`(D1)/`db.transaction`(PG).
+  // bump, and the summary-producing statement (LAST), built against the
+  // transaction executor so they enroll in the same `db.transaction`.
   const summary = await runBatchWithSummary((tx) => {
     const built = buildResultInsertStatements(
       scope,

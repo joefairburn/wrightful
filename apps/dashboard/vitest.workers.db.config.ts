@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
+import { MINIFLARE_BASE } from "./vitest.shared";
 
 // Real-DB-in-workerd lane. A smoke test that the PRODUCTION data path —
 // node-postgres over a Hyperdrive binding, inside the real Workers runtime —
@@ -56,8 +57,7 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       miniflare: {
-        compatibilityDate: "2026-05-22",
-        compatibilityFlags: ["nodejs_compat"],
+        ...MINIFLARE_BASE,
         ...(url ? { hyperdrives: { HYPERDRIVE: url } } : {}),
       },
     }),

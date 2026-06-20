@@ -4,12 +4,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { configDefaults, defineConfig } from "vitest/config";
 import { voidPlugin } from "void";
 import { voidReact } from "@void/react/plugin";
+import { testAlias } from "./vitest.shared";
 
-const srcDir = fileURLToPath(new URL("./src", import.meta.url));
-const schemaPath = fileURLToPath(new URL("./db/schema.ts", import.meta.url));
-const voidDbStubPath = fileURLToPath(
-  new URL("./src/__tests__/helpers/void-db-stub.ts", import.meta.url),
-);
 const cloudflareWorkersStubPath = fileURLToPath(
   new URL(
     "./src/__tests__/helpers/cloudflare-workers-stub.ts",
@@ -18,7 +14,7 @@ const cloudflareWorkersStubPath = fileURLToPath(
 );
 
 // `vp test` sets mode to "test"; under test we skip voidPlugin/voidReact so
-// the test runner doesn't try to bootstrap D1 migrations or wrap tests as
+// the test runner doesn't try to bootstrap the database or wrap tests as
 // Workers. Tests run in plain Node (vitest default pool) against the same
 // alias map as production.
 const isTest = process.env.VITEST === "true" || process.argv.includes("test");
@@ -51,20 +47,19 @@ export default defineConfig({
     // typecheck-only; Vite/Void's module resolver needs the alias here.
     alias: isTest
       ? {
-          // Tests run without the void plugin, so the virtual `@schema` and
-          // `void/db` modules aren't materialized — alias them to real files
-          // (the schema source, and a stub that re-exports drizzle operators
-          // and a guarded `db` placeholder). `cloudflare:workers` is a workerd
-          // built-in unresolvable in plain Node — alias it to an empty-`env`
-          // stub so modules that read bindings (e.g. `src/lib/email.ts`) import
-          // cleanly; tests that exercise a binding `vi.mock("cloudflare:workers")`.
-          "@": srcDir,
-          "@schema": schemaPath,
-          "void/db": voidDbStubPath,
+          // `testAlias` (shared with the workerd lane in vitest.shared.ts) maps
+          // `@`/`@schema`/`void/db` to real files, since tests run without the
+          // void plugin (the virtual `@schema` / `void/db` modules aren't
+          // materialized). `cloudflare:workers` is a workerd built-in
+          // unresolvable in plain Node — alias it (Node-lane-only, not in the
+          // shared map) to an empty-`env` stub so modules that read bindings
+          // (e.g. `src/lib/email.ts`) import cleanly; tests that exercise a
+          // binding `vi.mock("cloudflare:workers")`.
+          ...testAlias,
           "cloudflare:workers": cloudflareWorkersStubPath,
         }
       : {
-          "@": srcDir,
+          "@": testAlias["@"],
         },
     // Belt-and-braces: voidReact() already sets this, but pin it here so the
     // worker/SSR + client bundles share a single React copy regardless of

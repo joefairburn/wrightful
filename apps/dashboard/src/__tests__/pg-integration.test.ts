@@ -73,7 +73,10 @@ const { runRows } = await import("@/lib/db-run");
 const { bucketExpr } = await import("@/lib/analytics/bucketing-sql");
 const { numericSql } = await import("@/lib/db/sql-ops");
 const { chunkByParams } = await import("@/lib/ingest");
-const { projects, runs, teams, usageCounters } =
+const { makeTenantScope } = await import("@/lib/scope");
+const { httpResponseTimeBuckets, httpUptimeWindows } =
+  await import("@/lib/monitors/http/uptime-analytics");
+const { monitorExecutions, projects, runs, teams, usageCounters } =
   await import("../../db/schema");
 const { count, eq, sql } = await import("void/_db");
 const { getTableConfig } = await import("void/schema-pg");
@@ -103,7 +106,7 @@ function createTableSql(table: Parameters<typeof getTableConfig>[0]): string {
 }
 
 beforeAll(async () => {
-  for (const t of [teams, projects, runs, usageCounters]) {
+  for (const t of [teams, projects, runs, usageCounters, monitorExecutions]) {
     // Drop-then-create so the suite is re-runnable against a PERSISTENT
     // Postgres (a `services:` container is fresh, but a locally-reused one
     // would already hold the tables). Harmless on the fresh pglite instance.
@@ -353,5 +356,130 @@ describe("Postgres path", () => {
   // pglite db; reference it so the import isn't flagged unused.
   it("exposes the real sql operator", () => {
     expect(typeof sql).toBe("function");
+  });
+});
+
+// --- Hand-written aggregate loaders: end-to-end execution coverage ---
+// The 2026-06-17 dialect worklog flagged the real follow-up as EXECUTING the
+// hand-written raw aggregate queries against pglite, not just the seam, so a
+// forgotten cast / dialect-ism / coercion regression FAILS a fast-lane test
+// instead of only the real-postgres CI leg. These run the uptime-analytics
+// loaders — the deferred adopter of the bound-param-preserving cast vocabulary
+// (`castIntAggFragment`) — through `runRow`/`runRows` against the pglite-backed
+// `db`, asserting the SQL is valid Postgres AND every numeric output round-trips
+// as a JS `number` (not the int8 STRING node-postgres would otherwise hand back).
+describe("uptime-analytics loaders (raw aggregate execution)", () => {
+  const scope = makeTenantScope({
+    teamId: "t1",
+    projectId: "p-uptime",
+    teamSlug: "acme",
+    projectSlug: "uptime",
+  });
+  const monitorId = "mon-1";
+  // A fixed "now" so window boundaries are deterministic. 2023-11-14-ish.
+  const nowSec = 1_700_000_000;
+  const HOUR = 3_600;
+  const DAY = 86_400;
+
+  beforeAll(async () => {
+    // Spread executions across the 30-day window so the 24h / 7d / 30d buckets
+    // each contain a known up/countable split:
+    //   - inside 24h:  1 pass (up+countable), 1 fail (countable only)
+    //   - 3 days ago:  1 degraded (up+countable; inside 7d + 30d, outside 24h)
+    //   - 20 days ago: 1 pass (up+countable), 1 error (excluded from both)
+    // Plus a different monitor + a different project, to prove tenant + monitor
+    // scoping carves them out.
+    const rows = [
+      // monitor under test
+      { id: "e1", off: HOUR, state: "pass", dur: 100, code: 200 },
+      { id: "e2", off: 2 * HOUR, state: "fail", dur: 400, code: 500 },
+      { id: "e3", off: 3 * DAY, state: "degraded", dur: 250, code: 200 },
+      { id: "e4", off: 20 * DAY, state: "pass", dur: 150, code: 200 },
+      // `error` is infra noise — excluded from up AND countable, and its
+      // null statusCode keeps it out of the response-time buckets.
+      { id: "e5", off: 5 * DAY, state: "error", dur: 0, code: null },
+    ];
+    for (const r of rows) {
+      await h.db.insert(monitorExecutions).values({
+        id: r.id,
+        projectId: scope.projectId,
+        monitorId,
+        scheduledFor: nowSec - r.off,
+        state: r.state,
+        attempt: 0,
+        durationMs: r.dur,
+        statusCode: r.code,
+        createdAt: nowSec - r.off,
+      });
+    }
+    // Same project, DIFFERENT monitor — must not bleed into the counts.
+    await h.db.insert(monitorExecutions).values({
+      id: "other-mon",
+      projectId: scope.projectId,
+      monitorId: "mon-2",
+      scheduledFor: nowSec - HOUR,
+      state: "fail",
+      attempt: 0,
+      durationMs: 999,
+      statusCode: 500,
+      createdAt: nowSec - HOUR,
+    });
+    // DIFFERENT project, same monitorId — proves projectId scoping.
+    await h.db.insert(monitorExecutions).values({
+      id: "other-proj",
+      projectId: "p-other",
+      monitorId,
+      scheduledFor: nowSec - HOUR,
+      state: "pass",
+      attempt: 0,
+      durationMs: 50,
+      statusCode: 200,
+      createdAt: nowSec - HOUR,
+    });
+  });
+
+  it("httpUptimeWindows returns numeric up/countable counts per window, tenant+monitor scoped", async () => {
+    const res = await httpUptimeWindows({ scope, monitorId, nowSec });
+
+    // 24h: e1 pass (up+countable), e2 fail (countable only).
+    expect(res.d1).toEqual({ up: 1, countable: 2 });
+    // 7d: + e3 degraded (up+countable) → up 2, countable 3.
+    expect(res.d7).toEqual({ up: 2, countable: 3 });
+    // 30d: + e4 pass (up+countable); e5 error excluded → up 3, countable 4.
+    expect(res.d30).toEqual({ up: 3, countable: 4 });
+
+    // The coercion guard the cast exists for: every count is a JS number, not
+    // the int8 STRING node-postgres returns for an uncast sum(). pglite parses
+    // the int4 cast to a number on both drivers, so a dropped cast would surface
+    // as a string here on the real-postgres CI leg.
+    for (const w of [res.d1, res.d7, res.d30]) {
+      expect(typeof w.up).toBe("number");
+      expect(typeof w.countable).toBe("number");
+    }
+  });
+
+  it("httpResponseTimeBuckets buckets by hour with numeric counts + percentiles", async () => {
+    const buckets = await httpResponseTimeBuckets({
+      scope,
+      monitorId,
+      windowStartSec: nowSec - 30 * DAY,
+    });
+
+    // Only the 4 executions with a non-null statusCode AND durationMs land here
+    // (e5 error has a null statusCode) → 4 distinct hour buckets (each event is
+    // in its own hour given the offsets), each with one sample.
+    expect(buckets).toHaveLength(4);
+    for (const b of buckets) {
+      // Hour index, count, and the discrete-percentile picks are all
+      // cast(... as integer) — they must round-trip as JS numbers, not strings.
+      expect(typeof b.bucket).toBe("number");
+      expect(typeof b.cnt).toBe("number");
+      expect(b.cnt).toBe(1);
+      expect(typeof b.p50).toBe("number");
+      expect(typeof b.p95).toBe("number");
+    }
+    // Sorted ascending by hour bucket (the `order by bucket`).
+    const order = buckets.map((b) => b.bucket);
+    expect(order).toEqual([...order].sort((a, z) => a - z));
   });
 });

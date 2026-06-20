@@ -2,6 +2,7 @@ import { defineHandler, type InferProps } from "void";
 import { and, db, desc, eq, gte, sql } from "void/db";
 import { runs, testResults, testTags } from "@schema";
 import {
+  alignBuckets,
   DAY_SEC,
   parseSegment,
   SEGMENTS,
@@ -13,6 +14,7 @@ import {
   ciRunsJoinFragment,
   ciRunsJoinOn,
 } from "@/lib/analytics/filters";
+import { intAggExpr, numericSql } from "@/lib/db/sql-ops";
 import { runRow } from "@/lib/db-run";
 import {
   normalizeBranchFilter,
@@ -20,10 +22,57 @@ import {
 } from "@/lib/analytics/params";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { ciRunsScopeWhere } from "@/lib/scope";
+import { rate } from "@/lib/rate";
+import { childProjectScopeWhere, ciRunsScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
+
+/** One peak-suite-size sample per segment bucket. */
+export interface TrendRow {
+  bucket: number | string;
+  peak: number;
+}
+
+/** The finished "suite size" KPI shape the page presents: the populated-bucket
+ *  peak series for the sparkline, plus first/last/net-change/growth derived
+ *  from it. PURE over the trend rows + alignment window. */
+export interface SuiteSizeKpis {
+  /** Per-bucket peaks for the "Total tests" sparkline — populated buckets only,
+   *  in bucket order. */
+  peakSpark: number[];
+  firstPeak: number;
+  lastPeak: number;
+  netChange: number;
+  /** Growth from first→last populated peak, as a 0..100 percentage. */
+  growthPct: number;
+}
+
+/**
+ * Roll the per-bucket peak trend into the "Total tests" KPI numbers. Lives in
+ * the loader (not the page body) so the metric definition — net change and
+ * growth across the populated buckets in the window — is computed once, in one
+ * testable place, and the page is a pure presenter. The peak series is the
+ * window's populated buckets in order (empty buckets dropped, mirroring the
+ * sparkline), and the divide-by-zero policy is owned by `rate()`.
+ */
+export function summarizeSuiteSizeKpis(
+  segment: Segment,
+  windowStartSec: number,
+  nowSec: number,
+  trendRows: readonly TrendRow[],
+): SuiteSizeKpis {
+  // Per-bucket peak series for the sparkline. Align onto the window skeleton,
+  // then drop empty buckets so the series only plots populated ones.
+  const peakSpark = alignBuckets(segment, windowStartSec, nowSec, trendRows)
+    .map((s) => s.row?.peak)
+    .filter((v): v is number => v != null);
+  const firstPeak = peakSpark[0] ?? 0;
+  const lastPeak = peakSpark.at(-1) ?? firstPeak;
+  const netChange = lastPeak - firstPeak;
+  const growthPct = rate(netChange, firstPeak);
+  return { peakSpark, firstPeak, lastPeak, netChange, growthPct };
+}
 
 type RangeKey = "7d" | "14d" | "30d" | "90d";
 const RANGES: readonly RangeKey[] = ["7d", "14d", "30d", "90d"];
@@ -103,7 +152,7 @@ export const loader = defineHandler(async (c) => {
   // mirroring the trend query. The NOT EXISTS first-seen check stays
   // project-wide (all origins) so "added" still means brand-new.
   const testsAddedQuery = runRow<{ added?: number }>(sql`
-    select count(*) as added
+    select ${intAggExpr("count(*)", { alias: "added" })}
     from (
       select distinct tr."testId" as "testId"
       from "testResults" tr
@@ -127,7 +176,7 @@ export const loader = defineHandler(async (c) => {
   // conditional join skipped the per-row PK probe when no branch was set; that
   // perf nicety is gone because the join is now load-bearing for correctness.)
   const distributionConditions = [
-    eq(testResults.projectId, scope.projectId),
+    childProjectScopeWhere(testResults.projectId, scope),
     gte(testResults.createdAt, windowStartSec),
   ];
   if (branchFilter) distributionConditions.push(eq(runs.branch, branchFilter));
@@ -135,7 +184,7 @@ export const loader = defineHandler(async (c) => {
   const fileQuery = db
     .select({
       file: testResults.file,
-      tests: sql<number>`count(distinct ${testResults.testId})`,
+      tests: numericSql(sql`count(distinct ${testResults.testId})`),
     })
     .from(testResults)
     .innerJoin(runs, ciRunsJoinOn())
@@ -147,7 +196,7 @@ export const loader = defineHandler(async (c) => {
   const tagQuery = db
     .select({
       tag: testTags.tag,
-      tests: sql<number>`count(distinct ${testResults.testId})`,
+      tests: numericSql(sql`count(distinct ${testResults.testId})`),
     })
     .from(testTags)
     .innerJoin(testResults, eq(testResults.id, testTags.testResultId))
@@ -174,6 +223,15 @@ export const loader = defineHandler(async (c) => {
 
   const peakOverall = Math.max(0, ...trendRows.map((r) => r.peak ?? 0));
 
+  const trend: TrendRow[] = trendRows.map((r) => ({
+    bucket: r.bucket,
+    peak: r.peak ?? 0,
+  }));
+  // KPI assembly lives here (not the page) so the "Total tests" sparkline + net
+  // change / growth share the loader's alignment window and the same `rate()`
+  // policy as the other insights pages. The page just renders this shape.
+  const kpis = summarizeSuiteSizeKpis(segment, shellStartSec, nowSec, trend);
+
   // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
   // `private` keeps tenant-scoped data out of shared/edge caches.
   c.header("Cache-Control", "private, max-age=300, stale-while-revalidate=900");
@@ -192,13 +250,11 @@ export const loader = defineHandler(async (c) => {
     shellStartSec,
     branchParam,
     branches,
-    trendRows: trendRows.map((r) => ({
-      bucket: r.bucket,
-      peak: r.peak ?? 0,
-    })),
+    trendRows: trend,
     testsAdded,
     addedLookbackDays: ADDED_LOOKBACK_DAYS,
     peakOverall,
+    kpis,
     fileRows,
     tagRows,
     pathname: url.pathname,

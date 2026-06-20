@@ -1,6 +1,6 @@
 import { and, db, desc, eq, lt, or } from "void/db";
 import { runs, testResults } from "@schema";
-import { runByIdWhere, runScopeWhere } from "@/lib/scope";
+import { childByRunWhere, runByIdWhere, runScopeWhere } from "@/lib/scope";
 import type { TenantScope } from "@/lib/scope";
 
 /**
@@ -272,12 +272,7 @@ export async function loadRunTestStatuses(
       retryCount: testResults.retryCount,
     })
     .from(testResults)
-    .where(
-      and(
-        eq(testResults.projectId, scope.projectId),
-        eq(testResults.runId, runId),
-      ),
-    );
+    .where(childByRunWhere(testResults, scope, runId));
 }
 
 /** The shape `resolveBaseRun` / the loader needs to describe a run. */

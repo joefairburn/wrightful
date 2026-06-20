@@ -3,6 +3,8 @@ import { db, desc, eq, sql } from "void/db";
 import { z } from "zod";
 import { auditLog } from "@schema";
 import { getUsersByIds } from "@/lib/auth-users";
+import { numericSql } from "@/lib/db/sql-ops";
+import { resolveOffsetPage } from "@/lib/page-window";
 import { requireRoleScope } from "@/lib/settings-scope";
 
 // withValidator's TypedHandler doesn't auto-await the handler return like the
@@ -58,13 +60,15 @@ export const loader = defineHandler.withValidator({
   const requestedPage = query.page ?? 1;
 
   const totalRows = await db
-    .select({ value: sql<number>`count(*)` })
+    .select({ value: numericSql(sql`count(*)`) })
     .from(auditLog)
     .where(eq(auditLog.teamId, team.id));
   const totalCount = totalRows[0]?.value ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  const currentPage = Math.min(Math.max(requestedPage, 1), totalPages);
-  const offset = (currentPage - 1) * PAGE_SIZE;
+  const { currentPage, totalPages, offset } = resolveOffsetPage({
+    total: totalCount,
+    pageSize: PAGE_SIZE,
+    requestedPage,
+  });
 
   const rows = await db
     .select({
@@ -107,8 +111,12 @@ export const loader = defineHandler.withValidator({
     };
   });
 
-  const fromRow = totalCount === 0 ? 0 : offset + 1;
-  const toRow = offset + entries.length;
+  const { fromRow, toRow } = resolveOffsetPage({
+    total: totalCount,
+    pageSize: PAGE_SIZE,
+    requestedPage,
+    rowCount: entries.length,
+  });
 
   return {
     team,

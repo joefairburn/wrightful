@@ -32,9 +32,9 @@ export const POST = defineHandler(async (c) => {
     .where(and(eq(teamInvites.id, inviteId), matchConds));
   // Treat 0 affected rows as a 404 so a caller probing for invite ids can't
   // distinguish "exists but not yours" from "doesn't exist". `changedRows`
-  // reads the affected count across both backends (D1 `meta.changes`, Postgres
-  // `rowCount`/`affectedRows`) — without it, PG always read 0 and this 404
-  // probe-guard would silently never fire.
+  // reads the affected count (node-postgres `rowCount` in prod, pglite
+  // `affectedRows` in the test lane) — without it, the count read 0 and this
+  // 404 probe-guard would silently never fire.
   if (changedRows(result) === 0) {
     return c.json({ error: "Not found" }, 404);
   }

@@ -1,4 +1,4 @@
-import { and, asc, db, eq, inArray } from "void/db";
+import { asc, db } from "void/db";
 import { artifacts } from "@schema";
 import type { ArtifactAction } from "@/components/artifact-actions";
 import {
@@ -6,157 +6,228 @@ import {
   signedDownloadHref,
   signedTraceViewerUrl,
 } from "@/lib/artifact-tokens";
-import type { TenantScope } from "@/lib/scope";
+import { childByTestResultWhere, type TenantScope } from "@/lib/scope";
 
-// Order within an attempt: trace first (most useful for debugging), then
-// video, screenshot, everything else. `other` covers error-context /
-// copy-prompt artifacts that aren't rendered in the action row.
+// Order within an attempt: trace first (most useful for debugging), then the
+// visual diff (groups three images into one entry), video, screenshot,
+// everything else. `other` covers error-context / copy-prompt artifacts that
+// aren't rendered in the action row. This is the SINGLE ordering map shared by
+// the run-detail row and the test-detail rail — the test-detail page used to
+// keep its own 5-slot copy with a `visual` slot the lib lacked; that copy is
+// gone and the lib now emits visual actions too.
 const TYPE_ORDER: Record<string, number> = {
   trace: 0,
-  video: 1,
-  screenshot: 2,
-  other: 3,
+  visual: 1,
+  video: 2,
+  screenshot: 3,
+  other: 4,
 };
 
-/**
- * Which attempt carries the error for a test with the given final status
- * and total number of attempts. Shared by the test detail page (per-attempt
- * errors) and the run detail page (single error block per failing test).
- *
- *  - `failed` / `timedout` → last attempt
- *  - `flaky` → first attempt (the passing retry isn't where the error lives)
- *  - otherwise → null (no error to show)
- */
-export function errorAttempt(
-  finalStatus: string,
-  totalAttempts: number,
-): number | null {
-  if (finalStatus === "failed" || finalStatus === "timedout") {
-    return totalAttempts - 1;
-  }
-  if (finalStatus === "flaky") return 0;
-  return null;
+function compareByTypeThenName(
+  a: { type: string; name: string },
+  b: { type: string; name: string },
+): number {
+  const da = TYPE_ORDER[a.type] ?? 99;
+  const db_ = TYPE_ORDER[b.type] ?? 99;
+  if (da !== db_) return da - db_;
+  return a.name.localeCompare(b.name);
 }
 
-export interface ArtifactRow {
+/**
+ * An artifact row whose download capability has already been minted server-side
+ * — `href` is the signed download URL, `traceViewerUrl` is set for traces. The
+ * pure presentation transforms (`buildAttemptArtifactGroups`) operate on these
+ * so token minting / DB access stays out of the orderable/groupable core. The
+ * raw `r2Key` deliberately does NOT appear here — it never crosses into the
+ * presentation layer (and so never reaches SSR HTML).
+ */
+export interface SignedArtifact {
+  id: string;
+  type: string;
+  name: string;
+  contentType: string;
+  attempt: number;
+  role: string | null;
+  snapshotName: string | null;
+  href: string;
+  traceViewerUrl?: string;
+}
+
+/**
+ * Fold the `visual` frame rows for a single snapshot into one grouped
+ * `ArtifactAction` carrying expected/actual/diff. The frames are keyed by
+ * `role`; any missing frame (typically a timeout) is null. The action's own
+ * `downloadHref` prefers the diff, then the actual frame.
+ */
+export function toVisualArtifactAction(
+  rows: readonly SignedArtifact[],
+): ArtifactAction {
+  const first = rows[0];
+  const byRole = new Map(rows.map((r) => [r.role, r] as const));
+  const frame = (
+    role: "expected" | "actual" | "diff",
+  ): { href: string; name: string } | null => {
+    const r = byRole.get(role);
+    return r ? { href: r.href, name: r.name } : null;
+  };
+  return {
+    id: `visual::${first.attempt}::${first.snapshotName}`,
+    type: "visual",
+    name: first.snapshotName ?? "snapshot",
+    contentType: "image/png",
+    downloadHref: frame("diff")?.href ?? frame("actual")?.href ?? "",
+    visualGroup: {
+      snapshotName: first.snapshotName ?? "snapshot",
+      expected: frame("expected"),
+      actual: frame("actual"),
+      diff: frame("diff"),
+    },
+  };
+}
+
+/** Ready-to-render artifact presentation for a single attempt of a test. */
+export interface AttemptArtifactGroup {
+  attempt: number;
+  /** Trace/video/screenshot + grouped visual actions, ordered by TYPE_ORDER. */
+  media: ArtifactAction[];
+  /** The `other` (copy-prompt / error-context) artifact, if present. */
+  copyPrompt: ArtifactAction | null;
+}
+
+/**
+ * Pure presentation transform: group signed artifact rows by attempt and, for
+ * each attempt, fold the `visual` frames into one action, pull out the
+ * `copyPrompt` (`other`) artifact, and order the remaining media by the shared
+ * `TYPE_ORDER` then name. This is the orderable/groupable core the test-detail
+ * rail used to hand-roll inline (its own TYPE_ORDER + toAction + toVisualAction)
+ * — kept pure so it can be unit-tested without a DB or a React render.
+ */
+export function buildAttemptArtifactGroups(
+  rows: readonly SignedArtifact[],
+): Map<number, AttemptArtifactGroup> {
+  const byAttempt = new Map<number, SignedArtifact[]>();
+  for (const row of rows) {
+    const bucket = byAttempt.get(row.attempt) ?? [];
+    bucket.push(row);
+    byAttempt.set(row.attempt, bucket);
+  }
+
+  const out = new Map<number, AttemptArtifactGroup>();
+  for (const [attempt, bucket] of byAttempt) {
+    const copyPromptRow = bucket.find((a) => a.type === "other");
+    const copyPrompt = copyPromptRow ? signedToAction(copyPromptRow) : null;
+
+    const nonVisual = bucket
+      .filter((a) => a.type !== "other" && a.type !== "visual")
+      .map(signedToAction);
+
+    const visualByName = new Map<string, SignedArtifact[]>();
+    for (const a of bucket) {
+      if (a.type !== "visual" || !a.snapshotName) continue;
+      const frames = visualByName.get(a.snapshotName) ?? [];
+      frames.push(a);
+      visualByName.set(a.snapshotName, frames);
+    }
+    const visual = Array.from(visualByName.values()).map(
+      toVisualArtifactAction,
+    );
+
+    const media = [...nonVisual, ...visual].sort(compareByTypeThenName);
+    out.set(attempt, { attempt, media, copyPrompt });
+  }
+  return out;
+}
+
+/** A `SignedArtifact` is already an `ArtifactAction` minus the visual group. */
+function signedToAction(a: SignedArtifact): ArtifactAction {
+  return {
+    id: a.id,
+    type: a.type,
+    name: a.name,
+    contentType: a.contentType,
+    downloadHref: a.href,
+    traceViewerUrl: a.traceViewerUrl,
+  };
+}
+
+/** Columns every artifact-presentation read needs (raw, pre-sign). */
+const ARTIFACT_PRESENTATION_COLUMNS = {
+  id: artifacts.id,
+  testResultId: artifacts.testResultId,
+  type: artifacts.type,
+  name: artifacts.name,
+  contentType: artifacts.contentType,
+  attempt: artifacts.attempt,
+  r2Key: artifacts.r2Key,
+  role: artifacts.role,
+  snapshotName: artifacts.snapshotName,
+} as const;
+
+type RawArtifactRow = {
   id: string;
   testResultId: string;
   type: string;
   name: string;
   contentType: string;
-  sizeBytes: number;
   attempt: number;
   r2Key: string;
-}
+  role: string | null;
+  snapshotName: string | null;
+};
 
 /**
- * Convert a raw artifact row into the client-facing `ArtifactAction` the UI
- * renders. Shared between `test-detail.tsx` (per-attempt, all types) and
- * `run-detail.tsx` (failing-attempt, media types).
+ * Mint a download token per row and project it to a `SignedArtifact`. The raw
+ * `r2Key` is consumed HERE (to sign) and dropped — it never appears on the
+ * returned shape, so it can't leak into SSR HTML or the wire payload.
  */
-export function toArtifactAction(
-  row: Pick<ArtifactRow, "id" | "type" | "name" | "contentType">,
+async function signArtifactRows(
+  rows: readonly RawArtifactRow[],
   origin: string,
-  token: string,
-): ArtifactAction {
-  return {
-    id: row.id,
-    type: row.type,
-    name: row.name,
-    contentType: row.contentType,
-    downloadHref: signedDownloadHref(row.id, token),
-    traceViewerUrl:
-      row.type === "trace"
-        ? signedTraceViewerUrl(origin, row.id, token)
-        : undefined,
-  };
-}
-
-export interface FailingTestInput {
-  id: string;
-  status: string;
-  retryCount: number;
-}
-
-/**
- * Load media artifacts (`trace`, `video`, `screenshot`) for the failing
- * attempt of each supplied test result. Returns a map keyed by
- * `testResultId` with already-signed `ArtifactAction[]`, sorted by
- * `TYPE_ORDER` then name.
- */
-export async function loadFailingArtifactActions(
-  scope: TenantScope,
-  failingTests: FailingTestInput[],
-  origin: string,
-): Promise<Record<string, ArtifactAction[]>> {
-  const relevant = failingTests.filter(
-    (t) =>
-      t.status === "failed" || t.status === "timedout" || t.status === "flaky",
-  );
-  if (relevant.length === 0) return {};
-
-  const rows = await db
-    .select({
-      id: artifacts.id,
-      testResultId: artifacts.testResultId,
-      type: artifacts.type,
-      name: artifacts.name,
-      contentType: artifacts.contentType,
-      attempt: artifacts.attempt,
-      r2Key: artifacts.r2Key,
-    })
-    .from(artifacts)
-    .where(
-      and(
-        eq(artifacts.projectId, scope.projectId),
-        inArray(
-          artifacts.testResultId,
-          relevant.map((t) => t.id),
-        ),
-      ),
-    )
-    .orderBy(asc(artifacts.attempt));
-
-  // Group artifacts by testResultId.
-  const byTest = new Map<string, typeof rows>();
-  for (const row of rows) {
-    const bucket = byTest.get(row.testResultId) ?? [];
-    bucket.push(row);
-    byTest.set(row.testResultId, bucket);
-  }
-
-  const out: Record<string, ArtifactAction[]> = {};
-  await Promise.all(
-    relevant.map(async (t) => {
-      const bucket = byTest.get(t.id) ?? [];
-      if (bucket.length === 0) return;
-      const maxObservedAttempt = Math.max(...bucket.map((a) => a.attempt));
-      const totalAttempts = Math.max(t.retryCount + 1, maxObservedAttempt + 1);
-      const target = errorAttempt(t.status, totalAttempts);
-      if (target === null) return;
-      const forAttempt = bucket
-        .filter(
-          (a) =>
-            a.attempt === target && a.type !== "other" && a.type !== "visual",
-        )
-        .sort((x, y) => {
-          const dx = TYPE_ORDER[x.type] ?? 99;
-          const dy = TYPE_ORDER[y.type] ?? 99;
-          if (dx !== dy) return dx - dy;
-          return x.name.localeCompare(y.name);
-        });
-      if (forAttempt.length === 0) return;
-      const actions = await Promise.all(
-        forAttempt.map(async (a) => {
-          const token = await signArtifactToken({
-            r2Key: a.r2Key,
-            contentType: a.contentType,
-          });
-          return toArtifactAction(a, origin, token);
-        }),
-      );
-      out[t.id] = actions;
+): Promise<SignedArtifact[]> {
+  return Promise.all(
+    rows.map(async (a) => {
+      const token = await signArtifactToken({
+        r2Key: a.r2Key,
+        contentType: a.contentType,
+      });
+      return {
+        id: a.id,
+        type: a.type,
+        name: a.name,
+        contentType: a.contentType,
+        attempt: a.attempt,
+        role: a.role,
+        snapshotName: a.snapshotName,
+        href: signedDownloadHref(a.id, token),
+        traceViewerUrl:
+          a.type === "trace"
+            ? signedTraceViewerUrl(origin, a.id, token)
+            : undefined,
+      } satisfies SignedArtifact;
     }),
   );
-  return out;
+}
+
+/**
+ * Server-owned artifact-presentation seam for the TEST-DETAIL page. Fetches the
+ * single test result's artifact rows, mints download tokens server-side, and
+ * returns finished, per-attempt `AttemptArtifactGroup`s (media ordered by the
+ * shared `TYPE_ORDER`, visual frames already grouped, the copy-prompt artifact
+ * pulled out). The page renders these directly — it no longer sees raw rows,
+ * `r2Key`, or the token map, and no longer re-implements ordering / visual
+ * grouping inline.
+ */
+export async function loadAttemptArtifactGroups(
+  scope: TenantScope,
+  testResultId: string,
+  origin: string,
+): Promise<Map<number, AttemptArtifactGroup>> {
+  const rows = await db
+    .select(ARTIFACT_PRESENTATION_COLUMNS)
+    .from(artifacts)
+    .where(childByTestResultWhere(artifacts, scope, testResultId))
+    .orderBy(asc(artifacts.attempt));
+
+  const signed = await signArtifactRows(rows, origin);
+  return buildAttemptArtifactGroups(signed);
 }

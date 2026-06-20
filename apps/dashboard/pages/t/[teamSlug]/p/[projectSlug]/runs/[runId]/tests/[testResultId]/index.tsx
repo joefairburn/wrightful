@@ -1,5 +1,4 @@
 import { Link } from "@void/react";
-import type { ArtifactAction } from "@/components/artifact-actions";
 import { ArtifactsRail } from "@/components/artifacts-rail";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import {
@@ -14,36 +13,10 @@ import {
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { TestErrorAlert } from "@/components/test-error-alert";
-import {
-  signedDownloadHref,
-  signedTraceViewerUrl,
-} from "@/lib/artifact-tokens";
 import { parseTitleSegments } from "@/lib/group-tests-by-file";
+import type { AttemptArtifactGroup } from "@/lib/test-artifact-actions";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { Props } from "./index.server";
-
-interface Artifact {
-  id: string;
-  type: string;
-  name: string;
-  contentType: string;
-  sizeBytes: number;
-  attempt: number;
-  r2Key: string;
-  role: string | null;
-  snapshotName: string | null;
-}
-
-// Order within an attempt: trace first (most useful for debugging), then
-// visual diff (groups three images into one entry), video, screenshot,
-// everything else. `other` covers error-context etc.
-const TYPE_ORDER: Record<string, number> = {
-  trace: 0,
-  visual: 1,
-  video: 2,
-  screenshot: 3,
-  other: 4,
-};
 
 function attemptLabel(attempt: number, totalAttempts: number): string {
   if (totalAttempts === 1) return "only attempt";
@@ -91,34 +64,20 @@ export default function TestDetailPage(props: Props) {
     run,
     tags: tagRows,
     annotations: annotationRows,
-    artifacts: artifactRows,
+    artifactGroups,
+    maxObservedAttempt,
     attempts: attemptRows,
     history: historyRows,
-    artifactTokens,
-    origin,
   } = props;
 
   const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
 
-  const artifactsByAttempt = new Map<number, Artifact[]>();
-  for (const a of artifactRows) {
-    const bucket = artifactsByAttempt.get(a.attempt) ?? [];
-    bucket.push(a);
-    artifactsByAttempt.set(a.attempt, bucket);
-  }
-  for (const bucket of artifactsByAttempt.values()) {
-    bucket.sort((x, y) => {
-      const dx = TYPE_ORDER[x.type] ?? 99;
-      const dy = TYPE_ORDER[y.type] ?? 99;
-      if (dx !== dy) return dx - dy;
-      return x.name.localeCompare(y.name);
-    });
-  }
+  // Finished, server-ordered artifact presentation keyed by attempt. The page
+  // no longer sees raw rows, r2Key, or tokens — just ready-to-render actions.
+  const groupsByAttempt = new Map<number, AttemptArtifactGroup>(
+    artifactGroups.map((g) => [g.attempt, g] as const),
+  );
 
-  const maxObservedAttempt =
-    artifactRows.length > 0
-      ? Math.max(...artifactRows.map((a) => a.attempt))
-      : -1;
   const totalAttempts =
     attemptRows.length > 0
       ? attemptRows.length
@@ -140,10 +99,9 @@ export default function TestDetailPage(props: Props) {
     });
   }
 
-  const downloadHref = (artifactId: string): string =>
-    signedDownloadHref(artifactId, artifactTokens[artifactId] ?? "");
-
   const allAttempts = Array.from({ length: totalAttempts }, (_, i) => i);
+  // Which attempt carries the error when there are no per-attempt rows to fall
+  // back on — a per-attempt render concern kept local to this page.
   const fallbackErrorOn: number | null =
     attemptRows.length === 0
       ? result.status === "failed" || result.status === "timedout"
@@ -152,42 +110,6 @@ export default function TestDetailPage(props: Props) {
           ? 0
           : null
       : null;
-
-  const toAction = (a: Artifact): ArtifactAction => ({
-    id: a.id,
-    type: a.type,
-    name: a.name,
-    contentType: a.contentType,
-    downloadHref: downloadHref(a.id),
-    traceViewerUrl:
-      a.type === "trace"
-        ? signedTraceViewerUrl(origin, a.id, artifactTokens[a.id] ?? "")
-        : undefined,
-  });
-
-  const toVisualAction = (rows: Artifact[]): ArtifactAction => {
-    const first = rows[0];
-    const byRole = new Map(rows.map((r) => [r.role, r] as const));
-    const frame = (
-      role: "expected" | "actual" | "diff",
-    ): { href: string; name: string } | null => {
-      const r = byRole.get(role);
-      return r ? { href: downloadHref(r.id), name: r.name } : null;
-    };
-    return {
-      id: `visual::${first.attempt}::${first.snapshotName}`,
-      type: "visual",
-      name: first.snapshotName ?? "snapshot",
-      contentType: "image/png",
-      downloadHref: frame("diff")?.href ?? frame("actual")?.href ?? "",
-      visualGroup: {
-        snapshotName: first.snapshotName ?? "snapshot",
-        expected: frame("expected"),
-        actual: frame("actual"),
-        diff: frame("diff"),
-      },
-    };
-  };
   const defaultTab = String(totalAttempts - 1);
 
   const { testTitle } = parseTitleSegments(
@@ -381,30 +303,7 @@ export default function TestDetailPage(props: Props) {
         </section>
         <aside className="w-[320px] shrink-0 bg-muted/10">
           {allAttempts.map((attempt) => {
-            const group = artifactsByAttempt.get(attempt) ?? [];
-            const copyPromptRaw = group.find((a) => a.type === "other");
-            const nonVisualActions: ArtifactAction[] = group
-              .filter((a) => a.type !== "other" && a.type !== "visual")
-              .map(toAction);
-            const visualByName = new Map<string, Artifact[]>();
-            for (const a of group) {
-              if (a.type !== "visual" || !a.snapshotName) continue;
-              const bucket = visualByName.get(a.snapshotName) ?? [];
-              bucket.push(a);
-              visualByName.set(a.snapshotName, bucket);
-            }
-            const visualActions: ArtifactAction[] = Array.from(
-              visualByName.values(),
-            ).map(toVisualAction);
-            const mediaActions: ArtifactAction[] = [
-              ...nonVisualActions,
-              ...visualActions,
-            ].sort((x, y) => {
-              const dx = TYPE_ORDER[x.type] ?? 99;
-              const dy = TYPE_ORDER[y.type] ?? 99;
-              if (dx !== dy) return dx - dy;
-              return x.name.localeCompare(y.name);
-            });
+            const group = groupsByAttempt.get(attempt);
             return (
               <AttemptPanel
                 key={attempt}
@@ -413,8 +312,8 @@ export default function TestDetailPage(props: Props) {
                 defaultValue={defaultTab}
               >
                 <ArtifactsRail
-                  media={mediaActions}
-                  copyPrompt={copyPromptRaw ? toAction(copyPromptRaw) : null}
+                  media={group?.media ?? []}
+                  copyPrompt={group?.copyPrompt ?? null}
                   reproduceCommand={reproduceCommand}
                   environment={{
                     browser: result.projectName,

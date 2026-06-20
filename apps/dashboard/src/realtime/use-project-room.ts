@@ -1,12 +1,9 @@
 "use client";
 
-import { useRouter } from "@void/react";
 import type { RunOriginFilter } from "@/lib/runs-filters";
 import type { RunListRowData } from "@/realtime/events";
 import { applyProjectFeedEvent } from "@/realtime/project-feed";
-import { requestReconnectRefresh } from "@/realtime/reconnect-refresh";
-import { useRoom } from "@/realtime/use-room";
-import { useSeededState } from "@/realtime/use-seeded-state";
+import { useFeedRoom } from "@/realtime/use-feed-room";
 
 export interface UseProjectRoomOptions {
   /**
@@ -28,45 +25,28 @@ export interface UseProjectRoomOptions {
 /**
  * Subscribe to the project's `void/ws` room and fold `run-created` /
  * `run-progress` into the runs-list rows via the pure reducer
- * (`applyProjectFeedEvent`). Seeds from the SSR `initialRows`; returns the live
- * row list.
+ * (`applyProjectFeedEvent`), seeded from the SSR `initialRows`. A thin
+ * specialization of `useFeedRoom` (project path + project-feed reducer); see
+ * that hook for the reseed + coalesced-reconnect-refresh policy.
  *
- * The rows reseed whenever the seed identity (`projectId` + the `initialRows`
- * reference) changes — see `useSeededState` for the unkeyed-navigation
- * rationale (a filter/page change re-renders the same mounted component with a
- * fresh `initialRows` from the loader).
- *
- * On a WS re-open after a drop (rooms have no replay, so any broadcast missed
- * while disconnected is gone) the hook triggers `router.refresh()` — the
- * loader re-runs and the reseed above folds the fresh rows in. Coalesced via
- * `requestReconnectRefresh` (one refresh per reconnect burst).
- *
- * `options` is read fresh inside the handler (the closure is re-bound each
- * render by `useRoom`), so the current view's `acceptNewRuns` / `origin`
- * always apply.
+ * `options` is closed over by the per-event `fold`, which `useFeedRoom` reads
+ * fresh each render, so the current view's `acceptNewRuns` / `origin` always
+ * apply without re-opening the socket.
  */
 export function useProjectRoom(
   projectId: string,
   initialRows: readonly RunListRowData[],
   options: UseProjectRoomOptions,
 ): readonly RunListRowData[] {
-  const router = useRouter();
-
-  const [rows, setRows] = useSeededState<readonly RunListRowData[]>(
-    [projectId, initialRows],
-    () => [...initialRows],
-  );
-
-  useRoom(
+  const [rows] = useFeedRoom<
+    "/ws/project/:projectId",
+    readonly RunListRowData[]
+  >(
     "/ws/project/:projectId",
     { projectId },
-    (event) => {
-      setRows((prev) => applyProjectFeedEvent(prev, event, options));
-    },
-    () => {
-      requestReconnectRefresh(() => router.refresh());
-    },
+    [projectId, initialRows],
+    () => [...initialRows],
+    (prev, event) => applyProjectFeedEvent(prev, event, options),
   );
-
   return rows;
 }

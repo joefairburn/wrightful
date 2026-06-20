@@ -11,6 +11,7 @@ import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { Card, CardPanel } from "@/components/ui/card";
 import { alignBuckets } from "@/lib/analytics/bucketing";
 import { makeHrefBuilder } from "@/lib/page-links";
+import { rate } from "@/lib/rate";
 import { statusToken } from "@/lib/status";
 import type { Props } from "./index.server";
 
@@ -36,6 +37,7 @@ export default function InsightsPage({
   branches,
   pathname,
   aggRows,
+  kpis,
   ranges,
 }: Props) {
   const aligned = alignBuckets(segment, windowStartSec, nowSec, aggRows);
@@ -83,20 +85,14 @@ export default function InsightsPage({
     };
   });
 
-  let totalPassed = 0;
-  let totalFailed = 0;
-  let totalFlaky = 0;
-  let totalRuns = 0;
-  for (const r of aggRows) {
-    totalPassed += r.passed;
-    totalFailed += r.failed;
-    totalFlaky += r.flaky;
-    totalRuns += r.runs;
-  }
-  const executed = totalPassed + totalFailed + totalFlaky;
-  const passRate = executed === 0 ? 0 : (totalPassed / executed) * 100;
-  const flakyRate = executed === 0 ? 0 : (totalFlaky / executed) * 100;
-  const avgRunsPerDay = totalRuns / days;
+  const {
+    totalFlaky,
+    totalRuns,
+    executed,
+    passRate,
+    flakyRate,
+    avgRunsPerDay,
+  } = kpis;
 
   // Per-bucket trend data for the KPI sparklines. Iterates the aligned
   // buckets in chronological order (alignBuckets preserves shell order) and
@@ -108,8 +104,8 @@ export default function InsightsPage({
   for (const s of aligned) {
     const row = s.row;
     const exec = (row?.passed ?? 0) + (row?.failed ?? 0) + (row?.flaky ?? 0);
-    passRateSpark.push(exec === 0 ? 0 : ((row?.passed ?? 0) / exec) * 100);
-    flakyRateSpark.push(exec === 0 ? 0 : ((row?.flaky ?? 0) / exec) * 100);
+    passRateSpark.push(rate(row?.passed ?? 0, exec));
+    flakyRateSpark.push(rate(row?.flaky ?? 0, exec));
     runsSpark.push(row?.runs ?? 0);
   }
 

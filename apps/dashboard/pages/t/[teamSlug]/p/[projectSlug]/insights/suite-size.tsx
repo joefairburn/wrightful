@@ -13,6 +13,7 @@ import { Card, CardPanel } from "@/components/ui/card";
 import { alignBuckets } from "@/lib/analytics/bucketing";
 import { cn } from "@/lib/cn";
 import { makeHrefBuilder } from "@/lib/page-links";
+import { rate } from "@/lib/rate";
 import type { Props } from "./suite-size.server";
 
 const COUNT_SERIES: LineChartSeries[] = [
@@ -36,6 +37,7 @@ export default function SuiteSizePage({
   testsAdded,
   addedLookbackDays,
   peakOverall,
+  kpis,
   fileRows,
   tagRows,
   pathname,
@@ -77,16 +79,9 @@ export default function SuiteSizePage({
 
   const fileTotal = fileRows.reduce((acc, r) => acc + r.tests, 0);
 
-  // Per-bucket peak series for the "Total tests" KPI sparkline. Drop null
-  // entries so the sparkline only plots populated buckets.
-  const peakSpark = buckets
-    .map((b) => b.values[0])
-    .filter((v): v is number => v != null);
-  const firstPeak = peakSpark[0] ?? 0;
-  const lastPeak = peakSpark.at(-1) ?? firstPeak;
-  const netChange = lastPeak - firstPeak;
-  const growthPct =
-    firstPeak === 0 ? 0 : ((lastPeak - firstPeak) / firstPeak) * 100;
+  // "Total tests" KPI numbers (peak sparkline + net change / growth) are
+  // assembled in the loader; the page just renders them.
+  const { peakSpark, firstPeak, lastPeak, netChange, growthPct } = kpis;
 
   const { with: hrefWith } = makeHrefBuilder(pathname, {
     range,
@@ -243,7 +238,7 @@ function DistributionRow({
   value: number;
   total: number;
 }) {
-  const pct = total === 0 ? 0 : (value / total) * 100;
+  const pct = rate(value, total);
   return (
     <li className="flex items-center gap-4">
       <div className="min-w-0 flex-1">

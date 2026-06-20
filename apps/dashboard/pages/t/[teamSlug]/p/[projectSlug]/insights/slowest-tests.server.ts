@@ -2,6 +2,7 @@ import { defineHandler, type InferProps } from "void";
 import { sql } from "void/db";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { runRow, runRows } from "@/lib/db-run";
+import { intAggExpr, numAggExpr } from "@/lib/db/sql-ops";
 import { DAY_SEC } from "@/lib/analytics/bucketing";
 import { bucketExpr, percentilePick } from "@/lib/analytics/bucketing-sql";
 import {
@@ -19,6 +20,7 @@ import {
   statusCounter,
 } from "@/lib/analytics/per-test";
 import { makeRangeParser } from "@/lib/analytics/range";
+import { resolveOffsetPage } from "@/lib/page-window";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -108,8 +110,8 @@ export const loader = defineHandler(async (c) => {
     }>(sql`
     select
       max(tr."durationMs") as "maxDur",
-      count(*) as n,
-      count(distinct tr."testId") as "unique"
+      ${intAggExpr("count(*)", { alias: "n" })},
+      ${intAggExpr(`count(distinct tr."testId")`, { alias: `"unique"` })}
     from "testResults" tr
     ${testResultsScopeJoin(scope)}
       and tr."createdAt" >= ${windowStartSec}
@@ -128,12 +130,11 @@ export const loader = defineHandler(async (c) => {
   const bucketMs = pickBinWidthMs(totals.maxDurationMs);
   const topBin = HIST_BINS - 1;
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(totals.totalUniqueTests / PAGE_SIZE),
-  );
-  const currentPage = Math.min(requestedPage, totalPages);
-  const offset = (currentPage - 1) * PAGE_SIZE;
+  const { currentPage, totalPages, offset } = resolveOffsetPage({
+    total: totals.totalUniqueTests,
+    pageSize: PAGE_SIZE,
+    requestedPage,
+  });
 
   // Histogram + bottlenecks each depend only on the totals, not on each
   // other — run them in parallel.
@@ -190,8 +191,8 @@ export const loader = defineHandler(async (c) => {
       )
       select
         "testId",
-        max(cnt) as n,
-        avg("durationMs") as "avgDur",
+        cast(max(cnt) as integer) as n,
+        ${numAggExpr(`avg("durationMs")`, { alias: `"avgDur"` })},
         ${percentilePick(0.95, { rn: `"rnDur"`, cnt: "cnt", value: `"durationMs"` })} as p95,
         ${latestPerTestValue("title", { alias: "title" })},
         ${latestPerTestValue("file", { alias: "file" })},
@@ -225,7 +226,7 @@ export const loader = defineHandler(async (c) => {
       select
         tr."testId" as "testId",
         cast(${bucketExpr("day", sql`tr."createdAt"`)} as integer) as day,
-        avg(tr."durationMs") as avg
+        ${numAggExpr(`avg(tr."durationMs")`, { alias: "avg" })}
       from "testResults" tr
       ${testResultsScopeJoin(scope)}
         and tr."createdAt" >= ${sparkStart}
@@ -247,8 +248,12 @@ export const loader = defineHandler(async (c) => {
     sparklinesEntries.push(...sparkMap.entries());
   }
 
-  const fromRow = totals.totalUniqueTests === 0 ? 0 : offset + 1;
-  const toRow = offset + bottlenecks.length;
+  const { fromRow, toRow } = resolveOffsetPage({
+    total: totals.totalUniqueTests,
+    pageSize: PAGE_SIZE,
+    requestedPage,
+    rowCount: bottlenecks.length,
+  });
 
   // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
   // `private` keeps tenant-scoped data out of shared/edge caches.

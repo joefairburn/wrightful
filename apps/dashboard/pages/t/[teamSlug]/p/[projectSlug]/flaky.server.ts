@@ -14,11 +14,13 @@ import {
 import { latestPerTestRn } from "@/lib/analytics/per-test";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { numericSql } from "@/lib/db/sql-ops";
 import { runRows } from "@/lib/db-run";
+import { rate } from "@/lib/rate";
 import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
 import type { QuarantineMode } from "@/lib/quarantine-schemas";
 import { type OwnerEntry, resolveTestOwners } from "@/lib/owners-repo";
-import type { TenantScope } from "@/lib/scope";
+import { childProjectScopeWhere, type TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -37,6 +39,28 @@ export interface RankedTest {
   flakyCount: number;
   passedCount: number;
   pct: number;
+}
+
+/** KPI strip numbers for the flaky page, computed over the displayed slice. */
+export interface FlakyKpis {
+  totalFailures: number;
+  avgFlakeRate: number;
+}
+
+/**
+ * Summarize the displayed flaky-test slice into the KPI strip numbers. Lives in
+ * the loader so the flake-rate metric is defined in ONE place: the per-test
+ * `pct` (flaky / executed) and the average across the shown rows are both here,
+ * not split across the loader/page boundary. `avgFlakeRate` is the mean of the
+ * per-test `pct` values (already 0..100) over the rows the page renders. PURE.
+ */
+export function summarizeFlakyKpis(ranked: readonly RankedTest[]): FlakyKpis {
+  const totalFailures = ranked.reduce((sum, r) => sum + r.flakyCount, 0);
+  const avgFlakeRate =
+    ranked.length === 0
+      ? 0
+      : ranked.reduce((sum, r) => sum + r.pct, 0) / ranked.length;
+  return { totalFailures, avgFlakeRate };
 }
 
 export interface FlakyTestMeta {
@@ -78,7 +102,7 @@ export const loader = defineHandler(async (c) => {
 
   // 1. Aggregates (in parallel with the independent branch-list query).
   const aggConditions = [
-    eq(testResults.projectId, scope.projectId),
+    childProjectScopeWhere(testResults.projectId, scope),
     gte(testResults.createdAt, windowStartSec),
   ];
   if (branchFilter) aggConditions.push(eq(runs.branch, branchFilter));
@@ -93,9 +117,15 @@ export const loader = defineHandler(async (c) => {
     db
       .select({
         testId: testResults.testId,
-        total: sql<number>`sum(case when ${testResults.status} != 'skipped' then 1 else 0 end)`,
-        flakyCount: sql<number>`sum(case when ${testResults.status} = 'flaky' then 1 else 0 end)`,
-        passedCount: sql<number>`sum(case when ${testResults.status} = 'passed' then 1 else 0 end)`,
+        total: numericSql(
+          sql`sum(case when ${testResults.status} != 'skipped' then 1 else 0 end)`,
+        ),
+        flakyCount: numericSql(
+          sql`sum(case when ${testResults.status} = 'flaky' then 1 else 0 end)`,
+        ),
+        passedCount: numericSql(
+          sql`sum(case when ${testResults.status} = 'passed' then 1 else 0 end)`,
+        ),
       })
       .from(testResults)
       .innerJoin(runs, ciRunsJoinOn())
@@ -107,17 +137,17 @@ export const loader = defineHandler(async (c) => {
   ]);
 
   const rankedAll: RankedTest[] = aggRows
-    .map((r) => {
-      const denom = r.flakyCount + r.passedCount;
-      const pct = denom === 0 ? 0 : (r.flakyCount / denom) * 100;
-      return { ...r, pct };
-    })
+    .map((r) => ({
+      ...r,
+      pct: rate(r.flakyCount, r.flakyCount + r.passedCount),
+    }))
     .sort((a, b) => b.pct - a.pct || b.flakyCount - a.flakyCount);
 
   const totalFlakyTests = rankedAll.length;
   const ranked = rankedAll.slice(0, TOP_N);
   const truncated = totalFlakyTests > ranked.length;
   const testIds = ranked.map((r) => r.testId);
+  const kpis = summarizeFlakyKpis(ranked);
 
   // 2 + 3 in parallel.
   const sparkByTest = new Map<string, FlakyTestMeta>();
@@ -207,6 +237,7 @@ export const loader = defineHandler(async (c) => {
     totalFlakyTests,
     truncated,
     ranked,
+    kpis,
     // Convert maps to plain objects for serialization.
     sparkByTest: Object.fromEntries(sparkByTest),
     failsByTest: Object.fromEntries(failsByTest),

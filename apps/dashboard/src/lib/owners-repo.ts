@@ -7,7 +7,7 @@ import { runRows } from "@/lib/db-run";
 import type { TenantScope } from "@/lib/scope";
 
 /**
- * The D1 data layer for test ownership (roadmap 2.3) — the deep module the
+ * The Postgres data layer for test ownership (roadmap 2.3) — the deep module the
  * flaky page badge join and the owner-gated session mutations speak to.
  *
  * Like `quarantine-repo`, every query carries `projectId` for logical tenant
@@ -205,17 +205,42 @@ export async function removeOwner(
 }
 
 /**
- * Set (or clear) the project's CODEOWNERS file, stamping `codeownersUpdatedAt`.
- * Used by both the manual paste action (project settings) and the ingest upsert
- * (`openRun` when the reporter sends a CODEOWNERS). Project-scoped.
+ * Set (or clear) the project's CODEOWNERS file. The single home for the
+ * `projects.codeownersFile` write, spoken to by BOTH live writers: the manual
+ * paste action (project settings → `updateCodeowners`) and the ingest upsert
+ * (`maybeUpdateCodeowners`, reached from `openRun` when the reporter sends a
+ * CODEOWNERS). Project-scoped via the branded `TenantScope`.
+ *
+ * Concentrates the two policies the two writers used to hold divergently:
+ *
+ *  - NORMALIZE: the incoming value is trimmed and an empty/whitespace-only
+ *    result becomes a `null` clear (so a blank paste clears the file).
+ *  - UNCHANGED-GUARD: the current value is read first; when the normalized next
+ *    value equals it, BOTH the write and the `codeownersUpdatedAt` bump are
+ *    skipped. `codeownersUpdatedAt` surfaces as "Last updated" in settings, so
+ *    it must move only on a REAL edit — not on every CI run for a stable repo
+ *    file (which would also churn a pointless write per run open).
+ *
+ * Each caller keeps only its own error mapping around this call.
  */
 export async function setCodeownersFile(
   scope: TenantScope,
   codeownersFile: string | null,
   now: number,
 ): Promise<void> {
+  const trimmed = codeownersFile?.trim() ?? "";
+  const next = trimmed.length > 0 ? trimmed : null;
+
+  const [row] = await db
+    .select({ file: projects.codeownersFile })
+    .from(projects)
+    .where(eq(projects.id, scope.projectId))
+    .limit(1);
+  // Unchanged → skip the write entirely (and the `codeownersUpdatedAt` bump).
+  if ((row?.file ?? null) === next) return;
+
   await db
     .update(projects)
-    .set({ codeownersFile, codeownersUpdatedAt: now })
+    .set({ codeownersFile: next, codeownersUpdatedAt: now })
     .where(eq(projects.id, scope.projectId));
 }

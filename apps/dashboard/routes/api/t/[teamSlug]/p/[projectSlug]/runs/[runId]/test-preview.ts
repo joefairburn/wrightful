@@ -1,6 +1,7 @@
 import { defineHandler } from "void";
 import { and, asc, db, eq, inArray } from "void/db";
 import { testResults } from "@schema";
+import { childProjectScopeWhere } from "@/lib/scope";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 
 const PREVIEW_LIMIT = 5;
@@ -55,7 +56,7 @@ export const GET = defineHandler(async (c) => {
         .from(testResults)
         .where(
           and(
-            eq(testResults.projectId, scope.projectId),
+            childProjectScopeWhere(testResults.projectId, scope),
             eq(testResults.runId, runId),
             inArray(testResults.status, bucket.statuses),
           ),

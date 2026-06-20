@@ -2,7 +2,7 @@
 
 import { Search } from "lucide-react";
 import { useState } from "react";
-import { Link, useRouter } from "@void/react";
+import { Link } from "@void/react";
 import {
   ExecStrip,
   MonBadge,
@@ -23,9 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
-import { requestReconnectRefresh } from "@/realtime/reconnect-refresh";
-import { useRoom } from "@/realtime/use-room";
-import { useSeededState } from "@/realtime/use-seeded-state";
+import { useFeedRoom } from "@/realtime/use-feed-room";
 import { formatRelativeTime } from "@/lib/time-format";
 import { applyMonitorFeedEvent } from "./monitor-feed";
 import { humanizeInterval, monitorTypeLabel } from "./monitors-ui.shared";
@@ -60,29 +58,22 @@ export function MonitorsList({
   projectId: string;
   isOwner: boolean;
 }) {
-  const router = useRouter();
-  const [monitors, setMonitors] = useSeededState<readonly Monitor[]>(
-    [projectId, initialMonitors],
-    () => [...initialMonitors],
-  );
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-
   // Shared per-project room — so this also receives the runs list's `run-*`
   // frames, which the reducer discards by returning the SAME array reference
   // (React bails out: no re-render, just the frame's parse cost). Fine at
   // monitor + CI volumes; a dedicated monitor topic is the lever if a very busy
-  // project ever makes that discard traffic matter.
-  useRoom(
+  // project ever makes that discard traffic matter. `useFeedRoom` owns the
+  // seed/fold/reconnect-refresh plumbing; `setMonitors` is kept for the
+  // optimistic pause toggle below, which writes the same seeded list.
+  const [monitors, setMonitors] = useFeedRoom(
     "/ws/project/:projectId",
     { projectId },
-    (event) => {
-      setMonitors((prev) => applyMonitorFeedEvent(prev, event));
-    },
-    () => {
-      requestReconnectRefresh(() => router.refresh());
-    },
+    [projectId, initialMonitors],
+    () => [...initialMonitors] as readonly Monitor[],
+    (prev, event) => applyMonitorFeedEvent(prev, event),
   );
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   // Status counts use the MONITOR's display status (paused beats last result),
   // matching the summary strip + the design's per-state tallies. States outside

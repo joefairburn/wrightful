@@ -1,3 +1,5 @@
+import type { z } from "zod";
+import type { RoomContext, RoomDefinition } from "void/ws";
 import { timingSafeEqualBytes } from "@/lib/token-crypto";
 
 /** Header carrying the internal shared secret on the server's room-publish POST. */
@@ -124,4 +126,124 @@ export function roomAtCapacity(connections: Iterable<unknown>): boolean {
     if (count >= ROOM_CONNECTION_CAP) return true;
   }
   return false;
+}
+
+/** Outcome of {@link authorizeTopicSubscription} — the room's tenant gate. */
+type AuthzDecision = { ok: true } | { ok: false; status: number };
+
+/**
+ * Everything {@link defineGuardedRoom} needs to spell ONE room's gate. The
+ * orchestration (gate order, status codes, the parse-before-broadcast
+ * invariant, constant-time secret compare) lives in the factory; a room varies
+ * only in these four config fields plus its injected effects.
+ *
+ * Effects (`env`, `authorize`) are INJECTED rather than imported here so this
+ * module stays import-light: `@/lib/authz` would drag in `void/db` (node-postgres,
+ * bundler-hostile under the pool-workers test lane that imports this file), and
+ * `void/env` is a build-time virtual. The `.ws.ts` route files already import
+ * both at their (DO-only) boundary and pass them in, which also makes the factory
+ * a pure function — unit-testable with fakes, no DB / env mock.
+ */
+export interface GuardedRoomConfig<
+  ClientSchema extends z.ZodType,
+  ServerSchema extends z.ZodType,
+> {
+  /** Topic namespace — `"run"` | `"project"`; the topic is `${topicPrefix}:${id}`. */
+  topicPrefix: string;
+  /** The dynamic route param naming the room's id (e.g. `"runId"`, `"projectId"`). */
+  param: string;
+  /** Receive-only client schema (the room is server-push; client is a no-op `ping`). */
+  client: ClientSchema;
+  /** Server-event schema — broadcast payloads are parsed through it before fan-out. */
+  server: ServerSchema;
+  /** Resolved deployment origin allowlist source (`env.WRIGHTFUL_PUBLIC_URL`). */
+  publicUrl: string;
+  /**
+   * Internal-publish secret resolver, called per publish request inside the
+   * `onRequest` gate (NOT at wiring time) — exactly as the hand-spelled rooms
+   * called `resolveInternalSecret(env)` inline. `resolveInternalSecret` can
+   * throw on a missing secret; deferring it to the publish path keeps a
+   * misconfiguration from breaking room CONNECTS, and the platform's `onRequest`
+   * dispatch is resilient to the throw.
+   */
+  internalSecret: () => string;
+  /** Tenant gate — `authorizeTopicSubscription`, bound at the route boundary. */
+  authorize: (userId: string | null, topic: string) => Promise<AuthzDecision>;
+}
+
+/**
+ * The single source of truth for a `void/ws` room's security orchestration —
+ * both gates, spelled once. Each `.ws.ts` route collapses to one declaration of
+ * its `topicPrefix` / `param` / schema pair; this owns the rest so a security
+ * tweak is a one-file change that cannot silently skip a room.
+ *
+ * Returns the room definition body (`messages` + `onBeforeConnect` + `onRequest`)
+ * for the route file to pass straight to `defineRoom` — it does NOT call
+ * `defineRoom` itself, keeping this module decoupled from the `void/ws` runtime
+ * (only its types are imported, type-only) so the pool-workers test lane can
+ * import it cleanly.
+ *
+ * Behaviour preserved EXACTLY from the hand-spelled rooms:
+ *   - connect gate (`onBeforeConnect`): Origin same-origin/public-URL → 403,
+ *     then capacity → 429, then tenant authz → its status (403), each
+ *     short-circuiting; allow ⇒ `undefined`.
+ *   - publish gate (`onRequest`): non-POST → 405, then constant-time internal
+ *     secret → 403, then server-schema `safeParse` of the body → 400, and only
+ *     then `broadcast` → `{ ok: true }` (200). The body is parsed BEFORE fan-out
+ *     so a malformed forged-but-secret-bearing payload never reaches viewers.
+ */
+export function defineGuardedRoom<
+  ClientSchema extends z.ZodType,
+  ServerSchema extends z.ZodType,
+>(
+  config: GuardedRoomConfig<ClientSchema, ServerSchema>,
+): Omit<RoomDefinition<ClientSchema, ServerSchema>, "__kind"> {
+  type Ctx = RoomContext<z.input<ServerSchema>>;
+  return {
+    messages: { client: config.client, server: config.server },
+
+    // Origin first (cross-site browser upgrades rejected outright, not left to
+    // SameSite cookie defaults), then capacity, then the tenant gate — each
+    // short-circuits so authz is never consulted once a cheaper gate has spoken.
+    async onBeforeConnect(ctx: Ctx) {
+      const origin = ctx.request.headers.get("origin");
+      const host = ctx.request.headers.get("host");
+      if (!isAllowedWsOrigin(origin, host, config.publicUrl)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      if (roomAtCapacity(ctx.room.getConnections())) {
+        return new Response("Too Many Requests", { status: 429 });
+      }
+      const decision = await config.authorize(
+        ctx.user?.id ?? null,
+        `${config.topicPrefix}:${ctx.params[config.param]}`,
+      );
+      if (!decision.ok) {
+        return new Response("Forbidden", { status: decision.status });
+      }
+    },
+
+    // The publish path is a public route, so the constant-time internal-secret
+    // check is the ONLY gate against a forged cross-tenant broadcast. The body
+    // is parsed through the server schema (not asserted) and rejected 400 before
+    // any fan-out, so a malformed payload never reaches viewers.
+    async onRequest(ctx: Ctx) {
+      if (ctx.request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405 });
+      }
+      if (!isInternalRequest(ctx.request, config.internalSecret())) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const parsed = config.server.safeParse(await ctx.request.json());
+      if (!parsed.success) {
+        return new Response("Bad Request", { status: 400 });
+      }
+      // `broadcast` is typed on the schema's INPUT (via `RoomContext`), while
+      // `parsed.data` is its OUTPUT. The room schemas are pure validators with no
+      // transforms, so input ≡ output; the cast bridges the two equal generic
+      // sides exactly as the hand-spelled rooms did with their concrete schemas.
+      await ctx.room.broadcast(parsed.data as z.input<ServerSchema>);
+      return Response.json({ ok: true });
+    },
+  };
 }

@@ -9,6 +9,8 @@ import {
 } from "@/lib/analytics/params";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
+import { numericSql } from "@/lib/db/sql-ops";
+import { rate } from "@/lib/rate";
 import { ciRunsScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -16,6 +18,64 @@ export type Props = InferProps<typeof loader>;
 
 const RANGES = ["7d", "14d", "30d", "90d"] as const;
 const parseRange = makeRangeParser(RANGES, "30d");
+
+/** One aggregated outcome bucket as the SELECT returns it (counts coerced to
+ *  numbers via `numericSql`). */
+export interface OutcomeAggRow {
+  bucket: number | string;
+  passed: number;
+  failed: number;
+  flaky: number;
+  skipped: number;
+  runs: number;
+}
+
+/** The finished KPI shape the page presents — pass/flake rate (0..100) plus
+ *  the totals behind them. PURE over the agg rows + window length. */
+export interface InsightsKpis {
+  totalPassed: number;
+  totalFailed: number;
+  totalFlaky: number;
+  totalRuns: number;
+  executed: number;
+  passRate: number;
+  flakyRate: number;
+  avgRunsPerDay: number;
+}
+
+/**
+ * Roll the per-bucket outcome rows up into the landing KPI numbers. Lives in
+ * the loader (not the page body) so the metric definitions — pass rate over
+ * executions, flake rate over executions, avg runs over the window — are
+ * computed once, in one testable place, and the page is a pure presenter. The
+ * divide-by-zero policy is owned by `rate()`.
+ */
+export function summarizeInsightsKpis(
+  rows: readonly OutcomeAggRow[],
+  days: number,
+): InsightsKpis {
+  let totalPassed = 0;
+  let totalFailed = 0;
+  let totalFlaky = 0;
+  let totalRuns = 0;
+  for (const r of rows) {
+    totalPassed += r.passed;
+    totalFailed += r.failed;
+    totalFlaky += r.flaky;
+    totalRuns += r.runs;
+  }
+  const executed = totalPassed + totalFailed + totalFlaky;
+  return {
+    totalPassed,
+    totalFailed,
+    totalFlaky,
+    totalRuns,
+    executed,
+    passRate: rate(totalPassed, executed),
+    flakyRate: rate(totalFlaky, executed),
+    avgRunsPerDay: days <= 0 ? 0 : totalRuns / days,
+  };
+}
 
 /**
  * Insights / Run Status loader. Groups runs by the chosen segment (day /
@@ -53,18 +113,20 @@ export const loader = defineHandler(async (c) => {
 
   // Drizzle's groupBy accepts an SQL fragment; we reuse the same `expr`
   // both in the SELECT (aliased "bucket") and the GROUP BY.
-  const aggRows = await db
+  const aggRows: OutcomeAggRow[] = await db
     .select({
       bucket: expr,
-      passed: sql<number>`sum(passed)`,
-      failed: sql<number>`sum(failed)`,
-      flaky: sql<number>`sum(flaky)`,
-      skipped: sql<number>`sum(skipped)`,
-      runs: sql<number>`count(*)`,
+      passed: numericSql(sql`sum(passed)`),
+      failed: numericSql(sql`sum(failed)`),
+      flaky: numericSql(sql`sum(flaky)`),
+      skipped: numericSql(sql`sum(skipped)`),
+      runs: numericSql(sql`count(*)`),
     })
     .from(runs)
     .where(and(...aggConditions))
     .groupBy(expr);
+
+  const kpis = summarizeInsightsKpis(aggRows, days);
 
   // Staleness-tolerant analytics: cache privately with SWR (see worklog §4).
   // `private` keeps tenant-scoped data out of shared/edge caches.
@@ -86,6 +148,7 @@ export const loader = defineHandler(async (c) => {
     branches,
     pathname: url.pathname,
     aggRows,
+    kpis,
     segments: SEGMENTS as readonly string[],
     ranges: RANGES,
   };

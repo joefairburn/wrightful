@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "wrangler:gen": "node scripts/gen-wrangler.mjs",
     "cf:prepare": "node scripts/gen-wrangler.mjs",
     "prebuild": "pnpm run cf:prepare",
     "build": "vp build",

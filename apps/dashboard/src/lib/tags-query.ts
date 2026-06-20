@@ -1,6 +1,6 @@
-import { db, eq, sql } from "void/db";
+import { db, sql } from "void/db";
 import { testTags } from "@schema";
-import type { TenantScope } from "@/lib/scope";
+import { childProjectScopeWhere, type TenantScope } from "@/lib/scope";
 
 /**
  * Distinct, sorted tag list for a project — feeds the test-catalog tag filter.
@@ -18,7 +18,7 @@ export async function loadProjectTags(scope: TenantScope): Promise<string[]> {
   const rows = await db
     .selectDistinct({ value: testTags.tag })
     .from(testTags)
-    .where(eq(testTags.projectId, scope.projectId))
+    .where(childProjectScopeWhere(testTags.projectId, scope))
     .orderBy(sql`${testTags.tag} asc`);
   return rows.map((r) => r.value);
 }

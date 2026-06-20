@@ -3,6 +3,14 @@ import { projects, runs, teams } from "@schema";
 import type { ApiKey } from "@schema";
 
 /**
+ * A Drizzle column reference, as `eq` accepts it. Derived from `eq`'s own
+ * first-parameter type so the child-predicate family below stays table-agnostic
+ * (it works for any run-scoped child table's column) without importing
+ * Drizzle's internal `PgColumn` type.
+ */
+type ColumnRef = Parameters<typeof eq>[0];
+
+/**
  * Branded id types make it a compile-time error to feed a raw string
  * `projectId` into a scoped query without going through `tenantScope*` or
  * `requireTenantContext`. Preserves the same invariant the per-DO
@@ -173,6 +181,100 @@ export function ciRunsScopeWhere(scope: TenantScope): SqlFragment {
  */
 export function runByIdWhere(scope: TenantScope, runId: string): SqlFragment {
   return and(eq(runs.projectId, scope.projectId), eq(runs.id, runId))!;
+}
+
+/**
+ * The blessed tenant-predicate family for the run-scoped CHILD tables
+ * (`testResults`, `testResultAttempts`, `testTags`, `testAnnotations`,
+ * `artifacts`, plus the project-scoped `monitors` / `monitorExecutions` /
+ * `quarantinedTests`). Each of these tables carries a denormalized `projectId`
+ * column *precisely so* scope is enforced WITHOUT joining back through `runs`
+ * (see the schema comment on the run-scoped child tables) — the security
+ * convention "scope a child by its own `projectId`, never by joining through
+ * `runs`" lives here as code instead of as repeated prose at ~two dozen sites.
+ *
+ * The whole family is parameterized by the child table's relevant column(s) so
+ * one definition serves every child table. Each takes a `TenantScope`, so the
+ * predicate can ONLY originate from an auth-checked project id — a raw `string`
+ * projectId won't type, exactly as for the `runs` family above. This is a
+ * locality + testability + forward-brand consolidation: the emitted predicate
+ * is identical to the hand-rolled `eq(<child>.projectId, scope.projectId)` it
+ * replaces.
+ */
+
+/**
+ * The bare project-scope predicate for a simple child read: `projectId = ?`,
+ * bound to the scope's auth-checked id. The single-column member of the family,
+ * for the index-only / list reads that scope by `projectId` alone
+ * (`loadProjectTags`, `listMonitors`, `listQuarantine`, the by-`type` count).
+ */
+export function childProjectScopeWhere(
+  projectIdColumn: ColumnRef,
+  scope: TenantScope,
+): SqlFragment {
+  return eq(projectIdColumn, scope.projectId);
+}
+
+/**
+ * The `(projectId, testResultId)` shape — a child row addressed by its parent
+ * test result within the tenant. The most-duplicated child predicate: the
+ * artifact-presentation reads, the test-detail loader's tags / annotations /
+ * attempts reads, and the upload-validation read all AND exactly this pair.
+ */
+export function childByTestResultWhere(
+  columns: { projectId: ColumnRef; testResultId: ColumnRef },
+  scope: TenantScope,
+  testResultId: string,
+): SqlFragment {
+  return and(
+    eq(columns.projectId, scope.projectId),
+    eq(columns.testResultId, testResultId),
+  )!;
+}
+
+/**
+ * The `(projectId, runId)` shape — a child row addressed by its owning run
+ * within the tenant. Used by the run-diff per-test status read and the
+ * run-results page query (both over `testResults`).
+ */
+export function childByRunWhere(
+  columns: { projectId: ColumnRef; runId: ColumnRef },
+  scope: TenantScope,
+  runId: string,
+): SqlFragment {
+  return and(eq(columns.projectId, scope.projectId), eq(columns.runId, runId))!;
+}
+
+/**
+ * The `(projectId, testId)` shape — a child row addressed by the stable
+ * `testId` within the tenant (the `quarantinedTests` / `testOwners` unique
+ * index). Folds the private `quarantineByTestIdWhere` near-clone of
+ * {@link runByIdWhere} into the family.
+ */
+export function childByTestIdWhere(
+  columns: { projectId: ColumnRef; testId: ColumnRef },
+  scope: TenantScope,
+  testId: string,
+): SqlFragment {
+  return and(
+    eq(columns.projectId, scope.projectId),
+    eq(columns.testId, testId),
+  )!;
+}
+
+/**
+ * The `(projectId, id)` shape — a child row addressed by its own globally
+ * unique ULID primary key within the tenant. Same isolation argument as
+ * {@link runByIdWhere}: the id can't belong to another project, so `projectId`
+ * alone is sufficient. Folds the private `monitorByIdWhere` near-clone into the
+ * family (`monitors` / `monitorExecutions` by-id reads + writes).
+ */
+export function childByIdWhere(
+  columns: { projectId: ColumnRef; id: ColumnRef },
+  scope: TenantScope,
+  id: string,
+): SqlFragment {
+  return and(eq(columns.projectId, scope.projectId), eq(columns.id, id))!;
 }
 
 /**

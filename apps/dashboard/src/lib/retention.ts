@@ -2,7 +2,7 @@ import { and, db, eq, inArray, lt } from "void/db";
 import { artifacts, projects, teams, testResults } from "@schema";
 import { deleteArtifactObjectsByKeys } from "@/lib/artifacts";
 import { runBatch } from "@/lib/db-batch";
-import { chunkBySize } from "@/lib/ingest";
+import { chunkByParams, PG_MAX_BOUND_PARAMS } from "@/lib/ingest";
 
 /**
  * Two-axis data retention sweep.
@@ -12,10 +12,11 @@ import { chunkBySize } from "@/lib/ingest";
  *
  *   - **Artifact bytes** (`retentionArtifactDays`, default 30) — the R2 storage
  *     cost. Expired artifacts have their R2 objects AND rows deleted.
- *   - **testResults rows** (`retentionTestResultsDays`, default 90) — the D1
- *     size cost. Expired testResults are deleted; the FK cascade removes their
- *     attempts/tags/annotations/artifact ROWS. `runs` summary rows are kept (the
- *     aggregate counters live there), so run history outlives its detail.
+ *   - **testResults rows** (`retentionTestResultsDays`, default 90) — the
+ *     Postgres row-storage cost. Expired testResults are deleted; the FK cascade
+ *     removes their attempts/tags/annotations/artifact ROWS. `runs` summary rows
+ *     are kept (the aggregate counters live there), so run history outlives its
+ *     detail.
  *
  * Modeled on the stale-run watchdog (`sweepStaleRuns`): a bounded slice per
  * project per pass (`limit`) so a large backlog drains across successive daily
@@ -30,12 +31,6 @@ import { chunkBySize } from "@/lib/ingest";
  */
 
 const SECONDS_PER_DAY = 86_400;
-
-/**
- * Ids per `DELETE ... WHERE id IN (...)` statement, under D1's 99-bound-param
- * cap (the statement also binds `projectId`).
- */
-const ID_DELETE_CHUNK = 98;
 
 export interface RetentionWindows {
   artifactDays: number;
@@ -62,7 +57,21 @@ export interface RetentionSweepResult {
   testResultsDeleted: number;
 }
 
-/** Delete project-scoped rows by id in ≤99-param chunks, in one batch. */
+/**
+ * Chunk a set of ids so a `WHERE projectId = $1 AND <col> IN (chunk)` statement
+ * stays under Postgres's per-statement bound-param ceiling. Each id binds one
+ * param AND the statement carries one fixed bind (`projectId`), so the ceiling is
+ * reserved by one (`PG_MAX_BOUND_PARAMS - 1`): a full chunk binds `ids.length +
+ * 1 <= 65_535`, never overflowing. The cap itself stays in its single home —
+ * `PG_MAX_BOUND_PARAMS` / `chunkByParams` in ingest.ts — so there is no
+ * chunk-size magic number to drift (this used to be a stale D1 99-param
+ * `ID_DELETE_CHUNK`).
+ */
+export function chunkIdsForInList(ids: string[]): string[][] {
+  return chunkByParams(ids, 1, PG_MAX_BOUND_PARAMS - 1);
+}
+
+/** Delete project-scoped rows by id, chunked under the bound-param cap, in one batch. */
 async function deleteRowsByIds(
   table: typeof artifacts | typeof testResults,
   projectId: string,
@@ -70,7 +79,7 @@ async function deleteRowsByIds(
 ): Promise<void> {
   if (ids.length === 0) return;
   await runBatch((tx) =>
-    chunkBySize(ids, ID_DELETE_CHUNK).map((chunk) =>
+    chunkIdsForInList(ids).map((chunk) =>
       tx
         .delete(table)
         .where(and(eq(table.projectId, projectId), inArray(table.id, chunk))),
@@ -127,7 +136,7 @@ async function sweepProjectTestResults(
   // testResult expiring before its artifacts (misconfigured window, or an
   // artifact-sweep backlog) never strands live bytes.
   let objects = 0;
-  for (const chunk of chunkBySize(ids, ID_DELETE_CHUNK)) {
+  for (const chunk of chunkIdsForInList(ids)) {
     const arts = await db
       .select({ r2Key: artifacts.r2Key })
       .from(artifacts)

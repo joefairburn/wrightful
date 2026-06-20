@@ -1,7 +1,11 @@
-import { and, eq, or } from "void/db";
+import { and, or } from "void/db";
 import { testResults } from "@schema";
 import { escapeLike, likeEscaped } from "@/lib/runs-filters-where";
-import { runScopeWhere, type TenantScope } from "@/lib/scope";
+import {
+  childProjectScopeWhere,
+  runScopeWhere,
+  type TenantScope,
+} from "@/lib/scope";
 
 type SqlFragment = NonNullable<ReturnType<typeof and>>;
 
@@ -34,7 +38,7 @@ export function buildTestSearchWhere(
   scope: TenantScope,
   query: string,
 ): SqlFragment {
-  const scopeClause = eq(testResults.projectId, scope.projectId);
+  const scopeClause = childProjectScopeWhere(testResults.projectId, scope);
   const trimmed = query.trim();
   if (!trimmed) return scopeClause;
 

@@ -16,6 +16,12 @@ import type { TenantScope } from "@/lib/scope";
 
 let capturedWhere: unknown = null;
 let capturedConflict: unknown = null;
+let capturedSet: unknown = null;
+let setCalled = false;
+// The single row the `select(...).limit(1)` read resolves to. Drives the
+// unchanged-guard in `setCodeownersFile`; default `[]` (no current row → null
+// current value), tests override it.
+let selectResult: unknown[] = [];
 
 vi.mock("void/db", async () => {
   const stub = await import("./helpers/void-db-stub");
@@ -30,13 +36,17 @@ vi.mock("void/db", async () => {
   node.groupBy = chain;
   node.limit = chain;
   node.values = chain;
-  node.set = chain;
+  node.set = (v: unknown) => {
+    capturedSet = v;
+    setCalled = true;
+    return node;
+  };
   node.onConflictDoNothing = (cfg: unknown) => {
     capturedConflict = cfg;
     return node;
   };
   (node as { then: unknown }).then = (onFulfilled?: (v: unknown) => unknown) =>
-    Promise.resolve(onFulfilled ? onFulfilled([]) : []);
+    Promise.resolve(onFulfilled ? onFulfilled(selectResult) : selectResult);
 
   const db = {
     select: chain,
@@ -76,6 +86,9 @@ const otherScope: TenantScope = {
 beforeEach(() => {
   capturedWhere = null;
   capturedConflict = null;
+  capturedSet = null;
+  setCalled = false;
+  selectResult = [];
 });
 
 describe("mergeOwners (manual-wins union)", () => {
@@ -164,10 +177,57 @@ describe("removeOwner", () => {
 });
 
 describe("setCodeownersFile", () => {
-  it("scopes the update to the project", async () => {
-    await setCodeownersFile(scope, "* @web", 1700);
+  it("writes the trimmed value + bump, scoped to the project, when changed", async () => {
+    selectResult = [{ file: null }];
+    await setCodeownersFile(scope, "  * @web  ", 1700);
+    expect(setCalled).toBe(true);
+    expect(capturedSet).toEqual({
+      codeownersFile: "* @web",
+      codeownersUpdatedAt: 1700,
+    });
+    // The update's WHERE is the last `.where(...)` recorded (after the read's).
     const { column, value } = readEq(capturedWhere);
     expect(column).toBe("id");
     expect(value).toBe("proj_xyz");
+  });
+
+  it("a different scope binds a different projectId (cross-tenant isolation)", async () => {
+    selectResult = [{ file: null }];
+    await setCodeownersFile(otherScope, "* @web", 1700);
+    expect(readEq(capturedWhere).value).toBe("proj_OTHER");
+  });
+
+  it("UNCHANGED-GUARD: skips the write AND the timestamp bump when the normalized next equals current", async () => {
+    selectResult = [{ file: "* @web" }];
+    // Same content with surrounding whitespace normalizes to the current value.
+    await setCodeownersFile(scope, "  * @web  ", 9999);
+    expect(setCalled).toBe(false);
+    expect(capturedSet).toBeNull();
+  });
+
+  it("UNCHANGED-GUARD: empty/whitespace against an already-null file is a no-op", async () => {
+    selectResult = [{ file: null }];
+    await setCodeownersFile(scope, "   ", 9999);
+    expect(setCalled).toBe(false);
+  });
+
+  it("NULL-CLEAR: empty/whitespace clears a non-null file to null (and bumps)", async () => {
+    selectResult = [{ file: "* @web" }];
+    await setCodeownersFile(scope, "   ", 1700);
+    expect(setCalled).toBe(true);
+    expect(capturedSet).toEqual({
+      codeownersFile: null,
+      codeownersUpdatedAt: 1700,
+    });
+  });
+
+  it("NULL-CLEAR: an explicit null clears a non-null file", async () => {
+    selectResult = [{ file: "* @web" }];
+    await setCodeownersFile(scope, null, 1700);
+    expect(setCalled).toBe(true);
+    expect(capturedSet).toEqual({
+      codeownersFile: null,
+      codeownersUpdatedAt: 1700,
+    });
   });
 });

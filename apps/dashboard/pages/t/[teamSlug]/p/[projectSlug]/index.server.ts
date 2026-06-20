@@ -7,6 +7,8 @@ import {
   parseRunsFilters,
   type RunsFilters,
 } from "@/lib/runs-filters";
+import { numericSql } from "@/lib/db/sql-ops";
+import { resolveOffsetPage } from "@/lib/page-window";
 import { scopedRunsWhere } from "@/lib/runs-filters-where";
 import { runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
@@ -31,7 +33,7 @@ export const loader = defineHandler(async (c) => {
 
   // Total rows + filter dropdown options + first page in parallel.
   const totalRunsPromise: Promise<number> = db
-    .select({ value: sql<number>`count(*)` })
+    .select({ value: numericSql(sql`count(*)`) })
     .from(runs)
     .where(scopedRunsWhere(scope, filters))
     .then((rows) => rows[0]?.value ?? 0);
@@ -67,9 +69,14 @@ export const loader = defineHandler(async (c) => {
       .sort(),
   };
 
-  const totalPages = Math.max(1, Math.ceil(totalRuns / DEFAULT_PAGE_SIZE));
-  const currentPage = Math.min(filters.page, totalPages);
-  const offset = (currentPage - 1) * DEFAULT_PAGE_SIZE;
+  // Partial adopter: this loader consumes only the page math
+  // (currentPage/totalPages/offset). `fromRow`/`toRow` stay in index.tsx
+  // because they fold in the live-row `newCount` from the realtime room.
+  const { currentPage, totalPages, offset } = resolveOffsetPage({
+    total: totalRuns,
+    pageSize: DEFAULT_PAGE_SIZE,
+    requestedPage: filters.page,
+  });
 
   const allRuns = await db
     .select()

@@ -1,6 +1,6 @@
-import { fileURLToPath } from "node:url";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
+import { MINIFLARE_BASE, testAlias } from "./vitest.shared";
 
 // The workerd test lane. Server-side suites — the code that actually runs in
 // workerd in production (db layer, ingest, query building) — run here inside
@@ -13,30 +13,19 @@ import { defineConfig } from "vitest/config";
 // Uses an INLINE miniflare worker (no `wrangler.configPath`) so it is
 // self-contained and CI-safe: it does not depend on the gitignored, generated
 // wrangler.jsonc and does not bundle the app worker. The test-mode aliases
-// mirror vite.config.ts (voidPlugin is off here too): `void/db` → stub,
-// `@schema` → the real schema. `cloudflare:workers` is deliberately NOT
-// aliased — pool-workers provides the real module.
-const srcDir = fileURLToPath(new URL("./src", import.meta.url));
-const schemaPath = fileURLToPath(new URL("./db/schema.ts", import.meta.url));
-const voidDbStubPath = fileURLToPath(
-  new URL("./src/__tests__/helpers/void-db-stub.ts", import.meta.url),
-);
+// (`testAlias`, shared with vite.config.ts via vitest.shared.ts) keep both lanes
+// resolving `void/db` → the same stub and `@schema` → the real schema, with
+// voidPlugin off here too. `cloudflare:workers` is deliberately NOT aliased —
+// pool-workers provides the real module.
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@": srcDir,
-      "@schema": schemaPath,
-      "void/db": voidDbStubPath,
-    },
+    alias: { ...testAlias },
     dedupe: ["react", "react-dom"],
   },
   plugins: [
     cloudflareTest({
-      miniflare: {
-        compatibilityDate: "2026-05-22",
-        compatibilityFlags: ["nodejs_compat"],
-      },
+      miniflare: { ...MINIFLARE_BASE },
     }),
   ],
   test: {

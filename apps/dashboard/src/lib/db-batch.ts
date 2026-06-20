@@ -15,12 +15,12 @@ import { db } from "void/db";
  * Hence the contract: callers pass a **builder** `(tx) => statements[]` (never a
  * pre-built array). `runBatch` invokes it with the transaction executor so every
  * statement enrolls in the transaction — a call site cannot accidentally bind to
- * the pooled `db` and silently lose atomicity. Statement-builder helpers default
- * their `exec` to the pooled `db` (for standalone use) but receive `tx` here, so
- * `BatchExecutor` is the union of both.
+ * the pooled `db` and silently lose atomicity. The statement-builder helpers take
+ * a required `exec` and always run inside this transaction (they receive `tx`),
+ * so `BatchExecutor` is exactly the transaction executor type.
  */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export type BatchExecutor = typeof db | Tx;
+export type BatchExecutor = Tx;
 
 /**
  * A batch builder: given the transaction executor, return the ordered statements

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import type { BatchExecutor } from "@/lib/db-batch";
 import {
   evaluateQuota,
   formatBytes,
@@ -79,9 +80,13 @@ describe("formatBytes", () => {
 
 describe("usageBumpStatement", () => {
   it("returns null for an all-zero delta so callers can skip appending it", () => {
-    expect(usageBumpStatement("team_1", 0, {}, 0)).toBeNull();
+    // The all-zero-delta early return fires before `exec` is ever touched, so
+    // the executor is irrelevant on this path — a sentinel typed as the now-
+    // required `exec` argument keeps the assertion pure (no DB access).
+    const exec = null as unknown as BatchExecutor;
+    expect(usageBumpStatement("team_1", 0, {}, 0, exec)).toBeNull();
     expect(
-      usageBumpStatement("team_1", 0, { runs: 0, testResults: 0 }, 0),
+      usageBumpStatement("team_1", 0, { runs: 0, testResults: 0 }, 0, exec),
     ).toBeNull();
   });
 });

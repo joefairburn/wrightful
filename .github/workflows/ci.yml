@@ -116,6 +116,14 @@ jobs:
       - name: Run dashboard tests with coverage
         run: pnpm --filter @wrightful/dashboard test:coverage
 
+      # The workerd lane: server-side suites (`*.workers.test.ts`) run inside the
+      # real Workers runtime via inline miniflare. It uses no `wrangler.configPath`
+      # (no dependency on the gitignored, generated wrangler.jsonc), so it's
+      # CI-safe with no extra infra. The Node `test:coverage` lane above excludes
+      # this glob, so nothing double-runs.
+      - name: Run dashboard tests in workerd
+        run: pnpm --filter @wrightful/dashboard test:workers
+
       - name: Upload dashboard coverage
         if: always()
         uses: actions/upload-artifact@v4

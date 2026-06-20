@@ -27,10 +27,9 @@ import { useCopiedFlag } from "@/lib/use-copied-flag";
  *     button, plus the optional AI copy-prompt artifact below
  *   - ENVIRONMENT — two-column grid of whatever metadata we have
  *
- * Vertical full-width buttons are reimplemented locally rather than
- * parameterising the shared `ArtifactActions` component, which stays
- * horizontal-only. ~30 lines of duplication, zero churn on the run-detail
- * inline action buttons.
+ * The vertical full-width artifact buttons are implemented locally here. This
+ * rail is the only surface that renders artifact actions (the run-detail row
+ * has no artifact host), so there is no shared button component to parameterise.
  */
 export function ArtifactsRail({
   media,

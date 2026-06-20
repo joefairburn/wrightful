@@ -1,6 +1,7 @@
 import { sql } from "void/db";
 import { percentilePick } from "@/lib/analytics/bucketing-sql";
 import { runRow, runRows } from "@/lib/db-run";
+import { castIntAggFragment } from "@/lib/db/sql-ops";
 import type { TenantScope } from "@/lib/scope";
 
 /**
@@ -107,17 +108,37 @@ export async function httpUptimeWindows(opts: {
   const d1 = opts.nowSec - DAY_SEC;
   const d7 = opts.nowSec - 7 * DAY_SEC;
   const d30 = opts.nowSec - 30 * DAY_SEC;
-  // `cast(… as integer)` on each sum: `sum(int)` is `int8` on Postgres, which
-  // node-postgres returns as a string; int4 parses to a number on both drivers.
-  // (Raw `runRow` path — cast in SQL, not `.mapWith`. Window counts fit int4.)
+  // Each window count is a `sum(case … then 1 else 0 end)`, which is `int8` on
+  // Postgres — node-postgres returns int8 as a STRING, so the raw `runRow` path
+  // (no Drizzle field decoder) must cast to int4 in SQL, a type BOTH drivers
+  // parse to a JS number. `castIntAggFragment` bakes that `cast(… as integer)`
+  // at the seam; building each sum as its OWN fragment first keeps the `${d1}` /
+  // `${d7}` window floors as BOUND PARAMS through the wrap (a `sql.raw` text
+  // helper would inline them). Window counts fit int4.
+  //
+  // `up` = pass+degraded; `countable` = pass+degraded+fail — mirroring
+  // `uptimeFromExecutions` (running/error are infra, excluded from both). When
+  // `sinceSec` is null the count spans the whole WHERE-floored 30-day slice.
+  const upSum = (sinceSec: number | null) =>
+    castIntAggFragment(
+      sinceSec === null
+        ? sql`sum(case when "monitorExecutions".state in ('pass','degraded') then 1 else 0 end)`
+        : sql`sum(case when "monitorExecutions"."createdAt" >= ${sinceSec} and "monitorExecutions".state in ('pass','degraded') then 1 else 0 end)`,
+    );
+  const countableSum = (sinceSec: number | null) =>
+    castIntAggFragment(
+      sinceSec === null
+        ? sql`sum(case when "monitorExecutions".state in ('pass','degraded','fail') then 1 else 0 end)`
+        : sql`sum(case when "monitorExecutions"."createdAt" >= ${sinceSec} and "monitorExecutions".state in ('pass','degraded','fail') then 1 else 0 end)`,
+    );
   const row = await runRow<RawUptimeRow>(sql`
     select
-      cast(sum(case when "monitorExecutions"."createdAt" >= ${d1} and "monitorExecutions".state in ('pass','degraded') then 1 else 0 end) as integer) as u1,
-      cast(sum(case when "monitorExecutions"."createdAt" >= ${d1} and "monitorExecutions".state in ('pass','degraded','fail') then 1 else 0 end) as integer) as c1,
-      cast(sum(case when "monitorExecutions"."createdAt" >= ${d7} and "monitorExecutions".state in ('pass','degraded') then 1 else 0 end) as integer) as u7,
-      cast(sum(case when "monitorExecutions"."createdAt" >= ${d7} and "monitorExecutions".state in ('pass','degraded','fail') then 1 else 0 end) as integer) as c7,
-      cast(sum(case when "monitorExecutions".state in ('pass','degraded') then 1 else 0 end) as integer) as u30,
-      cast(sum(case when "monitorExecutions".state in ('pass','degraded','fail') then 1 else 0 end) as integer) as c30
+      ${upSum(d1)} as u1,
+      ${countableSum(d1)} as c1,
+      ${upSum(d7)} as u7,
+      ${countableSum(d7)} as c7,
+      ${upSum(null)} as u30,
+      ${countableSum(null)} as c30
     from "monitorExecutions"
     where "monitorExecutions"."projectId" = ${opts.scope.projectId}
       and "monitorExecutions"."monitorId" = ${opts.monitorId}

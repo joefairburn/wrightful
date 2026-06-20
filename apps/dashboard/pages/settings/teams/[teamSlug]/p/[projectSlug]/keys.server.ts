@@ -3,6 +3,8 @@ import { and, db, desc, eq, isNull, ne } from "void/db";
 import { apiKeys, projects } from "@schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { CODEOWNERS_FILE_MAX } from "@/lib/owner-schemas";
+import { setCodeownersFile } from "@/lib/owners-repo";
+import { makeTenantScope } from "@/lib/scope";
 import { readField } from "@/lib/form";
 import { teardownProject } from "@/lib/project-teardown";
 import {
@@ -141,18 +143,18 @@ export const actions = {
         `CODEOWNERS file is too large (max ${CODEOWNERS_FILE_MAX} characters).`,
       );
     }
-    // Trim trailing whitespace; an empty result clears the file (null).
-    const trimmed = raw.trim();
-    const file = trimmed.length > 0 ? trimmed : null;
 
+    // The seam owns trim-then-null-clear normalization (a blank paste clears
+    // the file) and the unchanged-guard. This adapter keeps only size
+    // validation and the flash-error mapping.
+    const scope = makeTenantScope({
+      teamId: project.teamId,
+      projectId: project.id,
+      teamSlug: project.teamSlug,
+      projectSlug: project.slug,
+    });
     try {
-      await db
-        .update(projects)
-        .set({
-          codeownersFile: file,
-          codeownersUpdatedAt: Math.floor(Date.now() / 1000),
-        })
-        .where(eq(projects.id, project.id));
+      await setCodeownersFile(scope, raw, Math.floor(Date.now() / 1000));
     } catch (err) {
       logger.error("update codeowners failed", {
         projectId: project.id,

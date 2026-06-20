@@ -1,9 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   // GENERATED SOURCE — `wrangler.jsonc` is generated from THIS file by
-  // scripts/gen-wrangler.mjs (run in the dev/build/deploy pre-hooks, like
-  // apply-dialect.mjs materializes void.json + db/migrations). Edit the template,
-  // not the generated `wrangler.jsonc` (which is gitignored).
+  // scripts/gen-wrangler.mjs (run in the dev/build/deploy pre-hooks): it injects
+  // the deployment-specific CF_* bindings into this committed template. Edit the
+  // template, not the generated `wrangler.jsonc` (which is gitignored).
   //
   // This file carries the static, shared worker config Void's own schema can't
   // express — Cloudflare-native rate limiters (`ratelimits`) and the Email

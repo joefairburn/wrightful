@@ -45,9 +45,12 @@ git rm --cached apps/dashboard/wrangler.jsonc   # if it's still tracked in your 
 Then set these as env vars (in `apps/dashboard/.env.local` for local dev, or as build vars in CI — see [Auto-deploy on push](#auto-deploy-on-push-recommended)):
 
 ```bash
-CF_WORKER_NAME=wrightful-dashboard-void   # the Worker name (any name you like)
-CF_R2_BUCKET=wrightful-artifacts          # the R2 bucket from step 1 (→ STORAGE binding)
-CF_HYPERDRIVE_ID=<config id from step 1>  # from `wrangler hyperdrive create` (→ HYPERDRIVE binding)
+# The Worker name (any name you like).
+CF_WORKER_NAME=wrightful-dashboard-void
+# The R2 bucket from step 1 (→ STORAGE binding).
+CF_R2_BUCKET=wrightful-artifacts
+# From `wrangler hyperdrive create` in step 1 (→ HYPERDRIVE binding).
+CF_HYPERDRIVE_ID=<config id from step 1>
 ```
 
 `gen-wrangler` injects a `hyperdrive[HYPERDRIVE]` block from `CF_HYPERDRIVE_ID` plus an `r2_buckets[STORAGE]` block from `CF_R2_BUCKET`. The rate-limiter bindings and Void's `main`/`assets`/`migrations` are handled by the template + plugin — you don't touch those.
