@@ -1,4 +1,4 @@
-import { defineScheduled } from "void";
+import { loggedScheduled } from "@/lib/cron-logging";
 import { env } from "void/env";
 import { logger } from "void/log";
 import { resolveBillingProvider } from "@/lib/billing/billing-registry";
@@ -17,7 +17,7 @@ import { billingEnabled } from "@/lib/config";
  */
 export const cron = "30 4 * * *";
 
-export default defineScheduled(async () => {
+export default loggedScheduled("reconcile-billing", async () => {
   const provider = resolveBillingProvider(billingEnabled(env)); // Noop when billing off
   const nowSeconds = Math.floor(Date.now() / 1000);
   const result = await provider.reconcile(nowSeconds);
