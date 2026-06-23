@@ -21,10 +21,30 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const at = (rel) => `${root}/${rel}`;
 
+/**
+ * Trim whitespace and strip ONE matched pair of surrounding quotes. Cloudflare
+ * build variables are raw `process.env` values, and a value entered WITH quotes
+ * in the CF dashboard (`"my-bucket"`) is a common mistake — left as-is it injects
+ * a stray `"` into wrangler.jsonc and breaks JSONC parsing at `vp build`. The
+ * `.env`-file branch already strips quotes via its regex; this normalizes the
+ * process.env branch to match.
+ */
+function clean(value) {
+  let v = value.trim();
+  if (
+    v.length >= 2 &&
+    ((v.startsWith('"') && v.endsWith('"')) ||
+      (v.startsWith("'") && v.endsWith("'")))
+  ) {
+    v = v.slice(1, -1).trim();
+  }
+  return v;
+}
+
 /** Read a var from process.env, falling back to .env.local / .env. */
 function fromEnv(key) {
   const v = process.env[key];
-  if (v != null && v !== "") return v;
+  if (v != null && v.trim() !== "") return clean(v);
   for (const f of [".env.local", ".env"]) {
     if (!existsSync(at(f))) continue;
     // Capture the optional opening quote so we can tell quoted from unquoted
@@ -52,16 +72,17 @@ const hyperdriveId = fromEnv("CF_HYPERDRIVE_ID");
 // Own-account binding blocks — only what the env enables. Postgres binds the DB
 // via `hyperdrive[HYPERDRIVE]` (id from CF_HYPERDRIVE_ID); R2 via
 // `r2_buckets[STORAGE]`. Trailing commas are fine (jsonc, and the template
-// already uses them before `}`).
+// already uses them before `}`). Values are emitted via JSON.stringify so any
+// special character is escaped rather than corrupting the generated JSONC.
 const blocks = [];
 if (hyperdriveId) {
   blocks.push(
-    `  "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "${hyperdriveId}" }],`,
+    `  "hyperdrive": [{ "binding": "HYPERDRIVE", "id": ${JSON.stringify(hyperdriveId)} }],`,
   );
 }
 if (r2Bucket) {
   blocks.push(
-    `  "r2_buckets": [{ "binding": "STORAGE", "bucket_name": "${r2Bucket}" }],`,
+    `  "r2_buckets": [{ "binding": "STORAGE", "bucket_name": ${JSON.stringify(r2Bucket)} }],`,
   );
 }
 
