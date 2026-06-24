@@ -41,16 +41,13 @@ export default function FlakyTestsPage({
   kpis,
   sparkByTest,
   failsByTest,
-  quarantinedByTestId,
   ownersByTestId,
-  quarantineError,
   ownerError,
   pathname,
   fullPath,
   ranges,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
-  const quarantineActionPath = `/api/t/${project.teamSlug}/p/${project.slug}/quarantine`;
   const ownerActionPath = `/api/t/${project.teamSlug}/p/${project.slug}/owners`;
   const { with: hrefWith } = makeHrefBuilder(pathname, {
     range,
@@ -93,14 +90,6 @@ export default function FlakyTestsPage({
           value={range}
         />
       </div>
-
-      {quarantineError && (
-        <div className="shrink-0 px-6 pt-3">
-          <Alert variant="error">
-            <AlertDescription>{quarantineError}</AlertDescription>
-          </Alert>
-        </div>
-      )}
 
       {ownerError && (
         <div className="shrink-0 px-6 pt-3">
@@ -159,9 +148,6 @@ export default function FlakyTestsPage({
                 <TableHead className="w-[90px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                   Last seen
                 </TableHead>
-                <TableHead className="w-[170px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                  Quarantine
-                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -175,16 +161,12 @@ export default function FlakyTestsPage({
                 return (
                   <FlakyTestRow
                     canManageOwners={project.canManageOwners}
-                    canManageQuarantine={project.canManageQuarantine}
                     file={meta?.file ?? ""}
                     key={row.testId}
                     ownerActionPath={ownerActionPath}
                     ownerRedirectTo={fullPath}
                     owners={ownersByTestId[row.testId] ?? []}
                     pct={row.pct}
-                    quarantine={quarantinedByTestId[row.testId] ?? null}
-                    quarantineActionPath={quarantineActionPath}
-                    quarantineRedirectTo={fullPath}
                     rangeDays={rangeDays}
                     recentFailures={fails}
                     rowHref={rowHref}
