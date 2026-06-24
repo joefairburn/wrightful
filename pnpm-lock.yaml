@@ -18,6 +18,9 @@ patchedDependencies:
   '@cloudflare/vite-plugin@1.38.0':
     hash: 6b33f99fdeb83bd697343ab2765ccd3ce0d2f66534964eb29f65f52b8142024e
     path: patches/@cloudflare__vite-plugin@1.38.0.patch
+  void@0.9.2:
+    hash: 43ff08293c94e2ef375e9a986c59a8b6be7bd6076a0ee8941f5855751286dc27
+    path: patches/void@0.9.2.patch
 
 importers:
 
@@ -173,7 +176,7 @@ importers:
         version: 6.0.1(@rolldown/plugin-babel@0.2.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(rolldown@1.0.0-rc.17))(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(babel-plugin-react-compiler@1.0.0)
       '@void/react':
         specifier: 0.9.2
-        version: 0.9.2(91ad164bada2b79ce529756ce825d85d)
+        version: 0.9.2(7fd7132b14a36e70d620800ff330e26b)
       '@wrightful/reporter':
         specifier: workspace:*
         version: link:../../packages/reporter
@@ -212,7 +215,7 @@ importers:
         version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.6.0)(@vitest/browser-preview@4.1.9)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(happy-dom@20.9.0)(jsdom@29.1.1(@noble/hashes@2.2.0))
       void:
         specifier: 0.9.2
-        version: 0.9.2(@electric-sql/pglite@0.5.2)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(arktype@2.2.0)(kysely@0.28.17)(next@16.2.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(valibot@1.4.0(typescript@6.0.2))(vitest@4.1.9)(workerd@1.20260521.1)(zod@4.3.6)
+        version: 0.9.2(patch_hash=43ff08293c94e2ef375e9a986c59a8b6be7bd6076a0ee8941f5855751286dc27)(@electric-sql/pglite@0.5.2)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(arktype@2.2.0)(kysely@0.28.17)(next@16.2.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(valibot@1.4.0(typescript@6.0.2))(vitest@4.1.9)(workerd@1.20260521.1)(zod@4.3.6)
       wrangler:
         specifier: 4.94.0
         version: 4.94.0(@cloudflare/workers-types@4.20260522.1)
@@ -7931,13 +7934,13 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
-  '@void/react@0.9.2(91ad164bada2b79ce529756ce825d85d)':
+  '@void/react@0.9.2(7fd7132b14a36e70d620800ff330e26b)':
     dependencies:
       '@vitejs/plugin-react': 6.0.1(@rolldown/plugin-babel@0.2.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(rolldown@1.0.0-rc.17))(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(babel-plugin-react-compiler@1.0.0)
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
       vite: '@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3)'
-      void: 0.9.2(@electric-sql/pglite@0.5.2)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(arktype@2.2.0)(kysely@0.28.17)(next@16.2.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(valibot@1.4.0(typescript@6.0.2))(vitest@4.1.9)(workerd@1.20260521.1)(zod@4.3.6)
+      void: 0.9.2(patch_hash=43ff08293c94e2ef375e9a986c59a8b6be7bd6076a0ee8941f5855751286dc27)(@electric-sql/pglite@0.5.2)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(arktype@2.2.0)(kysely@0.28.17)(next@16.2.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(valibot@1.4.0(typescript@6.0.2))(vitest@4.1.9)(workerd@1.20260521.1)(zod@4.3.6)
     transitivePeerDependencies:
       - '@rolldown/plugin-babel'
       - babel-plugin-react-compiler
@@ -10475,7 +10478,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  void@0.9.2(@electric-sql/pglite@0.5.2)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(arktype@2.2.0)(kysely@0.28.17)(next@16.2.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(valibot@1.4.0(typescript@6.0.2))(vitest@4.1.9)(workerd@1.20260521.1)(zod@4.3.6):
+  void@0.9.2(patch_hash=43ff08293c94e2ef375e9a986c59a8b6be7bd6076a0ee8941f5855751286dc27)(@electric-sql/pglite@0.5.2)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(arktype@2.2.0)(kysely@0.28.17)(next@16.2.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(valibot@1.4.0(typescript@6.0.2))(vitest@4.1.9)(workerd@1.20260521.1)(zod@4.3.6):
     dependencies:
       '@cloudflare/sandbox': 0.10.2
       '@cloudflare/vite-plugin': 1.38.0(patch_hash=6b33f99fdeb83bd697343ab2765ccd3ce0d2f66534964eb29f65f52b8142024e)(@voidzero-dev/vite-plus-core@0.2.0(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3))(workerd@1.20260521.1)(wrangler@4.94.0(@cloudflare/workers-types@4.20260522.1))
