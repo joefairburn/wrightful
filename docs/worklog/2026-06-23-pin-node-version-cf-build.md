@@ -33,11 +33,11 @@ only bites on Cloudflare's older default Node.
 
 ## Details
 
-| File | Change |
-| --- | --- |
-| `.nvmrc` (new) | `22.18.0` — primary signal for Cloudflare Workers Builds node-version detection |
-| `apps/dashboard/.nvmrc` (new) | `22.18.0` — covers the case where the CF build root directory is the app subdir |
-| `package.json` | `engines.node`: `>=20` → `>=22.18.0` — documents the toolchain's real floor and surfaces the mismatch as an engine warning instead of a cryptic native-binding crash |
+| File                          | Change                                                                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.nvmrc` (new)                | `22.18.0` — primary signal for Cloudflare Workers Builds node-version detection                                                                                      |
+| `apps/dashboard/.nvmrc` (new) | `22.18.0` — covers the case where the CF build root directory is the app subdir                                                                                      |
+| `package.json`                | `engines.node`: `>=20` → `>=22.18.0` — documents the toolchain's real floor and surfaces the mismatch as an engine warning instead of a cryptic native-binding crash |
 
 `22.18.0` is the minimal version that satisfies the binding and stays within the
 Node 22 major Cloudflare already auto-selected (guaranteed available on their
