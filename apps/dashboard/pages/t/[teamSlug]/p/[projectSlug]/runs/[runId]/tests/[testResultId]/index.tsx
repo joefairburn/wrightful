@@ -6,11 +6,13 @@ import {
   AttemptTabsBar,
   type AttemptTabItem,
 } from "@/components/attempt-tabs";
+import { QuarantineControl } from "@/components/quarantine-control";
 import {
   RunHistoryChart,
   type RunHistoryPoint,
 } from "@/components/run-history-chart";
 import { StatusBadge } from "@/components/status-badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { TestErrorAlert } from "@/components/test-error-alert";
 import { parseTitleSegments } from "@/lib/group-tests-by-file";
@@ -62,6 +64,9 @@ export default function TestDetailPage(props: Props) {
     testResultId,
     result,
     run,
+    quarantine,
+    quarantineRedirectTo,
+    quarantineError,
     tags: tagRows,
     annotations: annotationRows,
     artifactGroups,
@@ -71,6 +76,7 @@ export default function TestDetailPage(props: Props) {
   } = props;
 
   const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
+  const quarantineActionPath = `/api/t/${project.teamSlug}/p/${project.projectSlug}/quarantine`;
 
   // Finished, server-ordered artifact presentation keyed by attempt. The page
   // no longer sees raw rows, r2Key, or tokens — just ready-to-render actions.
@@ -212,9 +218,19 @@ export default function TestDetailPage(props: Props) {
         ]}
       />
       <div className="border-b border-border px-6 py-4 shrink-0">
-        <div className="flex items-center gap-3 mb-1 flex-wrap">
-          <StatusBadge status={result.status} />
-          <h1 className="font-semibold text-xl">{testTitle}</h1>
+        <div className="mb-1 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <StatusBadge status={result.status} />
+            <h1 className="font-semibold text-xl">{testTitle}</h1>
+          </div>
+          <QuarantineControl
+            actionPath={quarantineActionPath}
+            canManage={project.canManageQuarantine}
+            quarantine={quarantine}
+            redirectTo={quarantineRedirectTo}
+            testId={result.testId}
+            title={testTitle}
+          />
         </div>
         <div className="font-mono text-muted-foreground text-xs">
           {result.file}
@@ -222,6 +238,11 @@ export default function TestDetailPage(props: Props) {
           {formatDuration(result.durationMs)}
           {result.retryCount > 0 ? ` · ${result.retryCount} retries` : ""}
         </div>
+        {quarantineError && (
+          <Alert className="mt-3" variant="error">
+            <AlertDescription>{quarantineError}</AlertDescription>
+          </Alert>
+        )}
         {(tagRows.length > 0 || annotationRows.length > 0) && (
           <div className="mt-3 flex flex-wrap gap-2">
             {tagRows.map((t, i) => (

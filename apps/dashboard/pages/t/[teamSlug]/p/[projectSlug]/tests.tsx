@@ -2,16 +2,11 @@ import { Link } from "@void/react";
 import { Fragment } from "react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import { OutcomeBar } from "@/components/outcome-bar";
-import {
-  QuarantineCell,
-  type QuarantineState,
-} from "@/components/quarantine-cell";
 import { PageHeader } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Empty,
   EmptyDescription,
@@ -59,19 +54,15 @@ export default function TestsPage({
   availableTags,
   group,
   rows,
-  quarantinedByTestId,
-  quarantineError,
   totalUniqueTests,
   currentPage,
   totalPages,
   fromRow,
   toRow,
   pathname,
-  fullPath,
   ranges,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
-  const quarantineActionPath = `/api/t/${project.teamSlug}/p/${project.slug}/quarantine`;
 
   const { with: hrefWith, pageHref } = makeHrefBuilder(pathname, {
     range,
@@ -167,14 +158,6 @@ export default function TestsPage({
         </div>
       )}
 
-      {quarantineError && (
-        <div className="shrink-0 px-6 pt-3">
-          <Alert variant="error">
-            <AlertDescription>{quarantineError}</AlertDescription>
-          </Alert>
-        </div>
-      )}
-
       {rows.length === 0 ? (
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="flex items-center justify-center h-full p-10">
@@ -214,9 +197,6 @@ export default function TestsPage({
                   <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
                     Last seen
                   </TableHead>
-                  <TableHead className="w-[170px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                    Quarantine
-                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -251,31 +231,14 @@ export default function TestsPage({
                           </TableCell>
                           <TableCell className="w-[110px]" />
                           <TableCell className="w-[100px]" />
-                          <TableCell className="w-[170px]" />
                         </TableRow>
                         {g.rows.map((row) => (
-                          <TestRow
-                            base={base}
-                            canManageQuarantine={project.canManageQuarantine}
-                            key={row.testId}
-                            quarantine={quarantinedByTestId[row.testId] ?? null}
-                            quarantineActionPath={quarantineActionPath}
-                            quarantineRedirectTo={fullPath}
-                            row={row}
-                          />
+                          <TestRow base={base} key={row.testId} row={row} />
                         ))}
                       </Fragment>
                     ))
                   : rows.map((row) => (
-                      <TestRow
-                        base={base}
-                        canManageQuarantine={project.canManageQuarantine}
-                        key={row.testId}
-                        quarantine={quarantinedByTestId[row.testId] ?? null}
-                        quarantineActionPath={quarantineActionPath}
-                        quarantineRedirectTo={fullPath}
-                        row={row}
-                      />
+                      <TestRow base={base} key={row.testId} row={row} />
                     ))}
               </TableBody>
             </Table>
@@ -298,21 +261,7 @@ export default function TestsPage({
 }
 
 /** One catalog row — shared by the flat list and the grouped sections. */
-function TestRow({
-  row,
-  base,
-  quarantine,
-  quarantineActionPath,
-  quarantineRedirectTo,
-  canManageQuarantine,
-}: {
-  row: TestsPageRow;
-  base: string;
-  quarantine: QuarantineState | null;
-  quarantineActionPath: string;
-  quarantineRedirectTo: string;
-  canManageQuarantine: boolean;
-}) {
+function TestRow({ row, base }: { row: TestsPageRow; base: string }) {
   const dotColor = mixToneColor(row);
   const title = row.title || row.testId;
   const href =
@@ -372,16 +321,6 @@ function TestRow({
       </TableCell>
       <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
         {formatRelativeTime(row.lastSeen)}
-      </TableCell>
-      <TableCell className="w-[170px] px-4 py-3 align-middle">
-        <QuarantineCell
-          actionPath={quarantineActionPath}
-          canManage={canManageQuarantine}
-          quarantine={quarantine}
-          redirectTo={quarantineRedirectTo}
-          testId={row.testId}
-          title={title}
-        />
       </TableCell>
     </TableRow>
   );
