@@ -218,6 +218,24 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     needs: [test-reporter, test-dashboard]
+    # bootDashboard (src/dashboard-fixture.ts) runs `void db reset` + `vp dev`,
+    # which need a Postgres to connect to. An ephemeral service container (same
+    # pattern as test-postgres) gives a throwaway DB reachable only from inside
+    # the runner — never point `void db reset` at a real DB, it wipes + remigrates.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wrightful
+          POSTGRES_PASSWORD: wrightful
+          POSTGRES_DB: wrightful_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wrightful"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -238,6 +256,8 @@ jobs:
         run: pnpm --filter @wrightful/e2e exec playwright install --with-deps chromium
 
       - name: Run E2E tests
+        env:
+          DATABASE_URL: postgres://wrightful:wrightful@localhost:5432/wrightful_test
         run: pnpm test:e2e
 
   # Dogfood: run the demo Playwright suite (tests/, playwright.config.ts — the
@@ -295,6 +315,22 @@ jobs:
     name: E2E UI Tests (Playwright)
     runs-on: ubuntu-latest
     needs: [test-reporter, test-dashboard]
+    # Throwaway Postgres for bootDashboard's `void db reset` + `vp dev` (see the
+    # note on test-e2e). Reachable only inside the runner; never a real DB.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wrightful
+          POSTGRES_PASSWORD: wrightful
+          POSTGRES_DB: wrightful_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wrightful"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -319,6 +355,7 @@ jobs:
         # "1" in repo settings). Until then, visual.spec self-skips.
         env:
           WRIGHTFUL_VISUAL_BASELINE_OK: ${{ vars.VISUAL_BASELINE_OK }}
+          DATABASE_URL: postgres://wrightful:wrightful@localhost:5432/wrightful_test
         run: pnpm --filter @wrightful/e2e test:dashboard
 
       - name: Upload Playwright report on failure
