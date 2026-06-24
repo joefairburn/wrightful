@@ -1,7 +1,7 @@
 import { loggedScheduled } from "@/lib/cron-logging";
 import { env } from "void/env";
 import { logger } from "void/log";
-import { queues } from "void/queues";
+import { enqueueMonitorJob } from "@/lib/monitors/enqueue";
 import { sweepDueMonitors } from "@/lib/monitors/scheduler";
 
 /**
@@ -25,7 +25,8 @@ import { sweepDueMonitors } from "@/lib/monitors/scheduler";
  * (`WRIGHTFUL_MONITOR_SWEEP_BATCH_SIZE` is the per-tick `.limit` budget that
  * keeps a project with hundreds of armed monitors from blowing one tick's
  * subrequest budget — the backlog drains oldest-due-first across ticks), wires
- * the producer (`queues.monitors.send`) as the enqueue fn, and logs the tally.
+ * the shared `enqueueMonitorJob` producer (the type-routing fn the on-demand
+ * "run now" action shares, so the two can't drift), and logs the tally.
  */
 export const cron = "* * * * *";
 
@@ -35,20 +36,9 @@ export default loggedScheduled("sweep-monitors", async () => {
   const { found, enqueued } = await sweepDueMonitors({
     now: nowSeconds,
     limit: env.WRIGHTFUL_MONITOR_SWEEP_BATCH_SIZE,
-    // Route by type: the lightweight uptime family (http + tcp/ping) to the
-    // batched `uptime` queue, browser checks to the container-tuned `monitors`
-    // queue.
-    enqueue: async (job, monitor) => {
-      if (
-        monitor.type === "http" ||
-        monitor.type === "tcp" ||
-        monitor.type === "ping"
-      ) {
-        await queues.uptime.send(job);
-      } else {
-        await queues.monitors.send(job);
-      }
-    },
+    // Route by type (http + tcp/ping → `uptime`, browser → `monitors`) via the
+    // shared helper, the single source of the queue routing.
+    enqueue: enqueueMonitorJob,
   });
 
   if (found > 0) {

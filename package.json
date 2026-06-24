@@ -30,6 +30,9 @@
   },
   "packageManager": "pnpm@10.33.0",
   "pnpm": {
+    "overrides": {
+      "@codemirror/state": "6.7.0"
+    },
     "onlyBuiltDependencies": [
       "esbuild",
       "sharp",

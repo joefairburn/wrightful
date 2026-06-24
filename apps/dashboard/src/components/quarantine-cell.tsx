@@ -1,21 +1,31 @@
+"use client";
+
+import { EllipsisVertical } from "lucide-react";
 import type React from "react";
+import { useId } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/menu";
 import type { QuarantineMode } from "@/lib/quarantine-schemas";
 
 /**
  * The quarantine state surfaced per row on the flaky + tests-catalog pages:
  * a "Quarantined" badge when the test is on the list, plus — for OWNERS only —
- * a quarantine / unquarantine control. Non-owners see the badge but no control
- * (the mutation is owner-gated server-side too; the UI just doesn't offer it).
+ * a three-dot menu carrying the quarantine / release action. Non-owners see the
+ * badge but no menu (the mutation is owner-gated server-side too; the UI just
+ * doesn't offer it).
  *
- * The control is a plain `<form>` POST to the shared session-authed mutation
- * route (`/api/t/:teamSlug/p/:projectSlug/quarantine`), so it works without JS
- * and matches how the catalog/flaky pages stay isomorphic (no per-row island).
- * The submit goes through the `ui/button` wrapper (same as every other
- * POST-form control, e.g. members.tsx) so it inherits the design system's
- * focus-visible ring, hover, and disabled tokens. `redirectTo` brings the user
- * back to the page they acted from.
+ * The action is still a plain `<form>` POST to the shared session-authed
+ * mutation route (`/api/t/:teamSlug/p/:projectSlug/quarantine`): the menu item
+ * is its submit button, associated by `form={formId}` because Base UI portals
+ * the menu popup out of this subtree. `redirectTo` brings the user back to the
+ * page they acted from. The menu makes this a client island (Base UI needs JS),
+ * unlike the otherwise-isomorphic catalog/flaky rows.
  */
 
 export interface QuarantineState {
@@ -31,8 +41,8 @@ export interface QuarantineCellProps {
   testId: string;
   /**
    * Human-readable test title, used to build per-row accessible labels so a
-   * screen reader hears "Quarantine <test>" rather than a list of identical
-   * "Quarantine" buttons. Falls back to the testId when absent.
+   * screen reader hears "Quarantine actions for <test>" rather than a list of
+   * identical "Actions" buttons. Falls back to the testId when absent.
    */
   title?: string;
   /** Non-null when this test is currently quarantined. */
@@ -51,10 +61,11 @@ export function QuarantineCell({
 }: QuarantineCellProps): React.ReactElement {
   const quarantined = quarantine !== null;
   const label = title ?? testId;
+  const formId = useId();
 
   return (
     // `relative z-[1]` lifts the control above the row's stretched-link overlay
-    // (`after:inset-0` on the row's `<Link>`), so the form button stays
+    // (`after:inset-0` on the row's `<Link>`), so the menu trigger stays
     // clickable instead of being captured by the row-wide navigation target.
     <div className="relative z-[1] flex items-center justify-end gap-2">
       {quarantine && (
@@ -74,28 +85,49 @@ export function QuarantineCell({
         </Badge>
       )}
       {canManage && (
-        <form action={actionPath} method="post">
-          <input
-            name="intent"
-            type="hidden"
-            value={quarantined ? "unquarantine" : "quarantine"}
-          />
-          <input name="testId" type="hidden" value={testId} />
-          {!quarantined && <input name="mode" type="hidden" value="skip" />}
-          <input name="redirectTo" type="hidden" value={redirectTo} />
-          <Button
-            aria-label={
-              quarantined
-                ? `Release ${label} from quarantine`
-                : `Quarantine ${label}`
-            }
-            size="xs"
-            type="submit"
-            variant="outline"
+        <>
+          {/* Hidden POST form — the menu item below is its submit button,
+           * wired up via `form={formId}` since the popup is portaled out of
+           * this subtree. `contents` keeps the empty form from adding a flex
+           * gap between the badge and the trigger. */}
+          <form
+            action={actionPath}
+            className="contents"
+            id={formId}
+            method="post"
           >
-            {quarantined ? "Release" : "Quarantine"}
-          </Button>
-        </form>
+            <input
+              name="intent"
+              type="hidden"
+              value={quarantined ? "unquarantine" : "quarantine"}
+            />
+            <input name="testId" type="hidden" value={testId} />
+            {!quarantined && <input name="mode" type="hidden" value="skip" />}
+            <input name="redirectTo" type="hidden" value={redirectTo} />
+          </form>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  aria-label={`Quarantine actions for ${label}`}
+                  size="icon-xs"
+                  variant="ghost"
+                >
+                  <EllipsisVertical />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                render={
+                  <button form={formId} type="submit">
+                    {quarantined ? "Release from quarantine" : "Quarantine"}
+                  </button>
+                }
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
       )}
     </div>
   );

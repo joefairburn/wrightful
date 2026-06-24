@@ -356,6 +356,72 @@ export async function getExecution(
   return rows[0] ?? null;
 }
 
+/**
+ * Predicate for "this monitor has an execution still in flight" within a tenant:
+ * a `queued` or `running` row for `(projectId, monitorId)`. Exported pure
+ * (operators only, no `db`) so it's unit-testable, and the manual-run twin of
+ * the scheduler's `dueMonitorsWhere` NOT EXISTS arm — the single source of the
+ * "don't stack a second execution" rule for the on-demand path.
+ */
+export function inFlightExecutionWhere(scope: TenantScope, monitorId: string) {
+  return and(
+    eq(monitorExecutions.projectId, scope.projectId),
+    eq(monitorExecutions.monitorId, monitorId),
+    inArray(monitorExecutions.state, ["queued", "running"]),
+  );
+}
+
+/**
+ * Mint an on-demand ("run now") execution for a saved monitor — the manual twin
+ * of one iteration of {@link sweepDueMonitors} in `scheduler.ts`. Reuses the
+ * scheduler's in-flight guard ({@link inFlightExecutionWhere}, mirroring
+ * `dueMonitorsWhere`'s NOT EXISTS): if an execution is already `queued`/`running`
+ * for this monitor, returns `null` instead of stacking a second container.
+ * Otherwise inserts ONE `queued` execution (`scheduledFor: now`, `attempt: 0`)
+ * and returns its id for the caller to enqueue (via the shared
+ * `enqueueMonitorJob`).
+ *
+ * Deliberately does NOT advance the monitor's `nextRunAt`: a manual run is
+ * out-of-band and must not disturb the schedule — the next scheduled tick fires
+ * exactly when it would have anyway. It is also independent of `enabled`, so a
+ * paused monitor can be test-run without resuming its schedule.
+ *
+ * The guard SELECT and the INSERT are two statements, not one atomic
+ * `INSERT … WHERE NOT EXISTS`, so two near-simultaneous "run now" clicks could
+ * both pass the guard and mint two DISTINCT executions → two containers → two
+ * runs. That race is bounded (one extra execution + its run; no shared row to
+ * corrupt) and self-heals. Note the idempotency-keyed run-linking does NOT
+ * collapse the two into one run — its key is the execution's OWN id, so it
+ * dedups REDELIVERIES of a single execution, not two separate ones. The guard's
+ * real job is the COMMON case (a second click while a check is already running
+ * for a slow monitor), which it covers; the detail-page button is also disabled
+ * client-side while a run is in flight.
+ */
+export async function enqueueManualExecution(
+  scope: TenantScope,
+  monitor: Monitor,
+  now: number,
+): Promise<string | null> {
+  const inFlight = await db
+    .select({ id: monitorExecutions.id })
+    .from(monitorExecutions)
+    .where(inFlightExecutionWhere(scope, monitor.id))
+    .limit(1);
+  if (inFlight.length > 0) return null;
+
+  const id = ulid();
+  await db.insert(monitorExecutions).values({
+    id,
+    projectId: scope.projectId,
+    monitorId: monitor.id,
+    scheduledFor: now,
+    state: "queued",
+    attempt: 0,
+    createdAt: now,
+  });
+  return id;
+}
+
 // ─── System-internal (queue consumer; trusted rows) ─────────────────────────
 //
 // These load + mutate by id WITHOUT a TenantScope: the queue consumer's job

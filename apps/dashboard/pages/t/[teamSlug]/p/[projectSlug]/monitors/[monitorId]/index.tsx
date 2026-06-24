@@ -209,6 +209,7 @@ function MonitorDetailView({
   editing,
   formError,
   dangerError,
+  runNotice,
   members,
   groups,
   alertTargets,
@@ -217,6 +218,12 @@ function MonitorDetailView({
   const monitorsBase = `${base}/monitors`;
   const here = `${monitorsBase}/${monitor.id}`;
   const enabled = monitor.enabled === 1;
+  // A manual "Run now" is refused server-side while a queued/running execution
+  // exists (the in-flight guard). Mirror that here to disable the button — the
+  // loaded executions are newest-first, so any non-terminal one means in-flight.
+  const inFlight = executions.some(
+    (e) => e.state === "queued" || e.state === "running",
+  );
   const alertsOn = monitor.alertsEnabled === 1;
   // Current alert-recipient selection (null = all members) for the picker.
   const selectedUsers = new Set(alertTargets?.users ?? []);
@@ -268,6 +275,29 @@ function MonitorDetailView({
 
             {isOwner && (
               <>
+                {/* Run now — fire one immediate execution. Disabled while a run
+                    is already in flight, mirroring the server-side guard. */}
+                <form
+                  action={`${here}?runMonitorOnce`}
+                  className="m-0"
+                  method="post"
+                >
+                  <Button
+                    disabled={inFlight}
+                    size="sm"
+                    title={
+                      inFlight
+                        ? "A run is already in progress"
+                        : "Run this monitor now"
+                    }
+                    type="submit"
+                    variant="outline"
+                  >
+                    <Play className="size-3.5" />
+                    Run now
+                  </Button>
+                </form>
+
                 {/* Pause / resume — POSTs the desired next state. */}
                 <form
                   action={`${here}?toggleEnabled`}
@@ -370,6 +400,14 @@ function MonitorDetailView({
         </header>
 
         <div className="mx-auto flex max-w-[980px] flex-col gap-[18px] px-6 pt-5 pb-16">
+          {/* "Run now" feedback — shown when a manual run was refused because
+              one is already in flight (the in-flight guard). */}
+          {runNotice && (
+            <Alert variant="info">
+              <AlertDescription>{runNotice}</AlertDescription>
+            </Alert>
+          )}
+
           {/* Edit section. */}
           {editingOpen && (
             <section className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">

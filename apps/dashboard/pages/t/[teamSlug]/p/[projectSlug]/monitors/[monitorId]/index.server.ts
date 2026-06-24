@@ -28,10 +28,12 @@ import {
   httpResponseTimeBuckets,
   httpUptimeWindows,
 } from "@/lib/monitors/http/uptime-analytics";
+import { enqueueMonitorJob } from "@/lib/monitors/enqueue";
 import {
   countMonitors,
   createMonitor,
   deleteMonitor,
+  enqueueManualExecution,
   getMonitor,
   listExecutions,
   setMonitorAlertsEnabled,
@@ -216,6 +218,9 @@ export const loader = defineHandler(async (c) => {
     editing: url.searchParams.get("edit") === "1",
     formError: url.searchParams.get("formError"),
     dangerError: url.searchParams.get("dangerError"),
+    // Surfaced by the `runMonitorOnce` action when a manual run is refused
+    // because one is already in flight (the in-flight guard). Page-level notice.
+    runNotice: url.searchParams.get("runNotice"),
   };
 });
 
@@ -388,6 +393,49 @@ export const actions = {
         }),
       );
     }
+
+    return c.redirect(here);
+  }),
+
+  /**
+   * Run a saved monitor NOW — fire one immediate, out-of-band execution without
+   * disturbing the schedule. Owner-only (it launches the user's check
+   * server-side, like create/edit). Reuses the full scheduler→queue pipeline:
+   * `enqueueManualExecution` mints a queued execution (or returns null when one
+   * is already in flight — the in-flight guard, surfaced via `?runNotice=`),
+   * then the SAME type-routing helper the cron uses (`enqueueMonitorJob`)
+   * enqueues the IDs-only job. Allowed for a PAUSED monitor too (test before
+   * resuming) — the helper never touches `nextRunAt`. Redirects to the detail
+   * page, where the new execution shows at the top of the timeline.
+   */
+  runMonitorOnce: defineHandler(async (c) => {
+    const { project, scope } = requireOwnerTenantContext(c);
+    const monitorId = requireMonitorId(c);
+    const here = `/t/${project.teamSlug}/p/${project.slug}/monitors/${monitorId}`;
+
+    const monitor = await getMonitor(scope, monitorId);
+    if (!monitor) throw new Response("Not Found", { status: 404 });
+
+    const now = Math.floor(Date.now() / 1000);
+    const executionId = await enqueueManualExecution(scope, monitor, now);
+    if (!executionId) {
+      // A queued/running execution already exists — don't stack a second
+      // container; tell the user a run is already underway.
+      return redirectWithParam(
+        c,
+        here,
+        "runNotice",
+        "A run is already in progress — wait for it to finish before running again.",
+      );
+    }
+
+    // Mirror the scheduler's ordering: the execution row is persisted (above)
+    // BEFORE the enqueue, so a dropped send leaves a visibly-queued execution
+    // the stale-execution reaper finalizes, not a silent no-op.
+    await enqueueMonitorJob(
+      { monitorId: monitor.id, executionId, scheduledFor: now },
+      monitor,
+    );
 
     return c.redirect(here);
   }),

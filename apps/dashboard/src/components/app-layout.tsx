@@ -6,7 +6,6 @@ import {
   FileClock,
   FlaskConical,
   Gauge,
-  KeyRound,
   List,
   Radar,
   Settings,
@@ -437,8 +436,8 @@ function SettingsSidebarMiddle({
           <SettingsNavLink
             active={pathname.endsWith("/keys")}
             href={`/settings/teams/${expandedTeam.slug}/p/${expandedProject.slug}/keys`}
-            icon={KeyRound}
-            label="API keys"
+            icon={Settings}
+            label="Project settings"
           />
         </div>
       )}

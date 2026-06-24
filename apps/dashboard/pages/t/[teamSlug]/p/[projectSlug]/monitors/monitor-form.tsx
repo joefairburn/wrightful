@@ -1,6 +1,5 @@
 "use client";
 
-import { Play } from "lucide-react";
 import { Link } from "@void/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -54,9 +53,10 @@ export interface MonitorFormProps {
  *
  * Layout follows the design: a 2-col [Name · Interval] row, the Browser-check
  * code editor with helper text, then an actions row pairing the Enabled switch
- * (with a state-aware description) against the Run-once / Cancel / submit
- * cluster. Server actions own validation + redirect; `error` is surfaced inline
- * (banner + editor border treatment).
+ * (with a state-aware description) against the Cancel / submit cluster. Running
+ * a monitor on demand ("Run now") lives on the saved monitor's detail page, not
+ * here — it needs a persisted monitor row. Server actions own validation +
+ * redirect; `error` is surfaced inline (banner + editor border treatment).
  */
 export function MonitorForm({
   action,
@@ -143,15 +143,6 @@ export function MonitorForm({
         <div className="flex-1" />
 
         <div className="flex items-center gap-2">
-          <Button
-            disabled
-            size="sm"
-            title="Coming soon — dry-run your test before saving"
-            variant="ghost"
-          >
-            <Play className="size-3" />
-            Run once
-          </Button>
           {cancelHref && (
             <Button
               render={<Link href={cancelHref} />}
