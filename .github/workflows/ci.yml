@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # `labeled` is included so applying the `CI` label to an open PR
+    # re-triggers CI — the dogfood streaming step (in test-e2e) keys off that
+    # label. Without it, the label would only take effect on the next push.
+    types: [opened, synchronize, reopened, labeled]
 
 jobs:
   lint-and-typecheck:
@@ -235,6 +239,25 @@ jobs:
 
       - name: Run E2E tests
         run: pnpm test:e2e
+
+      # Dogfood: run the demo Playwright suite (tests/, playwright.config.ts —
+      # the only suite wired with @wrightful/reporter) and stream its results to
+      # production Wrightful so the prod dashboard fills with real run data.
+      # `pnpm test:e2e` above is the Vitest ingest-API suite and does NOT load
+      # the reporter, so this is a separate step on the streaming suite.
+      #
+      # Opt-in only: streams solely when a PR carries the `CI` label, so
+      # nothing hits the prod dashboard unless a maintainer explicitly asks for
+      # it on that PR. The reporter no-ops gracefully if the token is
+      # missing/wrong (logs + drops results, exit 0), so a secret problem never
+      # reddens CI. Fork PRs can't stream regardless (GitHub withholds secrets
+      # from forked-repo PR runs).
+      - name: Dogfood — stream demo suite to production Wrightful
+        if: contains(github.event.pull_request.labels.*.name, 'CI')
+        env:
+          WRIGHTFUL_URL: https://dash.wrightful.dev
+          WRIGHTFUL_TOKEN: ${{ secrets.WRIGHTFUL_TOKEN }}
+        run: pnpm --filter @wrightful/e2e test:playwright
 
   # Browser-driven UI smoke against a locally booted dashboard. Catches
   # cross-cutting regressions (auth → navigation → run-detail) that the
