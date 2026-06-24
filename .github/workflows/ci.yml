@@ -300,11 +300,17 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm --filter @wrightful/e2e exec playwright install --with-deps chromium
 
+      # Run only demo.spec.ts — NOT the whole `tests/` dir. The sibling
+      # visual-regression.spec.ts is a manual verification harness (it needs a
+      # committed per-OS screenshot baseline; there's no Linux one, so it errors
+      # "snapshot doesn't exist … homepage-linux.png" and reddens the job). The
+      # reporter is configured at the playwright.config.ts level, so the demo
+      # spec still streams its results regardless of which files run.
       - name: Stream demo suite to production Wrightful
         env:
           WRIGHTFUL_URL: https://dash.wrightful.dev
           WRIGHTFUL_TOKEN: ${{ secrets.WRIGHTFUL_TOKEN }}
-        run: pnpm --filter @wrightful/e2e test:playwright
+        run: pnpm --filter @wrightful/e2e exec playwright test tests/demo.spec.ts
 
   # Browser-driven UI smoke against a locally booted dashboard. Catches
   # cross-cutting regressions (auth → navigation → run-detail) that the
