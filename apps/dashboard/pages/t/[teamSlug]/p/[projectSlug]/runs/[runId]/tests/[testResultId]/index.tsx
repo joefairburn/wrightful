@@ -1,6 +1,6 @@
 import { Link } from "@void/react";
 import { ArtifactsRail } from "@/components/artifacts-rail";
-import { Breadcrumbs } from "@/components/breadcrumbs";
+import { HeaderCrumbs } from "@/components/page-header";
 import {
   AttemptPanel,
   AttemptTabsBar,
@@ -210,18 +210,22 @@ export default function TestDetailPage(props: Props) {
 
   return (
     <div className="flex flex-col">
-      <Breadcrumbs
-        items={[
-          { label: "Runs", href: base },
-          { label: `#${runId.slice(-7)}`, href: `${base}/runs/${runId}` },
-          { label: testTitle },
-        ]}
-      />
       <div className="border-b border-border px-6 py-4 shrink-0">
         <div className="mb-1 flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <HeaderCrumbs
+              items={[
+                { label: "Runs", href: base },
+                {
+                  label: `#${runId.slice(-7)}`,
+                  href: `${base}/runs/${runId}`,
+                },
+              ]}
+            />
             <StatusBadge status={result.status} />
-            <h1 className="font-semibold text-xl">{testTitle}</h1>
+            <h1 className="text-[17px] font-semibold tracking-[-0.2px]">
+              {testTitle}
+            </h1>
           </div>
           <QuarantineControl
             actionPath={quarantineActionPath}

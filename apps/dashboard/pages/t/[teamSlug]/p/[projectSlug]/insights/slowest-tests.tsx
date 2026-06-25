@@ -125,12 +125,6 @@ export default function SlowestTestsPage({
             />
           </>
         }
-        subtitle={
-          <>
-            <span className="font-mono">{project.slug}</span> · tests ranked by
-            p95 duration
-          </>
-        }
         title="Insights"
       />
 
@@ -332,7 +326,7 @@ export default function SlowestTestsPage({
               </Table>
             )}
           </CardPanel>
-          {totalPages > 1 && (
+          {bottlenecks.length > 0 && (
             <TablePaginationFooter
               fromRow={fromRow}
               toRow={toRow}

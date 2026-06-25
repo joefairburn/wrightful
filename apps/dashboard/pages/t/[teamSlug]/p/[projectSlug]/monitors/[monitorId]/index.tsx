@@ -22,15 +22,8 @@ import {
   monitorDisplayStatus,
   MonTypeGlyph,
 } from "@/components/monitors/monitor-status";
+import { HeaderCrumbs } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardPanel } from "@/components/ui/card";
 import { CodeEditor } from "@/components/ui/code-editor";
@@ -78,22 +71,12 @@ function MonitorCreateView({ project, type, formError }: CreateProps) {
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <header className="shrink-0 border-b border-line-1 px-6 pt-4 pb-4">
-        <Breadcrumb>
-          <BreadcrumbList className="text-[12px]">
-            <BreadcrumbItem>
-              <BreadcrumbLink render={<Link href={monitorsBase} />}>
-                Monitors
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>New monitor</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <h1 className="mt-2.5 text-[19px] font-semibold tracking-[-0.2px]">
-          New monitor
-        </h1>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <HeaderCrumbs items={[{ label: "Monitors", href: monitorsBase }]} />
+          <h1 className="text-[17px] font-semibold tracking-[-0.2px]">
+            New monitor
+          </h1>
+        </div>
         <p className="mt-1 text-[12.5px] text-fg-3">
           {isHttp
             ? "Check a URL on a schedule — status, response time, headers, and body."
@@ -239,29 +222,16 @@ function MonitorDetailView({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Header */}
         <header className="border-b border-line-1 px-6 pt-4 pb-4">
-          <Breadcrumb>
-            <BreadcrumbList className="text-[12px]">
-              <BreadcrumbItem>
-                <BreadcrumbLink render={<Link href={monitorsBase} />}>
-                  Monitors
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage className="max-w-[420px] truncate">
-                  {monitor.name}
-                </BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-
-          <div className="mt-2.5 flex items-center gap-3">
-            <MonGlyph size={18} state={status} />
+          <div className="flex items-center gap-3">
+            <HeaderCrumbs items={[{ label: "Monitors", href: monitorsBase }]} />
             <h1
-              className="min-w-0 max-w-[520px] truncate text-[19px] font-semibold tracking-[-0.2px]"
+              className="flex min-w-0 items-center gap-2 text-[17px] font-semibold tracking-[-0.2px]"
               title={monitor.name}
             >
-              {monitor.name}
+              <span className="min-w-0 max-w-[520px] truncate">
+                {monitor.name}
+              </span>
+              <MonGlyph size={18} state={status} />
             </h1>
             <MonBadge state={status} />
             <div className="flex-1" />

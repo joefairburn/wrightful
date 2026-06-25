@@ -3,6 +3,7 @@ import { Fragment } from "react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import { OutcomeBar } from "@/components/outcome-bar";
 import { PageHeader } from "@/components/page-header";
+import { PageToolbar } from "@/components/page-toolbar";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { SearchFilterInput } from "@/components/search-filter-input";
@@ -88,19 +89,9 @@ export default function TestsPage({
 
   return (
     <>
-      <PageHeader
-        title="Tests catalog"
-        subtitle={
-          <>
-            <span className="font-mono">{project.slug}</span> ·{" "}
-            {totalUniqueTests.toLocaleString()} unique test
-            {totalUniqueTests === 1 ? "" : "s"} across{" "}
-            {branchParam ? branchFilter : "all branches"}
-          </>
-        }
-      />
+      <PageHeader title="Tests catalog" />
 
-      <div className="sticky top-0 z-[4] flex shrink-0 flex-wrap items-center gap-2.5 border-b border-border bg-background px-6 py-2.5">
+      <PageToolbar sticky>
         <form className="max-w-[360px] flex-1" method="get">
           <input name="range" type="hidden" value={range} />
           {branchParam ? (
@@ -129,7 +120,7 @@ export default function TestsPage({
           options={ranges as readonly ("7d" | "14d" | "30d")[]}
           value={range}
         />
-      </div>
+      </PageToolbar>
 
       {availableTags.length > 0 && (
         <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-background px-6 py-2">
@@ -179,7 +170,7 @@ export default function TestsPage({
         <>
           <div className="flex-1 overflow-y-auto min-h-0">
             <Table className="table-fixed">
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
                 <TableRow>
                   <TableHead className="w-10 px-4" />
                   <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
@@ -243,17 +234,15 @@ export default function TestsPage({
               </TableBody>
             </Table>
           </div>
-          {totalPages > 1 && (
-            <TablePaginationFooter
-              currentPage={currentPage}
-              fromRow={fromRow}
-              itemNoun="test"
-              pageHref={pageHref}
-              toRow={toRow}
-              totalCount={totalUniqueTests}
-              totalPages={totalPages}
-            />
-          )}
+          <TablePaginationFooter
+            currentPage={currentPage}
+            fromRow={fromRow}
+            itemNoun="test"
+            pageHref={pageHref}
+            toRow={toRow}
+            totalCount={totalUniqueTests}
+            totalPages={totalPages}
+          />
         </>
       )}
     </>
