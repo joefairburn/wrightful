@@ -210,6 +210,8 @@ export default function LoginPage({
             <div className="mt-4 mb-[18px] flex items-center gap-2.5">
               <Checkbox
                 id="remember"
+                // SSR-static name; Base UI only wires the label post-hydration.
+                aria-label="Keep me signed in"
                 checked={rememberMe}
                 onCheckedChange={(checked) => setRememberMe(checked)}
               />
