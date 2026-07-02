@@ -19,13 +19,13 @@ run. No new endpoint, no schema change.
 
 ## Details
 
-| File | Change |
-| --- | --- |
-| `apps/dashboard/src/realtime/run-progress.ts` | New pure `mergeBackfilledTests(prev, tests)` — inverse precedence of `applyRunProgressEvent`: rows already in `byId` (seed or live event, both fresher) WIN over back-filled duplicates; referentially stable no-op when nothing is new. |
-| `apps/dashboard/src/realtime/use-run-room.ts` | New `backfill?: { teamSlug, projectSlug, cursor }` option. When `cursor` is non-null, an effect loops the typed `fetch("/api/…/results", { query: { cursor } })` until `nextCursor` is exhausted, folding each page through `mergeBackfilledTests` via the feed-room setter. Abortable (`AbortController`) on unmount/re-key. |
-| `apps/dashboard/pages/…/runs/[runId]/index.server.ts` | Loader now returns `testsCursor` (the seed page's `nextCursor`) instead of dropping it. |
-| `apps/dashboard/pages/…/runs/[runId]/index.tsx` | Passes `initialCursor={testsCursor}` to `<RunProgress>`. |
-| `apps/dashboard/src/components/run-progress.tsx` | New `initialCursor` prop, forwarded as the `backfill` option (with the slugs it already had). |
+| File                                                  | Change                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/dashboard/src/realtime/run-progress.ts`         | New pure `mergeBackfilledTests(prev, tests)` — inverse precedence of `applyRunProgressEvent`: rows already in `byId` (seed or live event, both fresher) WIN over back-filled duplicates; referentially stable no-op when nothing is new.                                                                                      |
+| `apps/dashboard/src/realtime/use-run-room.ts`         | New `backfill?: { teamSlug, projectSlug, cursor }` option. When `cursor` is non-null, an effect loops the typed `fetch("/api/…/results", { query: { cursor } })` until `nextCursor` is exhausted, folding each page through `mergeBackfilledTests` via the feed-room setter. Abortable (`AbortController`) on unmount/re-key. |
+| `apps/dashboard/pages/…/runs/[runId]/index.server.ts` | Loader now returns `testsCursor` (the seed page's `nextCursor`) instead of dropping it.                                                                                                                                                                                                                                       |
+| `apps/dashboard/pages/…/runs/[runId]/index.tsx`       | Passes `initialCursor={testsCursor}` to `<RunProgress>`.                                                                                                                                                                                                                                                                      |
+| `apps/dashboard/src/components/run-progress.tsx`      | New `initialCursor` prop, forwarded as the `backfill` option (with the slugs it already had).                                                                                                                                                                                                                                 |
 
 ## Design notes
 
