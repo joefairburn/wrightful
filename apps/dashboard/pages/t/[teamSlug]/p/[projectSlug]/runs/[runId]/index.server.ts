@@ -73,6 +73,10 @@ export const loader = defineHandler(async (c) => {
   // The full-run select() above already 404s on a foreign/missing run, so the
   // run is owned here; loadRunResultsPage's own ownership probe agrees.
   const tests = resultsPage?.results ?? [];
+  // Non-null when the run has more tests than TESTS_LIMIT — the client
+  // back-paginates the rest from GET /results (see `useRunRoom`'s backfill)
+  // so the Tests tab list + filter counts cover the whole run.
+  const testsCursor = resultsPage?.nextCursor ?? null;
 
   return {
     project: {
@@ -93,5 +97,6 @@ export const loader = defineHandler(async (c) => {
     tab,
     pathname: url.pathname,
     tests,
+    testsCursor,
   };
 });
