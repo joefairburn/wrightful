@@ -28,6 +28,13 @@ interface RunProgressProps {
   projectSlug: string;
   /** SSR-loaded test rows. Forwarded to the hook to seed its accumulator. */
   initialTests?: RunProgressTest[];
+  /**
+   * `nextCursor` left over from the SSR seed page (loader's TESTS_LIMIT
+   * window). Non-null ⇒ the run has more tests than the seed; `useRunRoom`
+   * back-paginates them in so the list and the per-status filter counts
+   * cover the whole run.
+   */
+  initialCursor?: string | null;
 }
 
 /**
@@ -56,8 +63,12 @@ export function RunProgress({
   teamSlug,
   projectSlug,
   initialTests,
+  initialCursor,
 }: RunProgressProps) {
-  const { byId } = useRunRoom(runId, { initialTests });
+  const { byId } = useRunRoom(runId, {
+    initialTests,
+    backfill: { teamSlug, projectSlug, cursor: initialCursor ?? null },
+  });
   const tests = useMemo(() => Object.values(byId), [byId]);
 
   const [search, setSearch] = useState("");
