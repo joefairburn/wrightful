@@ -2,6 +2,7 @@ import { ulid } from "ulid";
 import { and, asc, db, desc, eq, inArray, lt, or, sql } from "void/db";
 import { monitorExecutions, monitors } from "@schema";
 import type { Monitor, MonitorExecution } from "@schema";
+import { serializeAlertTargets } from "@/lib/monitors/alert-targets";
 import { runBatch } from "@/lib/db-batch";
 import { numericSql } from "@/lib/db/sql-ops";
 import {
@@ -192,6 +193,9 @@ export async function updateMonitor(
     set.intervalSeconds = patch.intervalSeconds;
   }
   if (patch.enabled !== undefined) set.enabled = patch.enabled ? 1 : 0;
+  if (patch.alertTargets !== undefined) {
+    set.alertTargets = serializeAlertTargets(patch.alertTargets);
+  }
 
   // Resolve the post-patch enabled/interval to re-derive the schedule, falling
   // back to the current row for fields the patch doesn't touch.
@@ -255,23 +259,6 @@ export async function setMonitorAlertsEnabled(
   await db
     .update(monitors)
     .set({ alertsEnabled: alertsEnabled ? 1 : 0, updatedAt: now })
-    .where(monitorByIdWhere(scope, monitorId));
-}
-
-/**
- * Set a monitor's alert recipients. `targetsJson` is the pre-serialized
- * `alertTargets` value (`null` = all members; else a `{ users, groups }` JSON
- * string from `serializeAlertTargets`). One-statement, like the toggles.
- */
-export async function setMonitorAlertTargets(
-  scope: TenantScope,
-  monitorId: string,
-  targetsJson: string | null,
-  now: number,
-): Promise<void> {
-  await db
-    .update(monitors)
-    .set({ alertTargets: targetsJson, updatedAt: now })
     .where(monitorByIdWhere(scope, monitorId));
 }
 

@@ -9,7 +9,6 @@ import { listGroups } from "@/lib/member-groups";
 import {
   buildAlertTargets,
   parseAlertTargets,
-  serializeAlertTargets,
 } from "@/lib/monitors/alert-targets";
 import {
   CreateMonitorSchema,
@@ -35,7 +34,6 @@ import {
   getMonitor,
   listExecutions,
   setMonitorAlertsEnabled,
-  setMonitorAlertTargets,
   setMonitorEnabled,
   updateMonitor,
 } from "@/lib/monitors/monitors-repo";
@@ -211,8 +209,10 @@ export const loader = defineHandler(async (c) => {
     // monitor row — the page renders it for enabled monitors and "paused"/
     // "queued" otherwise.
     nextRunAt: monitor.nextRunAt,
-    // Whether the edit form is open. Toggled via `?edit=1` so the section is
-    // server-rendered (no client island) and survives a no-JS round trip.
+    // Whether the edit modal is open. Kept in the URL (`?edit=1`) so the
+    // client `MonitorEditDialog` island keys its open state off it and a
+    // `?formError=` redirect re-opens it — the modal itself needs JS (it's a
+    // portal), so editing is unavailable on the no-JS path.
     editing: url.searchParams.get("edit") === "1",
     formError: url.searchParams.get("formError"),
     dangerError: url.searchParams.get("dangerError"),
@@ -368,12 +368,35 @@ export const actions = {
       return fail(firstIssueMessage(parsed.error, "Invalid monitor."));
     }
 
+    // Alert recipients ride along in the same edit form (they moved off the
+    // detail page and into the edit modal), so persist them in this submit —
+    // in the SAME update statement as the config so both commit atomically.
+    // `recipientMode=all` ⇒ all members (stored null); `specific` ⇒ the checked
+    // members (`user`) + groups (`group`). The targets are re-intersected with
+    // live members at send time, so storing an id that later leaves the team is
+    // harmless.
+    //
+    // Gated on the `recipientFields` hidden marker that `AlertRecipientsFields`
+    // emits: absent ⇒ leave targets untouched (`undefined`), so a future
+    // `updateMonitor` caller that omits the picker can't silently reset every
+    // monitor to "all members". "All" is a deliberate empty selection, not a
+    // missing field.
+    const asStrings = (key: string): string[] =>
+      form.getAll(key).filter((v): v is string => typeof v === "string");
+    const alertTargets = readField(form, "recipientFields")
+      ? buildAlertTargets(
+          readField(form, "recipientMode") || "all",
+          asStrings("user"),
+          asStrings("group"),
+        )
+      : undefined;
+
     const now = Math.floor(Date.now() / 1000);
     try {
       const updated = await updateMonitor(
         scope,
         monitorId,
-        parsed.data,
+        { ...parsed.data, alertTargets },
         now,
         existing,
       );
@@ -416,37 +439,6 @@ export const actions = {
     const alertsEnabled = form.get("alertsEnabled") === "true";
     const now = Math.floor(Date.now() / 1000);
     await setMonitorAlertsEnabled(scope, monitorId, alertsEnabled, now);
-
-    return c.redirect(here);
-  }),
-
-  /**
-   * Set who the monitor alerts. `recipientMode=all` ⇒ all members (stored
-   * null); `specific` ⇒ the checked members (`user`) + groups (`group`). The
-   * targets are re-intersected with live members at send time, so storing an
-   * id that later leaves the team is harmless.
-   */
-  setAlertRecipients: defineHandler(async (c) => {
-    const { project, scope } = requireOwnerTenantContext(c);
-    const monitorId = requireMonitorId(c);
-    const here = `/t/${project.teamSlug}/p/${project.slug}/monitors/${monitorId}`;
-
-    const form = await c.req.formData();
-    const asStrings = (key: string): string[] =>
-      form.getAll(key).filter((v): v is string => typeof v === "string");
-    const mode = readField(form, "recipientMode") || "all";
-    const targets = buildAlertTargets(
-      mode,
-      asStrings("user"),
-      asStrings("group"),
-    );
-    const now = Math.floor(Date.now() / 1000);
-    await setMonitorAlertTargets(
-      scope,
-      monitorId,
-      serializeAlertTargets(targets),
-      now,
-    );
 
     return c.redirect(here);
   }),
