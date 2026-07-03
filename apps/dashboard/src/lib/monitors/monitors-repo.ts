@@ -443,6 +443,16 @@ export async function claimExecution(
  * by id — a concurrent newer execution recording after this one is acceptable
  * (last-write-wins on `lastStatus` is exactly the desired semantics for "the
  * most recent result").
+ *
+ * INFRA errors (`result.infraError`) record the execution row (so the failed
+ * attempt is visible in the timeline / `ExecStrip`) but DO NOT bump the
+ * monitor's denormalized `lastStatus`/`lastRunAt`: an infra error is OUR-side
+ * (sandbox unavailable, transient) and is being retried, not a health signal
+ * about the monitored target. Persisting it would regress the monitor badge AND
+ * pollute the health baseline the alert classifier reads on the retry, turning
+ * one transient hiccup into a "down" + spurious "recovered" email pair. The
+ * badge therefore stays owned by real recorded executions — the same policy the
+ * stale-execution reaper (`sweepStaleExecutions`) already follows.
  */
 export async function recordExecutionResult(
   execution: MonitorExecution,
@@ -470,15 +480,20 @@ export async function recordExecutionResult(
           eq(monitorExecutions.id, execution.id),
         ),
       ),
-    tx
-      .update(monitors)
-      .set({ lastStatus: result.state, lastRunAt: now, updatedAt: now })
-      .where(
-        and(
-          eq(monitors.projectId, execution.projectId),
-          eq(monitors.id, execution.monitorId),
-        ),
-      ),
+    // Skip the monitor badge/baseline bump for a retryable infra error (above).
+    ...(result.infraError
+      ? []
+      : [
+          tx
+            .update(monitors)
+            .set({ lastStatus: result.state, lastRunAt: now, updatedAt: now })
+            .where(
+              and(
+                eq(monitors.projectId, execution.projectId),
+                eq(monitors.id, execution.monitorId),
+              ),
+            ),
+        ]),
   ]);
 }
 
