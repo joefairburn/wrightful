@@ -4,6 +4,7 @@ import { runs } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { loadRunResultsPage } from "@/lib/run-results-page";
+import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
 import { runByIdWhere, runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -24,7 +25,9 @@ export const loader = defineHandler(async (c) => {
   const { project, scope } = requireTenantContext(c);
 
   const runRows = await db
-    .select()
+    // Explicit projection — omits idempotencyKey (the write-reopen credential)
+    // from the serialized props. See RUN_PUBLIC_COLUMNS.
+    .select(RUN_PUBLIC_COLUMNS)
     .from(runs)
     .where(runByIdWhere(scope, runId))
     .limit(1);

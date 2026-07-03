@@ -8,6 +8,7 @@ import {
   testTags,
 } from "@schema";
 import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
+import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
 import {
   childByTestIdWhere,
   childByTestResultWhere,
@@ -57,7 +58,11 @@ export const loader = defineHandler(async (c) => {
         ),
       )
       .limit(1),
-    db.select().from(runs).where(runByIdWhere(scope, runId)).limit(1),
+    db
+      .select(RUN_PUBLIC_COLUMNS)
+      .from(runs)
+      .where(runByIdWhere(scope, runId))
+      .limit(1),
   ]);
   const result = resultRows[0];
   const run = runRows[0];
