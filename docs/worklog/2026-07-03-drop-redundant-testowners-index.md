@@ -22,11 +22,11 @@ performance/storage win with no behavioural change.
   - Redundant index: `CREATE INDEX "testOwners_project_testId_idx" ON public."testOwners" USING btree ("projectId", "testId")`
   - Covered by: `CREATE UNIQUE INDEX "testOwners_project_testId_owner_idx" ON public."testOwners" USING btree ("projectId", "testId", owner)`
 
-| File | Change |
-| --- | --- |
-| `apps/dashboard/db/schema.ts` | Removed the `index("testOwners_project_testId_idx")` definition from the `testOwners` table; folded its purpose comment (it served the `resolveTestOwners` per-test lookup) into the unique-index comment, noting the `(projectId, testId)` prefix now covers that lookup. |
-| `apps/dashboard/db/migrations/20260703211031_massive_justice.sql` | Generated migration: `DROP INDEX "testOwners_project_testId_idx";` |
-| `apps/dashboard/db/migrations/meta/_journal.json`, `meta/20260703211031_snapshot.json` | Drizzle journal + snapshot updates (snapshot `prevId` chains off `20260703205234_groovy_madripoor`). |
+| File                                                                                   | Change                                                                                                                                                                                                                                                                     |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/dashboard/db/schema.ts`                                                          | Removed the `index("testOwners_project_testId_idx")` definition from the `testOwners` table; folded its purpose comment (it served the `resolveTestOwners` per-test lookup) into the unique-index comment, noting the `(projectId, testId)` prefix now covers that lookup. |
+| `apps/dashboard/db/migrations/20260703211031_massive_justice.sql`                      | Generated migration: `DROP INDEX "testOwners_project_testId_idx";`                                                                                                                                                                                                         |
+| `apps/dashboard/db/migrations/meta/_journal.json`, `meta/20260703211031_snapshot.json` | Drizzle journal + snapshot updates (snapshot `prevId` chains off `20260703205234_groovy_madripoor`).                                                                                                                                                                       |
 
 ### Why this is safe (not the two-step drop process)
 
