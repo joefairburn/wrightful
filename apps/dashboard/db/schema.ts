@@ -593,6 +593,21 @@ export const testResults = pgTable(
       t.testId,
       t.createdAt,
     ),
+    // Trigram GIN indexes backing the ⌘K command-palette test search, which
+    // matches `title`/`file` with a LEADING-wildcard `ILIKE '%q%'`. A b-tree
+    // can't accelerate a leading wildcard, so without these the search was a full
+    // scan of the project's testResults partition on every (debounced) keystroke
+    // — a multi-second query at a busy project's retained-row scale. `pg_trgm`'s
+    // `gin_trgm_ops` indexes the substrings so ILIKE becomes a Bitmap Index Scan;
+    // two single-column indexes let the planner BitmapOr the title/file match and
+    // BitmapAnd it with the project-scope b-tree. REQUIRES the `pg_trgm`
+    // extension — the generated migration is hand-augmented with
+    // `CREATE EXTENSION IF NOT EXISTS pg_trgm` (drizzle-kit does not emit it).
+    index("testResults_title_trgm_idx").using(
+      "gin",
+      t.title.op("gin_trgm_ops"),
+    ),
+    index("testResults_file_trgm_idx").using("gin", t.file.op("gin_trgm_ops")),
   ],
 );
 
