@@ -1,7 +1,8 @@
 import { Link } from "@void/react";
 import type React from "react";
-import { useMemo } from "react";
+import { use, useMemo } from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
+import { DeferredSection } from "@/components/defer-error-boundary";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
@@ -22,6 +23,7 @@ import {
 } from "@/components/run-meta-pills";
 import { RunProgress } from "@/components/run-progress";
 import { RunSummaryLive } from "@/components/run-summary-live";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/cn";
 import { makeHrefBuilder } from "@/lib/page-links";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
@@ -55,14 +57,13 @@ export default function RunDetailPage({
   project,
   run,
   runId,
-  history,
-  branches,
   branchParam,
   defaultBranch,
   effectiveBranch,
   tab,
   pathname,
   tests,
+  chart,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
   const shortId = run.id.slice(-7);
@@ -70,34 +71,9 @@ export default function RunDetailPage({
   const branchHref = branchUrl(run.ciProvider, run.repo, run.branch);
   const commitHref = commitUrl(run.ciProvider, run.repo, run.commitSha);
 
-  const chronological = [...history].reverse();
-  const hrefQuery = branchParam
-    ? `?branch=${encodeURIComponent(branchParam)}`
-    : "";
-  const historyPoints: RunHistoryPoint[] = chronological.map((h) => ({
-    id: h.id,
-    durationMs: h.durationMs,
-    status: h.status,
-    current: h.id === runId,
-    href: h.id === runId ? undefined : `${base}/runs/${h.id}${hrefQuery}`,
-    hover:
-      h.id === runId
-        ? undefined
-        : {
-            kind: "run" as const,
-            teamSlug: project.teamSlug,
-            projectSlug: project.slug,
-            runId: h.id,
-          },
-    label: [
-      h.status,
-      formatDuration(h.durationMs),
-      formatRelativeTime(h.createdAt),
-      h.commitSha ? h.commitSha.slice(0, 7) : null,
-    ]
-      .filter(Boolean)
-      .join(" · "),
-  }));
+  // A deferred region that fails latches its error boundary; clear it when the
+  // branch filter changes so the SPA-nav re-fetch re-attempts the region.
+  const resetKey = `${runId}:${branchParam ?? ""}`;
 
   // Memoized on the `run` loader prop so the object identity is stable across
   // re-renders and only changes per navigation — `useRunRoom`'s render-time
@@ -201,21 +177,21 @@ export default function RunDetailPage({
           </div>
 
           <div className="mt-4">
-            <RunHistoryChart
-              emptyState={
-                effectiveBranch === ALL_BRANCHES
-                  ? "No run history yet."
-                  : `No run history on ${effectiveBranch} yet.`
-              }
-              points={historyPoints}
-              subtitle={
-                <RunHistoryBranchFilter
-                  branches={branches}
-                  defaultValue={defaultBranch}
-                />
-              }
-              title={`Duration · last ${historyPoints.length} run${historyPoints.length === 1 ? "" : "s"}`}
-            />
+            <DeferredSection
+              resetKey={resetKey}
+              skeleton={<RunHistoryChartSkeleton />}
+            >
+              <RunHistoryChartRegion
+                base={base}
+                branchParam={branchParam}
+                chart={chart}
+                defaultBranch={defaultBranch}
+                effectiveBranch={effectiveBranch}
+                projectSlug={project.slug}
+                runId={runId}
+                teamSlug={project.teamSlug}
+              />
+            </DeferredSection>
           </div>
         </div>
 
@@ -271,6 +247,100 @@ export default function RunDetailPage({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Deferred duration-trend chart + inline branch filter. Reads the grouped
+ * `chart` prop ({ history, branches }) via `use()` and builds the chart points
+ * here — the resolver returns only serializable rows, so all the JSX/derivation
+ * (point mapping, hovercards, empty-state copy) lives in this child.
+ */
+function RunHistoryChartRegion({
+  chart,
+  runId,
+  base,
+  branchParam,
+  defaultBranch,
+  effectiveBranch,
+  teamSlug,
+  projectSlug,
+}: {
+  chart: Props["chart"];
+  runId: string;
+  base: string;
+  branchParam: string | null;
+  defaultBranch: string;
+  effectiveBranch: string;
+  teamSlug: string;
+  projectSlug: string;
+}): React.ReactElement {
+  const { history, branches } = use(chart);
+
+  const chronological = [...history].reverse();
+  const hrefQuery = branchParam
+    ? `?branch=${encodeURIComponent(branchParam)}`
+    : "";
+  const historyPoints: RunHistoryPoint[] = chronological.map((h) => ({
+    id: h.id,
+    durationMs: h.durationMs,
+    status: h.status,
+    current: h.id === runId,
+    href: h.id === runId ? undefined : `${base}/runs/${h.id}${hrefQuery}`,
+    hover:
+      h.id === runId
+        ? undefined
+        : {
+            kind: "run" as const,
+            teamSlug,
+            projectSlug,
+            runId: h.id,
+          },
+    label: [
+      h.status,
+      formatDuration(h.durationMs),
+      formatRelativeTime(h.createdAt),
+      h.commitSha ? h.commitSha.slice(0, 7) : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  }));
+
+  return (
+    <RunHistoryChart
+      emptyState={
+        effectiveBranch === ALL_BRANCHES
+          ? "No run history yet."
+          : `No run history on ${effectiveBranch} yet.`
+      }
+      points={historyPoints}
+      subtitle={
+        <RunHistoryBranchFilter
+          branches={branches}
+          defaultValue={defaultBranch}
+        />
+      }
+      title={`Duration · last ${historyPoints.length} run${historyPoints.length === 1 ? "" : "s"}`}
+    />
+  );
+}
+
+/** Suspense fallback matching the `RunHistoryChart` card (120px plot + chrome). */
+function RunHistoryChartSkeleton(): React.ReactElement {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      {/* Pinned to the real title row's exact 21.25px. That row baseline-aligns
+       * the `text-sm` title (20px line box) with the RunHistoryBranchFilter
+       * button (`py-0.5` + `text-[11px]` ≈ 20.5px); the baseline interplay
+       * lands it at a fractional 21.25px, which two flat `h-*` bars (max 20px)
+       * couldn't reserve — the last ~1.25px of run-detail CLS. `items-center`
+       * centres the bars within the pinned row. */}
+      <div className="mb-3 flex h-[21.25px] items-center gap-2.5">
+        <Skeleton className="h-4 w-36" />
+        <Skeleton className="h-5 w-24 rounded" />
+      </div>
+      <Skeleton className="w-full rounded-md" style={{ height: 120 }} />
+    </div>
   );
 }
 

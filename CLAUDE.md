@@ -159,7 +159,7 @@ Docs are local at `node_modules/vite-plus/docs` or online at https://viteplus.de
 
 <!--VITE PLUS END-->
 
-<!--injected-by-void-v0.9.3-->
+<!--injected-by-void-v0.10.3-->
 
 ## Void
 
