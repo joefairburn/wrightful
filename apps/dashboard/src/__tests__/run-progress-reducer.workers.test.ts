@@ -2,6 +2,7 @@ import { describe, it, expect } from "vite-plus/test";
 import {
   applyRunProgressEvent,
   currentSummary,
+  mergeBackfilledTests,
   seedRunProgressState,
   type RunProgressState,
 } from "@/realtime/run-progress";
@@ -169,6 +170,47 @@ describe("applyRunProgressEvent", () => {
     );
     expect(Object.keys(state.byId).sort()).toEqual(["tr-1", "tr-2"]);
     expect(state.byId["tr-1"].status).toBe("failed");
+  });
+});
+
+describe("mergeBackfilledTests", () => {
+  it("adds unknown rows without touching the summary", () => {
+    const s = summary({ passed: 5, totalTests: 5 });
+    const prev: RunProgressState = {
+      byId: { "tr-1": test({ id: "tr-1" }) },
+      summary: s,
+    };
+    const next = mergeBackfilledTests(prev, [
+      test({ id: "tr-2", testId: "t-2" }),
+      test({ id: "tr-3", testId: "t-3" }),
+    ]);
+    expect(Object.keys(next.byId).sort()).toEqual(["tr-1", "tr-2", "tr-3"]);
+    expect(next.summary).toBe(s);
+    // does not mutate prev
+    expect(Object.keys(prev.byId)).toEqual(["tr-1"]);
+  });
+
+  it("existing rows WIN over back-filled duplicates (inverse of event precedence)", () => {
+    const prev: RunProgressState = {
+      byId: { "tr-1": test({ id: "tr-1", status: "passed", retryCount: 1 }) },
+      summary: null,
+    };
+    const next = mergeBackfilledTests(prev, [
+      test({ id: "tr-1", status: "failed", retryCount: 0 }),
+      test({ id: "tr-2", testId: "t-2" }),
+    ]);
+    expect(next.byId["tr-1"].status).toBe("passed");
+    expect(next.byId["tr-1"].retryCount).toBe(1);
+    expect(Object.keys(next.byId).sort()).toEqual(["tr-1", "tr-2"]);
+  });
+
+  it("returns prev unchanged (same reference) when every row is already known", () => {
+    const prev: RunProgressState = {
+      byId: { "tr-1": test({ id: "tr-1" }) },
+      summary: null,
+    };
+    expect(mergeBackfilledTests(prev, [test({ id: "tr-1" })])).toBe(prev);
+    expect(mergeBackfilledTests(prev, [])).toBe(prev);
   });
 });
 
