@@ -27,6 +27,12 @@ export interface RunProgressTest {
   status: string;
   durationMs: number;
   retryCount: number;
+  /**
+   * 1-based Playwright shard that ran this test, or `null` on a non-sharded run
+   * (and on still-queued rows a shard hasn't claimed yet). Lets the Tests tab
+   * group rows by shard alongside file / project.
+   */
+  shardIndex: number | null;
 }
 
 /**

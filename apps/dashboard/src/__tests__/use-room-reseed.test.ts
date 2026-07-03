@@ -110,6 +110,7 @@ function test(overrides: Partial<RunProgressTest> = {}): RunProgressTest {
     status: "passed",
     durationMs: 100,
     retryCount: 0,
+    shardIndex: null,
     ...overrides,
   };
 }

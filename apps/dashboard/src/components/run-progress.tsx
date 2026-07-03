@@ -48,10 +48,11 @@ interface RunProgressProps {
  *
  * Layout mirrors the design bundle's `screen-run-detail.jsx`:
  *   - Sticky filter bar — search input, status SegmentedControl with per-status
- *     counts, Group-by control (File / Playwright project).
- *   - Grouped collapsible list — each group header shows the file path or
- *     project name plus a per-status count summary; click to toggle. Failed /
- *     flaky groups expand by default.
+ *     counts, Group-by control (File / Playwright project, plus Shard when the
+ *     run is sharded).
+ *   - Grouped collapsible list — each group header shows the file path,
+ *     project name, or shard plus a per-status count summary; click to toggle.
+ *     Failed / flaky groups expand by default.
  *   - Each row is a `<Link>` to the test-detail page (whole row clickable).
  *
  * Tags from the design's `TestRow` aren't shown — `RunProgressTest` doesn't
@@ -71,6 +72,14 @@ export function RunProgress({
     backfill: { teamSlug, projectSlug, cursor: initialCursor ?? null },
   });
   const tests = useMemo(() => Object.values(byId), [byId]);
+
+  // Only offer the "Shard" group-by when this run actually has shard data —
+  // derived from the rows themselves (a non-sharded run stamps every row null).
+  // Flips true once the first shard-attributed row arrives during a live run.
+  const isSharded = useMemo(
+    () => tests.some((t) => t.shardIndex != null),
+    [tests],
+  );
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -170,6 +179,7 @@ export function RunProgress({
           options={[
             { value: "file", label: "File" },
             { value: "project", label: "Playwright project" },
+            ...(isSharded ? [{ value: "shard" as const, label: "Shard" }] : []),
           ]}
           value={groupBy}
         />

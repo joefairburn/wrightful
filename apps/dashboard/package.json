@@ -34,6 +34,7 @@
     "db:seed-demo": "node scripts/seed-demo.mjs",
     "fixtures:generate": "node scripts/upload-fixtures.mjs",
     "seed:stream": "node scripts/seed-stream.mjs",
+    "seed:sharded": "node scripts/seed-sharded.mjs",
     "setup:local": "node scripts/setup-local.mjs"
   },
   "dependencies": {

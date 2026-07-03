@@ -27,6 +27,7 @@ import type {
   CompleteRunPayload,
   OpenRunPayload,
   PlannedTestDescriptor,
+  ShardInfo,
   TestAttemptPayload,
   TestResultPayload,
 } from "./types.js";
@@ -54,6 +55,12 @@ export interface RunMeta {
    */
   origin?: "ci" | "synthetic";
   monitorId?: string | null;
+  /**
+   * Playwright shard coordinates for a sharded suite. When set, rides at the
+   * TOP LEVEL of the open payload (mirrors the reporter), so the dashboard
+   * records `expectedShards` and defers finalize. Omitted → non-sharded.
+   */
+  shard?: ShardInfo;
 }
 
 /** Identity fields the seeder supplies per test. */
@@ -68,6 +75,8 @@ export interface ResultFields {
   errorMessage?: string | null;
   errorStack?: string | null;
   workerIndex?: number;
+  /** 1-based shard that ran this test; defaults to `null` (non-sharded). */
+  shardIndex?: number | null;
   tags?: string[];
   annotations?: Array<{ type: string; description?: string }>;
   /** Optional override; defaults to `testId` (matches the reporter). */
@@ -142,6 +151,7 @@ export function buildResult(
     errorMessage: truncateNullable(fields.errorMessage, MAX_MESSAGE),
     errorStack: truncateNullable(fields.errorStack, MAX_STACK),
     workerIndex: fields.workerIndex ?? 0,
+    shardIndex: fields.shardIndex ?? null,
     tags: fields.tags ?? [],
     annotations: fields.annotations ?? [],
     attempts: attempts.map(buildAttempt),
@@ -168,6 +178,8 @@ export function buildOpenRunPayload(
   }
   return {
     idempotencyKey: meta.idempotencyKey,
+    // Top-level shard (not inside `run`) mirrors the reporter's open payload.
+    ...(meta.shard ? { shard: meta.shard } : {}),
     run: {
       ciProvider: meta.ciProvider ?? null,
       ciBuildId: meta.ciBuildId ?? null,
@@ -191,10 +203,15 @@ export function buildOpenRunPayload(
   };
 }
 
-/** Build the terminal complete-run payload. */
+/**
+ * Build the terminal complete-run payload. Pass `shard` for a sharded suite so
+ * the dashboard records this shard's completion (one `runShards` row) and
+ * defers the run's terminal status until every shard has reported.
+ */
 export function buildCompleteRunPayload(
   status: CompleteRunPayload["status"],
   durationMs: number,
+  shard?: ShardInfo,
 ): CompleteRunPayload {
-  return { status, durationMs };
+  return { status, durationMs, ...(shard ? { shard } : {}) };
 }
