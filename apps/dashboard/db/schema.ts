@@ -971,15 +971,15 @@ export const testOwners = pgTable(
   },
   (t) => [
     // One row per (project, test, owner) — assigning the same owner twice is an
-    // upsert/ignore, not a duplicate.
+    // upsert/ignore, not a duplicate. Its leading `(projectId, testId)` prefix
+    // also serves the per-test owner lookup (`projectId = ? AND testId IN (…)`)
+    // the page-badge join (`resolveTestOwners`) runs, so no standalone
+    // `(projectId, testId)` index is needed.
     uniqueIndex("testOwners_project_testId_owner_idx").on(
       t.projectId,
       t.testId,
       t.owner,
     ),
-    // Serves the per-test owner lookup (`projectId = ? AND testId IN (…)`) the
-    // page-badge join (`resolveTestOwners`) runs.
-    index("testOwners_project_testId_idx").on(t.projectId, t.testId),
   ],
 );
 
