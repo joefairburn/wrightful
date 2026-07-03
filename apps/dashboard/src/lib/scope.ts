@@ -1,4 +1,4 @@
-import { and, db, eq, lt, ne, sql } from "void/db";
+import { and, db, eq, inArray, lt, ne, sql } from "void/db";
 import { projects, runs, teams } from "@schema";
 import type { ApiKey } from "@schema";
 
@@ -229,6 +229,25 @@ export function childByTestResultWhere(
   return and(
     eq(columns.projectId, scope.projectId),
     eq(columns.testResultId, testResultId),
+  )!;
+}
+
+/**
+ * The `(projectId, testResultId IN (…))` shape — the batched sibling of
+ * {@link childByTestResultWhere} for replacing the child rows of MANY test
+ * results in one statement (the /results flush's tag/annotation/attempt
+ * DELETEs). Callers chunk `testResultIds` under Postgres's bound-param ceiling;
+ * an empty list yields a predicate that matches nothing (`inArray([])` → false),
+ * so a no-child flush deletes nothing.
+ */
+export function childByTestResultsWhere(
+  columns: { projectId: ColumnRef; testResultId: ColumnRef },
+  scope: TenantScope,
+  testResultIds: string[],
+): SqlFragment {
+  return and(
+    eq(columns.projectId, scope.projectId),
+    inArray(columns.testResultId, testResultIds),
   )!;
 }
 

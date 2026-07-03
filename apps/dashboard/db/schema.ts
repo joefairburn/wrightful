@@ -554,7 +554,24 @@ export const testResults = pgTable(
     errorMessage: text("errorMessage"),
     errorStack: text("errorStack"),
     workerIndex: integer("workerIndex"),
+    /**
+     * INSERT-ONLY first-seen time. Set once — at the queued prefill (run open)
+     * for a planned test, or at the first streamed result for a non-prefilled
+     * one — and NEVER rewritten by a later /results flush. That is what keeps it
+     * a true insert timestamp (not "last-modified"), so usage metering by month,
+     * analytics time-buckets, retention age, and the createdAt cursor all read a
+     * stable value. The mutable "last write" time lives in {@link updatedAt}.
+     */
     createdAt: big("createdAt").notNull(),
+    /**
+     * Last-write time — bumped to the flush time on every /results upsert of this
+     * (runId, testId) row (and set = createdAt on first insert). Nullable for
+     * migration safety on rows that predate the column (readers that want a
+     * last-modified value `coalesce(updatedAt, createdAt)`); no reader needs it
+     * yet, so it carries no index. Splitting write-time out of `createdAt` is the
+     * fix for the old UPDATE path that rewrote `createdAt` to the flush time.
+     */
+    updatedAt: big("updatedAt"),
   },
   (t) => [
     index("testResults_testId_createdAt_idx").on(t.testId, t.createdAt),

@@ -10,6 +10,7 @@ import {
 } from "vite-plus/test";
 import type { Order } from "@polar-sh/sdk/models/components/order";
 import type { Subscription } from "@polar-sh/sdk/models/components/subscription";
+import type { TestResultInput } from "@/lib/schemas";
 
 /**
  * The database integration test — proves the data layer actually EXECUTES on
@@ -108,14 +109,29 @@ const { changedRows, runBatch, isUniqueViolation } =
 const { runRows } = await import("@/lib/db-run");
 const { bucketExpr } = await import("@/lib/analytics/bucketing-sql");
 const { numericSql } = await import("@/lib/db/sql-ops");
-const { chunkByParams, mergeRunStatus, mergeRunStatusSql } =
-  await import("@/lib/ingest");
+const {
+  chunkByParams,
+  mergeRunStatus,
+  mergeRunStatusSql,
+  resolveTestResultIds,
+  buildResultInsertStatements,
+  computeAggregateDelta,
+} = await import("@/lib/ingest");
 const { makeTenantScope } = await import("@/lib/scope");
 const { httpResponseTimeBuckets, httpUptimeWindows } =
   await import("@/lib/monitors/http/uptime-analytics");
-const { monitorExecutions, projects, runs, teams, testResults, usageCounters } =
-  await import("../../db/schema");
-const { count, eq, sql } = await import("void/_db");
+const {
+  monitorExecutions,
+  projects,
+  runs,
+  teams,
+  testAnnotations,
+  testResultAttempts,
+  testResults,
+  testTags,
+  usageCounters,
+} = await import("../../db/schema");
+const { and, count, eq, sql } = await import("void/_db");
 const { getTableConfig } = await import("void/schema-pg");
 
 // Billing modules under test (imported via `await import` so the void/db +
@@ -668,6 +684,214 @@ describe("uptime-analytics loaders (raw aggregate execution)", () => {
     // Sorted ascending by hour bucket (the `order by bucket`).
     const order = buckets.map((b) => b.bucket);
     expect(order).toEqual([...order].sort((a, z) => a - z));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ingest /results batched upsert — EXECUTES buildResultInsertStatements against
+// real Postgres so the ON CONFLICT (runId, testId) DO UPDATE, the insert-only
+// createdAt, the updatedAt bump, and the IN-list child-row replacement are
+// proven on the driver rather than only asserted structurally under a stub. The
+// upsert needs the (runId, testId) unique index (createTableSql omits indexes),
+// so it is created here; the three child tables are created too.
+// ---------------------------------------------------------------------------
+describe("ingest /results upsert (batched flush)", () => {
+  const scope = makeTenantScope({
+    teamId: "t-up",
+    projectId: "p-up",
+    teamSlug: "up",
+    projectSlug: "up",
+  });
+  const RUN = "run-upsert";
+  const T0 = 1_700_000_000; // prefill / run-open time
+  const T1 = 1_700_003_600; // flush time (1h later)
+
+  beforeAll(async () => {
+    await h.client.exec(
+      'create unique index if not exists "testResults_runId_testId_idx" on "testResults" ("runId", "testId");',
+    );
+    for (const t of [testTags, testAnnotations, testResultAttempts]) {
+      const { name } = getTableConfig(t);
+      await h.client.exec(`drop table if exists "${name}" cascade;`);
+      await h.client.exec(createTableSql(t));
+    }
+  });
+
+  beforeEach(async () => {
+    await h.db.delete(testResults).where(eq(testResults.runId, RUN));
+    await h.db.delete(testTags).where(eq(testTags.projectId, scope.projectId));
+    await h.db
+      .delete(testAnnotations)
+      .where(eq(testAnnotations.projectId, scope.projectId));
+    await h.db
+      .delete(testResultAttempts)
+      .where(eq(testResultAttempts.projectId, scope.projectId));
+  });
+
+  function makeResult(over: Partial<TestResultInput> = {}): TestResultInput {
+    return {
+      testId: "t1",
+      title: "renders",
+      file: "spec.ts",
+      status: "passed",
+      durationMs: 10,
+      retryCount: 0,
+      tags: [],
+      annotations: [],
+      attempts: [],
+      ...over,
+    } as TestResultInput;
+  }
+
+  /** Resolve ids, compute the delta, and run the upsert batch — the flush body. */
+  async function flush(results: TestResultInput[], now: number) {
+    const resolved = await resolveTestResultIds(
+      scope,
+      RUN,
+      results.map((r) => r.testId),
+    );
+    const delta = computeAggregateDelta(results, resolved.prevStatusByTestId);
+    await runBatch(
+      (tx) =>
+        buildResultInsertStatements(
+          scope,
+          RUN,
+          results,
+          now,
+          resolved.existingIds,
+          resolved.assignedIds,
+          tx,
+        ).statements,
+    );
+    return { delta };
+  }
+
+  it("upserts a prefilled row in place: keeps id + createdAt, refreshes status/updatedAt, replaces children", async () => {
+    // Prefill a queued row + stale children, as openRun does at run open.
+    await h.db.insert(testResults).values({
+      id: "tr-prefill",
+      projectId: scope.projectId,
+      runId: RUN,
+      testId: "t1",
+      title: "queued title",
+      file: "spec.ts",
+      status: "queued",
+      durationMs: 0,
+      retryCount: 0,
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    await h.db.insert(testTags).values({
+      id: "tag-stale",
+      projectId: scope.projectId,
+      testResultId: "tr-prefill",
+      tag: "old",
+    });
+    await h.db.insert(testResultAttempts).values({
+      id: "att-stale",
+      projectId: scope.projectId,
+      testResultId: "tr-prefill",
+      attempt: 0,
+      status: "failed",
+      durationMs: 5,
+      createdAt: T0,
+    });
+
+    await flush(
+      [
+        makeResult({
+          title: "renders ok",
+          status: "passed",
+          durationMs: 42,
+          retryCount: 1,
+          tags: ["smoke"],
+          annotations: [{ type: "issue", description: "flake" }],
+          attempts: [
+            { attempt: 0, status: "failed", durationMs: 5 },
+            { attempt: 1, status: "passed", durationMs: 42 },
+          ],
+        }),
+      ],
+      T1,
+    );
+
+    const [row] = await h.db
+      .select()
+      .from(testResults)
+      .where(and(eq(testResults.runId, RUN), eq(testResults.testId, "t1")));
+    expect(row?.id).toBe("tr-prefill"); // id preserved → child FKs stay valid
+    expect(row?.status).toBe("passed"); // mutable column refreshed
+    expect(row?.title).toBe("renders ok");
+    expect(row?.durationMs).toBe(42);
+    expect(row?.createdAt).toBe(T0); // INSERT-ONLY — not rewritten to the flush time
+    expect(row?.updatedAt).toBe(T1); // last-write time
+
+    // Child rows fully replaced: the stale set is gone, the new set is present.
+    const tags = await h.db
+      .select()
+      .from(testTags)
+      .where(eq(testTags.testResultId, "tr-prefill"));
+    expect(tags.map((t) => t.tag)).toEqual(["smoke"]);
+    const anns = await h.db
+      .select()
+      .from(testAnnotations)
+      .where(eq(testAnnotations.testResultId, "tr-prefill"));
+    expect(anns.map((a) => a.type)).toEqual(["issue"]);
+    const atts = await h.db
+      .select()
+      .from(testResultAttempts)
+      .where(eq(testResultAttempts.testResultId, "tr-prefill"));
+    expect(atts).toHaveLength(2);
+    expect(atts.some((a) => a.id === "att-stale")).toBe(false);
+  });
+
+  it("inserts a non-prefilled result fresh (createdAt = updatedAt = flush time)", async () => {
+    await flush(
+      [makeResult({ testId: "t-fresh", status: "failed", durationMs: 3 })],
+      T1,
+    );
+    const [row] = await h.db
+      .select()
+      .from(testResults)
+      .where(
+        and(eq(testResults.runId, RUN), eq(testResults.testId, "t-fresh")),
+      );
+    expect(row?.status).toBe("failed");
+    expect(row?.createdAt).toBe(T1);
+    expect(row?.updatedAt).toBe(T1);
+  });
+
+  it("re-flushing the same result nets a ZERO aggregate delta (idempotent counters under serial replay)", async () => {
+    await h.db.insert(testResults).values({
+      id: "tr-idem",
+      projectId: scope.projectId,
+      runId: RUN,
+      testId: "t2",
+      title: "q",
+      file: "c.ts",
+      status: "queued",
+      durationMs: 0,
+      retryCount: 0,
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    const result = makeResult({ testId: "t2", status: "passed", file: "c.ts" });
+    // First flush: queued → passed. 'queued' is bucket-less, 'passed' isn't, so
+    // +1 passed; totalTests unchanged (prev status defined by the prefill row).
+    const first = await flush([result], T1);
+    expect(first.delta).toMatchObject({ passed: 1, totalTests: 0 });
+    // Serial replay (a reporter retry once the first committed): prev status is
+    // now 'passed' → same bucket → the delta nets to zero, so the additive
+    // counter UPDATE would be a no-op. This is the serial-equivalent of the
+    // FOR UPDATE lock's guarantee; true concurrency needs the real-pg CI leg.
+    const second = await flush([result], T1 + 10);
+    expect(second.delta).toEqual({
+      totalTests: 0,
+      passed: 0,
+      failed: 0,
+      flaky: 0,
+      skipped: 0,
+    });
   });
 });
 
