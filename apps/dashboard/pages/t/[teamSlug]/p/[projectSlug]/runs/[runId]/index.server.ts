@@ -4,6 +4,7 @@ import { runs } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { loadRunResultsPage } from "@/lib/run-results-page";
+import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
 import { runByIdWhere, runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -24,7 +25,9 @@ export const loader = defineHandler(async (c) => {
   const { project, scope } = requireTenantContext(c);
 
   const runRows = await db
-    .select()
+    // Explicit projection — omits idempotencyKey (the write-reopen credential)
+    // from the serialized props. See RUN_PUBLIC_COLUMNS.
+    .select(RUN_PUBLIC_COLUMNS)
     .from(runs)
     .where(runByIdWhere(scope, runId))
     .limit(1);
@@ -78,6 +81,10 @@ export const loader = defineHandler(async (c) => {
   // The full-run select() above already 404s on a foreign/missing run, so the
   // run is owned here; loadRunResultsPage's own ownership probe agrees.
   const tests = resultsPage?.results ?? [];
+  // Non-null when the run has more tests than TESTS_LIMIT — the client
+  // back-paginates the rest from GET /results (see `useRunRoom`'s backfill)
+  // so the Tests tab list + filter counts cover the whole run.
+  const testsCursor = resultsPage?.nextCursor ?? null;
 
   // This loader sets no Cache-Control, so nothing changes there: a deferred
   // loader streams its body (NDJSON on SPA nav / chunked HTML on document load),
@@ -101,6 +108,7 @@ export const loader = defineHandler(async (c) => {
     tab,
     pathname: url.pathname,
     tests,
+    testsCursor,
 
     // Below-the-fold duration-trend chart + its inline branch filter. Grouped:
     // the chart reads `history` and its subtitle control reads `branches`, so

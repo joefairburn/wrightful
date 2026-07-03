@@ -28,6 +28,7 @@ function t(
     status,
     durationMs: 0,
     retryCount: 0,
+    shardIndex: null,
     ...overrides,
   };
 }
@@ -246,6 +247,35 @@ describe("groupAndSortTests", () => {
     expect(keys[0]).toBe("firefox");
     expect(keys).toContain("chromium");
     expect(keys).toContain("default");
+  });
+
+  it("groups by shard, labelling each `Shard N` and worst-first", () => {
+    const { groups } = groupAndSortTests(
+      [
+        t("a.spec.ts", "passed", { shardIndex: 1 }),
+        t("b.spec.ts", "passed", { shardIndex: 1 }),
+        t("c.spec.ts", "failed", { shardIndex: 2 }),
+      ],
+      { search: "", statusFilter: "all", groupBy: "shard" },
+    );
+    const keys = groups.map(([k]) => k);
+    // Shard 2 carries the failure so it sorts first; Shard 1 follows.
+    expect(keys[0]).toBe("Shard 2");
+    expect(keys).toContain("Shard 1");
+    expect(groups.find(([k]) => k === "Shard 1")?.[1]).toHaveLength(2);
+  });
+
+  it("falls back to `Unsharded` when a row carries no shard index", () => {
+    const { groups } = groupAndSortTests(
+      [
+        t("a.spec.ts", "passed", { shardIndex: null }),
+        t("b.spec.ts", "passed", { shardIndex: 3 }),
+      ],
+      { search: "", statusFilter: "all", groupBy: "shard" },
+    );
+    const keys = groups.map(([k]) => k);
+    expect(keys).toContain("Unsharded");
+    expect(keys).toContain("Shard 3");
   });
 
   it("falls back to `Other` for an empty file path", () => {

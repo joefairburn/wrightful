@@ -10,6 +10,7 @@ import {
 import { numericSql } from "@/lib/db/sql-ops";
 import { resolveOffsetPage } from "@/lib/page-window";
 import { scopedRunsWhere } from "@/lib/runs-filters-where";
+import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
 import { runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -79,7 +80,10 @@ export const loader = defineHandler(async (c) => {
   });
 
   const allRuns = await db
-    .select()
+    // Explicit projection (omits idempotencyKey — see RUN_PUBLIC_COLUMNS): a bare
+    // .select() serialized the write-reopen credential into props for the whole
+    // page of runs.
+    .select(RUN_PUBLIC_COLUMNS)
     .from(runs)
     .where(scopedRunsWhere(scope, filters))
     .orderBy(desc(runs.createdAt))

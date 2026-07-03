@@ -48,17 +48,17 @@ export function parseTitleSegments(
 // --- Run-detail Tests-tab engine -------------------------------------------
 //
 // The run-detail Tests island folds live test rows through one pipeline:
-// filter (status + search) → group (by file or Playwright project, worst-first)
-// → count (4-bucket collapse) → pick which groups to auto-expand. These pure
-// stages live here so the island shrinks to state + presentation, and so the
-// filter/group/count/auto-expand rules are unit-testable without rendering the
-// island and feeding it live events.
+// filter (status + search) → group (by file, Playwright project, or shard,
+// worst-first) → count (4-bucket collapse) → pick which groups to auto-expand.
+// These pure stages live here so the island shrinks to state + presentation,
+// and so the filter/group/count/auto-expand rules are unit-testable without
+// rendering the island and feeding it live events.
 
 /** Status filter chip values — `"all"` plus the four collapsed buckets. */
 export type StatusFilter = "all" | StatusGroupKey;
 
-/** Group-by axis for the Tests tab: file path or Playwright project name. */
-export type GroupByAxis = "file" | "project";
+/** Group-by axis for the Tests tab: file path, Playwright project, or shard. */
+export type GroupByAxis = "file" | "project" | "shard";
 
 /** Per-bucket counts after the `timedout → failed` / `interrupted → flaky` collapse. */
 export type StatusGroupCounts = Record<StatusGroupKey, number>;
@@ -68,7 +68,7 @@ export interface GroupAndSortOptions {
   search: string;
   /** Active status chip; `"all"` disables status filtering. */
   statusFilter: StatusFilter;
-  /** Group rows by file path or by Playwright project. */
+  /** Group rows by file path, Playwright project, or shard. */
   groupBy: GroupByAxis;
 }
 
@@ -83,6 +83,20 @@ export interface GroupAndSortResult {
 
 const FILE_FALLBACK_KEY = "Other";
 const PROJECT_FALLBACK_KEY = "default";
+const SHARD_FALLBACK_KEY = "Unsharded";
+
+/**
+ * The group key for a test row under the active axis. For `shard`, a row with a
+ * shard index reads `"Shard N"` and a row without one (non-sharded run, or a
+ * queued row no shard has claimed yet) falls into `"Unsharded"`.
+ */
+function groupKeyFor(test: RunProgressTest, groupBy: GroupByAxis): string {
+  if (groupBy === "file") return test.file || FILE_FALLBACK_KEY;
+  if (groupBy === "project") return test.projectName ?? PROJECT_FALLBACK_KEY;
+  return test.shardIndex != null
+    ? `Shard ${test.shardIndex}`
+    : SHARD_FALLBACK_KEY;
+}
 
 /**
  * Count tests into the four user-facing buckets, applying the registry's
@@ -155,9 +169,10 @@ function groupSeverityScore(rows: readonly RunProgressTest[]): number {
  * over the *unfiltered* input, and the default-expanded key set. Pure — safe to
  * call inside a `useMemo`.
  *
- * Grouping key is the file path (empty → "Other") or the Playwright project
- * name (null → "default"). Groups order worst-first by `groupSeverityScore`;
- * within a group rows order worst-first by `severityOf`.
+ * Grouping key is the file path (empty → "Other"), the Playwright project name
+ * (null → "default"), or the shard ("Shard N", non-sharded → "Unsharded") — see
+ * `groupKeyFor`. Groups order worst-first by `groupSeverityScore`; within a
+ * group rows order worst-first by `severityOf`.
  */
 export function groupAndSortTests(
   tests: readonly RunProgressTest[],
@@ -168,10 +183,7 @@ export function groupAndSortTests(
 
   const map = new Map<string, RunProgressTest[]>();
   for (const test of filtered) {
-    const key =
-      opts.groupBy === "file"
-        ? test.file || FILE_FALLBACK_KEY
-        : (test.projectName ?? PROJECT_FALLBACK_KEY);
+    const key = groupKeyFor(test, opts.groupBy);
     const bucket = map.get(key);
     if (bucket) bucket.push(test);
     else map.set(key, [test]);

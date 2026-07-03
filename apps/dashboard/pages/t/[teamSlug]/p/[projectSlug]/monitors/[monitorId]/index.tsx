@@ -35,7 +35,9 @@ import {
 import type { HttpResultDetail, TcpResultDetail } from "@/lib/monitors/types";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { MonitorExecution } from "@schema";
+import { AlertRecipientsFields } from "../alert-recipients-fields";
 import { HttpMonitorForm } from "../http-monitor-form";
+import { MonitorEditDialog } from "../monitor-edit-dialog";
 import { MonitorForm } from "../monitor-form";
 import { TcpMonitorForm } from "../tcp-monitor-form";
 import { humanizeInterval, monitorTypeLabel } from "../monitors-ui.shared";
@@ -201,18 +203,34 @@ function MonitorDetailView({
   const here = `${monitorsBase}/${monitor.id}`;
   const enabled = monitor.enabled === 1;
   const alertsOn = monitor.alertsEnabled === 1;
-  // Current alert-recipient selection (null = all members) for the picker.
-  const selectedUsers = new Set(alertTargets?.users ?? []);
-  const selectedGroups = new Set(alertTargets?.groups ?? []);
   const status = monitorDisplayStatus(monitor);
   const isHttp = monitor.type === "http";
   const isTcp = monitor.type === "tcp" || monitor.type === "ping";
   // Members get a read-only detail view; only owners can edit/pause/delete (the
   // actions are owner-gated server-side). `editingOpen` also defends against a
-  // member hand-typing `?edit=1`: the edit section stays hidden AND the
-  // read-only definition still shows (it keys off `!editingOpen`, not `!editing`).
+  // member hand-typing `?edit=1`: the edit modal is only rendered for owners,
+  // so a non-owner can't open it regardless of the URL flag.
   const isOwner = project.role === "owner";
   const editingOpen = isOwner && editing;
+  // Alert-recipient fields, rendered as a slot inside whichever edit form the
+  // modal shows (see `AlertRecipientsFields`). Empty for non-owners, but the
+  // modal that consumes it is owner-gated anyway.
+  const recipientsFields = (
+    <AlertRecipientsFields
+      alertTargets={alertTargets}
+      groups={groups}
+      members={members}
+      teamSlug={project.teamSlug}
+    />
+  );
+  // The read-only config sections (Request / Connection / Test definition) all
+  // carry the same owner-only "Edit" affordance opening the modal via `?edit=1`.
+  const editSectionButton = isOwner ? (
+    <Button render={<Link href={`${here}?edit=1`} />} size="xs" variant="ghost">
+      <Settings className="size-[11px]" />
+      Edit
+    </Button>
+  ) : null;
   // For http + tcp, the header "Uptime 24h" shows the real time-based 24h
   // number; for browser it shows the count-based window uptime.
   const headerUptime = isHttp || isTcp ? (uptimeWindows?.d1 ?? null) : uptime;
@@ -279,14 +297,15 @@ function MonitorDetailView({
                 </Button>
               </form>
 
-              {/* Edit toggle — flips `?edit=1` (server-rendered, no island). */}
+              {/* Edit — flips `?edit=1`, which the edit modal keys its open
+                  state off of (see `MonitorEditDialog`). */}
               <Button
-                render={<Link href={editing ? here : `${here}?edit=1`} />}
+                render={<Link href={`${here}?edit=1`} />}
                 size="sm"
                 variant="outline"
               >
                 <Settings className="size-3.5" />
-                {editing ? "Close editor" : "Edit"}
+                Edit
               </Button>
             </>
           )}
@@ -338,156 +357,49 @@ function MonitorDetailView({
         </div>
 
         <div className="mx-auto flex max-w-[980px] flex-col gap-[18px] px-6 pt-5 pb-16">
-          {/* Edit section. */}
-          {editingOpen && (
-            <section className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
-              <div className="border-b border-line-1 px-[18px] py-3">
-                <h3 className="text-[13.5px] font-semibold">Edit monitor</h3>
-                <p className="mt-0.5 text-[12px] text-fg-3">
-                  Changes take effect on the next scheduled run.
-                </p>
-              </div>
-              <div className="px-[18px] py-4">
-                {isHttp ? (
-                  <HttpMonitorForm
-                    action={`${here}?updateMonitor`}
-                    cancelHref={here}
-                    defaultConfig={httpConfig ?? undefined}
-                    defaultEnabled={enabled}
-                    defaultIntervalSeconds={monitor.intervalSeconds}
-                    defaultName={monitor.name}
-                    error={formError}
-                    submitLabel="Save changes"
-                  />
-                ) : isTcp ? (
-                  <TcpMonitorForm
-                    action={`${here}?updateMonitor`}
-                    cancelHref={here}
-                    defaultConfig={tcpConfig ?? undefined}
-                    defaultEnabled={enabled}
-                    defaultIntervalSeconds={monitor.intervalSeconds}
-                    defaultName={monitor.name}
-                    error={formError}
-                    submitLabel="Save changes"
-                  />
-                ) : (
-                  <MonitorForm
-                    action={`${here}?updateMonitor`}
-                    cancelHref={here}
-                    defaultEnabled={enabled}
-                    defaultIntervalSeconds={monitor.intervalSeconds}
-                    defaultName={monitor.name}
-                    defaultSource={monitor.source ?? ""}
-                    error={formError}
-                    submitLabel="Save changes"
-                  />
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* Alert recipients (owner-only). Edge-triggered down/recovery
-              emails go to these people; "All team members" stores null so new
-              members are auto-included. Server-rendered, no island. */}
+          {/* Edit surface (owner-only), a modal driven by `?edit=1`. The
+              per-type config form and the alert-recipient fields share one
+              `<form>`, so a single "Save changes" persists both. */}
           {isOwner && (
-            <section className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
-              <div className="border-b border-line-1 px-[18px] py-3">
-                <h3 className="text-[13.5px] font-semibold">
-                  Alert recipients
-                </h3>
-                <p className="mt-0.5 text-[12px] text-fg-3">
-                  Who gets the down/recovery emails for this monitor.{" "}
-                  <Link
-                    className="underline"
-                    href={`/settings/teams/${project.teamSlug}/groups`}
-                  >
-                    Manage groups
-                  </Link>
-                  .
-                </p>
-              </div>
-              <form
-                action={`${here}?setAlertRecipients`}
-                className="m-0 px-[18px] py-4"
-                method="post"
-              >
-                <div className="mb-4 flex flex-col gap-1.5 text-[13px]">
-                  <label className="flex items-center gap-2">
-                    <input
-                      defaultChecked={alertTargets === null}
-                      name="recipientMode"
-                      type="radio"
-                      value="all"
-                    />
-                    All team members
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      defaultChecked={alertTargets !== null}
-                      name="recipientMode"
-                      type="radio"
-                      value="specific"
-                    />
-                    Specific members or groups
-                  </label>
-                </div>
-
-                {groups.length > 0 && (
-                  <div className="mb-3.5">
-                    <div className="mb-1.5 text-[11.5px] font-medium uppercase tracking-wider text-fg-3">
-                      Groups
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      {groups.map((g) => (
-                        <label
-                          key={g.id}
-                          className="flex items-center gap-2 text-[13px]"
-                        >
-                          <input
-                            defaultChecked={selectedGroups.has(g.id)}
-                            name="group"
-                            type="checkbox"
-                            value={g.id}
-                          />
-                          {g.name}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="mb-4">
-                  <div className="mb-1.5 text-[11.5px] font-medium uppercase tracking-wider text-fg-3">
-                    Members
-                  </div>
-                  {members.length === 0 ? (
-                    <p className="text-[13px] text-fg-3">No members.</p>
-                  ) : (
-                    <div className="flex flex-col gap-1.5">
-                      {members.map((m) => (
-                        <label
-                          key={m.userId}
-                          className="flex items-center gap-2 text-[13px]"
-                        >
-                          <input
-                            defaultChecked={selectedUsers.has(m.userId)}
-                            name="user"
-                            type="checkbox"
-                            value={m.userId}
-                          />
-                          <span className="font-medium">{m.name}</span>
-                          <span className="text-fg-3">{m.email}</span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <Button size="sm" type="submit">
-                  Save recipients
-                </Button>
-              </form>
-            </section>
+            <MonitorEditDialog closeHref={here} open={editingOpen}>
+              {/* No `cancelHref` in the modal: the dialog's ✕ / Escape /
+                  backdrop close it instantly (a Cancel <Link> would instead lag
+                  a loader round-trip, out of step with those affordances). */}
+              {isHttp ? (
+                <HttpMonitorForm
+                  action={`${here}?updateMonitor`}
+                  defaultConfig={httpConfig ?? undefined}
+                  defaultEnabled={enabled}
+                  defaultIntervalSeconds={monitor.intervalSeconds}
+                  defaultName={monitor.name}
+                  error={formError}
+                  recipients={recipientsFields}
+                  submitLabel="Save changes"
+                />
+              ) : isTcp ? (
+                <TcpMonitorForm
+                  action={`${here}?updateMonitor`}
+                  defaultConfig={tcpConfig ?? undefined}
+                  defaultEnabled={enabled}
+                  defaultIntervalSeconds={monitor.intervalSeconds}
+                  defaultName={monitor.name}
+                  error={formError}
+                  recipients={recipientsFields}
+                  submitLabel="Save changes"
+                />
+              ) : (
+                <MonitorForm
+                  action={`${here}?updateMonitor`}
+                  defaultEnabled={enabled}
+                  defaultIntervalSeconds={monitor.intervalSeconds}
+                  defaultName={monitor.name}
+                  defaultSource={monitor.source ?? ""}
+                  error={formError}
+                  recipients={recipientsFields}
+                  submitLabel="Save changes"
+                />
+              )}
+            </MonitorEditDialog>
           )}
 
           {/* http + tcp: time-based uptime (both); response-time trend (http). */}
@@ -556,72 +468,31 @@ function MonitorDetailView({
             </div>
           </section>
 
-          {/* Definition / config (read-only when not editing). */}
-          {!editingOpen &&
-            (isHttp ? (
-              <section>
-                <SectionTitle
-                  right={
-                    isOwner ? (
-                      <Button
-                        render={<Link href={`${here}?edit=1`} />}
-                        size="xs"
-                        variant="ghost"
-                      >
-                        <Settings className="size-[11px]" />
-                        Edit
-                      </Button>
-                    ) : null
-                  }
-                  title="Request"
-                />
-                <HttpConfigSummary config={httpConfig} />
-              </section>
-            ) : isTcp ? (
-              <section>
-                <SectionTitle
-                  right={
-                    isOwner ? (
-                      <Button
-                        render={<Link href={`${here}?edit=1`} />}
-                        size="xs"
-                        variant="ghost"
-                      >
-                        <Settings className="size-[11px]" />
-                        Edit
-                      </Button>
-                    ) : null
-                  }
-                  title="Connection"
-                />
-                <TcpConfigSummary config={tcpConfig} />
-              </section>
-            ) : (
-              <section>
-                <SectionTitle
-                  right={
-                    isOwner ? (
-                      <Button
-                        render={<Link href={`${here}?edit=1`} />}
-                        size="xs"
-                        variant="ghost"
-                      >
-                        <Settings className="size-[11px]" />
-                        Edit
-                      </Button>
-                    ) : null
-                  }
-                  title="Test definition"
-                />
-                <CodeEditor
-                  aria-label="Monitor test definition"
-                  height={220}
-                  onValueChange={NOOP}
-                  readOnly
-                  value={monitor.source ?? ""}
-                />
-              </section>
-            ))}
+          {/* Definition / config (read-only). Editing happens in the modal
+              overlay, so this stays rendered behind it; its "Edit" button
+              opens that modal via `?edit=1`. */}
+          {isHttp ? (
+            <section>
+              <SectionTitle right={editSectionButton} title="Request" />
+              <HttpConfigSummary config={httpConfig} />
+            </section>
+          ) : isTcp ? (
+            <section>
+              <SectionTitle right={editSectionButton} title="Connection" />
+              <TcpConfigSummary config={tcpConfig} />
+            </section>
+          ) : (
+            <section>
+              <SectionTitle right={editSectionButton} title="Test definition" />
+              <CodeEditor
+                aria-label="Monitor test definition"
+                height={220}
+                onValueChange={NOOP}
+                readOnly
+                value={monitor.source ?? ""}
+              />
+            </section>
+          )}
 
           {/* Danger zone (owner-only). */}
           {isOwner && (

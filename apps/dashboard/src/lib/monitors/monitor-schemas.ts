@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { checkUrlPolicy } from "@/lib/monitors/http/url-policy";
 import { checkTcpHostPolicy } from "@/lib/monitors/tcp/host-policy";
+import type { AlertTargets } from "@/lib/monitors/alert-targets";
 import type {
   AssertionResult,
   HttpResultDetail,
@@ -566,4 +567,10 @@ export type UpdateMonitorInput = Omit<
   Omit<UpdateTcpMonitorInput, "intervalSeconds" | "config"> & {
     intervalSeconds?: number;
     config?: HttpMonitorConfig | TcpMonitorConfig;
+    // Not schema-derived — assembled from separate recipient form fields via
+    // `buildAlertTargets`, not a single validated field. `undefined` = leave
+    // untouched; `null` = all members; else the explicit `{ users, groups }`
+    // selection. The repo serializes it and writes it in the SAME UPDATE as the
+    // config, so the edit modal's config + recipients commit atomically.
+    alertTargets?: AlertTargets | null;
   };

@@ -63,6 +63,7 @@ export default function RunDetailPage({
   tab,
   pathname,
   tests,
+  testsCursor,
   chart,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
@@ -237,6 +238,7 @@ export default function RunDetailPage({
         {/* Tab content — scrolls with the rest of the page */}
         {tab === "tests" ? (
           <RunProgress
+            initialCursor={testsCursor}
             initialTests={tests}
             projectSlug={project.slug}
             runId={runId}

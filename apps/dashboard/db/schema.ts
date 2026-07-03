@@ -366,9 +366,11 @@ export const runs = pgTable(
      *   1. Defense-in-depth for the `AuthorizedProjectId` brand — every
      *      scoped query filters by `(teamId, projectId)` so a leaked project
      *      id can't cross teams even if the brand check is bypassed.
-     *   2. Single-hop authz on the live socket (`src/live.ts`): we resolve a
-     *      subscriber's read access by `SELECT teamId FROM runs WHERE id = ?`
-     *      then joining memberships, instead of hopping through projects.
+     *   2. Single-hop authz on the realtime socket: the run-room subscription
+     *      gate (`authorizeTopicSubscription` in `src/lib/authz.ts`, wired into
+     *      `routes/ws/run/[runId].ws.ts`) resolves a subscriber's read access by
+     *      `SELECT teamId FROM runs WHERE id = ?` then joining memberships,
+     *      instead of hopping through projects.
      */
     teamId: text("teamId")
       .notNull()
@@ -554,7 +556,26 @@ export const testResults = pgTable(
     errorMessage: text("errorMessage"),
     errorStack: text("errorStack"),
     workerIndex: integer("workerIndex"),
+    /** Playwright shard that ran this test (config.shard.current, 1-based); null for a non-sharded run. */
+    shardIndex: integer("shardIndex"),
+    /**
+     * INSERT-ONLY first-seen time. Set once — at the queued prefill (run open)
+     * for a planned test, or at the first streamed result for a non-prefilled
+     * one — and NEVER rewritten by a later /results flush. That is what keeps it
+     * a true insert timestamp (not "last-modified"), so usage metering by month,
+     * analytics time-buckets, retention age, and the createdAt cursor all read a
+     * stable value. The mutable "last write" time lives in {@link updatedAt}.
+     */
     createdAt: big("createdAt").notNull(),
+    /**
+     * Last-write time — bumped to the flush time on every /results upsert of this
+     * (runId, testId) row (and set = createdAt on first insert). Nullable for
+     * migration safety on rows that predate the column (readers that want a
+     * last-modified value `coalesce(updatedAt, createdAt)`); no reader needs it
+     * yet, so it carries no index. Splitting write-time out of `createdAt` is the
+     * fix for the old UPDATE path that rewrote `createdAt` to the flush time.
+     */
+    updatedAt: big("updatedAt"),
   },
   (t) => [
     index("testResults_testId_createdAt_idx").on(t.testId, t.createdAt),
@@ -576,6 +597,21 @@ export const testResults = pgTable(
       t.testId,
       t.createdAt,
     ),
+    // Trigram GIN indexes backing the ⌘K command-palette test search, which
+    // matches `title`/`file` with a LEADING-wildcard `ILIKE '%q%'`. A b-tree
+    // can't accelerate a leading wildcard, so without these the search was a full
+    // scan of the project's testResults partition on every (debounced) keystroke
+    // — a multi-second query at a busy project's retained-row scale. `pg_trgm`'s
+    // `gin_trgm_ops` indexes the substrings so ILIKE becomes a Bitmap Index Scan;
+    // two single-column indexes let the planner BitmapOr the title/file match and
+    // BitmapAnd it with the project-scope b-tree. REQUIRES the `pg_trgm`
+    // extension — the generated migration is hand-augmented with
+    // `CREATE EXTENSION IF NOT EXISTS pg_trgm` (drizzle-kit does not emit it).
+    index("testResults_title_trgm_idx").using(
+      "gin",
+      t.title.op("gin_trgm_ops"),
+    ),
+    index("testResults_file_trgm_idx").using("gin", t.file.op("gin_trgm_ops")),
   ],
 );
 
@@ -935,15 +971,15 @@ export const testOwners = pgTable(
   },
   (t) => [
     // One row per (project, test, owner) — assigning the same owner twice is an
-    // upsert/ignore, not a duplicate.
+    // upsert/ignore, not a duplicate. Its leading `(projectId, testId)` prefix
+    // also serves the per-test owner lookup (`projectId = ? AND testId IN (…)`)
+    // the page-badge join (`resolveTestOwners`) runs, so no standalone
+    // `(projectId, testId)` index is needed.
     uniqueIndex("testOwners_project_testId_owner_idx").on(
       t.projectId,
       t.testId,
       t.owner,
     ),
-    // Serves the per-test owner lookup (`projectId = ? AND testId IN (…)`) the
-    // page-badge join (`resolveTestOwners`) runs.
-    index("testOwners_project_testId_idx").on(t.projectId, t.testId),
   ],
 );
 
