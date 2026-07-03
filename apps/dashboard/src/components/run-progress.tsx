@@ -12,6 +12,7 @@ import {
   countByStatusGroup,
   groupAndSortTests,
   type GroupByAxis,
+  parseTitleSegments,
   type StatusFilter,
 } from "@/lib/group-tests-by-file";
 import { statusToken } from "@/lib/status";
@@ -259,6 +260,7 @@ function TestGroup({
           {/* Rows arrive pre-sorted worst-status-first from `groupAndSortTests`. */}
           {tests.map((t) => (
             <TestRow
+              groupBy={groupBy}
               key={t.id}
               projectSlug={projectSlug}
               runId={runId}
@@ -274,24 +276,42 @@ function TestGroup({
 
 function TestRow({
   test,
+  groupBy,
   teamSlug,
   projectSlug,
   runId,
 }: {
   test: RunProgressTest;
+  groupBy: GroupByAxis;
   teamSlug: string;
   projectSlug: string;
   runId: string;
 }) {
   const href = `/t/${teamSlug}/p/${projectSlug}/runs/${runId}/tests/${test.id}?attempt=0`;
-  // Strip the file-path prefix that the reporter sometimes bakes into the
-  // stored title (`tests/foo.spec.ts > describe > test`). Display the rest.
-  let displayTitle = test.title;
-  if (test.file) {
-    const prefix = `${test.file} > `;
-    if (displayTitle.startsWith(prefix))
-      displayTitle = displayTitle.slice(prefix.length);
-  }
+  // The stored title is Playwright's `titlePath`: `[project >] file > describe… >
+  // test`. Parse it down to just the describe chain + leaf title so the project
+  // and file don't leak into the row's `>` chain — they're already surfaced by
+  // the group header and the trailing meta column, not repeated here.
+  const { describeChain, testTitle } = parseTitleSegments(
+    test.title,
+    test.file,
+    test.projectName,
+  );
+  const displayTitle =
+    describeChain.length > 0
+      ? `${describeChain.join(" > ")} > ${testTitle}`
+      : testTitle;
+
+  // Trailing meta shows the axis that ISN'T the group header: the Playwright
+  // project when grouped by file, the file basename when grouped by project.
+  // Rendered as a compact pill (not inline title text) so it reads as a label;
+  // its `whitespace-nowrap` + max-width keep a long value from wrapping the row.
+  const meta =
+    groupBy === "file"
+      ? test.projectName
+      : test.file
+        ? (test.file.split("/").pop() ?? test.file)
+        : null;
 
   return (
     <Link
@@ -315,9 +335,17 @@ function TestRow({
           </span>
         ) : null}
       </div>
-      <span className="w-[60px] shrink-0 px-2 font-mono text-[11px] capitalize text-fg-3">
-        {test.projectName ?? ""}
-      </span>
+      {meta ? (
+        <span
+          className={cn(
+            "inline-flex max-w-[128px] shrink-0 items-center rounded-[4px] bg-bg-2 px-1.5 py-px font-mono text-[10.5px] leading-[16px] text-fg-3",
+            groupBy === "file" && "capitalize",
+          )}
+          title={meta}
+        >
+          <span className="truncate">{meta}</span>
+        </span>
+      ) : null}
       <span className="w-[70px] shrink-0 px-2 text-right font-mono text-[12px] tabular-nums text-fg-3">
         {formatDuration(test.durationMs)}
       </span>
