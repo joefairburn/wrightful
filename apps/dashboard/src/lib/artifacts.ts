@@ -177,11 +177,36 @@ export interface ExistingArtifactRow {
   attempt: number;
   role: string | null;
   r2Key: string;
+  /**
+   * The stored declared size + content-type. Read so a re-registration whose
+   * bytes changed (a CI re-run producing a fresh trace/screenshot under the same
+   * identity) can REFRESH the row — otherwise the upload guard
+   * (`storeArtifactUpload`: `contentLength === row.sizeBytes`) would reject the
+   * new bytes against the stale size and every re-run artifact upload would 400.
+   */
+  sizeBytes: number;
+  contentType: string;
+}
+
+/** A reused row whose stored `sizeBytes`/`contentType` must be refreshed to the re-registered values. */
+export interface ArtifactRowUpdate {
+  id: string;
+  sizeBytes: number;
+  contentType: string;
 }
 
 export interface ArtifactRegistrationPlan {
   rowsToInsert: Array<typeof artifacts.$inferInsert>;
+  /** Reused rows whose size/type changed on a re-run — refreshed in the same batch as the inserts. */
+  rowsToUpdate: ArtifactRowUpdate[];
   uploads: PlannedArtifactUpload[];
+  /**
+   * Net change in stored bytes from the {@link rowsToUpdate} refreshes
+   * (`newSize - oldSize`, summed; may be negative). The team artifact-byte quota
+   * gate + usage bump add this to the fresh-insert bytes so a re-run's grown
+   * traces are metered and gated exactly like new ones.
+   */
+  updateBytesDelta: number;
 }
 
 /**
@@ -215,13 +240,36 @@ export function planArtifactRegistration(args: {
 
   // Seed the identity map with rows already in the DB so a retried flush reuses
   // them; freshly-minted rows are seeded as we go so within-request duplicates
-  // also collapse to a single insert.
-  const byIdentity = new Map<string, { id: string; r2Key: string }>();
+  // also collapse to a single insert. `persisted` distinguishes a DB row (whose
+  // stored size/type can be REFRESHED on a re-run) from a within-request
+  // freshly-minted one (whose insert already carries the latest values), and
+  // `sizeBytes`/`contentType` are the currently-stored values compared against
+  // the re-registered ones to decide whether a refresh is needed.
+  const byIdentity = new Map<
+    string,
+    {
+      id: string;
+      r2Key: string;
+      persisted: boolean;
+      sizeBytes: number;
+      contentType: string;
+    }
+  >();
   for (const r of existingRows) {
-    byIdentity.set(artifactIdentity(r), { id: r.id, r2Key: r.r2Key });
+    byIdentity.set(artifactIdentity(r), {
+      id: r.id,
+      r2Key: r.r2Key,
+      persisted: true,
+      sizeBytes: r.sizeBytes,
+      contentType: r.contentType,
+    });
   }
 
   const rowsToInsert: Array<typeof artifacts.$inferInsert> = [];
+  // Keyed by artifact id so a within-request duplicate identity resolves to one
+  // update (last-write-wins) instead of two statements for the same row.
+  const updatesById = new Map<string, ArtifactRowUpdate>();
+  let updateBytesDelta = 0;
   const uploads: PlannedArtifactUpload[] = [];
 
   for (const a of requestedArtifacts) {
@@ -229,7 +277,27 @@ export function planArtifactRegistration(args: {
     const existing = byIdentity.get(identity);
     if (existing) {
       // Reuse the row + key so the reporter's PUT overwrites the same R2
-      // object rather than creating a duplicate artifact.
+      // object rather than creating a duplicate artifact. A DB row whose stored
+      // size/type differs from the re-registered values (a CI re-run under the
+      // shared idempotency key streaming FRESH bytes) is refreshed so the upload
+      // guard accepts the new Content-Length and the served content-type stays
+      // in sync; the byte delta is metered like a fresh insert.
+      if (
+        existing.persisted &&
+        (existing.sizeBytes !== a.sizeBytes ||
+          existing.contentType !== a.contentType)
+      ) {
+        updateBytesDelta += a.sizeBytes - existing.sizeBytes;
+        updatesById.set(existing.id, {
+          id: existing.id,
+          sizeBytes: a.sizeBytes,
+          contentType: a.contentType,
+        });
+        // Reflect the refresh in the map so a later within-request duplicate of
+        // this identity sees the new size (no double-counted delta / re-queue).
+        existing.sizeBytes = a.sizeBytes;
+        existing.contentType = a.contentType;
+      }
       uploads.push({
         artifactId: existing.id,
         uploadUrl: `/api/artifacts/${existing.id}/upload`,
@@ -268,10 +336,24 @@ export function planArtifactRegistration(args: {
       contentType: a.contentType,
       sizeBytes: a.sizeBytes,
     });
-    byIdentity.set(identity, { id: artifactId, r2Key });
+    // Seed as NOT persisted: a within-request duplicate of this identity reuses
+    // the freshly-minted row (which already carries the latest size/type), so it
+    // must never schedule a refresh update against a row that isn't in the DB yet.
+    byIdentity.set(identity, {
+      id: artifactId,
+      r2Key,
+      persisted: false,
+      sizeBytes: a.sizeBytes,
+      contentType: a.contentType,
+    });
   }
 
-  return { rowsToInsert, uploads };
+  return {
+    rowsToInsert,
+    rowsToUpdate: [...updatesById.values()],
+    uploads,
+    updateBytesDelta,
+  };
 }
 
 /**
@@ -400,46 +482,61 @@ export async function registerArtifacts(
   // reporter.
   for (let attempt = 0; ; attempt++) {
     const existingRows = await fetchExistingArtifactRows(scope, requestedIds);
-    const { rowsToInsert, uploads } = planArtifactRegistration({
-      requestedArtifacts: payload.artifacts,
-      existingRows,
-      scope,
-      runId: payload.runId,
-      nowSeconds,
-    });
-    if (rowsToInsert.length === 0) {
+    const { rowsToInsert, rowsToUpdate, uploads, updateBytesDelta } =
+      planArtifactRegistration({
+        requestedArtifacts: payload.artifacts,
+        existingRows,
+        scope,
+        runId: payload.runId,
+        nowSeconds,
+      });
+    // Nothing to write: every artifact reused an unchanged row. Still hand back
+    // the (overwrite) upload URLs so the reporter's PUT can re-stream the bytes.
+    if (rowsToInsert.length === 0 && rowsToUpdate.length === 0) {
       return { kind: "ok", uploads: await finalizeUploads(uploads) };
     }
 
-    // Enforce the team's artifact-byte quota on FRESH bytes only (rows about to
-    // be inserted) — an idempotent re-registration plans 0 fresh rows and so is
-    // never blocked, keeping the reporter's retry path working at the limit.
+    // Enforce the team's artifact-byte quota on the NET new bytes: fresh inserts
+    // plus the growth of any refreshed re-run rows (`updateBytesDelta`). A pure
+    // idempotent re-registration (0 inserts, 0 grown rows) nets ≤0 and is never
+    // blocked, keeping the reporter's retry path working at the limit; a re-run
+    // whose traces grew is gated exactly like new bytes.
     const freshBytes = rowsToInsert.reduce((sum, r) => sum + r.sizeBytes, 0);
-    const quota = await checkQuota(
-      scope.teamId,
-      "artifactBytes",
-      freshBytes,
-      nowSeconds,
-    );
-    if (quota.status === "blocked") {
-      return { kind: "quotaExceeded", limit: quota.limit, used: quota.used };
+    const netNewBytes = freshBytes + updateBytesDelta;
+    if (netNewBytes > 0) {
+      const quota = await checkQuota(
+        scope.teamId,
+        "artifactBytes",
+        netNewBytes,
+        nowSeconds,
+      );
+      if (quota.status === "blocked") {
+        return { kind: "quotaExceeded", limit: quota.limit, used: quota.used };
+      }
     }
 
     try {
-      // Insert the artifact rows and meter the fresh bytes + row count in ONE
-      // atomic write, built against the batch executor (`db.batch` on D1, one
-      // `db.transaction` on Postgres — see `runBatch`).
+      // Insert the fresh rows, REFRESH the reused rows whose bytes changed, and
+      // meter the net new bytes + fresh row count in ONE atomic write, built
+      // against the transaction executor (see `runBatch`). `artifactCount` counts
+      // only inserts — a refresh replaces an existing artifact, it doesn't add one.
       await runBatch((tx) => {
         const bump = usageBumpStatement(
           scope.teamId,
           monthStartSeconds(nowSeconds),
-          { artifactBytes: freshBytes, artifactCount: rowsToInsert.length },
+          { artifactBytes: netNewBytes, artifactCount: rowsToInsert.length },
           nowSeconds,
           tx,
         );
         return [
           ...chunkInsertRows(rowsToInsert).map((chunk) =>
             tx.insert(artifacts).values(chunk),
+          ),
+          ...rowsToUpdate.map((r) =>
+            tx
+              .update(artifacts)
+              .set({ sizeBytes: r.sizeBytes, contentType: r.contentType })
+              .where(childByIdWhere(artifacts, scope, r.id)),
           ),
           ...(bump ? [bump] : []),
         ];
@@ -471,6 +568,8 @@ async function fetchExistingArtifactRows(
         attempt: artifacts.attempt,
         role: artifacts.role,
         r2Key: artifacts.r2Key,
+        sizeBytes: artifacts.sizeBytes,
+        contentType: artifacts.contentType,
       })
       .from(artifacts)
       .where(
