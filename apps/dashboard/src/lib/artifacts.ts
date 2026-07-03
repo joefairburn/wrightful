@@ -29,11 +29,13 @@ import { checkQuota, monthStartSeconds, usageBumpStatement } from "@/lib/usage";
  * read/write carries `scope.projectId` for logical tenant isolation, the same
  * as the run pipeline.
  *
- * Bytes traverse the worker, not a presigned R2 endpoint: `registerArtifacts`
- * hands back a relative worker upload URL (`/api/artifacts/:id/upload`), and
+ * Bytes traverse the worker BY DEFAULT: `registerArtifacts` hands back a
+ * relative worker upload URL (`/api/artifacts/:id/upload`), and
  * `storeArtifactUpload` streams the PUT body through the worker into R2 via
- * `storage.put`. The worker is therefore on the data path for every upload
- * (egress / CPU / request-size limits apply) — there is no S3-style presign.
+ * `storage.put`. When the direct-R2 path is configured (`r2DirectEnabled` —
+ * the four `R2_*` S3-API creds), `registerArtifacts` instead returns a
+ * SigV4-presigned PUT URL (via the injected `signPut`) so bytes go straight to
+ * R2 and the worker leaves the data path. See ADR-0003.
  *
  * Orphan-row invariant (documented once, here): registration writes a row per
  * artifact EAGERLY — a row's existence is a *promise to upload*. A failed PUT
@@ -42,8 +44,11 @@ import { checkQuota, monthStartSeconds, usageBumpStatement } from "@/lib/usage";
  * this scale.
  */
 
-// D1 caps a parameter list at 100; match the ingest cadence (99) for the
-// `inArray` validation/idempotency chunks.
+// Chunk the `inArray` validation / idempotency reads so a single bound-param
+// list stays well under Postgres's 65535 ceiling. 99 is a conservative slice
+// that matches the ingest read cadence (a /results batch is ≤5000 ids, so this
+// is one small round-trip in practice). The hard cap itself lives in
+// `PG_MAX_BOUND_PARAMS` (ingest.ts) — this value is only a per-read slice size.
 const MAX_IN_ARRAY_IDS = 99;
 
 /**
@@ -69,7 +74,7 @@ export function safeKeySegment(name: string): string {
  * This is the application mirror of the `artifacts_identity_uq` unique index
  * (`db/schema.ts`), which enforces the same tuple at the DB and closes the
  * lookup-before-insert race window. The `role ?? ""` coalesce matches the
- * index's `COALESCE(role, '')` so role-less artifacts dedupe (SQLite treats
+ * index's `COALESCE(role, '')` so role-less artifacts dedupe (Postgres treats
  * NULLs as distinct in unique indexes). Keep the two in sync — if a field
  * joins or leaves the identity (e.g. `snapshotName` for visual diffs), change
  * BOTH this tuple and the index.
@@ -211,7 +216,7 @@ export interface ArtifactRegistrationPlan {
 
 /**
  * The pure planning step of `registerArtifacts` — mirrors `computeAggregateDelta`
- * for runs: given the requested artifacts and the rows *already fetched* from D1,
+ * for runs: given the requested artifacts and the rows *already fetched* from Postgres,
  * decide which rows to insert and what upload URL each artifact maps to, doing no
  * IO of its own. The orchestrator owns the SELECTs (ownership + existing-by-id)
  * and the conditional chunked insert; everything between the fetched rows and the
@@ -383,7 +388,7 @@ export type RegisterArtifactsResult =
  *   1. byte-cap precheck (declared sizes) — reject the whole set before writing;
  *   2. verify the owner run belongs to `scope.projectId` (404 otherwise);
  *   3. verify every `testResultId` belongs to that run + project (chunked
- *      `inArray` so the parameter list stays under D1's cap);
+ *      `inArray` so the parameter list stays under Postgres's bound-param cap);
  *   4. idempotency-by-identity: reuse the row + R2 key of any artifact already
  *      registered for these testResults (a retried `/results` flush re-sends
  *      the same set), and de-dupe identities within this same request;
@@ -449,7 +454,7 @@ export async function registerArtifacts(
   }
 
   // Validate every testResultId belongs to this run + project. Chunk so a
-  // single parameter list stays under D1's limit.
+  // single parameter list stays under Postgres's bound-param ceiling.
   const requestedIds = Array.from(
     new Set(payload.artifacts.map((a) => a.testResultId)),
   );
@@ -549,7 +554,7 @@ export async function registerArtifacts(
 }
 
 /**
- * Rows already registered for these testResults, read in chunks under D1's
+ * Rows already registered for these testResults, read in chunks under Postgres's
  * param cap. The idempotency input to `planArtifactRegistration`.
  */
 async function fetchExistingArtifactRows(
@@ -685,7 +690,7 @@ const DELETE_OBJECTS_MAX_PAGES = 100;
 /**
  * Delete every R2 object under a project's artifact prefix
  * (`t/<teamId>/p/<projectId>/`). Called by the project/team delete actions
- * AFTER the D1 rows are gone: row deletion is the atomic, authoritative step;
+ * AFTER the DB rows are gone: row deletion is the atomic, authoritative step;
  * this sweep is the best-effort byte cleanup that previously didn't exist at
  * all — "permanently deleted" teams kept their traces/screenshots/videos
  * (which can embed secrets) in R2 forever. Failures must not resurrect the

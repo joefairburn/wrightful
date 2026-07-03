@@ -366,9 +366,11 @@ export const runs = pgTable(
      *   1. Defense-in-depth for the `AuthorizedProjectId` brand — every
      *      scoped query filters by `(teamId, projectId)` so a leaked project
      *      id can't cross teams even if the brand check is bypassed.
-     *   2. Single-hop authz on the live socket (`src/live.ts`): we resolve a
-     *      subscriber's read access by `SELECT teamId FROM runs WHERE id = ?`
-     *      then joining memberships, instead of hopping through projects.
+     *   2. Single-hop authz on the realtime socket: the run-room subscription
+     *      gate (`authorizeTopicSubscription` in `src/lib/authz.ts`, wired into
+     *      `routes/ws/run/[runId].ws.ts`) resolves a subscriber's read access by
+     *      `SELECT teamId FROM runs WHERE id = ?` then joining memberships,
+     *      instead of hopping through projects.
      */
     teamId: text("teamId")
       .notNull()
