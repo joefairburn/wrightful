@@ -79,7 +79,7 @@ export function normalizeTestStatus(s: string): RunProgressTest["status"] {
  * This is the one canonical definition of "first page of a run's testResults
  * as RunProgressTest[]": both the GET /results API (back-paginator) and the
  * run-detail page loader (SSR seed for `useRunRoom`) go through it, so the
- * 11-column projection, ordering, scoping, and status normalization can never
+ * column projection, ordering, scoping, and status normalization can never
  * diverge between the seed and later pages.
  */
 export async function loadRunResultsPage(
@@ -126,6 +126,7 @@ export async function loadRunResultsPage(
       status: testResults.status,
       durationMs: testResults.durationMs,
       retryCount: testResults.retryCount,
+      shardIndex: testResults.shardIndex,
       createdAt: testResults.createdAt,
     })
     .from(testResults)
@@ -149,6 +150,7 @@ export async function loadRunResultsPage(
       status: normalizeTestStatus(r.status),
       durationMs: r.durationMs,
       retryCount: r.retryCount,
+      shardIndex: r.shardIndex,
     })),
     nextCursor,
   };

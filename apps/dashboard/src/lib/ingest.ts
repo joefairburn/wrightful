@@ -184,6 +184,7 @@ export function buildQueuePrefillStatements(
   }>,
   nowSeconds: number,
   exec: BatchExecutor,
+  shardIndex: number | null = null,
 ) {
   if (plannedTests.length === 0) return [];
   const rows = plannedTests.map((p) => ({
@@ -200,6 +201,10 @@ export function buildQueuePrefillStatements(
     errorMessage: null,
     errorStack: null,
     workerIndex: null,
+    // The opening shard stamps its planned (still-queued) rows with its own
+    // index so they group by shard before they run; each shard's real result
+    // arrives with its own shardIndex via /results. Null on a non-sharded run.
+    shardIndex,
     createdAt: nowSeconds,
     updatedAt: nowSeconds,
   }));
@@ -239,6 +244,7 @@ function resultUpsertSet() {
     errorMessage: sql`excluded."errorMessage"`,
     errorStack: sql`excluded."errorStack"`,
     workerIndex: sql`excluded."workerIndex"`,
+    shardIndex: sql`excluded."shardIndex"`,
     updatedAt: sql`excluded."updatedAt"`,
   };
 }
@@ -296,6 +302,7 @@ export function buildResultInsertStatements(
     errorMessage: string | null;
     errorStack: string | null;
     workerIndex: number | null;
+    shardIndex: number | null;
     createdAt: number;
     updatedAt: number;
   }> = [];
@@ -354,6 +361,7 @@ export function buildResultInsertStatements(
       errorMessage: result.errorMessage ?? null,
       errorStack: result.errorStack ?? null,
       workerIndex: result.workerIndex ?? null,
+      shardIndex: result.shardIndex ?? null,
       createdAt: nowSeconds,
       updatedAt: nowSeconds,
     });
@@ -774,6 +782,7 @@ export function buildChangedTests(
     status: r.status,
     durationMs: r.durationMs,
     retryCount: r.retryCount,
+    shardIndex: r.shardIndex ?? null,
   }));
 }
 
@@ -978,6 +987,7 @@ export async function openRun(
           plannedTests,
           nowSeconds,
           tx,
+          payload.shard?.index ?? null,
         ),
         ...(usageBump ? [usageBump] : []),
       ];

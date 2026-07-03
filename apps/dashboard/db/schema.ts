@@ -556,6 +556,8 @@ export const testResults = pgTable(
     errorMessage: text("errorMessage"),
     errorStack: text("errorStack"),
     workerIndex: integer("workerIndex"),
+    /** Playwright shard that ran this test (config.shard.current, 1-based); null for a non-sharded run. */
+    shardIndex: integer("shardIndex"),
     /**
      * INSERT-ONLY first-seen time. Set once — at the queued prefill (run open)
      * for a planned test, or at the first streamed result for a non-prefilled

@@ -518,7 +518,11 @@ export default class WrightfulReporter implements Reporter {
 
   private async enqueueDone(entry: PendingTest): Promise<void> {
     try {
-      const built = buildPayload(entry, this.rootDir);
+      const built = buildPayload(
+        entry,
+        this.rootDir,
+        this.shard?.index ?? null,
+      );
       // Demote a quarantined hard failure to `skipped` on the wire. The map is
       // resolved by the time the first test ends in any real run, but await it
       // here so we never race a slow fetch; it's empty on any fetch failure, so
@@ -908,6 +912,7 @@ function normaliseAttemptStatus(
 export function buildPayload(
   entry: PendingTest,
   rootDir: string | null = null,
+  shardIndex: number | null = null,
 ): TestResultPayload {
   const { test, results } = entry;
   const descriptor = buildTestDescriptor(test, rootDir);
@@ -953,6 +958,7 @@ export function buildPayload(
     errorStack: truncateNullable(errorSource?.errors?.[0]?.stack, MAX_STACK),
     workerIndex:
       lastResult && lastResult.workerIndex >= 0 ? lastResult.workerIndex : 0,
+    shardIndex,
     tags: test.tags ?? [],
     annotations: test.annotations.map((a) => ({
       type: a.type,
