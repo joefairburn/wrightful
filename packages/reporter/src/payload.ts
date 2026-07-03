@@ -16,6 +16,13 @@
 // `.mjs` seeder fails loudly at build time rather than producing a payload the
 // live server silently degrades or rejects.
 
+import {
+  MAX_MESSAGE,
+  MAX_STACK,
+  MAX_TITLE,
+  truncate,
+  truncateNullable,
+} from "./limits.js";
 import type {
   CompleteRunPayload,
   OpenRunPayload,
@@ -93,8 +100,10 @@ export function buildAttempt(input: AttemptInput): TestAttemptPayload {
     attempt: input.attempt,
     status: input.status,
     durationMs: input.durationMs,
-    errorMessage: input.errorMessage ?? null,
-    errorStack: input.errorStack ?? null,
+    // Clamp free-form text to the dashboard caps (parity with the live reporter
+    // path) so an oversized seeded stack can't 413 the batch.
+    errorMessage: truncateNullable(input.errorMessage, MAX_MESSAGE),
+    errorStack: truncateNullable(input.errorStack, MAX_STACK),
   };
 }
 
@@ -124,14 +133,14 @@ export function buildResult(
   return {
     clientKey: fields.clientKey ?? fields.testId,
     testId: fields.testId,
-    title: fields.title,
+    title: truncate(fields.title, MAX_TITLE),
     file: fields.file,
     projectName: fields.projectName,
     status: fields.status,
     durationMs: fields.durationMs,
     retryCount: fields.retryCount ?? Math.max(0, attempts.length - 1),
-    errorMessage: fields.errorMessage ?? null,
-    errorStack: fields.errorStack ?? null,
+    errorMessage: truncateNullable(fields.errorMessage, MAX_MESSAGE),
+    errorStack: truncateNullable(fields.errorStack, MAX_STACK),
     workerIndex: fields.workerIndex ?? 0,
     tags: fields.tags ?? [],
     annotations: fields.annotations ?? [],
