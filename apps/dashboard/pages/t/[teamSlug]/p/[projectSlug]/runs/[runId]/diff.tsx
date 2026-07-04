@@ -1,4 +1,4 @@
-import { Link } from "@void/react";
+import { Link } from "@/components/ui/link";
 import type React from "react";
 import { use } from "react";
 import { DeferredSection } from "@/components/defer-error-boundary";

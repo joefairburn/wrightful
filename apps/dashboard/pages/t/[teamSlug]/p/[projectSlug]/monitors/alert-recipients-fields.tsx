@@ -1,4 +1,4 @@
-import { Link } from "@void/react";
+import { Link } from "@/components/ui/link";
 import type { AlertTargets } from "@/lib/monitors/alert-targets";
 import { FieldLabel } from "./monitor-form-parts";
 

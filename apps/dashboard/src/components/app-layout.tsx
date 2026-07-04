@@ -14,10 +14,18 @@ import {
   Users,
   UsersRound,
 } from "lucide-react";
-import { useState } from "react";
-import { Link, useRouter, useShared } from "@void/react";
-import { CommandMenu, useCommandMenuShortcut } from "@/components/command-menu";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { useRouter, useShared } from "@void/react";
+import { useCommandMenuShortcut } from "@/components/command-menu-shortcut";
+import { Link } from "@/components/ui/link";
 import { QueryProvider } from "@/components/query-provider";
+
+// Lazy-loaded and mounted only on first open (see `cmdMounted`): the command
+// menu pulls in Base UI Combobox machinery (~15-25 KB gz) and the layout renders
+// on every page, so keeping it out of the first-load bundle until ⌘K is free.
+const CommandMenu = lazy(() =>
+  import("@/components/command-menu").then((m) => ({ default: m.CommandMenu })),
+);
 import { SidebarUserMenu } from "@/components/sidebar-user-menu";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { cn } from "@/lib/cn";
@@ -88,6 +96,12 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
   const user = auth?.user ?? null;
 
   const [cmdOpen, setCmdOpen] = useState(false);
+  // Mount the lazy command menu the first time it opens, then keep it mounted so
+  // its close animation runs and the chunk isn't re-fetched on the next ⌘K.
+  const [cmdMounted, setCmdMounted] = useState(false);
+  useEffect(() => {
+    if (cmdOpen) setCmdMounted(true);
+  }, [cmdOpen]);
   useCommandMenuShortcut(setCmdOpen);
 
   return (
@@ -142,14 +156,18 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
         </main>
       </div>
 
-      <CommandMenu
-        activeProject={selectedProject}
-        activeTeam={selectedTeam}
-        onOpenChange={setCmdOpen}
-        open={cmdOpen}
-        projects={teamProjects}
-        teams={userTeams}
-      />
+      {cmdMounted && (
+        <Suspense fallback={null}>
+          <CommandMenu
+            activeProject={selectedProject}
+            activeTeam={selectedTeam}
+            onOpenChange={setCmdOpen}
+            open={cmdOpen}
+            projects={teamProjects}
+            teams={userTeams}
+          />
+        </Suspense>
+      )}
     </QueryProvider>
   );
 }

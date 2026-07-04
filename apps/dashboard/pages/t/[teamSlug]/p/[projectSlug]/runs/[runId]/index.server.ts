@@ -1,3 +1,4 @@
+import { all } from "better-all";
 import { defer, defineHandler, type InferProps } from "void";
 import { and, db, desc, eq } from "void/db";
 import { runs } from "@schema";
@@ -24,17 +25,51 @@ export const loader = defineHandler(async (c) => {
 
   const { project, scope } = requireTenantContext(c);
 
-  const runRows = await db
-    // Explicit projection — omits idempotencyKey (the write-reopen credential)
-    // from the serialized props. See RUN_PUBLIC_COLUMNS.
-    .select(RUN_PUBLIC_COLUMNS)
-    .from(runs)
-    .where(runByIdWhere(scope, runId))
-    .limit(1);
+  const url = new URL(c.req.url);
+
+  // Batch the 404-gate run lookup with the tests seed + branch list in one
+  // parallel step (no serialized gate). All three are independently
+  // scope-filtered — `loadRunResultsPage`/`loadProjectBranches` return empty for
+  // a foreign/missing run — so none needs `run` resolved first; we throw 404
+  // after the batch. Saves a DB round-trip on the common (valid-run) path.
+  //
+  // Tests stay EAGER — they seed the realtime tests-list island. `<RunProgress>`
+  // feeds `tests` straight into `useRunRoom({ initialTests })`, and that seed is
+  // an identity dep of `useSeededState`: if `tests` streamed in as a deferred
+  // prop, the array would arrive with a fresh reference AFTER the island had
+  // already mounted its WS subscription and folded any `progress` events that
+  // landed in the gap — the reseed would then DISCARD those folded events (rooms
+  // have no replay, so they're gone for good), and the suspended island would
+  // also connect its socket late. Both break live progress on an in-flight run.
+  // `branches` is a cheap index-covered DISTINCT and drives the always-visible
+  // branch filter in the chart's title row. Loading it EAGER lets the chart's
+  // skeleton render the real filter + title row while only the history plot
+  // streams in — so the title row is identical markup in both states and can't
+  // shift. Only `history` stays deferred.
+  const { runRows, resultsPage, branches } = await all({
+    async runRows() {
+      // Explicit projection — omits idempotencyKey (the write-reopen credential)
+      // from the serialized props. See RUN_PUBLIC_COLUMNS.
+      return db
+        .select(RUN_PUBLIC_COLUMNS)
+        .from(runs)
+        .where(runByIdWhere(scope, runId))
+        .limit(1);
+    },
+    async resultsPage() {
+      return loadRunResultsPage(scope, runId, {
+        cursor: null,
+        limit: TESTS_LIMIT,
+        status: null,
+      });
+    },
+    async branches() {
+      return loadProjectBranches(scope);
+    },
+  });
   const run = runRows[0];
   if (!run) throw new Response("Not Found", { status: 404 });
 
-  const url = new URL(c.req.url);
   const branchParam = url.searchParams.get("branch");
   const defaultBranch = run.branch ?? ALL_BRANCHES;
   const effectiveBranch = branchParam ?? defaultBranch;
@@ -43,7 +78,7 @@ export const loader = defineHandler(async (c) => {
 
   // History query builder: last HISTORY_LIMIT runs, optionally filtered by
   // branch. Deferred (below), so `defer()`'s awaited promise is the query, not
-  // an already-awaited result.
+  // an already-awaited result. Built after `run` is known (needs its branch).
   const historyConditions = [runScopeWhere(scope)];
   if (effectiveBranch !== ALL_BRANCHES) {
     historyConditions.push(eq(runs.branch, effectiveBranch));
@@ -63,31 +98,6 @@ export const loader = defineHandler(async (c) => {
     .orderBy(desc(runs.createdAt))
     .limit(HISTORY_LIMIT);
 
-  // Tests stay EAGER — they seed the realtime tests-list island. `<RunProgress>`
-  // feeds `tests` straight into `useRunRoom({ initialTests })`, and that seed is
-  // an identity dep of `useSeededState`: if `tests` streamed in as a deferred
-  // prop, the array would arrive with a fresh reference AFTER the island had
-  // already mounted its WS subscription and folded any `progress` events that
-  // landed in the gap — the reseed would then DISCARD those folded events (rooms
-  // have no replay, so they're gone for good), and the suspended island would
-  // also connect its socket late. Both break live progress on an in-flight run.
-  // So the ~200-row scan is awaited here alongside the 404-gated `run`.
-  // `branches` is a cheap index-covered DISTINCT and drives the always-visible
-  // branch filter in the chart's title row. Loading it EAGER (in parallel with
-  // the tests scan) lets the chart's skeleton render the real filter + title
-  // row while only the history plot streams in — so the title row is identical
-  // markup in both states and can't shift. Only `history` stays deferred.
-  const [resultsPage, branches] = await Promise.all([
-    loadRunResultsPage(scope, runId, {
-      cursor: null,
-      limit: TESTS_LIMIT,
-      status: null,
-    }),
-    loadProjectBranches(scope),
-  ]);
-
-  // The full-run select() above already 404s on a foreign/missing run, so the
-  // run is owned here; loadRunResultsPage's own ownership probe agrees.
   const tests = resultsPage?.results ?? [];
   // Non-null when the run has more tests than TESTS_LIMIT — the client
   // back-paginates the rest from GET /results (see `useRunRoom`'s backfill)

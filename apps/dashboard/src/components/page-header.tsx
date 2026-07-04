@@ -1,4 +1,4 @@
-import { Link } from "@void/react";
+import { Link } from "@/components/ui/link";
 import { Fragment } from "react";
 import type React from "react";
 import { cn } from "@/lib/cn";

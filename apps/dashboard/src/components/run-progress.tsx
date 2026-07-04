@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { Link } from "@void/react";
+import { Link } from "@/components/ui/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import {

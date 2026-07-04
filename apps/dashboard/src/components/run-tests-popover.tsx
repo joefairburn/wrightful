@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import type React from "react";
 import { useCallback, useState } from "react";
 import { fetch } from "void/client";
-import { Link } from "@void/react";
+import { Link } from "@/components/ui/link";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { statusLabel, statusToken } from "@/lib/status";
 
