@@ -118,6 +118,8 @@ const {
   computeAggregateDelta,
 } = await import("@/lib/ingest");
 const { makeTenantScope } = await import("@/lib/scope");
+const { loadRunGroupSkeleton } = await import("@/lib/run-groups-page");
+const { loadRunResultsPage } = await import("@/lib/run-results-page");
 const { httpResponseTimeBuckets, httpUptimeWindows } =
   await import("@/lib/monitors/http/uptime-analytics");
 const {
@@ -950,6 +952,207 @@ function makeOrder(o: {
     } as unknown as Order,
   };
 }
+
+// The run-detail Tests-tab grouped read: `loadRunGroupSkeleton`'s GROUP BY +
+// `count(*) FILTER` + severity ORDER BY + `ILIKE`, and `loadRunResultsPage`'s
+// group predicate. Executed against real Postgres SQL (pglite/node-postgres) so
+// the dialect + int8-as-string cast (numericSql) are exercised, not just the
+// pure cursor/normalizer seam covered by run-results-page.workers.test.ts.
+describe("run-group skeleton (grouped read)", () => {
+  const scope = makeTenantScope({
+    teamId: "t-grp",
+    projectId: "p-grp",
+    teamSlug: "grp",
+    projectSlug: "grp",
+  });
+  const RUN = "run-grp";
+  const SHARD_RUN = "run-grp-shard";
+  const T0 = 1_700_100_000;
+
+  type SeedRow = {
+    testId: string;
+    file: string;
+    status: string;
+    shardIndex?: number | null;
+  };
+
+  async function seed(runId: string, rows: SeedRow[]) {
+    await h.db.delete(testResults).where(eq(testResults.runId, runId));
+    await h.db.insert(testResults).values(
+      rows.map((r, i) => ({
+        id: `${runId}-${r.testId}`,
+        projectId: scope.projectId,
+        runId,
+        testId: r.testId,
+        title: `test ${r.testId}`,
+        file: r.file,
+        projectName: null,
+        status: r.status,
+        durationMs: 0,
+        retryCount: 0,
+        shardIndex: r.shardIndex ?? null,
+        createdAt: T0 + i,
+        updatedAt: T0 + i,
+      })),
+    );
+  }
+
+  beforeAll(async () => {
+    // a: 2 failed + 1 passed (sev 8, total 3)
+    // b: 1 failed + 1 timedout + 3 passed (failed BUCKET = 2 → sev 8, total 5)
+    // c: 1 flaky + 2 passed (sev 2)   d: 2 passed (sev 0)   e: 1 skipped + 1 passed (sev 0)
+    await seed(RUN, [
+      { testId: "a1", file: "a.spec.ts", status: "failed" },
+      { testId: "a2", file: "a.spec.ts", status: "failed" },
+      { testId: "a3", file: "a.spec.ts", status: "passed" },
+      { testId: "b1", file: "b.spec.ts", status: "failed" },
+      { testId: "b2", file: "b.spec.ts", status: "timedout" },
+      { testId: "b3", file: "b.spec.ts", status: "passed" },
+      { testId: "b4", file: "b.spec.ts", status: "passed" },
+      { testId: "b5", file: "b.spec.ts", status: "passed" },
+      { testId: "c1", file: "c.spec.ts", status: "flaky" },
+      { testId: "c2", file: "c.spec.ts", status: "passed" },
+      { testId: "c3", file: "c.spec.ts", status: "passed" },
+      { testId: "d1", file: "d.spec.ts", status: "passed" },
+      { testId: "d2", file: "d.spec.ts", status: "passed" },
+      { testId: "e1", file: "e.spec.ts", status: "skipped" },
+      { testId: "e2", file: "e.spec.ts", status: "passed" },
+    ]);
+    await seed(SHARD_RUN, [
+      { testId: "s1", file: "x.spec.ts", status: "failed", shardIndex: 1 },
+      { testId: "s2", file: "x.spec.ts", status: "passed", shardIndex: 1 },
+      { testId: "s3", file: "y.spec.ts", status: "passed", shardIndex: null },
+      { testId: "s4", file: "y.spec.ts", status: "passed", shardIndex: null },
+    ]);
+  });
+
+  it("groups by file worst-first with per-bucket counts (timedout ∈ failed) + auto-expand flags", async () => {
+    const skel = await loadRunGroupSkeleton(scope, RUN, {
+      groupBy: "file",
+      status: null,
+      search: null,
+      skipOwnershipCheck: true,
+    });
+    if (!skel) throw new Error("expected a skeleton");
+    // sev desc, key asc: a(8) b(8) c(2) d(0) e(0). int8 counts come back as
+    // JS numbers (numericSql) — the assertions on numeric equality pin that.
+    expect(skel.groups.map((g) => g.key)).toEqual([
+      "a.spec.ts",
+      "b.spec.ts",
+      "c.spec.ts",
+      "d.spec.ts",
+      "e.spec.ts",
+    ]);
+    expect(skel.groups[0]).toMatchObject({
+      key: "a.spec.ts",
+      total: 3,
+      failed: 2,
+      flaky: 0,
+      passed: 1,
+      skipped: 0,
+      expandedByDefault: true,
+    });
+    expect(skel.groups[1]).toMatchObject({
+      key: "b.spec.ts",
+      total: 5,
+      failed: 2, // 1 failed + 1 timedout
+      passed: 3,
+      expandedByDefault: true,
+    });
+    expect(skel.groups[2]).toMatchObject({
+      key: "c.spec.ts",
+      flaky: 1,
+      passed: 2,
+      expandedByDefault: true,
+    });
+    expect(skel.groups[3]).toMatchObject({
+      key: "d.spec.ts",
+      expandedByDefault: false,
+    });
+    expect(skel.groups[4]).toMatchObject({
+      key: "e.spec.ts",
+      skipped: 1,
+      expandedByDefault: false,
+    });
+  });
+
+  it("status filter narrows to failing groups (failed bucket only)", async () => {
+    const skel = await loadRunGroupSkeleton(scope, RUN, {
+      groupBy: "file",
+      status: "failed",
+      search: null,
+      skipOwnershipCheck: true,
+    });
+    if (!skel) throw new Error("expected a skeleton");
+    expect(skel.groups.map((g) => g.key)).toEqual(["a.spec.ts", "b.spec.ts"]);
+    expect(skel.groups[0]).toMatchObject({ total: 2, failed: 2, passed: 0 });
+    expect(skel.groups[1]).toMatchObject({ total: 2, failed: 2, passed: 0 });
+  });
+
+  it("search filter narrows to matching files (ILIKE title/file)", async () => {
+    const skel = await loadRunGroupSkeleton(scope, RUN, {
+      groupBy: "file",
+      status: null,
+      search: "c.spec",
+      skipOwnershipCheck: true,
+    });
+    if (!skel) throw new Error("expected a skeleton");
+    expect(skel.groups.map((g) => g.key)).toEqual(["c.spec.ts"]);
+  });
+
+  it("loadRunResultsPage restricts to one file group", async () => {
+    const page = await loadRunResultsPage(scope, RUN, {
+      cursor: null,
+      limit: 200,
+      status: null,
+      group: { axis: "file", key: "a.spec.ts" },
+      skipOwnershipCheck: true,
+    });
+    if (!page) throw new Error("expected a page");
+    expect(page.results).toHaveLength(3);
+    expect(new Set(page.results.map((r) => r.file))).toEqual(
+      new Set(["a.spec.ts"]),
+    );
+  });
+
+  it("groups by shard incl. the unsharded (null-key) fallback + filters rows by null key", async () => {
+    const skel = await loadRunGroupSkeleton(scope, SHARD_RUN, {
+      groupBy: "shard",
+      status: null,
+      search: null,
+      skipOwnershipCheck: true,
+    });
+    if (!skel) throw new Error("expected a skeleton");
+    // shard 1 has a failure (sev 4) → first; unsharded (null) sev 0 → second.
+    expect(skel.groups.map((g) => g.key)).toEqual(["1", null]);
+    expect(skel.groups[0]).toMatchObject({ key: "1", failed: 1, total: 2 });
+    expect(skel.groups[1]).toMatchObject({ key: null, passed: 2, total: 2 });
+
+    const nullPage = await loadRunResultsPage(scope, SHARD_RUN, {
+      cursor: null,
+      limit: 200,
+      status: null,
+      group: { axis: "shard", key: null },
+      skipOwnershipCheck: true,
+    });
+    if (!nullPage) throw new Error("expected a page");
+    expect(nullPage.results).toHaveLength(2);
+    expect(nullPage.results.every((r) => r.shardIndex === null)).toBe(true);
+  });
+
+  it("groups by project into the null-key fallback when projectName is null", async () => {
+    const skel = await loadRunGroupSkeleton(scope, RUN, {
+      groupBy: "project",
+      status: null,
+      search: null,
+      skipOwnershipCheck: true,
+    });
+    if (!skel) throw new Error("expected a skeleton");
+    expect(skel.groups).toHaveLength(1);
+    expect(skel.groups[0]?.key).toBeNull();
+    expect(skel.groups[0]?.total).toBe(15);
+  });
+});
 
 describe("Polar billing mirror (Postgres path)", () => {
   beforeEach(async () => {

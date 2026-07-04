@@ -62,8 +62,10 @@ export default function RunDetailPage({
   effectiveBranch,
   tab,
   pathname,
-  tests,
-  testsCursor,
+  groupBy,
+  skeleton,
+  expandedGroups,
+  isSharded,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
   const shortId = run.id.slice(-7);
@@ -262,8 +264,11 @@ export default function RunDetailPage({
         {/* Tab content — scrolls with the rest of the page */}
         {tab === "tests" ? (
           <RunProgress
-            initialCursor={testsCursor}
-            initialTests={tests}
+            initialExpandedGroups={expandedGroups}
+            initialGroupBy={groupBy}
+            initialSkeleton={skeleton}
+            initialSummary={initialSummary}
+            isSharded={isSharded}
             projectSlug={project.slug}
             runId={runId}
             teamSlug={project.teamSlug}

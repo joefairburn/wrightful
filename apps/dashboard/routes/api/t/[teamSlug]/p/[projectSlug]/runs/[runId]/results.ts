@@ -1,5 +1,6 @@
 import { defineHandler } from "void";
 import { z } from "zod";
+import { GROUP_BY_AXES, STATUS_BUCKET_KEYS } from "@/lib/run-groups-page";
 import {
   DEFAULT_RUN_RESULTS_LIMIT,
   loadRunResultsPage,
@@ -19,6 +20,16 @@ const QuerySchema = z.object({
   status: z.enum(STATUS_VALUES).optional(),
   limit: z.coerce.number().int().positive().optional(),
   cursor: z.string().optional(),
+  // The Tests-tab per-group row page: restrict to one group of an axis. A
+  // present `groupBy` with an absent `groupKey` selects that axis's fallback
+  // group (empty projectName / non-sharded rows); `file`'s fallback is the
+  // empty-path string, so an absent key there reads as `""`.
+  groupBy: z.enum(GROUP_BY_AXES).optional(),
+  groupKey: z.string().optional(),
+  // Chip-bucket status filter (matches the skeleton's buckets: `failed`
+  // includes `timedout`). Distinct from the raw single-status `status` above.
+  statusBucket: z.enum(STATUS_BUCKET_KEYS).optional(),
+  search: z.string().optional(),
 });
 
 /**
@@ -37,10 +48,23 @@ export const GET = defineHandler.withValidator({
   if (ctx instanceof Response) return ctx;
   const { scope, runId } = ctx;
 
+  // A present `groupBy` marks this as a per-group row page. `file`'s fallback
+  // group is the empty-path string, so an absent key there is `""`; the
+  // nullable project/shard axes take `null` (→ `IS NULL`) — see `groupPredicate`.
+  const group = query.groupBy
+    ? {
+        axis: query.groupBy,
+        key: query.groupKey ?? (query.groupBy === "file" ? "" : null),
+      }
+    : null;
+
   const result = await loadRunResultsPage(scope, runId, {
     cursor: query.cursor ?? null,
     limit: query.limit ?? DEFAULT_RUN_RESULTS_LIMIT,
     status: query.status ?? null,
+    statusBucket: query.statusBucket ?? null,
+    group,
+    search: query.search ?? null,
   });
   if (!result) return c.json({ error: "Not found" }, 404);
   return result;

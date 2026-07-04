@@ -1,5 +1,13 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
+"use client";
+
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { Link } from "@void/react";
+import { fetch } from "void/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import {
@@ -9,151 +17,275 @@ import {
 import { StatusGlyph } from "@/components/status-glyph";
 import { cn } from "@/lib/cn";
 import {
-  countByStatusGroup,
-  groupAndSortTests,
+  filterTests,
   type GroupByAxis,
+  groupKeyId,
+  groupLabel,
   parseTitleSegments,
+  rawGroupKey,
   type StatusFilter,
 } from "@/lib/group-tests-by-file";
+import type { RunGroupHeader, RunGroupSkeleton } from "@/lib/run-groups-page";
+import type { RunResultsResponse } from "@/lib/run-results-page";
 import { statusToken } from "@/lib/status";
-import { type RunProgressTest } from "@/realtime/run-progress";
+import {
+  currentSummary,
+  type RunProgressSummary,
+  type RunProgressTest,
+} from "@/realtime/run-progress";
 import { useRunRoom } from "@/realtime/use-run-room";
 import { formatDuration } from "@/lib/time-format";
 
 interface RunProgressProps {
   /** Run id used as the `void/ws` run-room key (`run:<runId>`). */
   runId: string;
-  /** Team slug — used to build test-detail href on row click. */
+  /** Team slug — used to build test-detail hrefs + the API paths. */
   teamSlug: string;
   /** Project slug — same as above. */
   projectSlug: string;
-  /** SSR-loaded test rows. Forwarded to the hook to seed its accumulator. */
-  initialTests?: RunProgressTest[];
+  /** Group-by axis the SSR skeleton was built for (the default first paint). */
+  initialGroupBy: GroupByAxis;
+  /** SSR-loaded worst-first group headers + per-bucket counts. */
+  initialSkeleton: RunGroupSkeleton;
   /**
-   * `nextCursor` left over from the SSR seed page (loader's TESTS_LIMIT
-   * window). Non-null ⇒ the run has more tests than the seed; `useRunRoom`
-   * back-paginates them in so the list and the per-status filter counts
-   * cover the whole run.
+   * SSR-loaded first row page for each auto-expanded group, keyed by
+   * `groupKeyId`. Seeds the per-group infinite query so the worst groups paint
+   * populated with no client round-trip.
    */
-  initialCursor?: string | null;
+  initialExpandedGroups: Record<string, RunResultsResponse>;
+  /** SSR run aggregate — seeds the live filter-chip counts (whole-run, exact). */
+  initialSummary: RunProgressSummary;
+  /** Whether the run is sharded — gates the "Shard" group-by option. */
+  isSharded: boolean;
+}
+
+/** A running run's skeleton stays fresh this long; live events refresh it at most this often. */
+const LIVE_STALE_MS = 5_000;
+/** Debounce for the search box before it drives the (server) queries. */
+const SEARCH_DEBOUNCE_MS = 300;
+
+const EMPTY_ROWS: readonly RunProgressTest[] = [];
+
+/** The group keys the server flagged to auto-expand on first paint. */
+function defaultExpandedIds(skeleton: RunGroupSkeleton): Set<string> {
+  const ids = new Set<string>();
+  for (const g of skeleton.groups) {
+    if (g.expandedByDefault) ids.add(groupKeyId(g.key));
+  }
+  return ids;
+}
+
+/** Whether a skeleton carries any failed/flaky-bucket group (a "bad" group). */
+function hasBadGroup(skeleton: RunGroupSkeleton): boolean {
+  return skeleton.groups.some((g) => g.failed > 0 || g.flaky > 0);
 }
 
 /**
- * Run-detail Tests tab. Subscribes to live progress events for `run:<runId>`
- * via `useRunRoom` (the `void/ws` run room), merging streaming updates on top of the SSR-loaded
- * `initialTests`. Owns only the per-test list; the aggregate summary (header
- * tiles + OutcomeBar) is rendered live by the separate `<RunSummaryLive>`
- * island, so this component derives every count it shows from its own `byId`
- * accumulator (`statusCounts` below) rather than reading the published summary.
+ * Run-detail Tests tab. Two-level, paginated-by-group:
  *
- * Layout mirrors the design bundle's `screen-run-detail.jsx`:
- *   - Sticky filter bar — search input, status SegmentedControl with per-status
- *     counts, Group-by control (File / Playwright project, plus Shard when the
- *     run is sharded).
- *   - Grouped collapsible list — each group header shows the file path,
- *     project name, or shard plus a per-status count summary; click to toggle.
- *     Failed / flaky groups expand by default.
- *   - Each row is a `<Link>` to the test-detail page (whole row clickable).
+ *   - Filter chips (All/Failed/Flaky/Passed/Skipped) read the **whole-run**
+ *     aggregate from the live `void/ws` summary (`useRunRoom`), so they are
+ *     instant + correct + live without loading a single row.
+ *   - The grouped list renders a server-built **skeleton** (worst-first headers
+ *     with per-bucket counts) fetched once via TanStack `useQuery`; changing the
+ *     group-by axis / status chip / search re-fetches it server-side.
+ *   - Each group's ROWS are fetched lazily on expand via `useInfiniteQuery`
+ *     (infinite-scroll for a huge group), merged on top of the live `byId`
+ *     overlay and sorted worst-first client-side.
  *
- * Tags from the design's `TestRow` aren't shown — `RunProgressTest` doesn't
- * carry them today (testTags table is keyed by `testResultId` and not joined
- * into the live progress payload). Easy to add later by extending the wire
- * format if/when it becomes load-bearing.
+ * This replaces the old "back-paginate the whole run into memory, derive
+ * everything client-side" model (the source of the DB-flooding 200→2000 count
+ * tick). Terminal runs cache their skeleton/rows indefinitely; a running run
+ * refreshes the (cheap) skeleton on a throttled cadence as results stream.
+ *
+ * Three count surfaces coexist by design and are only eventually-consistent on
+ * a live run: the filter CHIPS read the whole-run WS `summary` (authoritative
+ * for the run total); the group HEADERS read the skeleton snapshot (may lag by
+ * up to ~LIVE_STALE_MS while running); the ROWS in an expanded group are what's
+ * paginated in plus the live `byId` overlay. At rest (terminal run) all three
+ * agree — they derive their buckets from the same `STATUS_BUCKET_MEMBERS`.
  */
 export function RunProgress({
   runId,
   teamSlug,
   projectSlug,
-  initialTests,
-  initialCursor,
+  initialGroupBy,
+  initialSkeleton,
+  initialExpandedGroups,
+  initialSummary,
+  isSharded,
 }: RunProgressProps) {
-  const { byId } = useRunRoom(runId, {
-    initialTests,
-    backfill: { teamSlug, projectSlug, cursor: initialCursor ?? null },
-  });
-  const tests = useMemo(() => Object.values(byId), [byId]);
-
-  // Only offer the "Shard" group-by when this run actually has shard data —
-  // derived from the rows themselves (a non-sharded run stamps every row null).
-  // Flips true once the first shard-attributed row arrives during a live run.
-  const isSharded = useMemo(
-    () => tests.some((t) => t.shardIndex != null),
-    [tests],
-  );
+  const state = useRunRoom(runId, { initialSummary });
+  const summary = currentSummary(state, initialSummary);
+  const byId = state.byId;
+  const isRunning = summary.status === "running";
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [groupBy, setGroupBy] = useState<GroupByAxis>("file");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [didAutoExpand, setDidAutoExpand] = useState(false);
-
-  // Filter → group → order + 4-bucket counts + default-expanded keys, all from
-  // one pure engine so streaming updates re-derive everything in lockstep. The
-  // `statusCounts` feed the SegmentedControl labels; `suggestedExpanded` seeds
-  // the one-shot auto-expand below.
-  const { groups, statusCounts, suggestedExpanded } = useMemo(
-    () => groupAndSortTests(tests, { search, statusFilter, groupBy }),
-    [tests, search, statusFilter, groupBy],
+  const [groupBy, setGroupBy] = useState<GroupByAxis>(initialGroupBy);
+  // Computed once from the stable SSR prop, feeding both the initial expanded
+  // set and the auto-expand latch (no double scan).
+  const initialExpanded = useMemo(
+    () => defaultExpandedIds(initialSkeleton),
+    [initialSkeleton],
   );
+  const [expanded, setExpanded] = useState<Set<string>>(initialExpanded);
+  const didAutoExpand = useRef(initialExpanded.size > 0);
+  // A run seeded with groups at SSR (terminal / reloaded mid-run) auto-expands
+  // immediately; a run watched live from empty must not consume the latch on a
+  // passing fallback group (see the auto-expand effect).
+  const seededNonEmpty = useRef(initialSkeleton.groups.length > 0);
 
-  // Auto-expand the worst-status groups ONCE. Tracks separately so user
-  // toggles after the first interaction stick around. When seeded non-empty
-  // (terminal run / reload mid-run) this fires on first render, as before.
-  // When seeded EMPTY (live run viewed from the start), don't latch on the
-  // first arriving test — a single all-passing group would consume the latch
-  // and later failed groups would never auto-expand. Instead wait for the
-  // first failed/flaky-bucket test to appear, then expand the worst groups.
-  const seededNonEmpty = useRef((initialTests?.length ?? 0) > 0);
+  // Debounce the search box: the input stays responsive while the (server)
+  // skeleton + row queries key off the settled value.
   useEffect(() => {
-    if (didAutoExpand || groups.length === 0) return;
-    const hasBadGroup = statusCounts.failed > 0 || statusCounts.flaky > 0;
-    if (!seededNonEmpty.current && !hasBadGroup) return;
-    setExpanded(suggestedExpanded);
-    setDidAutoExpand(true);
-  }, [groups, statusCounts, suggestedExpanded, didAutoExpand]);
+    const t = setTimeout(
+      () => setDebouncedSearch(search.trim()),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(t);
+  }, [search]);
 
-  function toggleGroup(key: string) {
+  // The default view = the axis/filters the SSR seed covers, so its query can
+  // hydrate from `initialSkeleton` / `initialExpandedGroups` with no fetch.
+  const isDefaultView =
+    groupBy === initialGroupBy &&
+    statusFilter === "all" &&
+    debouncedSearch === "";
+
+  const queryClient = useQueryClient();
+
+  const skeletonQuery = useQuery({
+    queryKey: ["run-groups", runId, groupBy, statusFilter, debouncedSearch],
+    queryFn: ({ signal }): Promise<RunGroupSkeleton> =>
+      fetch("/api/t/:teamSlug/p/:projectSlug/runs/:runId/groups", {
+        params: { teamSlug, projectSlug, runId },
+        query: {
+          groupBy,
+          ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+          ...(debouncedSearch ? { search: debouncedSearch } : {}),
+        },
+        signal,
+      }),
+    initialData: isDefaultView ? initialSkeleton : undefined,
+    staleTime: isRunning ? LIVE_STALE_MS : Number.POSITIVE_INFINITY,
+  });
+  const skeleton = skeletonQuery.data;
+
+  // Live skeleton refresh — THROTTLED to at most once per LIVE_STALE_MS and
+  // driven by actual `byId` events. A plain trailing debounce starves under
+  // sustained streaming (the timer keeps resetting and never fires); a fixed
+  // interval would poll forever if a terminal event were missed (isRunning stuck
+  // true). Keying off events means no events ⇒ no refetch. The mount pass is
+  // skipped so the SSR seed isn't discarded. Terminal runs skip this entirely
+  // (counts frozen); expanded groups update via the `byId` overlay regardless.
+  const lastSkeletonRefresh = useRef(0);
+  const skeletonMountSkipped = useRef(false);
+  useEffect(() => {
+    if (!isRunning) return;
+    if (!skeletonMountSkipped.current) {
+      skeletonMountSkipped.current = true;
+      lastSkeletonRefresh.current = Date.now();
+      return;
+    }
+    const refresh = () => {
+      lastSkeletonRefresh.current = Date.now();
+      void queryClient.invalidateQueries({ queryKey: ["run-groups", runId] });
+    };
+    const since = Date.now() - lastSkeletonRefresh.current;
+    if (since >= LIVE_STALE_MS) {
+      refresh();
+      return;
+    }
+    const t = setTimeout(refresh, LIVE_STALE_MS - since);
+    return () => clearTimeout(t);
+  }, [byId, isRunning, runId, queryClient]);
+
+  // One final skeleton refresh when the run finishes, so the headers reflect the
+  // terminal state even if the last batch landed inside the throttle window.
+  const wasRunning = useRef(isRunning);
+  useEffect(() => {
+    if (wasRunning.current && !isRunning) {
+      void queryClient.invalidateQueries({ queryKey: ["run-groups", runId] });
+    }
+    wasRunning.current = isRunning;
+  }, [isRunning, runId, queryClient]);
+
+  // On a WS reconnect, useRunRoom's reseed resets the live `byId` overlay and the
+  // loader re-runs with a fresh `initialSummary` identity — but TanStack caches
+  // aren't touched by that loader refresh, so re-hydrate the skeleton +
+  // open-group rows the reset overlay dropped. Skips the mount pass (the SSR
+  // seed is already fresh).
+  const seededSummary = useRef(initialSummary);
+  useEffect(() => {
+    if (seededSummary.current === initialSummary) return;
+    seededSummary.current = initialSummary;
+    void queryClient.invalidateQueries({ queryKey: ["run-groups", runId] });
+    void queryClient.invalidateQueries({ queryKey: ["run-group-rows", runId] });
+  }, [initialSummary, runId, queryClient]);
+
+  // One-shot auto-expand of the worst groups (server-flagged `expandedByDefault`).
+  // A run seeded non-empty (terminal / reloaded) latches on first paint; a run
+  // watched live from empty must NOT consume the latch on the fallback expansion
+  // of a passing group — wait for a real failed/flaky group, or later-failing
+  // groups would never auto-expand. Re-runs per axis (onGroupBy resets the latch;
+  // `groupBy` in deps covers a switch to a cached axis).
+  useEffect(() => {
+    if (didAutoExpand.current || !skeleton) return;
+    const def = defaultExpandedIds(skeleton);
+    if (def.size === 0) return;
+    if (!seededNonEmpty.current && !hasBadGroup(skeleton)) return;
+    setExpanded(def);
+    didAutoExpand.current = true;
+  }, [skeleton, groupBy]);
+
+  // Group the live overlay once per event (O(byId)), so each group reads its
+  // own slice instead of re-scanning all of `byId`.
+  const liveByGroup = useMemo(() => {
+    const m = new Map<string, RunProgressTest[]>();
+    for (const t of Object.values(byId)) {
+      const id = groupKeyId(rawGroupKey(t, groupBy));
+      const arr = m.get(id);
+      if (arr) arr.push(t);
+      else m.set(id, [t]);
+    }
+    return m;
+  }, [byId, groupBy]);
+
+  function onGroupBy(next: GroupByAxis) {
+    if (next === groupBy) return;
+    setGroupBy(next);
+    // Re-auto-expand for the new axis: its keys differ, so drop manual state.
+    didAutoExpand.current = false;
+    setExpanded(new Set());
+  }
+
+  function toggleGroup(id: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
 
   const statusOptions: SegmentedOption<StatusFilter>[] = [
-    { value: "all", label: "All", count: tests.length },
-    {
-      value: "failed",
-      label: "Failed",
-      count: statusCounts.failed,
-      dot: "failed",
-    },
-    {
-      value: "flaky",
-      label: "Flaky",
-      count: statusCounts.flaky,
-      dot: "flaky",
-    },
-    {
-      value: "passed",
-      label: "Passed",
-      count: statusCounts.passed,
-      dot: "passed",
-    },
+    { value: "all", label: "All", count: summary.totalTests },
+    { value: "failed", label: "Failed", count: summary.failed, dot: "failed" },
+    { value: "flaky", label: "Flaky", count: summary.flaky, dot: "flaky" },
+    { value: "passed", label: "Passed", count: summary.passed, dot: "passed" },
     {
       value: "skipped",
       label: "Skipped",
-      count: statusCounts.skipped,
+      count: summary.skipped,
       dot: "skipped",
     },
   ];
 
+  const groups = skeleton?.groups ?? [];
+
   return (
-    /* Filter bar is sticky relative to the page-level scroller in
-     * `pages/.../runs/[runId]/index.tsx`. `top-[84px]` clears the sticky H1
-     * row (52px) plus the sticky tab bar (~32px) so the filter controls
-     * sit just below them rather than overlapping. */
     <div className="flex flex-col">
       <div className="sticky top-[84px] z-10 flex flex-wrap items-center gap-2 border-b border-line-1 bg-background px-6 py-2.5">
         <SearchFilterInput
@@ -175,7 +307,7 @@ export function RunProgress({
         <span className="text-[12px] text-fg-3">Group by</span>
         <SegmentedControl
           compact
-          onChange={setGroupBy}
+          onChange={onGroupBy}
           options={[
             { value: "file", label: "File" },
             { value: "project", label: "Playwright project" },
@@ -188,24 +320,35 @@ export function RunProgress({
       <div>
         {groups.length === 0 ? (
           <div className="px-6 py-10 text-center text-[12.5px] text-muted-foreground">
-            {tests.length === 0
-              ? "No tests recorded for this run."
-              : "No tests match the current filters."}
+            {skeletonQuery.isPending
+              ? "Loading tests…"
+              : summary.totalTests === 0
+                ? "No tests recorded for this run."
+                : "No tests match the current filters."}
           </div>
         ) : (
-          groups.map(([key, items]) => (
-            <TestGroup
-              groupBy={groupBy}
-              groupKey={key}
-              key={key}
-              onToggle={() => toggleGroup(key)}
-              open={expanded.has(key)}
-              projectSlug={projectSlug}
-              runId={runId}
-              teamSlug={teamSlug}
-              tests={items}
-            />
-          ))
+          groups.map((header) => {
+            const id = groupKeyId(header.key);
+            return (
+              <TestGroup
+                debouncedSearch={debouncedSearch}
+                groupBy={groupBy}
+                header={header}
+                initialPage={
+                  isDefaultView ? initialExpandedGroups[id] : undefined
+                }
+                isRunning={isRunning}
+                key={id}
+                liveRows={liveByGroup.get(id) ?? EMPTY_ROWS}
+                onToggle={() => toggleGroup(id)}
+                open={expanded.has(id)}
+                projectSlug={projectSlug}
+                runId={runId}
+                statusFilter={statusFilter}
+                teamSlug={teamSlug}
+              />
+            );
+          })
         )}
       </div>
     </div>
@@ -213,25 +356,103 @@ export function RunProgress({
 }
 
 function TestGroup({
-  groupKey,
+  header,
   groupBy,
-  tests,
   open,
   onToggle,
   teamSlug,
   projectSlug,
   runId,
+  statusFilter,
+  debouncedSearch,
+  liveRows,
+  initialPage,
+  isRunning,
 }: {
-  groupKey: string;
+  header: RunGroupHeader;
   groupBy: GroupByAxis;
-  tests: RunProgressTest[];
   open: boolean;
   onToggle: () => void;
   teamSlug: string;
   projectSlug: string;
   runId: string;
+  statusFilter: StatusFilter;
+  debouncedSearch: string;
+  liveRows: readonly RunProgressTest[];
+  initialPage: RunResultsResponse | undefined;
+  isRunning: boolean;
 }) {
-  const counts = useMemo(() => countByStatusGroup(tests), [tests]);
+  const rawKey = header.key;
+  const id = groupKeyId(rawKey);
+
+  const rowsQuery = useInfiniteQuery({
+    queryKey: [
+      "run-group-rows",
+      runId,
+      groupBy,
+      id,
+      statusFilter,
+      debouncedSearch,
+    ],
+    queryFn: ({ pageParam, signal }): Promise<RunResultsResponse> =>
+      fetch("/api/t/:teamSlug/p/:projectSlug/runs/:runId/results", {
+        params: { teamSlug, projectSlug, runId },
+        query: {
+          groupBy,
+          ...(rawKey !== null ? { groupKey: rawKey } : {}),
+          ...(statusFilter !== "all" ? { statusBucket: statusFilter } : {}),
+          ...(debouncedSearch ? { search: debouncedSearch } : {}),
+          ...(pageParam ? { cursor: pageParam } : {}),
+        },
+        signal,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: open,
+    initialData: initialPage
+      ? { pages: [initialPage], pageParams: [null] }
+      : undefined,
+    staleTime: isRunning ? LIVE_STALE_MS : Number.POSITIVE_INFINITY,
+  });
+
+  // Merge the paginated server rows with the live overlay (existing-id-wins,
+  // so a test finishing mid-view replaces its fetched row), filter the live
+  // rows to the active chip/search (the server already filtered the fetched
+  // ones), then order by id descending. id (a ULID) is monotonic with insert
+  // time, so this exactly matches the server's `(createdAt DESC, id DESC)`
+  // pagination order — display order == fetch order, so a newly-loaded page
+  // never reorders rows above the scroll position. (Worst-first is preserved at
+  // the GROUP level via the skeleton order, not within a group.)
+  const rows = useMemo(() => {
+    const fetched = (rowsQuery.data?.pages ?? []).flatMap((p) => p.results);
+    const live = filterTests(liveRows, {
+      search: debouncedSearch,
+      statusFilter,
+    });
+    const map = new Map<string, RunProgressTest>();
+    for (const r of fetched) map.set(r.id, r);
+    for (const r of live) map.set(r.id, r);
+    return [...map.values()].sort((a, b) =>
+      a.id < b.id ? 1 : a.id > b.id ? -1 : 0,
+    );
+  }, [rowsQuery.data, liveRows, debouncedSearch, statusFilter]);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = rowsQuery;
+  useEffect(() => {
+    if (!open || !hasNextPage) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting) && !isFetchingNextPage) {
+        void fetchNextPage();
+      }
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [open, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const label = groupLabel(groupBy, rawKey);
 
   return (
     <div className="border-b border-line-1">
@@ -247,39 +468,38 @@ function TestGroup({
         )}
         {groupBy === "file" ? (
           <span className="min-w-0 truncate font-mono text-[12.5px] text-foreground">
-            {groupKey}
+            {label}
           </span>
         ) : (
           <span className="truncate text-[13px] font-medium text-foreground">
-            {groupKey}
+            {label}
           </span>
         )}
         <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-fg-3">
-          {tests.length}
+          {header.total}
         </span>
         <div className="flex-1" />
         <div className="flex shrink-0 items-center gap-2.5 font-mono text-[11px] tabular-nums">
-          {counts.failed > 0 ? (
+          {header.failed > 0 ? (
             <span style={{ color: statusToken("failed") }}>
-              {counts.failed}f
+              {header.failed}f
             </span>
           ) : null}
-          {counts.flaky > 0 ? (
-            <span style={{ color: statusToken("flaky") }}>{counts.flaky}~</span>
+          {header.flaky > 0 ? (
+            <span style={{ color: statusToken("flaky") }}>{header.flaky}~</span>
           ) : null}
-          {counts.skipped > 0 ? (
+          {header.skipped > 0 ? (
             <span style={{ color: statusToken("skipped") }}>
-              {counts.skipped}s
+              {header.skipped}s
             </span>
           ) : null}
-          <span style={{ color: statusToken("passed") }}>{counts.passed}p</span>
+          <span style={{ color: statusToken("passed") }}>{header.passed}p</span>
         </div>
       </button>
 
       {open ? (
         <div>
-          {/* Rows arrive pre-sorted worst-status-first from `groupAndSortTests`. */}
-          {tests.map((t) => (
+          {rows.map((t) => (
             <TestRow
               groupBy={groupBy}
               key={t.id}
@@ -289,6 +509,25 @@ function TestGroup({
               test={t}
             />
           ))}
+          {rowsQuery.isPending && rows.length === 0 ? (
+            <div className="flex items-center gap-2 py-3 pl-[50px] pr-6 text-[12px] text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" strokeWidth={2} />
+              Loading…
+            </div>
+          ) : null}
+          {hasNextPage ? (
+            <div
+              className="flex items-center gap-2 py-2 pl-[50px] pr-6 text-[12px] text-muted-foreground"
+              ref={sentinelRef}
+            >
+              {isFetchingNextPage ? (
+                <>
+                  <Loader2 className="size-3 animate-spin" strokeWidth={2} />
+                  Loading more…
+                </>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -325,8 +564,6 @@ function TestRow({
 
   // Trailing meta shows the axis that ISN'T the group header: the Playwright
   // project when grouped by file, the file basename when grouped by project.
-  // Rendered as a compact pill (not inline title text) so it reads as a label;
-  // its `whitespace-nowrap` + max-width keep a long value from wrapping the row.
   const meta =
     groupBy === "file"
       ? test.projectName

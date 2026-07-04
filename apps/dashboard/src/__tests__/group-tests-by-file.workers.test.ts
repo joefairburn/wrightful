@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  countByStatusGroup,
   filterTests,
-  groupAndSortTests,
+  groupKeyId,
+  groupLabel,
   parseTitleSegments,
-  selectDefaultExpandedKeys,
-  severityOf,
+  rawGroupKey,
 } from "@/lib/group-tests-by-file";
 import type {
   RunProgressTest,
@@ -97,63 +96,6 @@ describe("parseTitleSegments", () => {
   });
 });
 
-describe("severityOf", () => {
-  it("orders worst-first: failed < timedout < flaky < queued < skipped < passed", () => {
-    const order = [
-      "failed",
-      "timedout",
-      "flaky",
-      "queued",
-      "skipped",
-      "passed",
-    ];
-    for (let i = 1; i < order.length; i += 1) {
-      expect(severityOf(order[i - 1])).toBeLessThan(severityOf(order[i]));
-    }
-  });
-
-  it("pins the live-only `queued` state between flaky and skipped", () => {
-    expect(severityOf("flaky")).toBeLessThan(severityOf("queued"));
-    expect(severityOf("queued")).toBeLessThan(severityOf("skipped"));
-  });
-});
-
-describe("countByStatusGroup", () => {
-  it("counts into four buckets and collapses timedout→failed / interrupted→flaky", () => {
-    expect(
-      countByStatusGroup([
-        t("a.spec.ts", "passed"),
-        t("a.spec.ts", "passed"),
-        t("a.spec.ts", "failed"),
-        t("a.spec.ts", "timedout"),
-        t("a.spec.ts", "flaky"),
-        t("a.spec.ts", "interrupted"),
-        t("a.spec.ts", "skipped"),
-      ]),
-    ).toEqual({ passed: 2, failed: 2, flaky: 2, skipped: 1 });
-  });
-
-  it("never leaves a bucket undefined", () => {
-    expect(countByStatusGroup([])).toEqual({
-      passed: 0,
-      failed: 0,
-      flaky: 0,
-      skipped: 0,
-    });
-  });
-
-  it("excludes `queued` (in-flight placeholder) from all four chips", () => {
-    // queued rows must NOT inflate any chip — the Passed chip should stay at 0
-    // for a run where every test is still pending execution.
-    expect(countByStatusGroup([t("a.spec.ts", "queued")])).toEqual({
-      passed: 0,
-      failed: 0,
-      flaky: 0,
-      skipped: 0,
-    });
-  });
-});
-
 describe("filterTests", () => {
   const rows = [
     t("e2e/login.spec.ts", "failed", { title: "logs in with password" }),
@@ -213,154 +155,48 @@ describe("filterTests", () => {
   });
 });
 
-describe("groupAndSortTests", () => {
-  it("groups by file and orders groups worst-first by aggregate damage", () => {
-    // checkout has 2 failures (score 8); login has 1 failure (4); cart all-pass (0).
-    const { groups } = groupAndSortTests(
-      [
-        t("cart.spec.ts", "passed"),
-        t("login.spec.ts", "failed"),
-        t("login.spec.ts", "passed"),
-        t("checkout.spec.ts", "failed"),
-        t("checkout.spec.ts", "failed"),
-      ],
-      { search: "", statusFilter: "all", groupBy: "file" },
-    );
-    expect(groups.map(([k]) => k)).toEqual([
-      "checkout.spec.ts",
-      "login.spec.ts",
-      "cart.spec.ts",
-    ]);
+// The group-key contract shared by the SERVER skeleton (`loadRunGroupSkeleton`'s
+// `key`) and the CLIENT (identity + label + live-overlay routing). A divergence
+// here silently mismatches a streamed row to the wrong header, so these pin it.
+describe("rawGroupKey", () => {
+  it("returns the raw file (empty string kept, never null since file is NOT NULL)", () => {
+    expect(rawGroupKey(t("a/b.spec.ts", "passed"), "file")).toBe("a/b.spec.ts");
+    expect(rawGroupKey(t("", "passed"), "file")).toBe("");
   });
 
-  it("groups by Playwright project, falling back to `default` for null", () => {
-    const { groups } = groupAndSortTests(
-      [
-        t("a.spec.ts", "passed", { projectName: "chromium" }),
-        t("a.spec.ts", "failed", { projectName: "firefox" }),
-        t("a.spec.ts", "passed", { projectName: null }),
-      ],
-      { search: "", statusFilter: "all", groupBy: "project" },
-    );
-    const keys = groups.map(([k]) => k);
-    // firefox has the failure so it sorts first; default + chromium follow.
-    expect(keys[0]).toBe("firefox");
-    expect(keys).toContain("chromium");
-    expect(keys).toContain("default");
+  it("returns projectName or null for the project axis", () => {
+    expect(
+      rawGroupKey(t("f", "passed", { projectName: "chromium" }), "project"),
+    ).toBe("chromium");
+    expect(
+      rawGroupKey(t("f", "passed", { projectName: null }), "project"),
+    ).toBeNull();
   });
 
-  it("groups by shard, labelling each `Shard N` and worst-first", () => {
-    const { groups } = groupAndSortTests(
-      [
-        t("a.spec.ts", "passed", { shardIndex: 1 }),
-        t("b.spec.ts", "passed", { shardIndex: 1 }),
-        t("c.spec.ts", "failed", { shardIndex: 2 }),
-      ],
-      { search: "", statusFilter: "all", groupBy: "shard" },
-    );
-    const keys = groups.map(([k]) => k);
-    // Shard 2 carries the failure so it sorts first; Shard 1 follows.
-    expect(keys[0]).toBe("Shard 2");
-    expect(keys).toContain("Shard 1");
-    expect(groups.find(([k]) => k === "Shard 1")?.[1]).toHaveLength(2);
-  });
-
-  it("falls back to `Unsharded` when a row carries no shard index", () => {
-    const { groups } = groupAndSortTests(
-      [
-        t("a.spec.ts", "passed", { shardIndex: null }),
-        t("b.spec.ts", "passed", { shardIndex: 3 }),
-      ],
-      { search: "", statusFilter: "all", groupBy: "shard" },
-    );
-    const keys = groups.map(([k]) => k);
-    expect(keys).toContain("Unsharded");
-    expect(keys).toContain("Shard 3");
-  });
-
-  it("falls back to `Other` for an empty file path", () => {
-    const { groups } = groupAndSortTests([t("", "passed")], {
-      search: "",
-      statusFilter: "all",
-      groupBy: "file",
-    });
-    expect(groups.map(([k]) => k)).toEqual(["Other"]);
-  });
-
-  it("sorts rows within a group worst-status-first", () => {
-    const { groups } = groupAndSortTests(
-      [
-        t("a.spec.ts", "passed", { title: "p" }),
-        t("a.spec.ts", "failed", { title: "f" }),
-        t("a.spec.ts", "skipped", { title: "s" }),
-        t("a.spec.ts", "flaky", { title: "fl" }),
-      ],
-      { search: "", statusFilter: "all", groupBy: "file" },
-    );
-    expect(groups[0][1].map((r) => r.title)).toEqual(["f", "fl", "s", "p"]);
-  });
-
-  it("counts over the unfiltered input even when a status filter is active", () => {
-    const { statusCounts, groups } = groupAndSortTests(
-      [t("a.spec.ts", "failed"), t("a.spec.ts", "passed")],
-      { search: "", statusFilter: "failed", groupBy: "file" },
-    );
-    // Only the failure survives grouping…
-    expect(groups[0][1]).toHaveLength(1);
-    // …but the chip counts still reflect both rows.
-    expect(statusCounts).toEqual({
-      passed: 1,
-      failed: 1,
-      flaky: 0,
-      skipped: 0,
-    });
-  });
-
-  it("does not mutate the input array", () => {
-    const input = [t("a.spec.ts", "passed"), t("a.spec.ts", "failed")];
-    const snapshot = input.map((r) => r.id);
-    groupAndSortTests(input, {
-      search: "",
-      statusFilter: "all",
-      groupBy: "file",
-    });
-    expect(input.map((r) => r.id)).toEqual(snapshot);
+  it("stringifies shardIndex and maps a non-sharded row to null", () => {
+    expect(rawGroupKey(t("f", "passed", { shardIndex: 3 }), "shard")).toBe("3");
+    expect(
+      rawGroupKey(t("f", "passed", { shardIndex: null }), "shard"),
+    ).toBeNull();
   });
 });
 
-describe("selectDefaultExpandedKeys", () => {
-  it("expands any of the worst-six groups containing a failed or flaky test", () => {
-    const groups: [string, RunProgressTest[]][] = [
-      ["a", [t("a.spec.ts", "failed")]],
-      ["b", [t("b.spec.ts", "passed")]],
-      ["c", [t("c.spec.ts", "flaky")]],
-    ];
-    expect(selectDefaultExpandedKeys(groups)).toEqual(new Set(["a", "c"]));
+describe("groupKeyId", () => {
+  it("passes a real key through and gives null a stable sentinel", () => {
+    expect(groupKeyId("a.spec.ts")).toBe("a.spec.ts");
+    // The sentinel can't collide with a real key (real keys are non-null here).
+    expect(groupKeyId(null)).not.toBe("");
+    expect(groupKeyId(null)).toBe(groupKeyId(null));
   });
+});
 
-  it("only considers the worst six groups", () => {
-    const groups: [string, RunProgressTest[]][] = Array.from(
-      { length: 8 },
-      (_, i): [string, RunProgressTest[]] => [
-        `g${i}`,
-        [t(`g${i}.spec.ts`, "failed")],
-      ],
-    );
-    const expanded = selectDefaultExpandedKeys(groups);
-    expect(expanded.size).toBe(6);
-    expect(expanded.has("g6")).toBe(false);
-    expect(expanded.has("g7")).toBe(false);
-  });
-
-  it("falls back to the single worst group when nothing failed or flaked", () => {
-    const groups: [string, RunProgressTest[]][] = [
-      ["first", [t("a.spec.ts", "passed")]],
-      ["second", [t("b.spec.ts", "skipped")]],
-    ];
-    expect(selectDefaultExpandedKeys(groups)).toEqual(new Set(["first"]));
-  });
-
-  it("returns an empty set for no groups", () => {
-    expect(selectDefaultExpandedKeys([])).toEqual(new Set());
+describe("groupLabel", () => {
+  it("renders each axis's fallback label for a null/empty key", () => {
+    expect(groupLabel("file", "a.spec.ts")).toBe("a.spec.ts");
+    expect(groupLabel("file", "")).toBe("Other");
+    expect(groupLabel("project", "chromium")).toBe("chromium");
+    expect(groupLabel("project", null)).toBe("default");
+    expect(groupLabel("shard", "2")).toBe("Shard 2");
+    expect(groupLabel("shard", null)).toBe("Unsharded");
   });
 });

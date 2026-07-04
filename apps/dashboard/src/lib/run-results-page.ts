@@ -1,6 +1,10 @@
 import { and, db, desc, eq, lt, or } from "void/db";
 import { runs, testResults } from "@schema";
+import type { GroupByAxis } from "@/lib/group-tests-by-file";
+import { STATUS_BUCKET_MEMBERS, statusMatchSql } from "@/lib/ingest";
+import { groupPredicate, testSearchPredicate } from "@/lib/run-groups-page";
 import { childByRunWhere, runByIdWhere, type TenantScope } from "@/lib/scope";
+import type { StatusGroupKey } from "@/lib/status";
 import type { RunProgressTest } from "@/realtime/run-progress";
 
 export const DEFAULT_RUN_RESULTS_LIMIT = 200;
@@ -14,7 +18,29 @@ export interface RunResultsResponse {
 export interface LoadRunResultsOpts {
   cursor: string | null;
   limit: number;
+  /** Raw single-status filter (legacy GET /results `?status=` param). */
   status: string | null;
+  /**
+   * Filter to a Tests-tab chip bucket — `"failed"` matches `failed`+`timedout`,
+   * etc. (`STATUS_BUCKET_MEMBERS`), so a group's row page agrees with the
+   * skeleton's bucket counts. `null`/`"all"` disables it. Distinct from the raw
+   * `status` above (a single wire status); the grouped Tests tab uses this.
+   */
+  statusBucket?: StatusGroupKey | null;
+  /**
+   * Restrict to one group of the Tests-tab grouping axis (the per-group row
+   * page behind an expanded group). `key === null` selects the axis's fallback
+   * group — see `groupPredicate`. Omit for the ungrouped/back-paginator path.
+   */
+  group?: { axis: GroupByAxis; key: string | null } | null;
+  /** Free-text needle matched against title + file (case-insensitive). */
+  search?: string | null;
+  /**
+   * Skip the run-ownership probe when the caller already resolved the run.
+   * API routes leave this false; the SSR loader sets it (it selects the run
+   * row first).
+   */
+  skipOwnershipCheck?: boolean;
 }
 
 /**
@@ -88,12 +114,14 @@ export async function loadRunResultsPage(
   opts: LoadRunResultsOpts,
 ): Promise<RunResultsResponse | null> {
   // Confirm the run belongs to this project.
-  const owner = await db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(runByIdWhere(scope, runId))
-    .limit(1);
-  if (!owner[0]) return null;
+  if (!opts.skipOwnershipCheck) {
+    const owner = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(runByIdWhere(scope, runId))
+      .limit(1);
+    if (!owner[0]) return null;
+  }
 
   const limit = clampRunResultsLimit(opts.limit);
 
@@ -101,6 +129,14 @@ export async function loadRunResultsPage(
   if (opts.status) {
     conditions.push(eq(testResults.status, opts.status));
   }
+  if (opts.statusBucket) {
+    conditions.push(statusMatchSql(STATUS_BUCKET_MEMBERS[opts.statusBucket]));
+  }
+  if (opts.group) {
+    conditions.push(groupPredicate(opts.group.axis, opts.group.key));
+  }
+  const search = testSearchPredicate(opts.search ?? null);
+  if (search) conditions.push(search);
   const cursor = decodeCursor(opts.cursor);
   if (cursor) {
     // Strict tuple comparison (createdAt, id) < (cursor.createdAt, cursor.id)

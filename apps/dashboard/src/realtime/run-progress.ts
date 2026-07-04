@@ -79,28 +79,6 @@ export function applyRunProgressEvent(
 }
 
 /**
- * Merge back-paginated rows (older pages fetched from GET /results after
- * mount) into the accumulator. The inverse precedence of
- * `applyRunProgressEvent`: rows already in `byId` WIN, because anything there
- * came from the SSR seed or a later live event — both at least as fresh as a
- * DB page that was cut before the fetch resolved. Returns `prev` unchanged
- * (same reference) when every row is already known, so a redundant page is
- * render-free like an ignored event.
- */
-export function mergeBackfilledTests(
-  prev: RunProgressState,
-  tests: readonly RunProgressTest[],
-): RunProgressState {
-  let byId: Record<string, RunProgressTest> | null = null;
-  for (const t of tests) {
-    if (t.id in prev.byId) continue;
-    byId ??= { ...prev.byId };
-    byId[t.id] = t;
-  }
-  return byId ? { byId, summary: prev.summary } : prev;
-}
-
-/**
  * Pick the summary the header should render right now: the live snapshot once
  * any event (or the seed) has populated `state.summary`, otherwise the SSR
  * `fallback`. Pure so the "live-overrides-SSR, SSR-when-no-event" rule has one

@@ -3,7 +3,13 @@ import { and, db, desc, eq } from "void/db";
 import { runs } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { loadRunResultsPage } from "@/lib/run-results-page";
+import { groupKeyId } from "@/lib/group-tests-by-file";
+import { loadRunGroupSkeleton } from "@/lib/run-groups-page";
+import {
+  DEFAULT_RUN_RESULTS_LIMIT,
+  loadRunResultsPage,
+  type RunResultsResponse,
+} from "@/lib/run-results-page";
 import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
 import { runByIdWhere, runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
@@ -11,12 +17,16 @@ import { requireTenantContext } from "@/lib/tenant-context";
 export type Props = InferProps<typeof loader>;
 
 const HISTORY_LIMIT = 30;
-const TESTS_LIMIT = 200;
+/** Default group-by axis for the Tests tab's first paint. */
+const DEFAULT_GROUP_BY = "file" as const;
 
 /**
- * Run detail loader. Resolves the active run + its history strip + the
- * first page of tests in a single batch. The page component subscribes via
- * `useRunRoom(runId)` for live updates merged on top of these SSR-seeded rows.
+ * Run detail loader. Resolves the active run + its history strip + the Tests-tab
+ * GROUP SKELETON (worst-first headers with per-bucket counts) plus the first row
+ * page of the auto-expanded worst groups — all in one batch. Collapsed groups
+ * ship header-only and lazy-load their rows on expand (client TanStack query).
+ * The page subscribes via `useRunRoom(runId)`: the summary drives the live filter
+ * chips, and live `changedTests` merge into whichever groups are loaded.
  */
 export const loader = defineHandler(async (c) => {
   const runId = c.req.param("runId");
@@ -46,7 +56,7 @@ export const loader = defineHandler(async (c) => {
   if (effectiveBranch !== ALL_BRANCHES) {
     historyConditions.push(eq(runs.branch, effectiveBranch));
   }
-  const [history, branches, resultsPage] = await Promise.all([
+  const [history, branches, skeleton] = await Promise.all([
     db
       .select({
         id: runs.id,
@@ -62,24 +72,43 @@ export const loader = defineHandler(async (c) => {
       .orderBy(desc(runs.createdAt))
       .limit(HISTORY_LIMIT),
     loadProjectBranches(scope),
-    // Canonical "first page of a run's testResults as RunProgressTest[]" —
-    // shared with the GET /results back-paginator so the SSR seed and any
-    // later pages can never diverge in shape, ordering, or status
-    // normalization (see @/lib/run-results-page).
-    loadRunResultsPage(scope, runId, {
-      cursor: null,
-      limit: TESTS_LIMIT,
-      status: null,
-    }),
+    // The Tests-tab group skeleton (worst-first headers + per-bucket counts) —
+    // only needed on the Tests tab, so the Environment tab skips it (and the
+    // per-group row fan-out below) entirely. The run select() above already
+    // confirmed ownership, so skip the re-probe.
+    tab === "tests"
+      ? loadRunGroupSkeleton(scope, runId, {
+          groupBy: DEFAULT_GROUP_BY,
+          status: null,
+          search: null,
+          skipOwnershipCheck: true,
+        })
+      : Promise.resolve(null),
   ]);
 
-  // The full-run select() above already 404s on a foreign/missing run, so the
-  // run is owned here; loadRunResultsPage's own ownership probe agrees.
-  const tests = resultsPage?.results ?? [];
-  // Non-null when the run has more tests than TESTS_LIMIT — the client
-  // back-paginates the rest from GET /results (see `useRunRoom`'s backfill)
-  // so the Tests tab list + filter counts cover the whole run.
-  const testsCursor = resultsPage?.nextCursor ?? null;
+  // Seed the first row page of every auto-expanded (worst) group so the initial
+  // paint shows them populated with no client round-trip; collapsed groups
+  // fetch their rows lazily on expand. Keyed by the client-stable `groupKeyId`.
+  const expandedGroups: Record<string, RunResultsResponse> = {};
+  if (skeleton) {
+    const expandedPages = await Promise.all(
+      skeleton.groups
+        .filter((g) => g.expandedByDefault)
+        .map(async (g) => {
+          const page = await loadRunResultsPage(scope, runId, {
+            cursor: null,
+            limit: DEFAULT_RUN_RESULTS_LIMIT,
+            status: null,
+            group: { axis: DEFAULT_GROUP_BY, key: g.key },
+            skipOwnershipCheck: true,
+          });
+          return [groupKeyId(g.key), page] as const;
+        }),
+    );
+    for (const [id, page] of expandedPages) {
+      if (page) expandedGroups[id] = page;
+    }
+  }
 
   return {
     project: {
@@ -99,7 +128,16 @@ export const loader = defineHandler(async (c) => {
     effectiveBranch,
     tab,
     pathname: url.pathname,
-    tests,
-    testsCursor,
+    groupBy: DEFAULT_GROUP_BY,
+    skeleton: skeleton ?? {
+      groupBy: DEFAULT_GROUP_BY,
+      groups: [],
+      truncated: false,
+    },
+    expandedGroups,
+    // Whether the run is sharded — gates the "Shard" group-by option. Read off
+    // the run's declared shard total (set at open from config.shard.total) so
+    // it's known before any row loads, not derived from the loaded rows.
+    isSharded: run.expectedShards != null,
   };
 });
