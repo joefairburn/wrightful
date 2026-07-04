@@ -1,4 +1,4 @@
-import { defineHandler, type InferProps } from "void";
+import { defer, defineHandler, type InferProps } from "void";
 import { and, db, desc, eq } from "void/db";
 import { runs } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
@@ -41,36 +41,49 @@ export const loader = defineHandler(async (c) => {
   const tabParam = url.searchParams.get("tab");
   const tab: "tests" | "env" = tabParam === "env" ? "env" : "tests";
 
-  // History: last HISTORY_LIMIT runs, optionally filtered by branch.
+  // History query builder: last HISTORY_LIMIT runs, optionally filtered by
+  // branch. Deferred (below), so `defer()`'s awaited promise is the query, not
+  // an already-awaited result.
   const historyConditions = [runScopeWhere(scope)];
   if (effectiveBranch !== ALL_BRANCHES) {
     historyConditions.push(eq(runs.branch, effectiveBranch));
   }
-  const [history, branches, resultsPage] = await Promise.all([
-    db
-      .select({
-        id: runs.id,
-        status: runs.status,
-        durationMs: runs.durationMs,
-        createdAt: runs.createdAt,
-        branch: runs.branch,
-        commitSha: runs.commitSha,
-        commitMessage: runs.commitMessage,
-      })
-      .from(runs)
-      .where(and(...historyConditions))
-      .orderBy(desc(runs.createdAt))
-      .limit(HISTORY_LIMIT),
-    loadProjectBranches(scope),
-    // Canonical "first page of a run's testResults as RunProgressTest[]" —
-    // shared with the GET /results back-paginator so the SSR seed and any
-    // later pages can never diverge in shape, ordering, or status
-    // normalization (see @/lib/run-results-page).
+  const historyQuery = db
+    .select({
+      id: runs.id,
+      status: runs.status,
+      durationMs: runs.durationMs,
+      createdAt: runs.createdAt,
+      branch: runs.branch,
+      commitSha: runs.commitSha,
+      commitMessage: runs.commitMessage,
+    })
+    .from(runs)
+    .where(and(...historyConditions))
+    .orderBy(desc(runs.createdAt))
+    .limit(HISTORY_LIMIT);
+
+  // Tests stay EAGER — they seed the realtime tests-list island. `<RunProgress>`
+  // feeds `tests` straight into `useRunRoom({ initialTests })`, and that seed is
+  // an identity dep of `useSeededState`: if `tests` streamed in as a deferred
+  // prop, the array would arrive with a fresh reference AFTER the island had
+  // already mounted its WS subscription and folded any `progress` events that
+  // landed in the gap — the reseed would then DISCARD those folded events (rooms
+  // have no replay, so they're gone for good), and the suspended island would
+  // also connect its socket late. Both break live progress on an in-flight run.
+  // So the ~200-row scan is awaited here alongside the 404-gated `run`.
+  // `branches` is a cheap index-covered DISTINCT and drives the always-visible
+  // branch filter in the chart's title row. Loading it EAGER (in parallel with
+  // the tests scan) lets the chart's skeleton render the real filter + title
+  // row while only the history plot streams in — so the title row is identical
+  // markup in both states and can't shift. Only `history` stays deferred.
+  const [resultsPage, branches] = await Promise.all([
     loadRunResultsPage(scope, runId, {
       cursor: null,
       limit: TESTS_LIMIT,
       status: null,
     }),
+    loadProjectBranches(scope),
   ]);
 
   // The full-run select() above already 404s on a foreign/missing run, so the
@@ -81,6 +94,11 @@ export const loader = defineHandler(async (c) => {
   // so the Tests tab list + filter counts cover the whole run.
   const testsCursor = resultsPage?.nextCursor ?? null;
 
+  // This loader sets no Cache-Control, so nothing changes there: a deferred
+  // loader streams its body (NDJSON on SPA nav / chunked HTML on document load),
+  // and the absence of a stored SWR/max-age response means the browser can't
+  // replay the wrong variant. (See suite-size.server.ts for the case where a
+  // pre-existing max-age header had to become `private, no-store`.)
   return {
     project: {
       id: project.id,
@@ -92,8 +110,6 @@ export const loader = defineHandler(async (c) => {
     },
     run,
     runId,
-    history,
-    branches,
     branchParam,
     defaultBranch,
     effectiveBranch,
@@ -101,5 +117,17 @@ export const loader = defineHandler(async (c) => {
     pathname: url.pathname,
     tests,
     testsCursor,
+    branches,
+
+    // Below-the-fold duration-trend history. ONLY the plot data is deferred —
+    // the card chrome, title, and branch filter render eagerly from `branches`
+    // above (see RunHistoryChartFrame), so the skeleton→chart swap changes only
+    // the plot body and can't shift the title row. Read-only and NOT a realtime
+    // seed (the branch filter reads the URL via `useNavigatingSearchParam`, not
+    // a room hook), so deferring it can't tear the live islands.
+    chart: defer(async () => {
+      const history = await historyQuery;
+      return { history };
+    }),
   };
 });
