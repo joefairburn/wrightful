@@ -95,7 +95,7 @@ export const loader = defineHandler(async (c) => {
   const { nowSec, windowStartSec } = resolveAnalyticsWindow(range);
 
   const branchSql = branchFragment(branchFilter);
-  const qSql = searchFragment(q || null);
+  const qSql = searchFragment(q || null, scope.projectId);
 
   // Branch list is independent of the totals — run the two in parallel.
   // Totals: max duration + count of non-skipped + distinct testIds.
@@ -253,7 +253,9 @@ export const loader = defineHandler(async (c) => {
         ${statusCounter("flaky", { alias: `"flakyCount"` })}
       from ranked
       group by "testId"
-      order by p95 desc
+      -- "testId" breaks p95 ties so OFFSET pagination is stable (rows sharing a
+      -- p95 can't be skipped/duplicated across page boundaries).
+      order by p95 desc, "testId"
       limit ${PAGE_SIZE}
       offset ${offset}
     `)

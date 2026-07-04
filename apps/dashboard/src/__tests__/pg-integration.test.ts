@@ -115,23 +115,37 @@ const {
   mergeRunStatusSql,
   resolveTestResultIds,
   buildResultInsertStatements,
+  buildTestCatalogUpsertStatements,
   computeAggregateDelta,
 } = await import("@/lib/ingest");
 const { makeTenantScope } = await import("@/lib/scope");
+const { assertUserDeletable, cleanupUserData, findSoleOwnerTeamIds } =
+  await import("@/lib/user-teardown");
 const { httpResponseTimeBuckets, httpUptimeWindows } =
   await import("@/lib/monitors/http/uptime-analytics");
 const {
+  auditLog,
+  memberGroupMembers,
+  memberships,
   monitorExecutions,
+  monitors,
   projects,
   runs,
   teams,
   testAnnotations,
   testResultAttempts,
   testResults,
+  tests,
   testTags,
   usageCounters,
+  userGithubAccounts,
+  userState,
 } = await import("../../db/schema");
-const { and, count, eq, sql } = await import("void/_db");
+const { updateMonitor } = await import("@/lib/monitors/monitors-repo");
+const { parseHttpMonitorConfig, HttpMonitorConfigSchema } =
+  await import("@/lib/monitors/monitor-schemas");
+const { buildTestSearchWhere } = await import("@/lib/command-search");
+const { and, count, desc, eq, sql } = await import("void/_db");
 const { getTableConfig } = await import("void/schema-pg");
 
 // Billing modules under test (imported via `await import` so the void/db +
@@ -153,6 +167,7 @@ const {
 function pgType(columnType: string): string {
   if (columnType.includes("BigInt")) return "bigint";
   if (columnType.includes("Integer")) return "integer";
+  if (columnType.includes("Jsonb")) return "jsonb";
   return "text";
 }
 
@@ -210,7 +225,6 @@ describe("Postgres path", () => {
         teamId: "t1",
         periodStart: 1_700_000_000,
         runsCount: 3,
-        testResultsCount: 0,
         artifactBytes: 9_000_000_000, // > int4 max — proves bigint
         artifactCount: 0,
         updatedAt: 1_700_000_000,
@@ -321,6 +335,7 @@ describe("Postgres path", () => {
       durationMs: 0,
       status: "running",
       createdAt: 1_700_000_000,
+      lastActivityAt: 1_700_000_000,
       origin: "ci",
     });
 
@@ -406,6 +421,7 @@ describe("Postgres path", () => {
       durationMs: 0,
       retryCount: 0,
       createdAt,
+      updatedAt: createdAt,
     });
     await h.db.insert(testResults).values([
       tr("c1", "p_cnt", PERIOD + 10), // in-period, team's project
@@ -449,6 +465,7 @@ describe("Postgres path", () => {
           status: "passed",
           origin: "ci",
           createdAt: r.createdAt,
+          lastActivityAt: r.createdAt,
         }),
       ),
     );
@@ -487,6 +504,7 @@ describe("Postgres path", () => {
       status: "passed",
       origin: "ci",
       createdAt: decBoundaryUtc,
+      lastActivityAt: decBoundaryUtc,
     });
 
     // pglite defaults to UTC, which would hide the bug — force a western zone.
@@ -951,6 +969,345 @@ function makeOrder(o: {
   };
 }
 
+describe("jsonb columns round-trip (object in → object out, no double-encoding)", () => {
+  beforeAll(async () => {
+    for (const t of [auditLog, monitors]) {
+      const { name } = getTableConfig(t);
+      await h.client.exec(`drop table if exists "${name}" cascade;`);
+      await h.client.exec(createTableSql(t));
+    }
+  });
+
+  it("monitors.config survives updateMonitor as a JS object, not a JSON string", async () => {
+    // Regression for the write-path double-encode: updateMonitor must store the
+    // config object directly into the jsonb column (like createMonitor), not
+    // JSON.stringify it — a stringified value comes back as a string and the
+    // read-path parser rejects it as null, silently breaking the monitor.
+    const scope = makeTenantScope({
+      teamId: "t-mon",
+      projectId: "p-mon",
+      teamSlug: "mon",
+      projectSlug: "mon",
+    });
+    const cfgA = HttpMonitorConfigSchema.parse({
+      url: "https://a.example.com",
+    });
+    const cfgB = HttpMonitorConfigSchema.parse({
+      url: "https://b.example.com",
+    });
+    await h.db.insert(monitors).values({
+      id: "mon-cfg",
+      teamId: scope.teamId,
+      projectId: scope.projectId,
+      name: "api",
+      type: "http",
+      enabled: 1,
+      alertsEnabled: 1,
+      alertTargets: null,
+      source: null,
+      config: cfgA,
+      intervalSeconds: 60,
+      schedulingStrategy: "round_robin",
+      retryConfig: null,
+      nextRunAt: null,
+      lastEnqueuedAt: null,
+      lastRunAt: null,
+      lastStatus: null,
+      createdBy: "u-mon",
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    await updateMonitor(scope, "mon-cfg", { config: cfgB }, 2000);
+
+    const [row] = await h.db
+      .select({ config: monitors.config })
+      .from(monitors)
+      .where(eq(monitors.id, "mon-cfg"));
+    // Pre-fix this is a string (JSON.stringify output) and the parse returns null.
+    expect(typeof row?.config).toBe("object");
+    expect(parseHttpMonitorConfig(row?.config)).toEqual(cfgB);
+  });
+
+  it("monitorExecutions.resultDetail stores + returns a JS object, never a string", async () => {
+    const detail = {
+      assertions: [],
+      timings: { ttfbMs: 5, downloadMs: 2, totalMs: 9 },
+      redirected: false,
+      finalUrl: "https://example.com",
+    };
+    await h.db.insert(monitorExecutions).values({
+      id: "me-json",
+      projectId: "p-json",
+      monitorId: "m-json",
+      scheduledFor: 1000,
+      state: "pass",
+      attempt: 0,
+      resultDetail: detail,
+      createdAt: 1000,
+    });
+    const [row] = await h.db
+      .select({ resultDetail: monitorExecutions.resultDetail })
+      .from(monitorExecutions)
+      .where(eq(monitorExecutions.id, "me-json"));
+    // If the write stringified or the read didn't parse, this would be a string.
+    expect(typeof row?.resultDetail).toBe("object");
+    expect(row?.resultDetail).toEqual(detail);
+  });
+
+  it("auditLog.metadata round-trips an object; null stays null", async () => {
+    await h.db.insert(auditLog).values([
+      {
+        id: "al-1",
+        teamId: "t-json",
+        actorUserId: "u-json",
+        action: "member.role_change",
+        metadata: { role: "viewer", extra: [1, 2] },
+        createdAt: 1000,
+      },
+      {
+        id: "al-2",
+        teamId: "t-json",
+        actorUserId: "u-json",
+        action: "team.delete",
+        metadata: null,
+        createdAt: 1001,
+      },
+    ]);
+    const rows = await h.db
+      .select({ id: auditLog.id, metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.teamId, "t-json"));
+    const byId = new Map(rows.map((r) => [r.id, r.metadata]));
+    expect(byId.get("al-1")).toEqual({ role: "viewer", extra: [1, 2] });
+    expect(byId.get("al-2")).toBeNull();
+  });
+});
+
+describe("user teardown (auth-boundary delete gap)", () => {
+  const NOW = 1_700_000_000;
+
+  beforeAll(async () => {
+    for (const t of [
+      memberships,
+      memberGroupMembers,
+      userState,
+      userGithubAccounts,
+    ]) {
+      const { name } = getTableConfig(t);
+      await h.client.exec(`drop table if exists "${name}" cascade;`);
+      await h.client.exec(createTableSql(t));
+    }
+  });
+
+  beforeEach(async () => {
+    await h.db.delete(memberships);
+    await h.db.delete(memberGroupMembers);
+    await h.db.delete(userState);
+    await h.db.delete(userGithubAccounts);
+  });
+
+  function addMember(
+    id: string,
+    userId: string,
+    teamId: string,
+    role: "owner" | "member",
+  ) {
+    return h.db
+      .insert(memberships)
+      .values({ id, userId, teamId, role, createdAt: NOW });
+  }
+
+  it("findSoleOwnerTeamIds returns only teams where the user is the LONE owner", async () => {
+    await addMember("m1", "u1", "team-solo", "owner"); // sole owner → stranded
+    await addMember("m2", "u1", "team-co", "owner"); // co-owned → safe
+    await addMember("m3", "u2", "team-co", "owner"); // the co-owner
+    await addMember("m4", "u1", "team-member", "member"); // not an owner → safe
+    expect(await findSoleOwnerTeamIds("u1")).toEqual(["team-solo"]);
+    expect(await findSoleOwnerTeamIds("u2")).toEqual([]);
+  });
+
+  it("assertUserDeletable throws for a sole owner, resolves for a co-owner", async () => {
+    await addMember("m1", "u1", "team-solo", "owner");
+    await addMember("m2", "u1", "team-co", "owner");
+    await addMember("m3", "u2", "team-co", "owner");
+    await expect(assertUserDeletable("u1")).rejects.toThrow(/sole owner/i);
+    await expect(assertUserDeletable("u2")).resolves.toBeUndefined();
+  });
+
+  it("cleanupUserData sweeps the user's rows in one batch, leaving others intact", async () => {
+    await addMember("m1", "u1", "team-a", "member");
+    await addMember("m2", "u2", "team-a", "owner"); // survivor
+    await h.db.insert(memberGroupMembers).values([
+      { groupId: "g1", userId: "u1" },
+      { groupId: "g1", userId: "u2" },
+    ]);
+    await h.db.insert(userState).values({ userId: "u1", updatedAt: NOW });
+    await h.db
+      .insert(userGithubAccounts)
+      .values({ userId: "u1", githubLogin: "octo", updatedAt: NOW });
+
+    await cleanupUserData("u1");
+
+    const u1 = async (
+      table:
+        | typeof memberships
+        | typeof memberGroupMembers
+        | typeof userState
+        | typeof userGithubAccounts,
+    ) => (await h.db.select().from(table).where(eq(table.userId, "u1"))).length;
+    expect(await u1(memberships)).toBe(0);
+    expect(await u1(memberGroupMembers)).toBe(0);
+    expect(await u1(userState)).toBe(0);
+    expect(await u1(userGithubAccounts)).toBe(0);
+    // u2's rows are untouched.
+    expect(
+      await h.db.select().from(memberships).where(eq(memberships.userId, "u2")),
+    ).toHaveLength(1);
+    expect(
+      await h.db
+        .select()
+        .from(memberGroupMembers)
+        .where(eq(memberGroupMembers.userId, "u2")),
+    ).toHaveLength(1);
+  });
+});
+
+describe("tests catalog upsert (buildTestCatalogUpsertStatements)", () => {
+  const scope = makeTenantScope({
+    teamId: "t-cat",
+    projectId: "p-cat",
+    teamSlug: "cat",
+    projectSlug: "cat",
+  });
+  const T0 = 1_700_000_000; // first ingest
+  const T1 = 1_700_003_600; // later ingest (1h)
+
+  beforeAll(async () => {
+    const { name } = getTableConfig(tests);
+    await h.client.exec(`drop table if exists "${name}" cascade;`);
+    await h.client.exec(createTableSql(tests));
+    // createTableSql omits indexes, but the ON CONFLICT (projectId, testId)
+    // upsert target REQUIRES this unique constraint to exist.
+    await h.client.exec(
+      'create unique index "tests_project_testId_idx" on "tests" ("projectId", "testId");',
+    );
+  });
+
+  beforeEach(async () => {
+    await h.db.delete(tests).where(eq(tests.projectId, scope.projectId));
+  });
+
+  async function upsert(
+    entries: ReadonlyArray<{ testId: string; title: string; file: string }>,
+    now: number,
+  ) {
+    await runBatch((tx) =>
+      buildTestCatalogUpsertStatements(scope, entries, now, tx),
+    );
+  }
+
+  it("inserts a fresh catalog row (firstSeenAt = lastSeenAt = ingest time)", async () => {
+    await upsert([{ testId: "t1", title: "renders", file: "a.spec.ts" }], T0);
+    const rows = await h.db
+      .select()
+      .from(tests)
+      .where(eq(tests.projectId, scope.projectId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      testId: "t1",
+      title: "renders",
+      file: "a.spec.ts",
+      firstSeenAt: T0,
+      lastSeenAt: T0,
+    });
+  });
+
+  it("latest-wins on re-upsert: refreshes title/file/lastSeenAt, KEEPS firstSeenAt", async () => {
+    await upsert([{ testId: "t1", title: "old", file: "a.spec.ts" }], T0);
+    await upsert([{ testId: "t1", title: "new", file: "b.spec.ts" }], T1);
+    const rows = await h.db.select().from(tests).where(eq(tests.testId, "t1"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      title: "new",
+      file: "b.spec.ts",
+      firstSeenAt: T0, // insert-only — survives the update
+      lastSeenAt: T1,
+    });
+  });
+
+  it("dedups a duplicate testId within one batch (last entry wins, no ON CONFLICT double-hit)", async () => {
+    // Two entries for the same testId in ONE flush — a multi-row INSERT … ON
+    // CONFLICT errors ("cannot affect row a second time") if the dedup doesn't
+    // collapse them before the statement runs.
+    await upsert(
+      [
+        { testId: "dup", title: "first", file: "f.ts" },
+        { testId: "dup", title: "second", file: "f.ts" },
+      ],
+      T0,
+    );
+    const rows = await h.db.select().from(tests).where(eq(tests.testId, "dup"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].title).toBe("second");
+  });
+
+  it("emits catalog rows sorted by testId (shared-lock order → no cross-run deadlock)", () => {
+    // The (projectId, testId) ON CONFLICT row is shared across ALL runs of a
+    // project, but the ingest txn only locks the per-run row. Every writer must
+    // emit the VALUES tuples in the SAME global order or two concurrent flushes
+    // can AB/BA deadlock on the row locks. Assert the builder sorts by testId
+    // regardless of input order — capture the `.values()` arg, no DB needed.
+    const captured: Array<{ testId: string }> = [];
+    const fakeExec = {
+      insert: () => ({
+        values: (rows: Array<{ testId: string }>) => {
+          captured.push(...rows);
+          return { onConflictDoUpdate: () => Promise.resolve() };
+        },
+      }),
+    } as unknown as Parameters<typeof buildTestCatalogUpsertStatements>[3];
+    buildTestCatalogUpsertStatements(
+      scope,
+      [
+        { testId: "t3", title: "c", file: "f" },
+        { testId: "t1", title: "a", file: "f" },
+        { testId: "t2", title: "b", file: "f" },
+      ],
+      T0,
+      fakeExec,
+    );
+    expect(captured.map((r) => r.testId)).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("search ordering is deterministic under tied lastSeenAt (testId tiebreaker)", async () => {
+    // openRun's prefill seeds a whole suite with ONE identical lastSeenAt, so a
+    // top-N over lastSeenAt alone returns an arbitrary tied subset. The testId
+    // tiebreaker makes it a stable total order.
+    const entries = Array.from({ length: 12 }, (_, i) => ({
+      testId: `z${(11 - i).toString().padStart(2, "0")}`,
+      title: `test ${i}`,
+      file: "spec.ts",
+    }));
+    await upsert(entries, T0);
+    const runSearch = () =>
+      h.db
+        .select({ testId: tests.testId })
+        .from(tests)
+        .where(buildTestSearchWhere(scope, ""))
+        .orderBy(desc(tests.lastSeenAt), tests.testId)
+        .limit(8);
+    const first = (await runSearch()).map((r) => r.testId);
+    const second = (await runSearch()).map((r) => r.testId);
+    expect(first).toEqual(second); // stable across requests
+    const expected = entries
+      .map((e) => e.testId)
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      .slice(0, 8);
+    expect(first).toEqual(expected);
+  });
+});
+
 describe("Polar billing mirror (Postgres path)", () => {
   beforeEach(async () => {
     // Billing ON with known caps; tests that need billing OFF delete POLAR_*.
@@ -1013,7 +1370,6 @@ describe("Polar billing mirror (Postgres path)", () => {
       teamId: "bt-pro",
       periodStart,
       runsCount: 25000,
-      testResultsCount: 0,
       artifactBytes: 0,
       artifactCount: 0,
       updatedAt: BNOW,
@@ -1038,7 +1394,6 @@ describe("Polar billing mirror (Postgres path)", () => {
       teamId: "bt-exp",
       periodStart,
       runsCount: 1000,
-      testResultsCount: 0,
       artifactBytes: 0,
       artifactCount: 0,
       updatedAt: BNOW,
@@ -1064,7 +1419,6 @@ describe("Polar billing mirror (Postgres path)", () => {
       teamId: "bt-free",
       periodStart,
       runsCount: 10_000_000,
-      testResultsCount: 0,
       artifactBytes: 0,
       artifactCount: 0,
       updatedAt: BNOW,

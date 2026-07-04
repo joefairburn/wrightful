@@ -658,7 +658,6 @@ describe("registerArtifacts", () => {
           tier: "free",
           currentPeriodEnd: null,
           runsCount: 0,
-          testResultsCount: 0,
           artifactBytes: 0,
         },
       ],
@@ -691,7 +690,7 @@ describe("registerArtifacts", () => {
       [{ id: "run-1" }],
       [{ id: "tr-1" }],
       [],
-      [{ tier: "free", runsCount: 0, testResultsCount: 0, artifactBytes: 0 }],
+      [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
     ];
     const payload: RegisterArtifactsPayload = {
       runId: "run-1",
@@ -717,7 +716,7 @@ describe("registerArtifacts", () => {
       [{ id: "run-1" }],
       [{ id: "tr-1" }],
       [],
-      [{ tier: "free", runsCount: 0, testResultsCount: 0, artifactBytes: 0 }],
+      [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
     ];
     const signPut = vi.fn(
       async (
@@ -811,7 +810,7 @@ describe("registerArtifacts", () => {
       [{ id: "run-1" }],
       [{ id: "tr-1" }],
       [],
-      [{ tier: "free", runsCount: 0, testResultsCount: 0, artifactBytes: 0 }],
+      [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
     ];
     const signPut = vi.fn(async () => "https://r2/url");
     const payload: RegisterArtifactsPayload = {
@@ -839,7 +838,7 @@ describe("registerArtifacts", () => {
       [{ id: "run-1" }],
       [{ id: "tr-1" }],
       [],
-      [{ tier: "free", runsCount: 0, testResultsCount: 0, artifactBytes: 0 }],
+      [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
     ];
     const payload: RegisterArtifactsPayload = {
       runId: "run-1",

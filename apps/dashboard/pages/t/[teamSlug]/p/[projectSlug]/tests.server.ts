@@ -107,7 +107,7 @@ export const loader = defineHandler(async (c) => {
   const { windowStartSec } = resolveAnalyticsWindow(range);
 
   const branchSql = branchFragment(branchFilter);
-  const qSql = searchFragment(q || null);
+  const qSql = searchFragment(q || null, scope.projectId);
   const tagSql = tagFragment(tags);
 
   // A deferred loader streams a variant-specific body — set no-store so the
@@ -263,7 +263,10 @@ async function runPageQuery(
     )
     select "testId", "lastSeen", "totalDistinct"
     from grouped
-    order by "lastSeen" desc
+    -- "testId" is a unique per-project tiebreaker so OFFSET pagination is stable:
+    -- without it, tests sharing a max(createdAt) can be skipped or duplicated
+    -- across page boundaries.
+    order by "lastSeen" desc, "testId"
     limit ${PAGE_SIZE}
     offset ${offset}
   `);
