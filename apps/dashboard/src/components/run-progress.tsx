@@ -14,6 +14,7 @@ import {
   type GroupByAxis,
   parseTitleSegments,
   type StatusFilter,
+  worstStatusInGroup,
 } from "@/lib/group-tests-by-file";
 import { statusToken } from "@/lib/status";
 import { type RunProgressTest } from "@/realtime/run-progress";
@@ -232,6 +233,8 @@ function TestGroup({
   runId: string;
 }) {
   const counts = useMemo(() => countByStatusGroup(tests), [tests]);
+  // Single-glyph rollup of the group's worst status; null when all in-flight.
+  const worst = useMemo(() => worstStatusInGroup(counts), [counts]);
 
   return (
     <div className="border-b border-line-1">
@@ -245,6 +248,11 @@ function TestGroup({
         ) : (
           <ChevronRight className="size-3 shrink-0 text-fg-3" strokeWidth={2} />
         )}
+        {worst ? (
+          <span className="flex shrink-0 items-center justify-center">
+            <StatusGlyph size={13} status={worst} />
+          </span>
+        ) : null}
         {groupBy === "file" ? (
           <span className="min-w-0 truncate font-mono text-[12.5px] text-foreground">
             {groupKey}

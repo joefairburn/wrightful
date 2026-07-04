@@ -6,6 +6,7 @@ import {
   parseTitleSegments,
   selectDefaultExpandedKeys,
   severityOf,
+  worstStatusInGroup,
 } from "@/lib/group-tests-by-file";
 import type {
   RunProgressTest,
@@ -151,6 +152,37 @@ describe("countByStatusGroup", () => {
       flaky: 0,
       skipped: 0,
     });
+  });
+});
+
+describe("worstStatusInGroup", () => {
+  it("picks the worst bucket present, worst-first", () => {
+    expect(
+      worstStatusInGroup({ passed: 5, failed: 1, flaky: 2, skipped: 3 }),
+    ).toBe("failed");
+    expect(
+      worstStatusInGroup({ passed: 5, failed: 0, flaky: 2, skipped: 3 }),
+    ).toBe("flaky");
+    expect(
+      worstStatusInGroup({ passed: 5, failed: 0, flaky: 0, skipped: 3 }),
+    ).toBe("passed");
+  });
+
+  it("ranks skipped below passed — skipped only wins when the group is all-skipped", () => {
+    // Any real result outranks skipped: one pass + many skips reads as passed.
+    expect(
+      worstStatusInGroup({ passed: 1, failed: 0, flaky: 0, skipped: 9 }),
+    ).toBe("passed");
+    // Entirely skipped → skipped.
+    expect(
+      worstStatusInGroup({ passed: 0, failed: 0, flaky: 0, skipped: 3 }),
+    ).toBe("skipped");
+  });
+
+  it("returns null when every bucket is zero (e.g. only queued rows)", () => {
+    expect(
+      worstStatusInGroup(countByStatusGroup([t("a.spec.ts", "queued")])),
+    ).toBeNull();
   });
 });
 
