@@ -1,4 +1,4 @@
-import { defineHandler, type InferProps } from "void";
+import { defer, defineHandler, type InferProps } from "void";
 import { and, db, desc, eq } from "void/db";
 import { runs } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
@@ -51,31 +51,43 @@ export const loader = defineHandler(async (c) => {
   const tabParam = url.searchParams.get("tab");
   const tab: "tests" | "env" = tabParam === "env" ? "env" : "tests";
 
-  // History: last HISTORY_LIMIT runs, optionally filtered by branch.
+  // History query builder: last HISTORY_LIMIT runs, optionally filtered by
+  // branch. Deferred (below), so `defer()`'s awaited promise is the query, not
+  // an already-awaited result.
   const historyConditions = [runScopeWhere(scope)];
   if (effectiveBranch !== ALL_BRANCHES) {
     historyConditions.push(eq(runs.branch, effectiveBranch));
   }
-  const [history, branches, skeleton] = await Promise.all([
-    db
-      .select({
-        id: runs.id,
-        status: runs.status,
-        durationMs: runs.durationMs,
-        createdAt: runs.createdAt,
-        branch: runs.branch,
-        commitSha: runs.commitSha,
-        commitMessage: runs.commitMessage,
-      })
-      .from(runs)
-      .where(and(...historyConditions))
-      .orderBy(desc(runs.createdAt))
-      .limit(HISTORY_LIMIT),
+  // Duration-trend history query builder — DEFERRED (see `chart` in the return).
+  // The resolver awaits this so `defer()` streams the plot body below the fold.
+  // History is not a realtime seed, so deferring it can't tear the live islands.
+  const historyQuery = db
+    .select({
+      id: runs.id,
+      status: runs.status,
+      durationMs: runs.durationMs,
+      createdAt: runs.createdAt,
+      branch: runs.branch,
+      commitSha: runs.commitSha,
+      commitMessage: runs.commitMessage,
+    })
+    .from(runs)
+    .where(and(...historyConditions))
+    .orderBy(desc(runs.createdAt))
+    .limit(HISTORY_LIMIT);
+
+  // `branches` is a cheap index-covered DISTINCT and drives the always-visible
+  // branch filter in the chart's title row. Loading it EAGER lets the chart's
+  // skeleton render the real filter + title row while only the history plot
+  // streams in — so the title row is identical markup in both states and can't
+  // shift.
+  //
+  // The Tests-tab group skeleton (worst-first headers + per-bucket counts) is
+  // only needed on the Tests tab, so the Environment tab skips it (and the
+  // per-group row fan-out below) entirely. The run select() above already
+  // confirmed ownership, so skip the re-probe.
+  const [branches, skeleton] = await Promise.all([
     loadProjectBranches(scope),
-    // The Tests-tab group skeleton (worst-first headers + per-bucket counts) —
-    // only needed on the Tests tab, so the Environment tab skips it (and the
-    // per-group row fan-out below) entirely. The run select() above already
-    // confirmed ownership, so skip the re-probe.
     tab === "tests"
       ? loadRunGroupSkeleton(scope, runId, {
           groupBy: DEFAULT_GROUP_BY,
@@ -110,6 +122,11 @@ export const loader = defineHandler(async (c) => {
     }
   }
 
+  // This loader sets no Cache-Control, so nothing changes there: a deferred
+  // loader streams its body (NDJSON on SPA nav / chunked HTML on document load),
+  // and the absence of a stored SWR/max-age response means the browser can't
+  // replay the wrong variant. (See suite-size.server.ts for the case where a
+  // pre-existing max-age header had to become `private, no-store`.)
   return {
     project: {
       id: project.id,
@@ -121,8 +138,6 @@ export const loader = defineHandler(async (c) => {
     },
     run,
     runId,
-    history,
-    branches,
     branchParam,
     defaultBranch,
     effectiveBranch,
@@ -139,5 +154,17 @@ export const loader = defineHandler(async (c) => {
     // the run's declared shard total (set at open from config.shard.total) so
     // it's known before any row loads, not derived from the loaded rows.
     isSharded: run.expectedShards != null,
+    branches,
+
+    // Below-the-fold duration-trend history. ONLY the plot data is deferred —
+    // the card chrome, title, and branch filter render eagerly from `branches`
+    // above (see RunHistoryChartFrame), so the skeleton→chart swap changes only
+    // the plot body and can't shift the title row. Read-only and NOT a realtime
+    // seed (the branch filter reads the URL via `useNavigatingSearchParam`, not
+    // a room hook), so deferring it can't tear the live islands.
+    chart: defer(async () => {
+      const history = await historyQuery;
+      return { history };
+    }),
   };
 });

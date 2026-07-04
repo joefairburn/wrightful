@@ -1,13 +1,15 @@
 import { Link } from "@void/react";
 import type React from "react";
-import { useMemo } from "react";
+import { use, useMemo } from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
+import { DeferredSection } from "@/components/defer-error-boundary";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import {
   RunHistoryChart,
   type RunHistoryPoint,
+  RunHistoryChartSkeleton,
 } from "@/components/run-history-chart";
 import {
   RunDurationLive,
@@ -55,8 +57,6 @@ export default function RunDetailPage({
   project,
   run,
   runId,
-  history,
-  branches,
   branchParam,
   defaultBranch,
   effectiveBranch,
@@ -66,6 +66,8 @@ export default function RunDetailPage({
   skeleton,
   expandedGroups,
   isSharded,
+  branches,
+  chart,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
   const shortId = run.id.slice(-7);
@@ -73,34 +75,17 @@ export default function RunDetailPage({
   const branchHref = branchUrl(run.ciProvider, run.repo, run.branch);
   const commitHref = commitUrl(run.ciProvider, run.repo, run.commitSha);
 
-  const chronological = [...history].reverse();
-  const hrefQuery = branchParam
-    ? `?branch=${encodeURIComponent(branchParam)}`
-    : "";
-  const historyPoints: RunHistoryPoint[] = chronological.map((h) => ({
-    id: h.id,
-    durationMs: h.durationMs,
-    status: h.status,
-    current: h.id === runId,
-    href: h.id === runId ? undefined : `${base}/runs/${h.id}${hrefQuery}`,
-    hover:
-      h.id === runId
-        ? undefined
-        : {
-            kind: "run" as const,
-            teamSlug: project.teamSlug,
-            projectSlug: project.slug,
-            runId: h.id,
-          },
-    label: [
-      h.status,
-      formatDuration(h.durationMs),
-      formatRelativeTime(h.createdAt),
-      h.commitSha ? h.commitSha.slice(0, 7) : null,
-    ]
-      .filter(Boolean)
-      .join(" · "),
-  }));
+  // A deferred region that fails latches its error boundary; clear it when the
+  // branch filter changes so the SPA-nav re-fetch re-attempts the region.
+  const resetKey = `${runId}:${branchParam ?? ""}`;
+
+  // Eager: the branch filter needs only `branches` (loaded eagerly), so the
+  // chart's skeleton and the resolved chart render the SAME title-row control.
+  // Reusing one element across the Suspense boundary keeps the title row
+  // byte-identical between states — only the plot body swaps.
+  const branchFilter = (
+    <RunHistoryBranchFilter branches={branches} defaultValue={defaultBranch} />
+  );
 
   // Memoized on the `run` loader prop so the object identity is stable across
   // re-renders and only changes per navigation — `useRunRoom`'s render-time
@@ -204,21 +189,26 @@ export default function RunDetailPage({
           </div>
 
           <div className="mt-4">
-            <RunHistoryChart
-              emptyState={
-                effectiveBranch === ALL_BRANCHES
-                  ? "No run history yet."
-                  : `No run history on ${effectiveBranch} yet.`
-              }
-              points={historyPoints}
-              subtitle={
-                <RunHistoryBranchFilter
-                  branches={branches}
-                  defaultValue={defaultBranch}
+            <DeferredSection
+              resetKey={resetKey}
+              skeleton={
+                <RunHistoryChartSkeleton
+                  subtitle={branchFilter}
+                  title="Duration"
                 />
               }
-              title={`Duration · last ${historyPoints.length} run${historyPoints.length === 1 ? "" : "s"}`}
-            />
+            >
+              <RunHistoryChartRegion
+                base={base}
+                branchParam={branchParam}
+                chart={chart}
+                effectiveBranch={effectiveBranch}
+                projectSlug={project.slug}
+                runId={runId}
+                subtitle={branchFilter}
+                teamSlug={project.teamSlug}
+              />
+            </DeferredSection>
           </div>
         </div>
 
@@ -278,6 +268,77 @@ export default function RunDetailPage({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Deferred duration-trend plot. Reads the deferred `chart` prop ({ history })
+ * via `use()` and builds the chart points here — the resolver returns only
+ * serializable rows, so all the JSX/derivation (point mapping, hovercards,
+ * empty-state copy) lives in this child. The `subtitle` (branch filter) is
+ * eager and passed in, so it renders identically in the skeleton and here.
+ */
+function RunHistoryChartRegion({
+  chart,
+  runId,
+  base,
+  branchParam,
+  effectiveBranch,
+  teamSlug,
+  projectSlug,
+  subtitle,
+}: {
+  chart: Props["chart"];
+  runId: string;
+  base: string;
+  branchParam: string | null;
+  effectiveBranch: string;
+  teamSlug: string;
+  projectSlug: string;
+  subtitle: React.ReactNode;
+}): React.ReactElement {
+  const { history } = use(chart);
+
+  const chronological = [...history].reverse();
+  const hrefQuery = branchParam
+    ? `?branch=${encodeURIComponent(branchParam)}`
+    : "";
+  const historyPoints: RunHistoryPoint[] = chronological.map((h) => ({
+    id: h.id,
+    durationMs: h.durationMs,
+    status: h.status,
+    current: h.id === runId,
+    href: h.id === runId ? undefined : `${base}/runs/${h.id}${hrefQuery}`,
+    hover:
+      h.id === runId
+        ? undefined
+        : {
+            kind: "run" as const,
+            teamSlug,
+            projectSlug,
+            runId: h.id,
+          },
+    label: [
+      h.status,
+      formatDuration(h.durationMs),
+      formatRelativeTime(h.createdAt),
+      h.commitSha ? h.commitSha.slice(0, 7) : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  }));
+
+  return (
+    <RunHistoryChart
+      emptyState={
+        effectiveBranch === ALL_BRANCHES
+          ? "No run history yet."
+          : `No run history on ${effectiveBranch} yet.`
+      }
+      points={historyPoints}
+      subtitle={subtitle}
+      title={`Duration · last ${historyPoints.length} run${historyPoints.length === 1 ? "" : "s"}`}
+    />
   );
 }
 
