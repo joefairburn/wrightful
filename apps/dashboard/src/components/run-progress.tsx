@@ -24,6 +24,7 @@ import {
   parseTitleSegments,
   rawGroupKey,
   type StatusFilter,
+  worstStatusInGroup,
 } from "@/lib/group-tests-by-file";
 import type { RunGroupHeader, RunGroupSkeleton } from "@/lib/run-groups-page";
 import type { RunResultsResponse } from "@/lib/run-results-page";
@@ -453,6 +454,10 @@ function TestGroup({
   }, [open, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const label = groupLabel(groupBy, rawKey);
+  // Single-glyph rollup of the group's worst status; null when all in-flight.
+  // Derived from the server-computed header counts (the paginated group no
+  // longer holds the full test list client-side).
+  const worst = worstStatusInGroup(header);
 
   return (
     <div className="border-b border-line-1">
@@ -466,6 +471,11 @@ function TestGroup({
         ) : (
           <ChevronRight className="size-3 shrink-0 text-fg-3" strokeWidth={2} />
         )}
+        {worst ? (
+          <span className="flex shrink-0 items-center justify-center">
+            <StatusGlyph size={13} status={worst} />
+          </span>
+        ) : null}
         {groupBy === "file" ? (
           <span className="min-w-0 truncate font-mono text-[12.5px] text-foreground">
             {label}

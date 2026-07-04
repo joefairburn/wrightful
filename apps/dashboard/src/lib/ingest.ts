@@ -7,11 +7,17 @@ import {
   testAnnotations,
   testResultAttempts,
   testResults,
+  tests,
   testTags,
   teams,
 } from "@schema";
-import type { BatchExecutor } from "@/lib/db-batch";
-import { changedRows, isUniqueViolation, runBatch } from "@/lib/db-batch";
+import type { BatchBuilder, BatchExecutor } from "@/lib/db-batch";
+import {
+  changedRows,
+  isForeignKeyViolation,
+  isUniqueViolation,
+  runBatch,
+} from "@/lib/db-batch";
 import { maybePostGithubCheck } from "@/lib/github-checks";
 import { setCodeownersFile } from "@/lib/owners-repo";
 import {
@@ -215,6 +221,65 @@ export function buildQueuePrefillStatements(
   // created or completed.
   return chunkInsertRows(rows).map((chunk) =>
     exec.insert(testResults).values(chunk).onConflictDoNothing(),
+  );
+}
+
+/**
+ * Upsert the per-project `tests` catalog (the identity/dimension table) for a
+ * set of `{ testId, title, file }` seen in this batch. Built against the passed
+ * executor so it enrolls in the caller's ingest transaction — the catalog row is
+ * written atomically with the results it describes, from BOTH the openRun queued
+ * prefill and the appendRunResults flush.
+ *
+ * `firstSeenAt` is insert-only (kept on conflict); `title`/`file`/`lastSeenAt`
+ * refresh from `excluded` (latest-wins). Deduped by `testId` first because a
+ * multi-row `INSERT … ON CONFLICT` may not touch the same conflict-target
+ * `(projectId, testId)` row twice in one statement — last entry wins, matching
+ * the latest-title/file intent. `projectId` is constant (`scope.projectId`), so
+ * `testId` alone keys the dedup. Empty input → no statements.
+ */
+export function buildTestCatalogUpsertStatements(
+  scope: TenantScope,
+  entries: ReadonlyArray<{ testId: string; title: string; file: string }>,
+  nowSeconds: number,
+  exec: BatchExecutor,
+) {
+  if (entries.length === 0) return [];
+  const byTestId = new Map<string, { title: string; file: string }>();
+  for (const e of entries)
+    byTestId.set(e.testId, { title: e.title, file: e.file });
+  // Sort by `testId` (projectId is constant per statement) so EVERY concurrent
+  // writer emits the shared `(projectId, testId)` ON CONFLICT rows in the same
+  // global order and can't AB/BA deadlock on the per-row locks Postgres takes as
+  // it processes the VALUES list — the catalog row is shared across all runs of
+  // a project, but the ingest transaction only locks the per-run row. Plain
+  // code-unit comparison (NOT `localeCompare`, which is locale-dependent and
+  // would let two processes disagree on order and re-open the cycle). Dedup
+  // above already collapsed same-testId rows, so reordering distinct ids can't
+  // change the upsert outcome.
+  const rows = [...byTestId]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([testId, { title, file }]) => ({
+      id: ulid(),
+      projectId: scope.projectId,
+      testId,
+      title,
+      file,
+      firstSeenAt: nowSeconds,
+      lastSeenAt: nowSeconds,
+    }));
+  return chunkInsertRows(rows).map((chunk) =>
+    exec
+      .insert(tests)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: [tests.projectId, tests.testId],
+        set: {
+          title: sql`excluded."title"`,
+          file: sql`excluded."file"`,
+          lastSeenAt: sql`excluded."lastSeenAt"`,
+        },
+      }),
   );
 }
 
@@ -966,39 +1031,42 @@ export async function openRun(
   const plannedTests = payload.run.plannedTests ?? [];
 
   const runValues = buildRunInsertValues(runId, scope, payload, nowSeconds);
-  try {
-    // All-or-nothing: the run insert, the queued-test prefill, and the usage
-    // meter bump (run open) commit atomically in one `db.transaction` (see
-    // `runBatch`). Every statement is built against the passed executor so it
-    // enrolls in that boundary.
-    await runBatch((tx) => {
-      const usageBump = usageBumpStatement(
-        scope.teamId,
-        monthStartSeconds(nowSeconds),
-        { runs: 1 },
+  // All-or-nothing: the run insert, the queued-test prefill, the tests-catalog
+  // seed, and the usage meter bump (run open) commit atomically in one
+  // `db.transaction` (see `runBatch`). Every statement is built against the
+  // passed executor so it enrolls in that boundary. Extracted to a named builder
+  // so the FK-recovery path below can re-run the SAME batch after nulling a
+  // stale monitorId.
+  const buildOpenBatch: BatchBuilder = (tx) => {
+    const usageBump = usageBumpStatement(
+      scope.teamId,
+      monthStartSeconds(nowSeconds),
+      { runs: 1 },
+      nowSeconds,
+      tx,
+    );
+    return [
+      tx.insert(runs).values(runValues),
+      ...buildQueuePrefillStatements(
+        scope,
+        runId,
+        plannedTests,
         nowSeconds,
         tx,
-      );
-      return [
-        tx.insert(runs).values(runValues),
-        ...buildQueuePrefillStatements(
-          scope,
-          runId,
-          plannedTests,
-          nowSeconds,
-          tx,
-          payload.shard?.index ?? null,
-        ),
-        ...(usageBump ? [usageBump] : []),
-      ];
-    });
-  } catch (err) {
-    // Lost the SELECT-then-INSERT race: sharded suites share one
-    // idempotencyKey and open concurrently BY DESIGN, so the loser's insert
-    // hitting `runs_project_idempotency_key_idx` is the expected hot path, not
-    // a corner. Recover by re-reading the winner's row instead of bubbling a
-    // 500 the reporter would have to absorb via retry.
-    if (!isUniqueViolation(err)) throw err;
+        payload.shard?.index ?? null,
+      ),
+      // Seed the tests catalog from the planned set so a test is searchable the
+      // moment its run opens, before any result streams. Idempotent upsert, so
+      // a re-opened run (CI re-run) just refreshes lastSeenAt.
+      ...buildTestCatalogUpsertStatements(scope, plannedTests, nowSeconds, tx),
+      ...(usageBump ? [usageBump] : []),
+    ];
+  };
+
+  // Recover the winner of a lost (projectId, idempotencyKey) race: re-read its
+  // row and re-arm it for writes. Returns null when no winner exists (the unique
+  // violation was something else), so the caller rethrows the original error.
+  const recoverDuplicate = async (): Promise<OpenRunResult | null> => {
     const winner = await db
       .select({ id: runs.id })
       .from(runs)
@@ -1009,7 +1077,7 @@ export async function openRun(
         ),
       )
       .limit(1);
-    if (!winner[0]) throw err;
+    if (!winner[0]) return null;
     await reopenRunForWrites(
       scope,
       winner[0].id,
@@ -1017,6 +1085,49 @@ export async function openRun(
       payload.shard?.total,
     );
     return { runId: winner[0].id, duplicate: true };
+  };
+
+  try {
+    await runBatch(buildOpenBatch);
+  } catch (err) {
+    if (isForeignKeyViolation(err) && runValues.monitorId != null) {
+      // A synthetic run whose monitor was deleted between scheduling and open:
+      // the real `runs.monitorId` FK rejects the insert where the old logical FK
+      // tolerated a dangling id. Drop the link (exactly what `onDelete: set
+      // null` would have done) and retry the open ONCE. Gated on
+      // `monitorId != null` so a projectId/teamId FK violation (both NOT NULL,
+      // cascade parents) rethrows instead of looping on an unfixable cause.
+      logger.warn(
+        "synthetic run's monitor deleted mid-open; nulling monitorId",
+        {
+          runId,
+          monitorId: runValues.monitorId,
+        },
+      );
+      runValues.monitorId = null;
+      try {
+        await runBatch(buildOpenBatch);
+      } catch (retryErr) {
+        // The retry can still lose the (projectId, idempotencyKey) race to a
+        // sibling shard — recover that the same way the first attempt would.
+        if (!isUniqueViolation(retryErr)) throw retryErr;
+        const dup = await recoverDuplicate();
+        if (!dup) throw retryErr;
+        return dup;
+      }
+      // Retry succeeded → fall through to the post-open broadcast path below.
+    } else if (isUniqueViolation(err)) {
+      // Lost the SELECT-then-INSERT race: sharded suites share one
+      // idempotencyKey and open concurrently BY DESIGN, so the loser's insert
+      // hitting `runs_project_idempotency_key_idx` is the expected hot path, not
+      // a corner. Recover by re-reading the winner's row instead of bubbling a
+      // 500 the reporter would have to absorb via retry.
+      const dup = await recoverDuplicate();
+      if (!dup) throw err;
+      return dup;
+    } else {
+      throw err;
+    }
   }
   await bumpTeamActivity(scope.teamId, nowSeconds);
 
@@ -1249,6 +1360,15 @@ export async function appendRunResults(
     mapping = built.mapping;
     // Sequential on purpose (like `runBatch`): one connection, ordered writes.
     for (const stmt of built.statements) await stmt;
+    // Catalog the tests this flush touched (covers non-prefilled tests and shards
+    // 2..N, which stream results without re-running the openRun prefill).
+    for (const stmt of buildTestCatalogUpsertStatements(
+      scope,
+      results,
+      nowSeconds,
+      tx,
+    ))
+      await stmt;
     // Summary statement LAST: the delta UPDATE (`.returning()` the summary), or
     // the liveness-only bump when the delta nets to zero — a zero-bucket-change
     // flush still advances `lastActivityAt` so `staleRunFilter` won't reap a

@@ -79,6 +79,29 @@ export function groupLabel(axis: GroupByAxis, key: string | null): string {
   return key === null ? SHARD_FALLBACK_KEY : `Shard ${key}`;
 }
 
+/** Per-bucket test counts for a single group (see `worstStatusInGroup`). */
+export type StatusGroupCounts = Record<StatusGroupKey, number>;
+
+/**
+ * The worst-status bucket present in a group's counts, for the group-header
+ * status glyph — the single-glyph "how did this file / project / shard do"
+ * summary. Order is `failed` → `flaky` → `passed` → `skipped`. This
+ * deliberately ranks `skipped` *below* `passed` (unlike the app-wide
+ * `statusSortKey`, where skipped outranks passed): a group with even one real
+ * result should read as that result, not "skipped", so skipped only wins when
+ * the group is entirely skipped. Returns null only when every bucket is zero
+ * (e.g. a group of only in-flight `queued` rows). Pure.
+ */
+export function worstStatusInGroup(
+  counts: StatusGroupCounts,
+): StatusGroupKey | null {
+  const worstFirst: StatusGroupKey[] = ["failed", "flaky", "passed", "skipped"];
+  for (const bucket of worstFirst) {
+    if (counts[bucket] > 0) return bucket;
+  }
+  return null;
+}
+
 /**
  * Filter test rows by the active status chip and search needle. A row passes
  * when its collapsed bucket matches the chip (or the chip is `"all"`) AND its
