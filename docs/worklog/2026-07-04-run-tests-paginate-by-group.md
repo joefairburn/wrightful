@@ -54,10 +54,11 @@ under a burst and a fixed interval would poll forever on a missed terminal
 event), plus one final refresh when the run flips terminal, plus a query
 invalidation on WS reconnect (the reseed empties the `byId` overlay, and the Void
 loader refresh doesn't touch TanStack caches). Terminal runs cache their skeleton
-+ rows indefinitely (`staleTime: Infinity`). Rows in expanded groups update
-through the `byId` overlay and render in the server's `(createdAt, id)`-desc
-order (id-desc client sort) so infinite-scroll pages never reorder above the
-viewport. The old eager back-paginate loop is gone.
+
+- rows indefinitely (`staleTime: Infinity`). Rows in expanded groups update
+  through the `byId` overlay and render in the server's `(createdAt, id)`-desc
+  order (id-desc client sort) so infinite-scroll pages never reorder above the
+  viewport. The old eager back-paginate loop is gone.
 
 Auto-expand is a one-shot latch on the server's `expandedByDefault` flag; a run
 watched live from empty waits for the first failed/flaky group before latching
@@ -79,18 +80,18 @@ signal it.
 
 ## Details
 
-| File                                     | Change                                                                                                                                                                                          |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/lib/run-groups-page.ts`             | **New.** `loadRunGroupSkeleton`, `groupAxisColumn`, `groupPredicate` (null→`IS NULL` / empty-file), `testSearchPredicate`, `RunGroupSkeleton`/`RunGroupHeader`, `MAX_RUN_GROUPS`.               |
-| `src/lib/run-results-page.ts`            | `LoadRunResultsOpts` gained `group`, `statusBucket`, `search`, `skipOwnershipCheck`. Cursor untouched.                                                                                          |
-| `src/lib/ingest.ts`                      | Exported `statusMatchSql` (reused by the skeleton + row bucket filter).                                                                                                                         |
+| File                                     | Change                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/run-groups-page.ts`             | **New.** `loadRunGroupSkeleton`, `groupAxisColumn`, `groupPredicate` (null→`IS NULL` / empty-file), `testSearchPredicate`, `RunGroupSkeleton`/`RunGroupHeader`, `MAX_RUN_GROUPS`.                                                                                                       |
+| `src/lib/run-results-page.ts`            | `LoadRunResultsOpts` gained `group`, `statusBucket`, `search`, `skipOwnershipCheck`. Cursor untouched.                                                                                                                                                                                  |
+| `src/lib/ingest.ts`                      | Exported `statusMatchSql` (reused by the skeleton + row bucket filter).                                                                                                                                                                                                                 |
 | `src/lib/group-tests-by-file.ts`         | Added `rawGroupKey` / `groupKeyId` / `groupLabel` (server↔client group-key contract); **removed** the now-dead client group engine (`groupAndSortTests`/`countByStatusGroup`/`selectDefaultExpandedKeys`/`groupKeyFor`/`groupSeverityScore`/`severityOf`) the server skeleton replaced. |
-| `routes/api/.../runs/[runId]/groups.ts`  | **New** GET route → `loadRunGroupSkeleton`.                                                                                                                                                     |
-| `routes/api/.../runs/[runId]/results.ts` | Added `groupBy`/`groupKey`/`statusBucket`/`search` query params.                                                                                                                                |
-| `pages/.../runs/[runId]/index.server.ts` | Loader seeds skeleton + auto-expanded group row pages (parallel) + `isSharded` (from `run.expectedShards`); dropped `tests`/`testsCursor`.                                                      |
-| `pages/.../runs/[runId]/index.tsx`       | Passes the new props to `RunProgress`.                                                                                                                                                          |
-| `src/components/run-progress.tsx`        | Rewrite: chips from summary; headers from the skeleton `useQuery`; per-group rows via `useInfiniteQuery` + `byId` overlay; throttled live skeleton refresh + terminal + reconnect invalidation; one-shot server-driven auto-expand with the live-from-empty guard. |
-| `src/realtime/use-run-room.ts`           | Removed the eager back-paginate loop + `backfill` option; keeps summary + live `byId`. (`mergeBackfilledTests` removed from `run-progress.ts`.)                                                  |
+| `routes/api/.../runs/[runId]/groups.ts`  | **New** GET route → `loadRunGroupSkeleton`.                                                                                                                                                                                                                                             |
+| `routes/api/.../runs/[runId]/results.ts` | Added `groupBy`/`groupKey`/`statusBucket`/`search` query params.                                                                                                                                                                                                                        |
+| `pages/.../runs/[runId]/index.server.ts` | Loader seeds skeleton + auto-expanded group row pages (parallel) + `isSharded` (from `run.expectedShards`); dropped `tests`/`testsCursor`.                                                                                                                                              |
+| `pages/.../runs/[runId]/index.tsx`       | Passes the new props to `RunProgress`.                                                                                                                                                                                                                                                  |
+| `src/components/run-progress.tsx`        | Rewrite: chips from summary; headers from the skeleton `useQuery`; per-group rows via `useInfiniteQuery` + `byId` overlay; throttled live skeleton refresh + terminal + reconnect invalidation; one-shot server-driven auto-expand with the live-from-empty guard.                      |
+| `src/realtime/use-run-room.ts`           | Removed the eager back-paginate loop + `backfill` option; keeps summary + live `byId`. (`mergeBackfilledTests` removed from `run-progress.ts`.)                                                                                                                                         |
 
 No schema change, no migration.
 
@@ -144,5 +145,5 @@ Not fixed (accepted by design, documented in code): during a live run the three
 count surfaces (chips / headers / rows) are only eventually-consistent, and a
 live row whose group isn't yet in the skeleton appears on the next throttled
 refresh (≤`LIVE_STALE_MS`). Worst-first ordering is preserved at the group level
-but is now recency (not severity) *within* a group — a possible follow-up is a
+but is now recency (not severity) _within_ a group — a possible follow-up is a
 server-side severity cursor.
