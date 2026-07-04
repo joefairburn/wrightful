@@ -98,6 +98,6 @@
     "vite-plus": "catalog:",
     "vitest": "catalog:",
     "void": "0.10.4",
-    "wrangler": "4.107.0"
+    "wrangler": "4.94.0"
   }
 }
