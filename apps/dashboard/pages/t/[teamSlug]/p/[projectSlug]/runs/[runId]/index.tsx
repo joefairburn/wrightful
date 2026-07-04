@@ -9,6 +9,7 @@ import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import {
   RunHistoryChart,
   type RunHistoryPoint,
+  RunHistoryChartSkeleton,
 } from "@/components/run-history-chart";
 import {
   RunDurationLive,
@@ -23,7 +24,6 @@ import {
 } from "@/components/run-meta-pills";
 import { RunProgress } from "@/components/run-progress";
 import { RunSummaryLive } from "@/components/run-summary-live";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/cn";
 import { makeHrefBuilder } from "@/lib/page-links";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
@@ -64,6 +64,7 @@ export default function RunDetailPage({
   pathname,
   tests,
   testsCursor,
+  branches,
   chart,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
@@ -75,6 +76,14 @@ export default function RunDetailPage({
   // A deferred region that fails latches its error boundary; clear it when the
   // branch filter changes so the SPA-nav re-fetch re-attempts the region.
   const resetKey = `${runId}:${branchParam ?? ""}`;
+
+  // Eager: the branch filter needs only `branches` (loaded eagerly), so the
+  // chart's skeleton and the resolved chart render the SAME title-row control.
+  // Reusing one element across the Suspense boundary keeps the title row
+  // byte-identical between states — only the plot body swaps.
+  const branchFilter = (
+    <RunHistoryBranchFilter branches={branches} defaultValue={defaultBranch} />
+  );
 
   // Memoized on the `run` loader prop so the object identity is stable across
   // re-renders and only changes per navigation — `useRunRoom`'s render-time
@@ -180,16 +189,21 @@ export default function RunDetailPage({
           <div className="mt-4">
             <DeferredSection
               resetKey={resetKey}
-              skeleton={<RunHistoryChartSkeleton />}
+              skeleton={
+                <RunHistoryChartSkeleton
+                  subtitle={branchFilter}
+                  title="Duration"
+                />
+              }
             >
               <RunHistoryChartRegion
                 base={base}
                 branchParam={branchParam}
                 chart={chart}
-                defaultBranch={defaultBranch}
                 effectiveBranch={effectiveBranch}
                 projectSlug={project.slug}
                 runId={runId}
+                subtitle={branchFilter}
                 teamSlug={project.teamSlug}
               />
             </DeferredSection>
@@ -253,31 +267,32 @@ export default function RunDetailPage({
 }
 
 /**
- * Deferred duration-trend chart + inline branch filter. Reads the grouped
- * `chart` prop ({ history, branches }) via `use()` and builds the chart points
- * here — the resolver returns only serializable rows, so all the JSX/derivation
- * (point mapping, hovercards, empty-state copy) lives in this child.
+ * Deferred duration-trend plot. Reads the deferred `chart` prop ({ history })
+ * via `use()` and builds the chart points here — the resolver returns only
+ * serializable rows, so all the JSX/derivation (point mapping, hovercards,
+ * empty-state copy) lives in this child. The `subtitle` (branch filter) is
+ * eager and passed in, so it renders identically in the skeleton and here.
  */
 function RunHistoryChartRegion({
   chart,
   runId,
   base,
   branchParam,
-  defaultBranch,
   effectiveBranch,
   teamSlug,
   projectSlug,
+  subtitle,
 }: {
   chart: Props["chart"];
   runId: string;
   base: string;
   branchParam: string | null;
-  defaultBranch: string;
   effectiveBranch: string;
   teamSlug: string;
   projectSlug: string;
+  subtitle: React.ReactNode;
 }): React.ReactElement {
-  const { history, branches } = use(chart);
+  const { history } = use(chart);
 
   const chronological = [...history].reverse();
   const hrefQuery = branchParam
@@ -316,33 +331,9 @@ function RunHistoryChartRegion({
           : `No run history on ${effectiveBranch} yet.`
       }
       points={historyPoints}
-      subtitle={
-        <RunHistoryBranchFilter
-          branches={branches}
-          defaultValue={defaultBranch}
-        />
-      }
+      subtitle={subtitle}
       title={`Duration · last ${historyPoints.length} run${historyPoints.length === 1 ? "" : "s"}`}
     />
-  );
-}
-
-/** Suspense fallback matching the `RunHistoryChart` card (120px plot + chrome). */
-function RunHistoryChartSkeleton(): React.ReactElement {
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      {/* Pinned to the real title row's exact 21.25px. That row baseline-aligns
-       * the `text-sm` title (20px line box) with the RunHistoryBranchFilter
-       * button (`py-0.5` + `text-[11px]` ≈ 20.5px); the baseline interplay
-       * lands it at a fractional 21.25px, which two flat `h-*` bars (max 20px)
-       * couldn't reserve — the last ~1.25px of run-detail CLS. `items-center`
-       * centres the bars within the pinned row. */}
-      <div className="mb-3 flex h-[21.25px] items-center gap-2.5">
-        <Skeleton className="h-4 w-36" />
-        <Skeleton className="h-5 w-24 rounded" />
-      </div>
-      <Skeleton className="w-full rounded-md" style={{ height: 120 }} />
-    </div>
   );
 }
 

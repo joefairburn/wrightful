@@ -13,7 +13,11 @@ import { DeferredSection } from "@/components/defer-error-boundary";
 import { PageHeader } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
-import { ChartSkeleton, KpiCardSkeleton } from "@/components/skeletons";
+import {
+  ChartSkeleton,
+  KpiCardSkeleton,
+  TablePaginationFooterSkeleton,
+} from "@/components/skeletons";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
 import { Card, CardPanel } from "@/components/ui/card";
 import {
@@ -287,6 +291,33 @@ function HistogramChart({
   );
 }
 
+/** Shared 6-column header used by the bottlenecks table and its skeleton, so
+ *  the fixed column widths can't drift between states. */
+function BottlenecksTableHead() {
+  return (
+    <TableHeader>
+      <TableRow>
+        <TableHead className="w-10 px-4" />
+        <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+          Test
+        </TableHead>
+        <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+          Avg
+        </TableHead>
+        <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+          P95
+        </TableHead>
+        <TableHead className="w-[120px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+          Trend
+        </TableHead>
+        <TableHead className="w-[80px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+          Runs
+        </TableHead>
+      </TableRow>
+    </TableHeader>
+  );
+}
+
 function BottlenecksSection({
   slowest,
   project,
@@ -329,26 +360,7 @@ function BottlenecksSection({
           </Empty>
         ) : (
           <Table className="table-fixed">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10 px-4" />
-                <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                  Test
-                </TableHead>
-                <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                  Avg
-                </TableHead>
-                <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                  P95
-                </TableHead>
-                <TableHead className="w-[120px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                  Trend
-                </TableHead>
-                <TableHead className="w-[80px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                  Runs
-                </TableHead>
-              </TableRow>
-            </TableHeader>
+            <BottlenecksTableHead />
             <TableBody>
               {bottlenecks.map((row) => {
                 const tone = rowTone(row);
@@ -487,26 +499,7 @@ function BottlenecksSkeleton({
     <>
       <CardPanel className="pt-0">
         <Table className="table-fixed">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10 px-4" />
-              <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                Test
-              </TableHead>
-              <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                Avg
-              </TableHead>
-              <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                P95
-              </TableHead>
-              <TableHead className="w-[120px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                Trend
-              </TableHead>
-              <TableHead className="w-[80px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                Runs
-              </TableHead>
-            </TableRow>
-          </TableHeader>
+          <BottlenecksTableHead />
           <TableBody>
             {Array.from({ length: rowCount }, (_, i) => (
               <TableRow key={i}>
@@ -537,13 +530,13 @@ function BottlenecksSkeleton({
           </TableBody>
         </Table>
       </CardPanel>
-      {/* Footer placeholder — mirrors TablePaginationFooter's box (border-t,
-       * px-6 py-3). The page-number strip only appears when totalPages > 1, so
-       * this lands at ~57px (multi-page) / ~41px (single page), same as real. */}
-      <div className="flex items-center justify-between gap-4 border-t border-border/50 px-6 py-3">
-        <Skeleton className="h-4 w-40" />
-        {totalPages > 1 ? <Skeleton className="h-8 w-56" /> : null}
-      </div>
+      {/* Mirrors the real footer (which passes className="border-border/50");
+       * the page-number strip only appears when totalPages > 1, so this lands at
+       * ~57px (multi-page) / ~41px (single page), same as the resolved footer. */}
+      <TablePaginationFooterSkeleton
+        className="border-border/50"
+        showPager={totalPages > 1}
+      />
     </>
   );
 }

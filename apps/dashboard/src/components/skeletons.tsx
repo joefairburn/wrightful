@@ -71,24 +71,31 @@ export function ChartSkeleton({
   return <Skeleton className="w-full rounded-md" style={{ height }} />;
 }
 
-/** Fallback for a list/table region: `rows` line-box-sized bars. Pass the
- *  `text` utility the real rows use so each bar reserves one real line box. */
-export function ListRowsSkeleton({
-  rows = 8,
-  text = "text-sm",
-  widthClassName = "w-full",
-  gapClassName = "space-y-2.5",
+/**
+ * Fallback matching {@link TablePaginationFooter}'s box (border-t, px-6 py-3):
+ * a "Showing …" line on the left and, when `showPager`, the page-number strip
+ * on the right — so a paginated table reserves the same footer height in both
+ * states and doesn't jump when the deferred rows resolve. Pass `showPager`
+ * exactly as the real footer decides it (usually `totalPages > 1`; always for
+ * tables that always paginate, never for single-page tables), and pass the real
+ * footer's `className` override so the box matches to the pixel.
+ */
+export function TablePaginationFooterSkeleton({
+  showPager = false,
+  className,
 }: {
-  rows?: number;
-  text?: string;
-  widthClassName?: string;
-  gapClassName?: string;
+  showPager?: boolean;
+  className?: string;
 }): React.ReactElement {
   return (
-    <div className={gapClassName}>
-      {Array.from({ length: rows }, (_, i) => (
-        <TextLineSkeleton className={widthClassName} key={i} text={text} />
-      ))}
+    <div
+      className={cn(
+        "flex items-center justify-between gap-4 border-t border-border px-6 py-3",
+        className,
+      )}
+    >
+      <Skeleton className="h-4 w-40" />
+      {showPager ? <Skeleton className="h-8 w-56" /> : null}
     </div>
   );
 }

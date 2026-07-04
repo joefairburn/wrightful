@@ -51,16 +51,16 @@ Left untouched.
 
 ## Details — per-region audit (real vs old skeleton) and fix
 
-| Region                             | Old skeleton box                 | Real box                                                                               | Δ                                | Fix                                                                                                |
-| ---------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------- |
-| KPI card (both insights pages)     | 90px                             | 116.25px                                                                               | **+26.25px/card**                | `TextLineSkeleton` bars at the real `text-[12px]`/`text-[26px]`/`text-[11.5px]` line boxes         |
-| Bottlenecks table row × up to 20   | 53px/row                         | 51px/row                                                                               | −2px/row                         | Test cell → `h-[13px]` + `mt-0.5` + `h-[11px]` (leading-none = 26px)                               |
-| Bottlenecks row **count**          | always 20                        | `bottlenecks.length` (≤20)                                                             | huge on partial/last/empty pages | reserve exact count from eager `totals.totalUniqueTests − offset`; `0` → the Empty branch          |
-| Bottlenecks **pagination footer**  | _absent_                         | 57px (multi-page) / 41px (single)                                                      | **+41–57px pop-in**              | footer-shaped placeholder (`border-t px-6 py-3`; page-strip only when `totalPages > 1`)            |
-| Suite-size distribution header     | `h-4`/`h-3`, wrong `mt-1.5`      | `text-[13px]`/`text-[11.5px]`, `mt-0.5`                                                | +~5px + wrong gap                | `TextLineSkeleton` + `mt-0.5`                                                                      |
-| Suite-size distribution row        | 24px                             | 26px                                                                                   | +2px/row                         | `text-xs` label line + `mt-1` + `h-1.5` bar (mirrors `DistributionRow`)                            |
-| Suite-size tag pill                | `h-[20px]`                       | 22px                                                                                   | +2px/pill                        | `h-[22px]` (18px inline line box + `py-px` + 1px borders)                                          |
-| Run-detail history chart title row | `items-baseline`, `h-3` subtitle | `items-center`, 21.25px (title baseline-aligned with the ~20.5px branch-filter button) | +4.5px → +1.25px → **0**         | `items-center` + pin the row to `h-[21.25px]` (the exact real height; two flat bars maxed at 20px) |
+| Region                             | Old skeleton box                                        | Real box                                                                  | Δ                                | Fix                                                                                                                                                                                                   |
+| ---------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KPI card (both insights pages)     | 90px                                                    | 116.25px                                                                  | **+26.25px/card**                | `TextLineSkeleton` bars at the real `text-[12px]`/`text-[26px]`/`text-[11.5px]` line boxes                                                                                                            |
+| Bottlenecks table row × up to 20   | 53px/row                                                | 51px/row                                                                  | −2px/row                         | Test cell → `h-[13px]` + `mt-0.5` + `h-[11px]` (leading-none = 26px)                                                                                                                                  |
+| Bottlenecks row **count**          | always 20                                               | `bottlenecks.length` (≤20)                                                | huge on partial/last/empty pages | reserve exact count from eager `totals.totalUniqueTests − offset`; `0` → the Empty branch                                                                                                             |
+| Bottlenecks **pagination footer**  | _absent_                                                | 57px (multi-page) / 41px (single)                                         | **+41–57px pop-in**              | footer-shaped placeholder (`border-t px-6 py-3`; page-strip only when `totalPages > 1`)                                                                                                               |
+| Suite-size distribution header     | `h-4`/`h-3`, wrong `mt-1.5`                             | `text-[13px]`/`text-[11.5px]`, `mt-0.5`                                   | +~5px + wrong gap                | `TextLineSkeleton` + `mt-0.5`                                                                                                                                                                         |
+| Suite-size distribution row        | 24px                                                    | 26px                                                                      | +2px/row                         | `text-xs` label line + `mt-1` + `h-1.5` bar (mirrors `DistributionRow`)                                                                                                                               |
+| Suite-size tag pill                | `h-[20px]`                                              | 22px                                                                      | +2px/pill                        | `h-[22px]` (18px inline line box + `py-px` + 1px borders)                                                                                                                                             |
+| Run-detail history chart title row | separate skeleton markup that drifted from the real row | 21.25px (`text-sm` title baseline-aligned with the branch-filter control) | +4.5px → +1.25px → **0**         | co-locate: a shared `RunHistoryChartFrame` renders the title row (incl. the real, eager branch filter) identically in both states — only the plot body differs, so no measured height to keep in sync |
 
 ## Code fixes / migrations
 
@@ -82,14 +82,24 @@ Left untouched.
 - **`pages/…/insights/slowest-tests.tsx`** — compute `bottlenecksRowCount` from
   the eager totals; parameterized `BottlenecksSkeleton({ rowCount, totalPages })`
   with an Empty branch, leading-none row heights, and the footer placeholder.
-- **`pages/…/runs/[runId]/index.tsx`** — `RunHistoryChartSkeleton` title row →
-  `items-center`, then **pinned to `h-[21.25px]`** — the real row's exact height
-  (the `text-sm` title baseline-aligned with the `py-0.5` + `text-[11px]`
-  branch-filter button renders to a fractional 21.25px that flat `h-*` bars,
-  maxing at 20px, can't reserve). A follow-up on user report of a residual
-  186px→187.25px shift; the plot grid is pinned to `height: 120` in both states,
-  so the drift was isolated to the title row by box arithmetic (`187.25 − 166`
-  chrome `= 21.25`), not the SVG.
+- **`src/components/run-history-chart.tsx`** — extracted `RunHistoryChartFrame`
+  (card chrome + title row) now used by the empty branch, the data branch, and a
+  new co-located `RunHistoryChartSkeleton` export. `RunHistoryChart`'s public API
+  is unchanged, so the two eager test-detail callers are unaffected.
+- **`pages/…/runs/[runId]/index.server.ts`** — `branches` moved **eager** (loaded
+  in parallel with the tests scan; it's a cheap index-covered `DISTINCT`); the
+  `chart` `defer()` now resolves **only** `history`.
+- **`pages/…/runs/[runId]/index.tsx`** — the run-detail chart now uses the
+  co-located skeleton. The branch filter is hoisted to one `branchFilter` element
+  passed to **both** the skeleton fallback and the resolved region, so the title
+  row is byte-identical across the Suspense swap and only the plot body changes.
+  This **replaced** an earlier stop-gap that pinned the skeleton title row to a
+  measured `h-[21.25px]` (a font-metric-derived magic number that would drift if
+  the branch-filter control or base font changed) — the shared-frame approach
+  computes that height from identical markup instead of hardcoding it. (First
+  pass isolated the residual 186px→187.25px shift to the title row by box
+  arithmetic, `187.25 − 166` chrome `= 21.25px`, ruling out the SVG/plot, which
+  is pinned to `height: 120` in both states.)
 
 ## Verification
 
@@ -120,7 +130,12 @@ Left untouched.
   fixed height.
 - The bottlenecks row-height fix depends on `TableCell` keeping `leading-none`;
   a comment in `BottlenecksSkeleton` records the coupling.
-- `RunHistoryChartSkeleton`'s `h-[21.25px]` is a font-metric-derived constant
-  (title baseline + branch-filter button). If that control's padding/`text-*` or
-  the base font changes, re-measure the real title row and re-pin. A comment on
-  the div records where the number comes from.
+- **Preferred pattern for a component with fragile (non-line-box) chrome:
+  co-locate the skeleton in the component via a shared frame** (as
+  `RunHistoryChartFrame` now does), rather than hand-matching pixels in a
+  separate skeleton. The frame's chrome is single-source, so a structural tweak
+  updates both states at once and there's no measured height to drift. The
+  bottlenecks table + suite-size distribution still hand-match (their real
+  markup lives in the page, not a shared component) — candidates for the same
+  treatment if they ever grow fragile, but their line-box/derived-count parts
+  are already self-correcting.

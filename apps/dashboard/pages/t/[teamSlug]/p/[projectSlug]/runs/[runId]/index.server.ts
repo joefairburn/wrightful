@@ -72,11 +72,19 @@ export const loader = defineHandler(async (c) => {
   // have no replay, so they're gone for good), and the suspended island would
   // also connect its socket late. Both break live progress on an in-flight run.
   // So the ~200-row scan is awaited here alongside the 404-gated `run`.
-  const resultsPage = await loadRunResultsPage(scope, runId, {
-    cursor: null,
-    limit: TESTS_LIMIT,
-    status: null,
-  });
+  // `branches` is a cheap index-covered DISTINCT and drives the always-visible
+  // branch filter in the chart's title row. Loading it EAGER (in parallel with
+  // the tests scan) lets the chart's skeleton render the real filter + title
+  // row while only the history plot streams in — so the title row is identical
+  // markup in both states and can't shift. Only `history` stays deferred.
+  const [resultsPage, branches] = await Promise.all([
+    loadRunResultsPage(scope, runId, {
+      cursor: null,
+      limit: TESTS_LIMIT,
+      status: null,
+    }),
+    loadProjectBranches(scope),
+  ]);
 
   // The full-run select() above already 404s on a foreign/missing run, so the
   // run is owned here; loadRunResultsPage's own ownership probe agrees.
@@ -109,19 +117,17 @@ export const loader = defineHandler(async (c) => {
     pathname: url.pathname,
     tests,
     testsCursor,
+    branches,
 
-    // Below-the-fold duration-trend chart + its inline branch filter. Grouped:
-    // the chart reads `history` and its subtitle control reads `branches`, so
-    // one resolver runs both queries in parallel and one skeleton covers the
-    // whole card. Read-only and NOT a realtime seed (the branch filter's value
-    // comes from the URL via `useNavigatingSearchParam`, not a room hook), so
-    // deferring it can't tear the live islands.
+    // Below-the-fold duration-trend history. ONLY the plot data is deferred —
+    // the card chrome, title, and branch filter render eagerly from `branches`
+    // above (see RunHistoryChartFrame), so the skeleton→chart swap changes only
+    // the plot body and can't shift the title row. Read-only and NOT a realtime
+    // seed (the branch filter reads the URL via `useNavigatingSearchParam`, not
+    // a room hook), so deferring it can't tear the live islands.
     chart: defer(async () => {
-      const [history, branches] = await Promise.all([
-        historyQuery,
-        loadProjectBranches(scope),
-      ]);
-      return { history, branches };
+      const history = await historyQuery;
+      return { history };
     }),
   };
 });
