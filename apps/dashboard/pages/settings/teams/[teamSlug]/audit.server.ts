@@ -28,14 +28,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseMetadata(raw: string | null): Record<string, unknown> | null {
-  if (!raw) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return isPlainObject(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+// `metadata` is a `jsonb` column, so the driver returns the already-parsed
+// value — validate it's a plain object (a malformed/array row degrades to null)
+// without any JSON.parse.
+function parseMetadata(raw: unknown): Record<string, unknown> | null {
+  return isPlainObject(raw) ? raw : null;
 }
 
 /**

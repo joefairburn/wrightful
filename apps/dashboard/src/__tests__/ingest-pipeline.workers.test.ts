@@ -261,10 +261,11 @@ describe("openRun", () => {
     expect(out.duplicate).toBe(false);
     expect(typeof out.runId).toBe("string");
     expect(out.runId.length).toBeGreaterThan(0);
-    // One run insert + one prefill insert chunk + the usage-meter bump (also an
-    // insert/upsert) → run together in one atomic open transaction.
+    // One run insert + one prefill insert chunk + one tests-catalog upsert +
+    // the usage-meter bump (also an insert/upsert) → run together in one atomic
+    // open transaction.
     expect(transactionSpy).toHaveBeenCalledTimes(1);
-    expect(txStatements).toHaveLength(3);
+    expect(txStatements).toHaveLength(4);
     expect(txStatements.every((s) => s.__kind === "insert")).toBe(true);
     // Initial snapshot is synthesized inline (no DB read) and broadcast to the
     // run room — totals reflect the planned-test count, status "running".
@@ -342,6 +343,75 @@ describe("openRun", () => {
     expect(out).toEqual({ runId: "run-existing", duplicate: true });
     expect(transactionSpy).not.toHaveBeenCalled();
     expect(broadcastRunSpy).not.toHaveBeenCalled();
+  });
+
+  it("recovers a synthetic run whose monitor was deleted mid-open: nulls monitorId and retries once", async () => {
+    // [0] idempotency SELECT (no existing); [1] bumpTeamActivity UPDATE (after
+    // the successful retry). The first open transaction raises a FK violation
+    // (runs.monitorId → a monitor deleted between scheduling and open).
+    awaitResults = [[], []];
+    const fkErr = Object.assign(
+      new Error('insert on table "runs" violates foreign key constraint'),
+      { code: "23503" },
+    );
+    transactionSpy.mockImplementationOnce(() => {
+      throw fkErr;
+    });
+    const payload: OpenRunPayload = {
+      idempotencyKey: "key-fk",
+      run: {
+        origin: "synthetic",
+        monitorId: "mon-gone",
+        plannedTests: [{ testId: "t1", title: "a", file: "spec.ts" }],
+      },
+    } as OpenRunPayload;
+
+    const out = await openRun(scope, payload, NOW);
+
+    // The FK-recovery nulled the stale link (onDelete: set null semantics) and
+    // retried the SAME open batch — a genuinely new run, not a duplicate.
+    expect(out.duplicate).toBe(false);
+    expect(typeof out.runId).toBe("string");
+    expect(transactionSpy).toHaveBeenCalledTimes(2);
+    expect(broadcastRunSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rethrows a non-FK error from the open transaction (no retry)", async () => {
+    awaitResults = [[]]; // pre-check SELECT only; never reaches bumpTeamActivity
+    transactionSpy.mockImplementationOnce(() => {
+      throw new Error("connection reset");
+    });
+    const payload: OpenRunPayload = {
+      idempotencyKey: "key-boom",
+      run: { origin: "synthetic", monitorId: "mon-x", plannedTests: [] },
+    } as OpenRunPayload;
+
+    await expect(openRun(scope, payload, NOW)).rejects.toThrow(
+      "connection reset",
+    );
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(broadcastRunSpy).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a FK violation when there is no monitorId to blame (CI run)", async () => {
+    // The gate is `monitorId != null`: a CI run (no monitorId) whose FK violation
+    // can only be projectId/teamId (NOT NULL, unfixable) must rethrow, not loop.
+    awaitResults = [[]];
+    const fkErr = Object.assign(new Error("violates foreign key constraint"), {
+      code: "23503",
+    });
+    transactionSpy.mockImplementationOnce(() => {
+      throw fkErr;
+    });
+    const payload: OpenRunPayload = {
+      idempotencyKey: "key-ci",
+      run: { plannedTests: [] },
+    } as OpenRunPayload;
+
+    await expect(openRun(scope, payload, NOW)).rejects.toThrow(
+      "foreign key constraint",
+    );
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
   });
 });
 
