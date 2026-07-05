@@ -62,9 +62,6 @@ export default function RunDetailPage({
   effectiveBranch,
   tab,
   pathname,
-  groupBy,
-  skeleton,
-  expandedGroups,
   isSharded,
   branches,
   chart,
@@ -254,9 +251,6 @@ export default function RunDetailPage({
         {/* Tab content — scrolls with the rest of the page */}
         {tab === "tests" ? (
           <RunProgress
-            initialExpandedGroups={expandedGroups}
-            initialGroupBy={groupBy}
-            initialSkeleton={skeleton}
             initialSummary={initialSummary}
             isSharded={isSharded}
             projectSlug={project.slug}

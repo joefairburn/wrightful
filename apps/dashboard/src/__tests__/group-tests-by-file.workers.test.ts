@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  dedupeGroups,
   filterTests,
   groupKeyId,
   groupLabel,
+  matchesStatusFilter,
+  mergeGroupRows,
   parseTitleSegments,
   rawGroupKey,
+  recommendedRank,
   worstStatusInGroup,
 } from "@/lib/group-tests-by-file";
 import type {
@@ -230,5 +234,144 @@ describe("groupLabel", () => {
     expect(groupLabel("project", null)).toBe("default");
     expect(groupLabel("shard", "2")).toBe("Shard 2");
     expect(groupLabel("shard", null)).toBe("Unsharded");
+  });
+});
+
+// The "Recommended" filter = the review-worthy tests (failed ∪ flaky). The
+// client `matchesStatusFilter` (live overlay) must agree with the server's
+// `statusFilterMembers`, and `recommendedRank` orders failed before flaky.
+describe("matchesStatusFilter", () => {
+  it("recommended matches the failed and flaky buckets (incl. timedout)", () => {
+    for (const s of ["failed", "timedout", "flaky"] as const) {
+      expect(matchesStatusFilter(s, "recommended")).toBe(true);
+    }
+    for (const s of ["passed", "skipped", "queued"] as const) {
+      expect(matchesStatusFilter(s, "recommended")).toBe(false);
+    }
+  });
+
+  it("a single-bucket filter matches only its own bucket", () => {
+    expect(matchesStatusFilter("timedout", "failed")).toBe(true); // timedout ∈ failed
+    expect(matchesStatusFilter("flaky", "failed")).toBe(false);
+    expect(matchesStatusFilter("passed", "passed")).toBe(true);
+  });
+});
+
+describe("filterTests (recommended)", () => {
+  it("keeps only failed/flaky-bucket rows", () => {
+    const rows = [
+      t("a.spec.ts", "failed"),
+      t("a.spec.ts", "timedout"),
+      t("a.spec.ts", "flaky"),
+      t("a.spec.ts", "passed"),
+      t("a.spec.ts", "skipped"),
+    ];
+    const kept = filterTests(rows, { search: "", statusFilter: "recommended" });
+    expect(kept.map((r) => r.status)).toEqual(["failed", "timedout", "flaky"]);
+  });
+});
+
+describe("recommendedRank", () => {
+  it("ranks the failed bucket ahead of flaky (and everything else)", () => {
+    expect(recommendedRank("failed")).toBeLessThan(recommendedRank("flaky"));
+    expect(recommendedRank("timedout")).toBeLessThan(recommendedRank("flaky"));
+    expect(recommendedRank("failed")).toBe(recommendedRank("timedout"));
+  });
+});
+
+// `mergeGroupRows` folds a group's server-paginated rows and its live overlay
+// into the display list, ordered to match the server's page order — the exact
+// cursor-coherence invariant that silently breaks infinite scroll if it drifts.
+describe("mergeGroupRows", () => {
+  const F = (
+    id: string,
+    status: RunProgressTestStatus,
+    over: Partial<RunProgressTest> = {},
+  ) => t("a.spec.ts", status, { id, ...over });
+
+  it("orders fetched rows by id descending (matches the server (createdAt,id) cursor)", () => {
+    const merged = mergeGroupRows(
+      [F("id_a", "passed"), F("id_c", "passed"), F("id_b", "passed")],
+      [],
+      { search: "", statusFilter: "all" },
+    );
+    expect(merged.map((r) => r.id)).toEqual(["id_c", "id_b", "id_a"]);
+  });
+
+  it("merges the live overlay over a fetched row with the same id (live wins)", () => {
+    const merged = mergeGroupRows(
+      [F("id_1", "passed", { title: "old" })],
+      [F("id_1", "failed", { title: "new" })],
+      { search: "", statusFilter: "all" },
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      id: "id_1",
+      status: "failed",
+      title: "new",
+    });
+  });
+
+  it("adds live rows absent from the fetched page", () => {
+    const merged = mergeGroupRows(
+      [F("id_1", "passed")],
+      [F("id_2", "failed")],
+      {
+        search: "",
+        statusFilter: "all",
+      },
+    );
+    expect(merged.map((r) => r.id)).toEqual(["id_2", "id_1"]);
+  });
+
+  it("filters the live overlay to the active view (fetched is already server-filtered)", () => {
+    const merged = mergeGroupRows(
+      [],
+      [F("id_2", "passed"), F("id_3", "failed")],
+      { search: "", statusFilter: "failed" },
+    );
+    expect(merged.map((r) => r.id)).toEqual(["id_3"]);
+  });
+
+  it("recommended: failed-bucket rows sort before flaky, then id-descending", () => {
+    const merged = mergeGroupRows(
+      [
+        F("id_1", "flaky"),
+        F("id_2", "failed"),
+        F("id_3", "flaky"),
+        F("id_4", "timedout"),
+      ],
+      [],
+      { search: "", statusFilter: "recommended" },
+    );
+    expect(merged.map((r) => r.id)).toEqual(["id_4", "id_2", "id_3", "id_1"]);
+    expect(merged.map((r) => r.status)).toEqual([
+      "timedout",
+      "failed",
+      "flaky",
+      "flaky",
+    ]);
+  });
+});
+
+// `dedupeGroups` flattens paginated skeleton pages into one worst-first header
+// list, deduping by group identity so a rank-shifted group can't render twice.
+describe("dedupeGroups", () => {
+  const page = (...keys: (string | null)[]) => ({
+    groups: keys.map((key) => ({ key })),
+  });
+
+  it("flattens pages in order, deduping by group key (first occurrence wins)", () => {
+    const out = dedupeGroups([page("a", "b"), page("b", "c")]);
+    expect(out.map((g) => g.key)).toEqual(["a", "b", "c"]);
+  });
+
+  it("treats the null fallback key as one identity, distinct from real keys", () => {
+    const out = dedupeGroups([page(null, "a"), page(null)]);
+    expect(out.map((g) => g.key)).toEqual([null, "a"]);
+  });
+
+  it("returns an empty list for no pages", () => {
+    expect(dedupeGroups([])).toEqual([]);
   });
 });

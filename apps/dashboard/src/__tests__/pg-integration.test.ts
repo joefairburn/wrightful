@@ -980,6 +980,7 @@ describe("run-group skeleton (grouped read)", () => {
   });
   const RUN = "run-grp";
   const SHARD_RUN = "run-grp-shard";
+  const REC_RUN = "run-grp-rec";
   const T0 = 1_700_100_000;
 
   type SeedRow = {
@@ -1037,6 +1038,16 @@ describe("run-group skeleton (grouped read)", () => {
       { testId: "s3", file: "y.spec.ts", status: "passed", shardIndex: null },
       { testId: "s4", file: "y.spec.ts", status: "passed", shardIndex: null },
     ]);
+    // One file with failed/flaky rows INTERLEAVED by insert time (createdAt), so
+    // a pure (createdAt, id) page order would split failed rows across pages.
+    // The "recommended" bucket rank must pull all failed rows ahead of flaky.
+    await seed(REC_RUN, [
+      { testId: "rec1", file: "big.spec.ts", status: "failed" }, // T0+0
+      { testId: "rec2", file: "big.spec.ts", status: "flaky" }, // T0+1
+      { testId: "rec3", file: "big.spec.ts", status: "failed" }, // T0+2
+      { testId: "rec4", file: "big.spec.ts", status: "flaky" }, // T0+3
+      { testId: "rec5", file: "big.spec.ts", status: "failed" }, // T0+4
+    ]);
   });
 
   it("groups by file worst-first with per-bucket counts (timedout ∈ failed) + auto-expand flags", async () => {
@@ -1044,6 +1055,8 @@ describe("run-group skeleton (grouped read)", () => {
       groupBy: "file",
       status: null,
       search: null,
+      cursor: null,
+      limit: 50,
       skipOwnershipCheck: true,
     });
     if (!skel) throw new Error("expected a skeleton");
@@ -1087,6 +1100,8 @@ describe("run-group skeleton (grouped read)", () => {
       skipped: 1,
       expandedByDefault: false,
     });
+    // Page carries failing groups → the client may latch auto-expand.
+    expect(skel.hasFailingGroup).toBe(true);
   });
 
   it("status filter narrows to failing groups (failed bucket only)", async () => {
@@ -1094,6 +1109,8 @@ describe("run-group skeleton (grouped read)", () => {
       groupBy: "file",
       status: "failed",
       search: null,
+      cursor: null,
+      limit: 50,
       skipOwnershipCheck: true,
     });
     if (!skel) throw new Error("expected a skeleton");
@@ -1107,10 +1124,139 @@ describe("run-group skeleton (grouped read)", () => {
       groupBy: "file",
       status: null,
       search: "c.spec",
+      cursor: null,
+      limit: 50,
       skipOwnershipCheck: true,
     });
     if (!skel) throw new Error("expected a skeleton");
     expect(skel.groups.map((g) => g.key)).toEqual(["c.spec.ts"]);
+  });
+
+  it("recommended filter = failed ∪ flaky groups, worst-first", async () => {
+    const skel = await loadRunGroupSkeleton(scope, RUN, {
+      groupBy: "file",
+      status: "recommended",
+      search: null,
+      cursor: null,
+      limit: 50,
+      skipOwnershipCheck: true,
+    });
+    if (!skel) throw new Error("expected a skeleton");
+    // a (2 failed, sev 8), b (2 failed, sev 8), c (1 flaky, sev 2); d/e drop out
+    // (no failed/flaky). Counts cover only the failed/flaky rows.
+    expect(skel.groups.map((g) => g.key)).toEqual([
+      "a.spec.ts",
+      "b.spec.ts",
+      "c.spec.ts",
+    ]);
+    expect(skel.groups[0]).toMatchObject({ failed: 2, total: 2 });
+    expect(skel.groups[2]).toMatchObject({
+      key: "c.spec.ts",
+      flaky: 1,
+      total: 1,
+    });
+
+    // A recommended group's row page returns only its failed+flaky rows.
+    const rows = await loadRunResultsPage(scope, RUN, {
+      cursor: null,
+      limit: 200,
+      status: null,
+      statusBucket: "recommended",
+      group: { axis: "file", key: "b.spec.ts" },
+      skipOwnershipCheck: true,
+    });
+    if (!rows) throw new Error("expected a page");
+    expect(rows.results).toHaveLength(2); // failed + timedout (both failed bucket)
+    expect(
+      rows.results.every(
+        (r) => r.status === "failed" || r.status === "timedout",
+      ),
+    ).toBe(true);
+  });
+
+  it("paginates group headers worst-first via the cursor", async () => {
+    // limit 2 → page 1 = the two worst (a, b — both sev 8, key asc), nextCursor set.
+    const page1 = await loadRunGroupSkeleton(scope, RUN, {
+      groupBy: "file",
+      status: null,
+      search: null,
+      cursor: null,
+      limit: 2,
+      skipOwnershipCheck: true,
+    });
+    if (!page1) throw new Error("expected page 1");
+    expect(page1.groups.map((g) => g.key)).toEqual(["a.spec.ts", "b.spec.ts"]);
+    expect(page1.nextCursor).not.toBeNull();
+
+    // page 2 continues after the cursor: c (sev 2), then d, e (sev 0, key asc).
+    const page2 = await loadRunGroupSkeleton(scope, RUN, {
+      groupBy: "file",
+      status: null,
+      search: null,
+      cursor: page1.nextCursor,
+      limit: 2,
+      skipOwnershipCheck: true,
+    });
+    if (!page2) throw new Error("expected page 2");
+    expect(page2.groups.map((g) => g.key)).toEqual(["c.spec.ts", "d.spec.ts"]);
+    // c had failures on page 1's side, but as a later page it must NOT be
+    // force-expanded (fallback only applies to the first page).
+    expect(page2.groups.every((g) => !g.expandedByDefault)).toBe(true);
+    // c.spec.ts (flaky) is on this page → hasFailingGroup true here…
+    expect(page2.hasFailingGroup).toBe(true);
+
+    const page3 = await loadRunGroupSkeleton(scope, RUN, {
+      groupBy: "file",
+      status: null,
+      search: null,
+      cursor: page2.nextCursor,
+      limit: 2,
+      skipOwnershipCheck: true,
+    });
+    if (!page3) throw new Error("expected page 3");
+    expect(page3.groups.map((g) => g.key)).toEqual(["e.spec.ts"]);
+    expect(page3.nextCursor).toBeNull();
+    // …but e.spec.ts is all passed/skipped → no failing group on the last page.
+    expect(page3.hasFailingGroup).toBe(false);
+  });
+
+  it("recommended row pages order failed-before-flaky across page boundaries", async () => {
+    // big.spec.ts interleaves failed/flaky by createdAt; a pure (createdAt, id)
+    // order would put page 2's older failed rows below page 1's newer flaky rows.
+    // The recommended bucket rank + ranked cursor keep all failed rows first.
+    const acc: { testId: string; status: string }[] = [];
+    let cursor: string | null = null;
+    for (let i = 0; i < 5; i++) {
+      const p = await loadRunResultsPage(scope, REC_RUN, {
+        cursor,
+        limit: 2,
+        status: null,
+        statusBucket: "recommended",
+        group: { axis: "file", key: "big.spec.ts" },
+        skipOwnershipCheck: true,
+      });
+      if (!p) throw new Error("expected a page");
+      acc.push(
+        ...p.results.map((r) => ({ testId: r.testId, status: r.status })),
+      );
+      if (!p.nextCursor) break;
+      cursor = p.nextCursor;
+    }
+    // All 5 rows returned once, failed bucket first (id desc within a rank).
+    expect(acc.map((r) => r.testId)).toEqual([
+      "rec5",
+      "rec3",
+      "rec1",
+      "rec4",
+      "rec2",
+    ]);
+    expect(acc.map((r) => r.status)).toEqual([
+      "failed",
+      "failed",
+      "failed",
+      "flaky",
+      "flaky",
+    ]);
   });
 
   it("loadRunResultsPage restricts to one file group", async () => {
@@ -1133,6 +1279,8 @@ describe("run-group skeleton (grouped read)", () => {
       groupBy: "shard",
       status: null,
       search: null,
+      cursor: null,
+      limit: 50,
       skipOwnershipCheck: true,
     });
     if (!skel) throw new Error("expected a skeleton");
@@ -1158,6 +1306,8 @@ describe("run-group skeleton (grouped read)", () => {
       groupBy: "project",
       status: null,
       search: null,
+      cursor: null,
+      limit: 50,
       skipOwnershipCheck: true,
     });
     if (!skel) throw new Error("expected a skeleton");

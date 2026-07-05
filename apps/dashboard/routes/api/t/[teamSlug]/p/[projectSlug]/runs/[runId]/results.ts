@@ -1,6 +1,6 @@
 import { defineHandler } from "void";
 import { z } from "zod";
-import { GROUP_BY_AXES, STATUS_BUCKET_KEYS } from "@/lib/run-groups-page";
+import { GROUP_BY_AXES, STATUS_FILTER_VALUES } from "@/lib/run-groups-page";
 import {
   DEFAULT_RUN_RESULTS_LIMIT,
   loadRunResultsPage,
@@ -26,9 +26,9 @@ const QuerySchema = z.object({
   // empty-path string, so an absent key there reads as `""`.
   groupBy: z.enum(GROUP_BY_AXES).optional(),
   groupKey: z.string().optional(),
-  // Chip-bucket status filter (matches the skeleton's buckets: `failed`
-  // includes `timedout`). Distinct from the raw single-status `status` above.
-  statusBucket: z.enum(STATUS_BUCKET_KEYS).optional(),
+  // Chip status filter (matches the skeleton: `failed` includes `timedout`,
+  // `recommended` = failed ∪ flaky). Distinct from the raw `status` above.
+  statusBucket: z.enum(STATUS_FILTER_VALUES).optional(),
   search: z.string().optional(),
 });
 
@@ -48,14 +48,11 @@ export const GET = defineHandler.withValidator({
   if (ctx instanceof Response) return ctx;
   const { scope, runId } = ctx;
 
-  // A present `groupBy` marks this as a per-group row page. `file`'s fallback
-  // group is the empty-path string, so an absent key there is `""`; the
-  // nullable project/shard axes take `null` (→ `IS NULL`) — see `groupPredicate`.
+  // A present `groupBy` marks this as a per-group row page. An absent `groupKey`
+  // is the axis's fallback group; `groupPredicate` owns the null-vs-empty rule
+  // (it coerces a null `file` key to `""`, and maps null project/shard to IS NULL).
   const group = query.groupBy
-    ? {
-        axis: query.groupBy,
-        key: query.groupKey ?? (query.groupBy === "file" ? "" : null),
-      }
+    ? { axis: query.groupBy, key: query.groupKey ?? null }
     : null;
 
   const result = await loadRunResultsPage(scope, runId, {

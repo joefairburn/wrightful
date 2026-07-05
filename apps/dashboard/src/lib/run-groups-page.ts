@@ -1,11 +1,9 @@
 import { and, asc, db, desc, eq, isNull, or, sql } from "void/db";
-import { logger } from "void/log";
 import { runs, testResults } from "@schema";
-import type { GroupByAxis } from "@/lib/group-tests-by-file";
+import type { GroupByAxis, StatusFilterValue } from "@/lib/group-tests-by-file";
 import { STATUS_BUCKET_MEMBERS, statusMatchSql } from "@/lib/ingest";
 import { numericSql } from "@/lib/db/sql-ops";
 import { escapeLike, likeEscaped } from "@/lib/runs-filters-where";
-import type { StatusGroupKey } from "@/lib/status";
 import { childByRunWhere, runByIdWhere, type TenantScope } from "@/lib/scope";
 
 /** A non-null Drizzle SQL fragment (`void/db` doesn't export the `SQL` type). */
@@ -14,29 +12,94 @@ type SqlFragment = NonNullable<ReturnType<typeof and>>;
 /**
  * Wire enums for the grouped read routes (`/groups` + `/results`), single-sourced
  * here so the two route validators can't drift. `satisfies` ties each to its
- * domain type (`GroupByAxis` / `StatusGroupKey`).
+ * domain type (`GroupByAxis` / `StatusFilterValue`).
  */
 export const GROUP_BY_AXES = [
   "file",
   "project",
   "shard",
 ] as const satisfies readonly GroupByAxis[];
-export const STATUS_BUCKET_KEYS = [
+export const STATUS_FILTER_VALUES = [
+  "recommended",
   "failed",
   "flaky",
   "passed",
   "skipped",
-] as const satisfies readonly StatusGroupKey[];
+] as const satisfies readonly StatusFilterValue[];
 
 /**
- * A hard ceiling on how many group headers one skeleton read returns. Group
- * cardinality per run is small by design (~100 files / a few projects / tens of
- * shards), so this is a safety valve, not the common path — a run that trips it
- * is the signal to promote the on-the-fly aggregate to a materialized
- * per-(run, axis, groupKey) rollup (see the run-detail groups worklog). We log
- * rather than silently truncate so a real breach is visible.
+ * The wire statuses a Tests-tab status filter matches, for `status IN (…)`.
+ * `"recommended"` = the failed ∪ flaky buckets (the review-worthy tests); every
+ * other value is its own bucket. The server counterpart of the client's
+ * `matchesStatusFilter`, both deriving from `STATUS_BUCKET_MEMBERS` so they
+ * can't drift.
  */
-export const MAX_RUN_GROUPS = 500;
+export function statusFilterMembers(
+  value: StatusFilterValue,
+): readonly string[] {
+  if (value === "recommended") {
+    return [...STATUS_BUCKET_MEMBERS.failed, ...STATUS_BUCKET_MEMBERS.flaky];
+  }
+  return STATUS_BUCKET_MEMBERS[value];
+}
+
+/**
+ * Group headers per page. The list paginates by group (cursor below), so this
+ * is a page size, not a hard cap — a monorepo with thousands of files loads them
+ * in worst-first pages as the user scrolls the group list, never all at once and
+ * never silently truncated. Worst-first ordering means page 1 carries every
+ * failing group + the top passing ones, which is what a viewer wants first.
+ */
+export const DEFAULT_GROUP_PAGE_SIZE = 50;
+const MAX_GROUP_PAGE_SIZE = 200;
+
+/** Clamp a requested group-page size into `[1, MAX_GROUP_PAGE_SIZE]`. */
+export function clampGroupLimit(limit: number): number {
+  return Math.min(Math.max(1, limit), MAX_GROUP_PAGE_SIZE);
+}
+
+/**
+ * Worst-first "damage" weights: a failed test dominates, a flaky one counts
+ * half. Single-sourced here so the `ORDER BY` / `HAVING` SQL and the JS cursor
+ * recompute below stay in lockstep — if they drifted, the keyset cursor would
+ * stop matching the sort key and silently skip or repeat groups.
+ */
+const SEVERITY_FAILED_WEIGHT = 4;
+const SEVERITY_FLAKY_WEIGHT = 2;
+
+/** The `failed*4 + flaky*2` group severity in JS — mirror of the `severity` SQL. */
+function groupSeverity(failed: number, flaky: number): number {
+  return failed * SEVERITY_FAILED_WEIGHT + flaky * SEVERITY_FLAKY_WEIGHT;
+}
+
+/**
+ * Opaque base64 cursor for group pagination: the last group's
+ * `${severity}:${key}` under the `(severity DESC, key ASC)` ordering. Mirrors
+ * the row cursor's codec in `run-results-page`. `null`/malformed → first page.
+ */
+export function encodeGroupCursor(
+  severity: number,
+  key: string | null,
+): string {
+  return btoa(`${severity}:${key ?? ""}`);
+}
+
+function decodeGroupCursor(
+  raw: string | null,
+): { severity: number; key: string } | null {
+  if (!raw) return null;
+  let decoded: string;
+  try {
+    decoded = atob(raw);
+  } catch {
+    return null;
+  }
+  const sep = decoded.indexOf(":");
+  if (sep < 0) return null;
+  const severity = Number(decoded.slice(0, sep));
+  if (!Number.isFinite(severity)) return null;
+  return { severity, key: decoded.slice(sep + 1) };
+}
 
 /** One group's header: the raw axis value + its 4-bucket counts, worst-first. */
 export interface RunGroupHeader {
@@ -65,21 +128,34 @@ export interface RunGroupHeader {
 
 export interface RunGroupSkeleton {
   groupBy: GroupByAxis;
-  /** Group headers, ordered worst-first (`failed*4 + flaky*2` desc, key asc). */
+  /** Group headers for this page, worst-first (`failed*4 + flaky*2` desc, key asc). */
   groups: RunGroupHeader[];
-  /** True when `MAX_RUN_GROUPS` clipped the result (see the constant). */
-  truncated: boolean;
+  /** Cursor for the next page of groups, or `null` when this is the last page. */
+  nextCursor: string | null;
+  /**
+   * Whether this page contains any failed/flaky-bucket group. The client's
+   * one-shot auto-expand reads this off the first page to decide, on a run
+   * watched live from empty, whether to latch yet (don't consume the latch on a
+   * passing fallback — wait for a real failure). Computed here so the client
+   * needn't re-derive the "is there a bad group" predicate the server already knows.
+   */
+  hasFailingGroup: boolean;
 }
 
 export interface LoadRunGroupsOpts {
   groupBy: GroupByAxis;
   /** Active status chip; `null`/`"all"` disables status filtering. */
-  status: StatusGroupKey | null;
+  status: StatusFilterValue | null;
   /** Free-text needle matched against title + file (case-insensitive). */
   search: string | null;
+  /** Opaque group cursor from the previous page; `null`/malformed → first page. */
+  cursor: string | null;
+  /** Group-page size (clamped to `[1, MAX_GROUP_PAGE_SIZE]`). */
+  limit: number;
   /**
-   * Skip the explicit run-exists probe when the caller already resolved the run
-   * (the SSR loader selects the run row first). API routes leave this false so a
+   * Skip the explicit run-exists probe when the caller has ALREADY resolved the
+   * run's ownership itself (currently: test fixtures that seed `testResults`
+   * rows without a `runs` control row). Every API route leaves this false so a
    * foreign/missing run 404s. This does NOT relax tenant scoping — the aggregate
    * always filters by `childByRunWhere` (projectId + runId), so even with the
    * probe skipped a foreign runId yields zero rows, never another tenant's data;
@@ -176,7 +252,7 @@ export async function loadRunGroupSkeleton(
     childByRunWhere(testResults, scope, runId),
   ];
   if (opts.status) {
-    conditions.push(statusMatchSql(STATUS_BUCKET_MEMBERS[opts.status]));
+    conditions.push(statusMatchSql(statusFilterMembers(opts.status)));
   }
   const search = testSearchPredicate(opts.search);
   if (search) conditions.push(search);
@@ -188,10 +264,21 @@ export async function loadRunGroupSkeleton(
   // skeleton verbatim, it does not re-sort groups.
   const severity = sql`count(*) filter (where ${statusMatchSql(
     STATUS_BUCKET_MEMBERS.failed,
-  )}) * 4 + count(*) filter (where ${statusMatchSql(
+  )}) * ${sql.raw(String(SEVERITY_FAILED_WEIGHT))} + count(*) filter (where ${statusMatchSql(
     STATUS_BUCKET_MEMBERS.flaky,
-  )}) * 2`;
+  )}) * ${sql.raw(String(SEVERITY_FLAKY_WEIGHT))}`;
 
+  // Keyset pagination on `(severity DESC, key ASC)` via HAVING (the cursor
+  // references the aggregate, which WHERE can't). The key tiebreak casts to
+  // text so it stays type-safe on the integer `shardIndex` axis — only the
+  // text `file` axis realistically paginates, and its native order == text
+  // order, so the cursor matches the ORDER BY.
+  const cursor = decodeGroupCursor(opts.cursor);
+  const having = cursor
+    ? sql`(${severity}) < ${cursor.severity} or ((${severity}) = ${cursor.severity} and ${axisCol}::text > ${cursor.key})`
+    : undefined;
+
+  const limit = clampGroupLimit(opts.limit);
   const rows = await db
     .select({
       key: axisCol,
@@ -204,30 +291,26 @@ export async function loadRunGroupSkeleton(
     .from(testResults)
     .where(and(...conditions))
     .groupBy(axisCol)
+    .having(having)
     .orderBy(desc(severity), asc(axisCol))
-    .limit(MAX_RUN_GROUPS + 1);
+    .limit(limit + 1);
 
-  const truncated = rows.length > MAX_RUN_GROUPS;
-  if (truncated) {
-    logger.warn("run-group-skeleton truncated", {
-      runId,
-      groupBy: opts.groupBy,
-      cap: MAX_RUN_GROUPS,
-    });
-  }
-  const page = truncated ? rows.slice(0, MAX_RUN_GROUPS) : rows;
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
 
-  // Auto-expand the worst-N groups that actually carry a failed/flaky test;
-  // fall back to the single worst group so the list is never fully collapsed.
-  // `page` is already worst-first. The client applies this on first paint (and,
-  // for a run watched live from empty, waits for the first failed/flaky group
-  // before latching — see `RunProgress`).
+  // Auto-expand hints apply ONLY to the first page (initial paint) — the
+  // worst-N groups that carry a failed/flaky test, or the single worst group as
+  // a fallback so the list is never fully collapsed. Later pages (loaded on
+  // scroll) never carry hints; the client's one-shot latch reads only page 1,
+  // so this keeps the wire honest. `page` is already worst-first.
   const expandedIdx = new Set<number>();
-  for (let i = 0; i < Math.min(AUTO_EXPAND_WINDOW, page.length); i++) {
-    const r = page[i];
-    if (r && (r.failed > 0 || r.flaky > 0)) expandedIdx.add(i);
+  if (!cursor) {
+    for (let i = 0; i < Math.min(AUTO_EXPAND_WINDOW, page.length); i++) {
+      const r = page[i];
+      if (r && (r.failed > 0 || r.flaky > 0)) expandedIdx.add(i);
+    }
+    if (expandedIdx.size === 0 && page.length > 0) expandedIdx.add(0);
   }
-  if (expandedIdx.size === 0 && page.length > 0) expandedIdx.add(0);
 
   const groups: RunGroupHeader[] = page.map((r, i) => ({
     // Normalize the raw value to `string | null`: shardIndex is a number.
@@ -240,5 +323,18 @@ export async function loadRunGroupSkeleton(
     expandedByDefault: expandedIdx.has(i),
   }));
 
-  return { groupBy: opts.groupBy, groups, truncated };
+  const last = page.at(-1);
+  const nextCursor =
+    hasMore && last
+      ? encodeGroupCursor(
+          groupSeverity(last.failed, last.flaky),
+          groups.at(-1)?.key ?? null,
+        )
+      : null;
+
+  // Worst-first ordering means any failing group sorts to the top, so a single
+  // scan of the page answers the client's "is there a bad group here" question.
+  const hasFailingGroup = page.some((r) => r.failed > 0 || r.flaky > 0);
+
+  return { groupBy: opts.groupBy, groups, nextCursor, hasFailingGroup };
 }

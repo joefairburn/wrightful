@@ -34,8 +34,37 @@ export function parseTitleSegments(
 // raw-key ↔ identity ↔ label contract that ties a streamed row to its
 // server-built header.
 
-/** Status filter chip values — `"all"` plus the four collapsed buckets. */
-export type StatusFilter = "all" | StatusGroupKey;
+/**
+ * A named (non-`"all"`) status filter. `"recommended"` is the action-oriented
+ * default: the tests that need review = the failed ∪ flaky buckets.
+ */
+export type StatusFilterValue = "recommended" | StatusGroupKey;
+
+/** Status filter chip values — `"all"` plus `"recommended"` + the four buckets. */
+export type StatusFilter = "all" | StatusFilterValue;
+
+/**
+ * Whether a test row passes the active named status filter. `"recommended"`
+ * matches the failed OR flaky bucket; the others match their own bucket. The
+ * client-side counterpart of the server's `statusFilterMembers`.
+ */
+export function matchesStatusFilter(
+  status: string,
+  filter: StatusFilterValue,
+): boolean {
+  const bucket = statusGroupKey(status);
+  if (filter === "recommended")
+    return bucket === "failed" || bucket === "flaky";
+  return bucket === filter;
+}
+
+/**
+ * Row order within the Recommended view: failed-bucket rows first, then flaky.
+ * (Other views are a single bucket, so this only reorders `recommended`.)
+ */
+export function recommendedRank(status: string): number {
+  return statusGroupKey(status) === "failed" ? 0 : 1;
+}
 
 /** Group-by axis for the Tests tab: file path, Playwright project, or shard. */
 export type GroupByAxis = "file" | "project" | "shard";
@@ -119,9 +148,8 @@ export function filterTests(
   const needle = opts.search.trim().toLowerCase();
   return tests.filter((test) => {
     if (opts.statusFilter !== "all") {
-      const bucket = statusGroupKey(test.status);
-      // null bucket (e.g. "queued") is excluded from every named filter
-      if (bucket !== opts.statusFilter) return false;
+      // null bucket (e.g. "queued") matches no named filter → excluded.
+      if (!matchesStatusFilter(test.status, opts.statusFilter)) return false;
     }
     if (
       needle &&
@@ -132,4 +160,61 @@ export function filterTests(
     }
     return true;
   });
+}
+
+/**
+ * Merge a group's server-paginated rows with its live `byId` overlay into the
+ * display list. `fetched` was already status/search-filtered server-side;
+ * `liveRows` are the raw overlay rows for this group, so they're filtered here
+ * to the active view. Merge is existing-id-wins keyed by id (a test finishing
+ * mid-view replaces its fetched row), then ordered to match the server page:
+ *
+ *   - `id` descending (a ULID is monotonic with insert time, so this equals the
+ *     server's `(createdAt DESC, id DESC)` cursor order — a newly-loaded page
+ *     never reorders rows above the scroll position);
+ *   - for the `"recommended"` view, failed-bucket rows sort before flaky first
+ *     (matching the server's leading bucket rank), then `id`-desc within a rank.
+ *
+ * Pure — takes plain arrays, returns a new array; no query/React coupling.
+ */
+export function mergeGroupRows(
+  fetched: readonly RunProgressTest[],
+  liveRows: readonly RunProgressTest[],
+  opts: { search: string; statusFilter: StatusFilter },
+): RunProgressTest[] {
+  const live = filterTests(liveRows, opts);
+  const map = new Map<string, RunProgressTest>();
+  for (const r of fetched) map.set(r.id, r);
+  for (const r of live) map.set(r.id, r);
+  return [...map.values()].sort((a, b) => {
+    if (opts.statusFilter === "recommended") {
+      const rank = recommendedRank(a.status) - recommendedRank(b.status);
+      if (rank !== 0) return rank;
+    }
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  });
+}
+
+/**
+ * Flatten paginated group-skeleton pages into one worst-first header list,
+ * deduping by group identity ({@link groupKeyId}). A live run's severity
+ * ordering mutates, so a group can momentarily land on two pages across
+ * refetches — existing-wins keeps it once (a shifted-rank group re-sorts on the
+ * next full refetch). Generic over the header shape so it needn't import the
+ * server row type. Pure.
+ */
+export function dedupeGroups<G extends { key: string | null }>(
+  pages: readonly { groups: readonly G[] }[],
+): G[] {
+  const seen = new Set<string>();
+  const out: G[] = [];
+  for (const page of pages) {
+    for (const g of page.groups) {
+      const id = groupKeyId(g.key);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(g);
+    }
+  }
+  return out;
 }

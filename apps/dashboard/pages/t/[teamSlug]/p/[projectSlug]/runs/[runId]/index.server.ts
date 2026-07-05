@@ -3,13 +3,6 @@ import { and, db, desc, eq } from "void/db";
 import { runs } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { groupKeyId } from "@/lib/group-tests-by-file";
-import { loadRunGroupSkeleton } from "@/lib/run-groups-page";
-import {
-  DEFAULT_RUN_RESULTS_LIMIT,
-  loadRunResultsPage,
-  type RunResultsResponse,
-} from "@/lib/run-results-page";
 import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
 import { runByIdWhere, runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
@@ -17,16 +10,17 @@ import { requireTenantContext } from "@/lib/tenant-context";
 export type Props = InferProps<typeof loader>;
 
 const HISTORY_LIMIT = 30;
-/** Default group-by axis for the Tests tab's first paint. */
-const DEFAULT_GROUP_BY = "file" as const;
 
 /**
- * Run detail loader. Resolves the active run + its history strip + the Tests-tab
- * GROUP SKELETON (worst-first headers with per-bucket counts) plus the first row
- * page of the auto-expanded worst groups — all in one batch. Collapsed groups
- * ship header-only and lazy-load their rows on expand (client TanStack query).
- * The page subscribes via `useRunRoom(runId)`: the summary drives the live filter
- * chips, and live `changedTests` merge into whichever groups are loaded.
+ * Run detail loader. Resolves the active run + the eager bits the shell needs
+ * (run row → live-chip seed, branch list → chart filter, history → deferred
+ * chart). The Tests-tab group list is NOT loaded here — it loads client-side
+ * behind a skeleton via TanStack (`RunProgress`), so the page shell + header +
+ * filter chips paint immediately and the group list streams in on demand,
+ * matching the deferred-load pattern used elsewhere on the page.
+ *
+ * The page subscribes via `useRunRoom(runId)`: the summary (from `run.*`) drives
+ * the live filter chips, and live `changedTests` merge into loaded groups.
  */
 export const loader = defineHandler(async (c) => {
   const runId = c.req.param("runId");
@@ -81,46 +75,7 @@ export const loader = defineHandler(async (c) => {
   // skeleton render the real filter + title row while only the history plot
   // streams in — so the title row is identical markup in both states and can't
   // shift.
-  //
-  // The Tests-tab group skeleton (worst-first headers + per-bucket counts) is
-  // only needed on the Tests tab, so the Environment tab skips it (and the
-  // per-group row fan-out below) entirely. The run select() above already
-  // confirmed ownership, so skip the re-probe.
-  const [branches, skeleton] = await Promise.all([
-    loadProjectBranches(scope),
-    tab === "tests"
-      ? loadRunGroupSkeleton(scope, runId, {
-          groupBy: DEFAULT_GROUP_BY,
-          status: null,
-          search: null,
-          skipOwnershipCheck: true,
-        })
-      : Promise.resolve(null),
-  ]);
-
-  // Seed the first row page of every auto-expanded (worst) group so the initial
-  // paint shows them populated with no client round-trip; collapsed groups
-  // fetch their rows lazily on expand. Keyed by the client-stable `groupKeyId`.
-  const expandedGroups: Record<string, RunResultsResponse> = {};
-  if (skeleton) {
-    const expandedPages = await Promise.all(
-      skeleton.groups
-        .filter((g) => g.expandedByDefault)
-        .map(async (g) => {
-          const page = await loadRunResultsPage(scope, runId, {
-            cursor: null,
-            limit: DEFAULT_RUN_RESULTS_LIMIT,
-            status: null,
-            group: { axis: DEFAULT_GROUP_BY, key: g.key },
-            skipOwnershipCheck: true,
-          });
-          return [groupKeyId(g.key), page] as const;
-        }),
-    );
-    for (const [id, page] of expandedPages) {
-      if (page) expandedGroups[id] = page;
-    }
-  }
+  const branches = await loadProjectBranches(scope);
 
   // This loader sets no Cache-Control, so nothing changes there: a deferred
   // loader streams its body (NDJSON on SPA nav / chunked HTML on document load),
@@ -143,13 +98,6 @@ export const loader = defineHandler(async (c) => {
     effectiveBranch,
     tab,
     pathname: url.pathname,
-    groupBy: DEFAULT_GROUP_BY,
-    skeleton: skeleton ?? {
-      groupBy: DEFAULT_GROUP_BY,
-      groups: [],
-      truncated: false,
-    },
-    expandedGroups,
     // Whether the run is sharded — gates the "Shard" group-by option. Read off
     // the run's declared shard total (set at open from config.shard.total) so
     // it's known before any row loads, not derived from the loaded rows.
