@@ -1,3 +1,4 @@
+-- void:allow-destructive
 DROP INDEX "runs_project_monitor_created_at_idx";--> statement-breakpoint
 ALTER TABLE "artifacts" ALTER COLUMN "sizeBytes" SET DATA TYPE bigint;--> statement-breakpoint
 -- [data] MANDATORY FK PRECONDITION (hand-augmented). The columns were logical
