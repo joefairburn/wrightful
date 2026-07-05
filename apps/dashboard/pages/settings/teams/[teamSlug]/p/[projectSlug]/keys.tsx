@@ -235,7 +235,7 @@ export default function SettingsProjectKeysPage({
                   </div>
                   <span
                     className={cn(
-                      "inline-flex w-[72px] items-center justify-center gap-1.5 rounded-sm px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wider",
+                      "inline-flex w-[72px] items-center justify-center gap-1.5 rounded-sm px-1.5 py-0.5 text-[11px] font-medium capitalize",
                       revoked
                         ? "bg-fail-soft text-fail"
                         : "bg-pass-soft text-pass",

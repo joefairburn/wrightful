@@ -141,9 +141,7 @@ export default function LoginPage({
 
                 <div className="my-5 flex items-center gap-3">
                   <div className="h-px flex-1 bg-line-1" />
-                  <span className="text-[11px] text-fg-3 uppercase tracking-[0.5px]">
-                    or
-                  </span>
+                  <span className="text-[12px] text-fg-3">or</span>
                   <div className="h-px flex-1 bg-line-1" />
                 </div>
               </>

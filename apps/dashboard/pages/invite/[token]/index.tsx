@@ -24,7 +24,7 @@ export default function InvitePage(props: Props) {
         <p className="text-muted-foreground text-sm">{props.message}</p>
         <Link
           href="/"
-          className="mt-2 inline-flex font-mono text-[11px] text-muted-foreground uppercase tracking-wider transition-colors hover:text-foreground"
+          className="mt-2 inline-flex text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           Go home
         </Link>
@@ -41,7 +41,7 @@ export default function InvitePage(props: Props) {
         <p className="text-muted-foreground text-sm">{props.message}</p>
         <Link
           href="/"
-          className="mt-2 inline-flex font-mono text-[11px] text-muted-foreground uppercase tracking-wider transition-colors hover:text-foreground"
+          className="mt-2 inline-flex text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           Go home
         </Link>
@@ -90,7 +90,7 @@ export default function InvitePage(props: Props) {
         You&apos;ve been invited to join{" "}
         <span className="font-medium text-foreground">{invite.teamName}</span>{" "}
         as a{" "}
-        <span className="rounded-sm border border-border/50 bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider">
+        <span className="rounded-sm border border-border/50 bg-muted px-1.5 py-0.5 text-[11px] font-medium capitalize">
           {invite.role}
         </span>
         .
@@ -104,7 +104,7 @@ export default function InvitePage(props: Props) {
         <Button type="submit">Accept invite</Button>
         <Link
           href="/"
-          className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider transition-colors hover:text-foreground"
+          className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           Not now
         </Link>

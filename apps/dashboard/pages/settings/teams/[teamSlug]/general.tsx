@@ -78,7 +78,7 @@ export default function SettingsTeamGeneralPage({
                 Save changes
               </Button>
               <Link
-                className="font-mono text-[11px] text-fg-3 uppercase tracking-wider transition-colors hover:text-fg-1"
+                className="text-[12px] font-medium text-fg-3 transition-colors hover:text-fg-1"
                 href={here}
               >
                 Discard

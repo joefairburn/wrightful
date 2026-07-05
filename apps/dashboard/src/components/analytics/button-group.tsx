@@ -1,4 +1,8 @@
 import { Link, PREFETCH_STABLE } from "@/components/ui/link";
+import {
+  SEGMENTED_GROUP_CLASSES,
+  segmentedItemClasses,
+} from "@/components/segmented-control";
 import { cn } from "@/lib/cn";
 
 export interface AnalyticsButtonGroupProps<T extends string> {
@@ -15,8 +19,9 @@ export interface AnalyticsButtonGroupProps<T extends string> {
  * (no client JS needed — navigation re-runs the RSC and updates
  * highlighting via `value`).
  *
- * Matching the existing pattern from `flaky-tests.tsx` so navigation
- * cost stays cheap: selection happens by link, not by state.
+ * Visually identical to `<SegmentedControl>` — both render through the shared
+ * class helpers in `segmented-control.tsx` — but selection happens by link,
+ * not by state, so navigation cost stays cheap.
  */
 export function AnalyticsButtonGroup<T extends string>({
   options,
@@ -26,23 +31,13 @@ export function AnalyticsButtonGroup<T extends string>({
   className,
 }: AnalyticsButtonGroupProps<T>) {
   return (
-    <div
-      className={cn(
-        "inline-flex rounded-md border border-border bg-background p-0.5",
-        className,
-      )}
-    >
+    <div className={cn(SEGMENTED_GROUP_CLASSES, className)}>
       {options.map((o) => (
         <Link
           key={o}
           cacheFor={PREFETCH_STABLE}
           href={hrefFor(o)}
-          className={cn(
-            "px-3 py-1 text-xs font-mono rounded transition-colors capitalize",
-            value === o
-              ? "bg-muted text-foreground font-semibold"
-              : "text-muted-foreground hover:text-foreground",
-          )}
+          className={segmentedItemClasses(value === o)}
         >
           {labelFor ? labelFor(o) : o}
         </Link>

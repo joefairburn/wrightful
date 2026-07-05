@@ -298,19 +298,19 @@ function BottlenecksTableHead() {
     <TableHeader>
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Test
         </TableHead>
-        <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[100px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Avg
         </TableHead>
-        <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[100px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           P95
         </TableHead>
-        <TableHead className="w-[120px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[120px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Trend
         </TableHead>
-        <TableHead className="w-[80px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[80px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Runs
         </TableHead>
       </TableRow>

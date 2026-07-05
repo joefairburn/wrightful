@@ -736,7 +736,7 @@ function UptimePct({ value }: { value: number | null }) {
 function UptimeStat({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="rounded-[9px] border border-line-1 bg-bg-1 px-4 py-3">
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+      <div className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
         {label}
       </div>
       <div className="mt-1 font-mono text-[18px] font-semibold tabular-nums">
@@ -839,7 +839,7 @@ function HttpConfigSummary({ config }: { config: DetailProps["httpConfig"] }) {
       </div>
       {config.assertions.length > 0 && (
         <div className="border-t border-line-1 px-[18px] py-3.5">
-          <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+          <div className="mb-2 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             Assertions
           </div>
           <div className="flex flex-col gap-1.5">
@@ -863,7 +863,7 @@ function HttpConfigSummary({ config }: { config: DetailProps["httpConfig"] }) {
 function ConfigField({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+      <span className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
         {label}
       </span>
       <span className="font-mono text-fg-1">{value}</span>
@@ -1065,7 +1065,7 @@ function HttpExecDetail({ detail }: { detail: HttpResultDetail }) {
     <div className="border-t border-line-1 bg-bg-0 px-[18px] py-3.5">
       {detail.assertions.length > 0 && (
         <div className="mb-3">
-          <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+          <div className="mb-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             Assertions
           </div>
           <div className="flex flex-col gap-1">
@@ -1281,7 +1281,7 @@ function MetaItem({
         !last && "border-r border-r-line-1",
       )}
     >
-      <span className="whitespace-nowrap text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+      <span className="whitespace-nowrap text-[12px] font-medium tracking-[0.1px] text-fg-3">
         {label}
       </span>
       <span className="whitespace-nowrap text-[12.5px] text-fg-1">{value}</span>

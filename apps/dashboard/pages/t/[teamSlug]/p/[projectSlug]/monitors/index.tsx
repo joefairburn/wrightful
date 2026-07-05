@@ -111,7 +111,7 @@ function MonitorsEmpty({
 
         {/* Sample */}
         <div className="mt-5 w-full text-left">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.5px] text-fg-3">
+          <div className="mb-2 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             What a monitor looks like
           </div>
           <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">

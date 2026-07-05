@@ -81,7 +81,11 @@ export default function RunDetailPage({
   // Reusing one element across the Suspense boundary keeps the title row
   // byte-identical between states — only the plot body swaps.
   const branchFilter = (
-    <RunHistoryBranchFilter branches={branches} defaultValue={defaultBranch} />
+    <RunHistoryBranchFilter
+      branches={branches}
+      defaultValue={defaultBranch}
+      variant="inline"
+    />
   );
 
   // Memoized on the `run` loader prop so the object identity is stable across

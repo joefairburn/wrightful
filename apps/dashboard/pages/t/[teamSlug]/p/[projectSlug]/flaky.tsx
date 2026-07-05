@@ -156,7 +156,7 @@ function FlakyKpiSkeleton() {
           className="flex items-baseline gap-1.5 border-r border-border pr-3 mr-1"
           key={i}
         >
-          <Skeleton className="h-[10.5px] w-20" />
+          <Skeleton className="h-3 w-20" />
           <Skeleton className={`h-[13px] ${valueW}`} />
         </div>
       ))}
@@ -277,22 +277,22 @@ function FlakyTableHead({ rangeDays }: { rangeDays: number }) {
     <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Test
         </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[110px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Flake rate
         </TableHead>
-        <TableHead className="w-[180px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[180px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           {rangeDays}d trend
         </TableHead>
-        <TableHead className="w-[280px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[280px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Last failure
         </TableHead>
-        <TableHead className="w-[210px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[210px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Owner
         </TableHead>
-        <TableHead className="w-[90px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[90px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Last seen
         </TableHead>
       </TableRow>

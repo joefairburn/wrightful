@@ -65,7 +65,7 @@ export default function TeamPickerPage({ teams, pendingInvites }: Props) {
                 <p className="truncate font-medium text-sm">{t.name}</p>
                 <Link
                   href={`/t/${t.slug}`}
-                  className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 font-mono font-medium text-[11px] text-foreground uppercase tracking-wider transition-colors hover:bg-accent"
+                  className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-accent"
                 >
                   Open
                 </Link>
@@ -78,7 +78,7 @@ export default function TeamPickerPage({ teams, pendingInvites }: Props) {
       <div className="mt-6 text-center">
         <Link
           href="/settings/teams/new"
-          className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider transition-colors hover:text-foreground"
+          className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           Or create your own team →
         </Link>
@@ -135,7 +135,7 @@ function PendingInvitesSection({ invites }: { invites: PendingInvite[] }) {
                 <input type="hidden" name="inviteId" value={inv.id} />
                 <button
                   type="submit"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 font-mono font-medium text-[11px] text-foreground uppercase tracking-wider transition-colors hover:bg-accent"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-accent"
                 >
                   <Check size={12} strokeWidth={2.5} />
                   Accept

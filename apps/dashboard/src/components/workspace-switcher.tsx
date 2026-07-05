@@ -171,7 +171,7 @@ export function WorkspaceSwitcher({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-2 pb-1 pt-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="px-2 pb-1 pt-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
       {children}
     </div>
   );

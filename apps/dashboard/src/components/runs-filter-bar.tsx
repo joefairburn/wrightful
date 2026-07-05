@@ -91,7 +91,6 @@ export function RunsSearchInput({
     <SearchFilterInput
       aria-label="Search runs"
       className="w-[240px] shrink-0"
-      inputClassName="h-8 text-[13px] placeholder:text-muted-foreground/72 [&::-webkit-search-cancel-button]:appearance-none"
       onChange={(e) => setQLocal(e.target.value)}
       placeholder="Search commits…"
       value={qLocal}

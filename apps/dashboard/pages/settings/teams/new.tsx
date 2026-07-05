@@ -35,9 +35,7 @@ export default function SettingsTeamNewPage({ error }: Props) {
         </header>
         <form method="post" className="flex flex-col gap-4 p-5">
           <Field>
-            <FieldLabel className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">
-              Team name
-            </FieldLabel>
+            <FieldLabel>Team name</FieldLabel>
             <Input
               nativeInput
               name="name"
@@ -53,7 +51,7 @@ export default function SettingsTeamNewPage({ error }: Props) {
             <Button type="submit">Create team</Button>
             <Link
               href="/settings/profile"
-              className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider transition-colors hover:text-foreground"
+              className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               Cancel
             </Link>

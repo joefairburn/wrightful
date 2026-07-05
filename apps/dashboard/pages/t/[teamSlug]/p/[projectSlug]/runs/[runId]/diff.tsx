@@ -259,7 +259,7 @@ function BaseSelector({
 }): React.ReactElement {
   return (
     <div className="mt-3">
-      <div className="mb-1.5 text-[11.5px] uppercase tracking-wide text-fg-3">
+      <div className="mb-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
         Base run
       </div>
       <div className="flex flex-wrap gap-1.5">

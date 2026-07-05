@@ -283,7 +283,7 @@ export function RunProgress({
       <div className="sticky top-[84px] z-10 flex flex-wrap items-center gap-2 border-b border-line-1 bg-background px-6 py-2.5">
         <SearchFilterInput
           aria-label="Filter tests"
-          className="w-[260px]"
+          className="w-[240px]"
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Filter tests…"
           value={search}

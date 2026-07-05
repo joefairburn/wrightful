@@ -148,7 +148,7 @@ export function MonitorsList({
         />
         <SearchFilterInput
           aria-label="Search monitors"
-          className="w-[220px]"
+          className="w-[240px]"
           onChange={(e) => setSearch(e.currentTarget.value)}
           placeholder="Search monitors…"
           value={search}
@@ -226,7 +226,7 @@ function Th({
   return (
     <TableHead
       className={cn(
-        "px-2 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-fg-3",
+        "px-2 text-[12px] font-medium tracking-[0.1px] text-fg-3",
         align === "right" && "text-right",
         className,
       )}

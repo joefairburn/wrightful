@@ -109,7 +109,7 @@ function SectionLabel({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <h4 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-3">
+    <h4 className="mb-3 text-[12px] font-medium tracking-[0.1px] text-fg-3">
       {children}
     </h4>
   );
@@ -253,7 +253,7 @@ function TerminalBlock({ command }: { command: string }): React.ReactElement {
   return (
     <div className="rounded-md border border-border bg-background overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/60 bg-muted/30">
-        <span className="inline-flex items-center gap-1.5 text-muted-foreground font-mono text-[10px] uppercase tracking-wider">
+        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           <Terminal size={12} />
           Terminal
         </span>

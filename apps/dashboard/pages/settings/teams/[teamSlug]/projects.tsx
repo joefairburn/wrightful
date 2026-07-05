@@ -46,14 +46,14 @@ export default function SettingsTeamProjectsPage({ team, projects }: Props) {
                   </div>
                 </div>
                 <Link
-                  className="font-mono text-[11px] text-fg-3 uppercase tracking-wider transition-colors hover:text-fg-1"
+                  className="text-[12px] font-medium text-fg-3 transition-colors hover:text-fg-1"
                   href={`/settings/teams/${team.slug}/p/${p.slug}/keys`}
                 >
                   Project settings
                 </Link>
                 {isOwner && (
                   <Link
-                    className="rounded-md border border-line-1 bg-bg-2 px-2.5 py-1 font-mono text-[11px] text-fg-2 uppercase tracking-wider transition-colors hover:bg-bg-3"
+                    className="rounded-md border border-line-1 bg-bg-2 px-2.5 py-1 text-[12px] font-medium text-fg-2 transition-colors hover:bg-bg-3"
                     href={`/settings/teams/${team.slug}/p/${p.slug}/keys`}
                   >
                     Settings

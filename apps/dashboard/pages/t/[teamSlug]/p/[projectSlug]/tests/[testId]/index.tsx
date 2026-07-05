@@ -404,16 +404,16 @@ function RecentRunsTableHead() {
     <TableHeader>
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Run
         </TableHead>
-        <TableHead className="w-[220px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[220px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Branch
         </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[110px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Duration
         </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[110px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           When
         </TableHead>
       </TableRow>

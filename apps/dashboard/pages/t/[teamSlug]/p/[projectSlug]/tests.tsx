@@ -101,7 +101,7 @@ export default function TestsPage({
       <PageHeader title="Tests catalog" />
 
       <PageToolbar sticky>
-        <form className="max-w-[360px] flex-1" method="get">
+        <form className="w-[240px]" method="get">
           <input name="range" type="hidden" value={range} />
           {branchParam ? (
             <input name="branch" type="hidden" value={branchParam} />
@@ -109,7 +109,7 @@ export default function TestsPage({
           <SearchFilterInput
             defaultValue={q}
             name="q"
-            placeholder="Search by test name or path…"
+            placeholder="Search tests…"
           />
         </form>
         <RunHistoryBranchFilter
@@ -118,7 +118,6 @@ export default function TestsPage({
         />
         <div className="flex-1" />
         <AnalyticsButtonGroup
-          className="capitalize"
           hrefFor={(g) => hrefWith({ group: g === "none" ? null : g })}
           labelFor={(g) => GROUP_LABEL[g]}
           options={GROUP_OPTIONS}
@@ -133,7 +132,7 @@ export default function TestsPage({
 
       {availableTags.length > 0 && (
         <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-background px-6 py-2">
-          <span className="mr-1 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+          <span className="mr-1 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             Tags
           </span>
           {availableTags.map((tag) => {
@@ -286,19 +285,19 @@ function TestsCatalogHead() {
     <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Test
         </TableHead>
-        <TableHead className="w-[90px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[90px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Total runs
         </TableHead>
-        <TableHead className="w-[200px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[200px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Mix
         </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[110px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Avg duration
         </TableHead>
-        <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="w-[100px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Last seen
         </TableHead>
       </TableRow>
