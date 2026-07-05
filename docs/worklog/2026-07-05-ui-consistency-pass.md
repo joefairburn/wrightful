@@ -54,6 +54,14 @@ No schema, API, or dependency changes. Pure presentation, plus the
 `RunHistoryBranchFilter` variant prop (all seven toolbar/header call sites get
 `toolbar` by default; the run-detail chart subtitle opts into `inline`).
 
+**Follow-up fix (same day):** the faceted filter triggers (Status / branches /
+authors / envs / date range) were still 28px next to the 32px input. Cause:
+the Button `sm` size is responsive — `h-8 … sm:h-7` — so the bare `h-8` in
+`FILTER_TRIGGER_CLASSES` lost to the `sm:`-scoped rule at desktop widths.
+Added `sm:h-8` to `FILTER_TRIGGER_CLASSES`, then verified in a real browser
+(Playwright `offsetHeight` on the runs toolbar): search input, all five
+triggers, and the segmented group each measure exactly 32px.
+
 ## Verification
 
 - `pnpm check` — 0 errors (requires `void prepare` on a fresh clone; the

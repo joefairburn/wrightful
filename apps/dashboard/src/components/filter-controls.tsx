@@ -15,8 +15,11 @@ import { cn } from "@/lib/cn";
 // Reference design: transparent bg by default + line-1 border. Fill with
 // bg-muted (≈ var(--bg-2)) only when open or has a value. Ghost variant gives
 // us transparent-by-default + no inset shadow; we re-add the border.
+// `sm:h-8` is load-bearing: the Button `sm` size is responsive (`h-8 sm:h-7`),
+// and a bare `h-8` doesn't override the `sm:`-scoped rule — without it the
+// triggers render 28px on desktop next to the 32px toolbar inputs.
 export const FILTER_TRIGGER_CLASSES =
-  "group h-8 min-w-0 justify-start gap-2 rounded-md border border-line-1 bg-transparent px-2.5 font-normal text-foreground hover:bg-muted data-[has-value=true]:bg-muted data-[popup-open]:bg-muted";
+  "group h-8 sm:h-8 min-w-0 justify-start gap-2 rounded-md border border-line-1 bg-transparent px-2.5 font-normal text-foreground hover:bg-muted data-[has-value=true]:bg-muted data-[popup-open]:bg-muted";
 
 export function TrailingAction({
   hasValue,
