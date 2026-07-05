@@ -1,4 +1,4 @@
-import { Link } from "@/components/ui/link";
+import { Link, PREFETCH_REALTIME } from "@/components/ui/link";
 import type React from "react";
 import { use, useMemo } from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
@@ -120,7 +120,11 @@ export default function RunDetailPage({
          * deterministic enough (text metrics + border can drift a couple px). */}
         <DetailHeaderBar className="sticky top-0 z-30 border-b border-border bg-background">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <HeaderCrumbs items={[{ label: "Runs", href: base }]} />
+            <HeaderCrumbs
+              items={[
+                { label: "Runs", href: base, cacheFor: PREFETCH_REALTIME },
+              ]}
+            />
             <h1
               className="flex min-w-0 flex-1 items-center gap-2 text-[17px] font-semibold tracking-[-0.2px]"
               title={run.commitMessage ?? run.id}

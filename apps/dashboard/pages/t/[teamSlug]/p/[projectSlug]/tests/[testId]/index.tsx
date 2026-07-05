@@ -452,9 +452,12 @@ function HistoryRegionSkeleton({
           <h2 className="text-[13px] font-semibold tracking-tight">
             Recent runs
           </h2>
-          <p className="mt-0.5 text-[11.5px] text-muted-foreground">
+          {/* Block wrapper (not <p>): Skeleton renders a <div>, which is invalid
+           * phrasing content inside a <p> and triggers a hydration mismatch when
+           * this skeleton streams. */}
+          <div className="mt-0.5">
             <Skeleton className="h-3 w-64" />
-          </p>
+          </div>
         </div>
         <Table className="table-fixed">
           <RecentRunsTableHead />

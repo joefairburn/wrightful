@@ -2,6 +2,7 @@
 
 import { SquareCode } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
+import { DeferErrorBoundary } from "@/components/defer-error-boundary";
 import { cn } from "@/lib/cn";
 
 /**
@@ -113,15 +114,21 @@ export function CodeEditor({
        * gutter-faking textarea (also the Suspense fallback during chunk load). */}
       <div className="bg-bg-0">
         {mounted && !readOnly ? (
-          <Suspense fallback={fallback}>
-            <CodeMirrorField
-              aria-label={ariaLabel}
-              height={heightStyle}
-              onValueChange={onValueChange}
-              placeholder={placeholder}
-              value={value}
-            />
-          </Suspense>
+          // Error boundary: if the lazy CodeMirror chunk fails to load (e.g. a
+          // hashed filename 404 after a redeploy while this tab was open), fall
+          // back to the fully-functional textarea instead of throwing past
+          // Suspense and blanking the form.
+          <DeferErrorBoundary fallback={fallback}>
+            <Suspense fallback={fallback}>
+              <CodeMirrorField
+                aria-label={ariaLabel}
+                height={heightStyle}
+                onValueChange={onValueChange}
+                placeholder={placeholder}
+                value={value}
+              />
+            </Suspense>
+          </DeferErrorBoundary>
         ) : (
           fallback
         )}

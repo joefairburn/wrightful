@@ -17,7 +17,8 @@ import {
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useRouter, useShared } from "@void/react";
 import { useCommandMenuShortcut } from "@/components/command-menu-shortcut";
-import { Link } from "@/components/ui/link";
+import { DeferErrorBoundary } from "@/components/defer-error-boundary";
+import { Link, PREFETCH_REALTIME } from "@/components/ui/link";
 import { QueryProvider } from "@/components/query-provider";
 
 // Lazy-loaded and mounted only on first open (see `cmdMounted`): the command
@@ -157,16 +158,21 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
       </div>
 
       {cmdMounted && (
-        <Suspense fallback={null}>
-          <CommandMenu
-            activeProject={selectedProject}
-            activeTeam={selectedTeam}
-            onOpenChange={setCmdOpen}
-            open={cmdOpen}
-            projects={teamProjects}
-            teams={userTeams}
-          />
-        </Suspense>
+        // Error boundary: a failed lazy chunk (e.g. a hashed filename 404 after a
+        // redeploy while this tab was open) degrades to no menu instead of
+        // throwing past Suspense and blanking the whole app shell.
+        <DeferErrorBoundary fallback={null}>
+          <Suspense fallback={null}>
+            <CommandMenu
+              activeProject={selectedProject}
+              activeTeam={selectedTeam}
+              onOpenChange={setCmdOpen}
+              open={cmdOpen}
+              projects={teamProjects}
+              teams={userTeams}
+            />
+          </Suspense>
+        </DeferErrorBoundary>
       )}
     </QueryProvider>
   );
@@ -261,14 +267,25 @@ function AppSidebarMiddle({ pathname, base }: AppSidebarMiddleProps) {
     icon: typeof CheckSquare;
     id: NavId;
     count?: number;
+    // Realtime-seeded destinations (Runs list → useProjectRoom, Monitors list →
+    // useFeedRoom) tighten the hover-prefetch reuse window to 5s so a click can't
+    // commit a stale room seed (rooms have no replay; no initial-mount refresh).
+    cacheFor?: string;
   }[] = base
     ? [
-        { href: base, label: "Runs", icon: CheckSquare, id: "runs" },
+        {
+          href: base,
+          label: "Runs",
+          icon: CheckSquare,
+          id: "runs",
+          cacheFor: PREFETCH_REALTIME,
+        },
         {
           href: `${base}/monitors`,
           label: "Monitors",
           icon: Radar,
           id: "monitors",
+          cacheFor: PREFETCH_REALTIME,
         },
         {
           href: `${base}/flaky`,
@@ -297,6 +314,7 @@ function AppSidebarMiddle({ pathname, base }: AppSidebarMiddleProps) {
         const active = activeNav === item.id;
         return (
           <Link
+            cacheFor={item.cacheFor}
             className={cn(
               "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
               active

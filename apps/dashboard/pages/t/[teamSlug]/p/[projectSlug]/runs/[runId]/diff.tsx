@@ -1,4 +1,4 @@
-import { Link } from "@/components/ui/link";
+import { Link, PREFETCH_REALTIME } from "@/components/ui/link";
 import type React from "react";
 import { use } from "react";
 import { DeferredSection } from "@/components/defer-error-boundary";
@@ -56,8 +56,12 @@ export default function RunDiffPage({
         <DetailHeaderBar className="gap-1.5 border-b border-border">
           <HeaderCrumbs
             items={[
-              { label: "Runs", href: runsBase },
-              { label: `#${headShort}`, href: `${runsBase}/${head.id}` },
+              { label: "Runs", href: runsBase, cacheFor: PREFETCH_REALTIME },
+              {
+                label: `#${headShort}`,
+                href: `${runsBase}/${head.id}`,
+                cacheFor: PREFETCH_REALTIME,
+              },
             ]}
           />
           <h1 className="text-[17px] font-semibold tracking-[-0.2px]">

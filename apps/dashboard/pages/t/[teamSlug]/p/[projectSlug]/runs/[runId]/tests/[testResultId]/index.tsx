@@ -1,4 +1,4 @@
-import { Link } from "@/components/ui/link";
+import { Link, PREFETCH_REALTIME } from "@/components/ui/link";
 import { use } from "react";
 import {
   ArtifactsRail,
@@ -176,10 +176,11 @@ export default function TestDetailPage(props: Props) {
         <div className="flex min-w-0 items-center gap-3">
           <HeaderCrumbs
             items={[
-              { label: "Runs", href: base },
+              { label: "Runs", href: base, cacheFor: PREFETCH_REALTIME },
               {
                 label: `#${runId.slice(-7)}`,
                 href: `${base}/runs/${runId}`,
+                cacheFor: PREFETCH_REALTIME,
               },
             ]}
           />
