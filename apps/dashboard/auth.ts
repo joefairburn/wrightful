@@ -201,8 +201,8 @@ export default defineAuth(({ defaults }) => ({
   // authenticated request/navigation (a serialized DB phase per nav otherwise).
   // `maxAge` bounds both the read-avoidance window and the cross-device
   // revocation lag — another device keeps a cached session until its cookie ages
-  // out. 60s is near-zero exposure for a CI dashboard while still eliminating
-  // essentially all per-nav session reads. This was enabled pre-migration
+  // out. 5 min keeps revocation lag low for a CI dashboard while cutting the
+  // per-nav session read to ~one per active user per window. This was enabled pre-migration
   // (worklog 2026-04-30-better-auth-cookie-cache) but lost when auth moved from
   // the old rwsdk `better-auth.ts` to `void/auth`'s `defineAuth`; re-added here.
   session: {
@@ -210,7 +210,7 @@ export default defineAuth(({ defaults }) => ({
     cookieCache: {
       ...defaults.session?.cookieCache,
       enabled: true,
-      maxAge: 60,
+      maxAge: 300,
     },
   },
   advanced: {
