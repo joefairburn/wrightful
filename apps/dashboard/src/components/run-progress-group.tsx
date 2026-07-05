@@ -108,7 +108,9 @@ export function TestGroup({
   return (
     <div className="border-b border-line-1">
       <button
+        aria-expanded={open}
         className="flex w-full items-center gap-2 px-6 py-2 text-left hover:bg-bg-1"
+        data-testid="run-test-group"
         onClick={onToggle}
         type="button"
       >
