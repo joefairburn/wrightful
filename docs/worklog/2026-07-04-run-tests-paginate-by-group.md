@@ -241,16 +241,16 @@ which fixes a latent infinite-scroll reorder.
 
 3. **Recommended-view page ordering made coherent.** `loadRunResultsPage` now
    orders the `"recommended"` bucket by `(failed-before-flaky rank, createdAt
-   DESC, id DESC)` via a `CASE` bucket-rank column, with the keyset cursor
+DESC, id DESC)` via a `CASE` bucket-rank column, with the keyset cursor
    extended to carry that rank (`encodeRankedCursor`/`decodeRankedCursor`,
    `${rank}:${createdAt}:${id}`). Previously the server ordered purely by
    `(createdAt, id)` while the client sorted failed-first, so a group with
-   >200 interleaved failed/flaky rows would pull page 2's older failed rows
-   above page 1's flaky rows on scroll. The client sort is unchanged (it still
-   places live-overlay rows failed-first); only the server page order — and
-   thus cross-page coherence — was fixed. pg-integration paginates a 5-row
-   interleaved group at limit 2 and asserts failed-before-flaky across the
-   boundary with no dupes/skips.
+   > 200 interleaved failed/flaky rows would pull page 2's older failed rows
+   > above page 1's flaky rows on scroll. The client sort is unchanged (it still
+   > places live-overlay rows failed-first); only the server page order — and
+   > thus cross-page coherence — was fixed. pg-integration paginates a 5-row
+   > interleaved group at limit 2 and asserts failed-before-flaky across the
+   > boundary with no dupes/skips.
 
 ### Branching / boundary / duplication
 
