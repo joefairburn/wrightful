@@ -1,3 +1,4 @@
+import { use } from "react";
 import {
   ArrowRight,
   Bell,
@@ -10,12 +11,13 @@ import {
   Settings,
   X as XIcon,
 } from "lucide-react";
-import { Link } from "@void/react";
+import { Link } from "@/components/ui/link";
 import {
   AnalyticsLineChart,
   type LineChartBucket,
   type LineChartSeries,
 } from "@/components/analytics/line-chart";
+import { DeferredSection } from "@/components/defer-error-boundary";
 import {
   MonBadge,
   MonGlyph,
@@ -23,10 +25,12 @@ import {
   MonTypeGlyph,
 } from "@/components/monitors/monitor-status";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
+import { ChartSkeleton } from "@/components/skeletons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardPanel } from "@/components/ui/card";
 import { CodeEditor } from "@/components/ui/code-editor";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/cn";
 import {
   parseHttpResultDetail,
@@ -45,6 +49,10 @@ import type { Props } from "./index.server";
 
 type CreateProps = Extract<Props, { mode: "create" }>;
 type DetailProps = Extract<Props, { mode: "detail" }>;
+/** The resolved shape of the deferred `detail` payload (executions, analytics,
+ *  alert-recipient picker data), unwrapped from its `Deferred<…>` wrapper so the
+ *  `use()`-reading child components can name its members. */
+type DetailData = Awaited<DetailProps["detail"]>;
 
 /**
  * Serves two surfaces from one route (see `index.server.ts` — Void's matcher
@@ -184,19 +192,14 @@ function TypeCard({
 function MonitorDetailView({
   project,
   monitor,
-  executions,
   httpConfig,
   tcpConfig,
-  uptimeWindows,
-  responseTrend,
-  uptime,
   nextRunAt,
   editing,
   formError,
   dangerError,
-  members,
-  groups,
   alertTargets,
+  detail,
 }: DetailProps) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
   const monitorsBase = `${base}/monitors`;
@@ -213,15 +216,17 @@ function MonitorDetailView({
   const isOwner = project.role === "owner";
   const editingOpen = isOwner && editing;
   // Alert-recipient fields, rendered as a slot inside whichever edit form the
-  // modal shows (see `AlertRecipientsFields`). Empty for non-owners, but the
-  // modal that consumes it is owner-gated anyway.
+  // modal shows (see `AlertRecipientsFields`). The member/group lists come from
+  // the deferred `detail` payload, so the fields stream in behind a skeleton
+  // once the picker data resolves. The modal that consumes this is owner-gated.
   const recipientsFields = (
-    <AlertRecipientsFields
-      alertTargets={alertTargets}
-      groups={groups}
-      members={members}
-      teamSlug={project.teamSlug}
-    />
+    <DeferredSection skeleton={<RecipientsFieldsSkeleton />}>
+      <RecipientsFieldsRegion
+        alertTargets={alertTargets}
+        detail={detail}
+        teamSlug={project.teamSlug}
+      />
+    </DeferredSection>
   );
   // The read-only config sections (Request / Connection / Test definition) all
   // carry the same owner-only "Edit" affordance opening the modal via `?edit=1`.
@@ -231,9 +236,6 @@ function MonitorDetailView({
       Edit
     </Button>
   ) : null;
-  // For http + tcp, the header "Uptime 24h" shows the real time-based 24h
-  // number; for browser it shows the count-based window uptime.
-  const headerUptime = isHttp || isTcp ? (uptimeWindows?.d1 ?? null) : uptime;
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
@@ -352,7 +354,15 @@ function MonitorDetailView({
           <MetaItem
             label="Uptime 24h"
             last
-            value={<UptimePct value={headerUptime} />}
+            value={
+              <DeferredSection
+                skeleton={
+                  <Skeleton className="inline-block h-[15px] w-12 align-middle" />
+                }
+              >
+                <HeaderUptime detail={detail} isHttpOrTcp={isHttp || isTcp} />
+              </DeferredSection>
+            }
           />
         </div>
 
@@ -402,71 +412,23 @@ function MonitorDetailView({
             </MonitorEditDialog>
           )}
 
-          {/* http + tcp: time-based uptime (both); response-time trend (http). */}
-          {(isHttp || isTcp) && uptimeWindows && (
-            <section className="grid grid-cols-3 gap-3">
-              <UptimeStat label="Uptime · 24h" value={uptimeWindows.d1} />
-              <UptimeStat label="Uptime · 7d" value={uptimeWindows.d7} />
-              <UptimeStat label="Uptime · 30d" value={uptimeWindows.d30} />
-            </section>
-          )}
-          {isHttp && responseTrend && (
-            <ResponseTimeCard trend={responseTrend} />
-          )}
-
-          {/* Execution timeline. */}
-          <section>
-            <SectionTitle
-              right={
-                executions.length > 0 ? (
-                  <span className="text-[11.5px] text-fg-3">
-                    {executions.length} recent · newest first
-                  </span>
-                ) : null
-              }
-              title="Executions"
+          {/* Analytics (time-based uptime tiles + response-time trend) and the
+              execution timeline all read the deferred `detail` payload, so they
+              stream in together behind a skeleton while the header + config
+              summary paint immediately. */}
+          <DeferredSection
+            skeleton={
+              <AnalyticsAndExecutionsSkeleton isHttp={isHttp} isTcp={isTcp} />
+            }
+          >
+            <AnalyticsAndExecutions
+              base={base}
+              detail={detail}
+              enabled={enabled}
+              isHttp={isHttp}
+              isTcp={isTcp}
             />
-            <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
-              {executions.length === 0 ? (
-                <div className="px-6 py-10 text-center">
-                  <div className="mb-2.5 inline-flex size-10 items-center justify-center rounded-[10px] border border-line-1 bg-bg-2 text-fg-3">
-                    <Clock className="size-[18px]" />
-                  </div>
-                  <div className="text-[14px] font-medium">
-                    No executions yet
-                  </div>
-                  <div className="mx-auto mt-1 max-w-[360px] text-[12.5px] leading-relaxed text-fg-3">
-                    {enabled
-                      ? "The first execution will appear here once the scheduler picks this monitor up — usually within a minute."
-                      : "This monitor is paused. Resume it to start collecting executions."}
-                  </div>
-                </div>
-              ) : (
-                executions.map((ex, i) =>
-                  isHttp ? (
-                    <HttpExecRow
-                      exec={ex}
-                      key={ex.id}
-                      last={i === executions.length - 1}
-                    />
-                  ) : isTcp ? (
-                    <TcpExecRow
-                      exec={ex}
-                      key={ex.id}
-                      last={i === executions.length - 1}
-                    />
-                  ) : (
-                    <ExecRow
-                      base={base}
-                      exec={ex}
-                      key={ex.id}
-                      last={i === executions.length - 1}
-                    />
-                  ),
-                )
-              )}
-            </div>
-          </section>
+          </DeferredSection>
 
           {/* Definition / config (read-only). Editing happens in the modal
               overlay, so this stays rendered behind it; its "Edit" button
@@ -540,6 +502,219 @@ function MonitorDetailView({
   );
 }
 
+/**
+ * Header "Uptime 24h" value — reads the deferred `detail` payload. For http +
+ * tcp it shows the real time-based 24h number (`uptimeWindows.d1`); for browser
+ * it shows the count-based window uptime.
+ */
+function HeaderUptime({
+  detail,
+  isHttpOrTcp,
+}: {
+  detail: DetailProps["detail"];
+  isHttpOrTcp: boolean;
+}) {
+  const { uptimeWindows, uptime } = use(detail);
+  const value = isHttpOrTcp ? (uptimeWindows?.d1 ?? null) : uptime;
+  return <UptimePct value={value} />;
+}
+
+/**
+ * The analytics tiles + response-time chart + execution timeline — all read the
+ * deferred `detail` payload via `use()`. Rendered inside a `DeferredSection` so
+ * a pending resolver shows the matching skeleton and a rejected one degrades to
+ * a scoped error card.
+ */
+function AnalyticsAndExecutions({
+  detail,
+  base,
+  isHttp,
+  isTcp,
+  enabled,
+}: {
+  detail: DetailProps["detail"];
+  base: string;
+  isHttp: boolean;
+  isTcp: boolean;
+  enabled: boolean;
+}) {
+  const { executions, uptimeWindows, responseTrend } = use(detail);
+
+  return (
+    <>
+      {/* http + tcp: time-based uptime (both); response-time trend (http). */}
+      {(isHttp || isTcp) && uptimeWindows && (
+        <section className="grid grid-cols-3 gap-3">
+          <UptimeStat label="Uptime · 24h" value={uptimeWindows.d1} />
+          <UptimeStat label="Uptime · 7d" value={uptimeWindows.d7} />
+          <UptimeStat label="Uptime · 30d" value={uptimeWindows.d30} />
+        </section>
+      )}
+      {isHttp && responseTrend && <ResponseTimeCard trend={responseTrend} />}
+
+      {/* Execution timeline. */}
+      <section>
+        <SectionTitle
+          right={
+            executions.length > 0 ? (
+              <span className="text-[11.5px] text-fg-3">
+                {executions.length} recent · newest first
+              </span>
+            ) : null
+          }
+          title="Executions"
+        />
+        <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+          {executions.length === 0 ? (
+            <div className="px-6 py-10 text-center">
+              <div className="mb-2.5 inline-flex size-10 items-center justify-center rounded-[10px] border border-line-1 bg-bg-2 text-fg-3">
+                <Clock className="size-[18px]" />
+              </div>
+              <div className="text-[14px] font-medium">No executions yet</div>
+              <div className="mx-auto mt-1 max-w-[360px] text-[12.5px] leading-relaxed text-fg-3">
+                {enabled
+                  ? "The first execution will appear here once the scheduler picks this monitor up — usually within a minute."
+                  : "This monitor is paused. Resume it to start collecting executions."}
+              </div>
+            </div>
+          ) : (
+            executions.map((ex, i) =>
+              isHttp ? (
+                <HttpExecRow
+                  exec={ex}
+                  key={ex.id}
+                  last={i === executions.length - 1}
+                />
+              ) : isTcp ? (
+                <TcpExecRow
+                  exec={ex}
+                  key={ex.id}
+                  last={i === executions.length - 1}
+                />
+              ) : (
+                <ExecRow
+                  base={base}
+                  exec={ex}
+                  key={ex.id}
+                  last={i === executions.length - 1}
+                />
+              ),
+            )
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+/**
+ * Fallback matching {@link AnalyticsAndExecutions}: the uptime-tile row (http +
+ * tcp), the response-time chart (http), and the executions list. Row heights
+ * track the real content so the deferred data lands without layout shift.
+ */
+function AnalyticsAndExecutionsSkeleton({
+  isHttp,
+  isTcp,
+}: {
+  isHttp: boolean;
+  isTcp: boolean;
+}) {
+  return (
+    <>
+      {(isHttp || isTcp) && (
+        <section className="grid grid-cols-3 gap-3">
+          {Array.from({ length: 3 }, (_, i) => (
+            <div
+              className="rounded-[9px] border border-line-1 bg-bg-1 px-4 py-3"
+              key={i}
+            >
+              <Skeleton className="h-[13px] w-16" />
+              <Skeleton className="mt-1.5 h-[18px] w-14" />
+            </div>
+          ))}
+        </section>
+      )}
+      {isHttp && (
+        <Card className="overflow-hidden rounded-[9px] border-line-1">
+          <div className="border-b border-line-1 px-[18px] py-3">
+            <Skeleton className="h-[15px] w-28" />
+            <Skeleton className="mt-1.5 h-[13px] w-56" />
+          </div>
+          <CardPanel className="px-[18px] py-4">
+            <ChartSkeleton height={260} />
+          </CardPanel>
+        </Card>
+      )}
+      <section>
+        <SectionTitle title="Executions" />
+        <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div
+              className={cn(
+                "flex items-center gap-3 px-[18px] py-[11px]",
+                i < 5 && "border-b border-b-line-1",
+              )}
+              key={i}
+            >
+              <Skeleton className="size-3.5 shrink-0 rounded-full" />
+              <Skeleton className="h-4 w-[92px] shrink-0 rounded-full" />
+              <Skeleton className="h-3 flex-1" />
+              <Skeleton className="h-3 w-[70px] shrink-0" />
+              <Skeleton className="h-3 w-[96px] shrink-0" />
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+/**
+ * The alert-recipient picker fields for the edit modal — reads the deferred
+ * `detail` payload for the member/group lists, then renders
+ * {@link AlertRecipientsFields}. Owner-only (the modal that consumes it is
+ * owner-gated), so `members`/`groups` are non-empty here.
+ */
+function RecipientsFieldsRegion({
+  detail,
+  alertTargets,
+  teamSlug,
+}: {
+  detail: DetailProps["detail"];
+  alertTargets: DetailProps["alertTargets"];
+  teamSlug: string;
+}) {
+  const { members, groups } = use(detail);
+  return (
+    <AlertRecipientsFields
+      alertTargets={alertTargets}
+      groups={groups}
+      members={members}
+      teamSlug={teamSlug}
+    />
+  );
+}
+
+/** Fallback for the alert-recipient picker while the member/group lists load. */
+function RecipientsFieldsSkeleton() {
+  return (
+    <div className="border-t border-line-1 pt-4">
+      <Skeleton className="mb-1 h-[15px] w-28" />
+      <Skeleton className="mb-3.5 h-[15px] w-64" />
+      <div className="mb-4 flex flex-col gap-1.5">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-4 w-52" />
+      </div>
+      <Skeleton className="mb-1.5 h-[13px] w-20" />
+      <div className="flex flex-col gap-1.5">
+        {Array.from({ length: 3 }, (_, i) => (
+          <Skeleton className="h-4 w-56" key={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** No-op change handler for the read-only definition editor. */
 function NOOP() {}
 
@@ -575,7 +750,7 @@ function UptimeStat({ label, value }: { label: string; value: number | null }) {
 function ResponseTimeCard({
   trend,
 }: {
-  trend: NonNullable<DetailProps["responseTrend"]>;
+  trend: NonNullable<DetailData["responseTrend"]>;
 }) {
   const series: LineChartSeries[] = [
     { key: "p50", label: "p50", color: "var(--color-foreground)" },

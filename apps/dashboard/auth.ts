@@ -196,6 +196,23 @@ export default defineAuth(({ defaults }) => ({
     ...(defaults.plugins ?? []),
     ...(polarConfigured ? [buildPolarPlugin()] : []),
   ],
+  // Session cookie cache: sign the resolved session into a short-lived cookie so
+  // `getSession()` is served in-memory instead of querying Postgres on EVERY
+  // authenticated request/navigation (a serialized DB phase per nav otherwise).
+  // `maxAge` bounds both the read-avoidance window and the cross-device
+  // revocation lag — another device keeps a cached session until its cookie ages
+  // out. 60s is near-zero exposure for a CI dashboard while still eliminating
+  // essentially all per-nav session reads. This was enabled pre-migration
+  // (worklog 2026-04-30-better-auth-cookie-cache) but lost when auth moved from
+  // the old rwsdk `better-auth.ts` to `void/auth`'s `defineAuth`; re-added here.
+  session: {
+    ...defaults.session,
+    cookieCache: {
+      ...defaults.session?.cookieCache,
+      enabled: true,
+      maxAge: 60,
+    },
+  },
   advanced: {
     ...defaults.advanced,
     database: { ...defaults.advanced?.database, generateId: () => ulid() },
