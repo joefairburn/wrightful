@@ -62,8 +62,7 @@ export default function RunDetailPage({
   effectiveBranch,
   tab,
   pathname,
-  tests,
-  testsCursor,
+  isSharded,
   branches,
   chart,
 }: Props) {
@@ -256,8 +255,8 @@ export default function RunDetailPage({
         {/* Tab content — scrolls with the rest of the page */}
         {tab === "tests" ? (
           <RunProgress
-            initialCursor={testsCursor}
-            initialTests={tests}
+            initialSummary={initialSummary}
+            isSharded={isSharded}
             projectSlug={project.slug}
             runId={runId}
             teamSlug={project.teamSlug}
