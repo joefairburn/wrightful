@@ -38,6 +38,7 @@ import {
   type QuarantineMap,
 } from "./quarantine.js";
 import {
+  joinStdio,
   MAX_MESSAGE,
   MAX_STACK,
   MAX_TITLE,
@@ -940,6 +941,11 @@ export function buildPayload(
       // whole batch before the server (which also truncates) can parse it.
       errorMessage: truncateNullable(r.errors?.[0]?.message, MAX_MESSAGE),
       errorStack: truncateNullable(r.errors?.[0]?.stack, MAX_STACK),
+      // Playwright exposes this attempt's stdout/stderr as Array<string|Buffer>
+      // at onTestEnd; join + decode + truncate so `console.log` CI debugging
+      // reaches the dashboard/MCP. `null` when nothing was written.
+      stdout: joinStdio(r.stdout, MAX_MESSAGE),
+      stderr: joinStdio(r.stderr, MAX_MESSAGE),
     }));
 
   return {

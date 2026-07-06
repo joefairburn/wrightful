@@ -25,6 +25,12 @@
         "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.githubusercontent.com; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
       ]
     },
+    "rewrites": {
+      "/.well-known/oauth-authorization-server": "/api/auth/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/api/mcp": "/api/auth/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-protected-resource": "/api/auth/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/api/mcp": "/api/auth/.well-known/oauth-protected-resource"
+    },
     "fallbacks": {
       "/*": "/not-found"
     }

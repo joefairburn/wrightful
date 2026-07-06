@@ -40,6 +40,8 @@ List runs, newest first. Supports the same filters as the dashboard runs list:
 | `env`         | Comma-separated environments.                                                      |
 | `origin`      | `ci` (default — excludes synthetic monitor runs), `synthetic`, or `all`.           |
 | `from` / `to` | `YYYY-MM-DD` UTC date bounds (inclusive).                                          |
+| `pr`          | Exact pull-request number (e.g. `pr=123`; a leading `#` is tolerated).             |
+| `commit`      | Commit SHA **prefix**, 4–40 hex chars — short SHAs match the stored full SHA.      |
 | `q`           | Free-text search over commit message / SHA / branch.                               |
 | `cursor`      | Opaque pagination cursor (see below).                                              |
 | `limit`       | Page size, 1–200 (default 50).                                                     |

@@ -70,23 +70,36 @@ export function normalizeTestStatus(s: string): RunProgressTest["status"] {
   return TEST_STATUSES.find((status) => status === s) ?? "queued";
 }
 
+/** A non-undefined Drizzle WHERE fragment, suitable for `.where(...)`. */
+type SqlFragment = NonNullable<ReturnType<typeof and>>;
+
+/** The canonical `(createdAt, id)` DESC ordering every run-tests page shares. */
+export function runTestsOrderBy() {
+  return [desc(testResults.createdAt), desc(testResults.id)] as const;
+}
+
 /**
- * Cursor-paginated fetch of testResults rows for a run, returned as
- * `RunProgressTest[]`. Order is `(createdAt DESC, id DESC)` — cursor is opaque
- * base64 of `${createdAt}:${id}` from the previous page's last row. Invalid
- * cursors silently degrade to first-page (matches the legacy route).
- *
- * This is the one canonical definition of "first page of a run's testResults
- * as RunProgressTest[]": both the GET /results API (back-paginator) and the
- * run-detail page loader (SSR seed for `useRunRoom`) go through it, so the
- * column projection, ordering, scoping, and status normalization can never
- * diverge between the seed and later pages.
+ * The one cursor-paginated read over a run's `testResults`: owner probe,
+ * status/cursor WHERE composition, the strict `(createdAt, id)` DESC tuple,
+ * and the `hasMore → nextCursor` unwrap — all live HERE, once. Callers supply
+ * only the column projection (`fetchRows`, which owns its own typed
+ * `db.select` + `.orderBy(...runTestsOrderBy())`) and a row mapper, so a
+ * projection that carries extra columns (the MCP surface's `errorMessage`)
+ * reuses the exact pagination contract instead of forking it. `Row` must
+ * expose `id` + `createdAt` so the shared cursor can be minted from any
+ * projection. Returns `null` when the run isn't in scope; invalid cursors
+ * silently degrade to first-page.
  */
-export async function loadRunResultsPage(
+export async function paginateRunTests<
+  Row extends { id: string; createdAt: number },
+  Out,
+>(
   scope: TenantScope,
   runId: string,
   opts: LoadRunResultsOpts,
-): Promise<RunResultsResponse | null> {
+  fetchRows: (where: SqlFragment, limit: number) => Promise<Row[]>,
+  mapRow: (row: Row) => Out,
+): Promise<{ items: Out[]; nextCursor: string | null } | null> {
   // Confirm the run belongs to this project.
   const owner = await db
     .select({ id: runs.id })
@@ -104,8 +117,8 @@ export async function loadRunResultsPage(
   const cursor = decodeCursor(opts.cursor);
   if (cursor) {
     // Strict tuple comparison (createdAt, id) < (cursor.createdAt, cursor.id)
-    // for DESC pagination. Materialized as an OR so SQLite's planner can use
-    // the (createdAt, id) ordering directly.
+    // for DESC pagination. Materialized as an OR so the planner can use the
+    // (createdAt, id) ordering directly.
     const tupleClause = or(
       lt(testResults.createdAt, cursor.createdAt),
       and(
@@ -116,32 +129,53 @@ export async function loadRunResultsPage(
     if (tupleClause) conditions.push(tupleClause);
   }
 
-  const rows = await db
-    .select({
-      id: testResults.id,
-      testId: testResults.testId,
-      title: testResults.title,
-      file: testResults.file,
-      projectName: testResults.projectName,
-      status: testResults.status,
-      durationMs: testResults.durationMs,
-      retryCount: testResults.retryCount,
-      shardIndex: testResults.shardIndex,
-      createdAt: testResults.createdAt,
-    })
-    .from(testResults)
-    .where(and(...conditions))
-    .orderBy(desc(testResults.createdAt), desc(testResults.id))
-    .limit(limit + 1);
+  const rows = await fetchRows(and(...conditions)!, limit + 1);
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   const last = page.at(-1);
-  const nextCursor =
-    hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
-
   return {
-    results: page.map((r) => ({
+    items: page.map(mapRow),
+    nextCursor: hasMore && last ? encodeCursor(last.createdAt, last.id) : null,
+  };
+}
+
+/**
+ * The one canonical definition of "a page of a run's testResults as
+ * `RunProgressTest[]`": the GET /results API (back-paginator), the run-detail
+ * page loader (SSR seed for `useRunRoom`), the v1 tests API, and export all go
+ * through it. The MCP `list_tests` tool shares the same `paginateRunTests`
+ * engine with a wider projection (see `loadMcpRunTests`), so scoping, ordering,
+ * and the cursor contract can never drift between surfaces.
+ */
+export async function loadRunResultsPage(
+  scope: TenantScope,
+  runId: string,
+  opts: LoadRunResultsOpts,
+): Promise<RunResultsResponse | null> {
+  const page = await paginateRunTests(
+    scope,
+    runId,
+    opts,
+    (where, limit) =>
+      db
+        .select({
+          id: testResults.id,
+          testId: testResults.testId,
+          title: testResults.title,
+          file: testResults.file,
+          projectName: testResults.projectName,
+          status: testResults.status,
+          durationMs: testResults.durationMs,
+          retryCount: testResults.retryCount,
+          shardIndex: testResults.shardIndex,
+          createdAt: testResults.createdAt,
+        })
+        .from(testResults)
+        .where(where)
+        .orderBy(...runTestsOrderBy())
+        .limit(limit),
+    (r) => ({
       id: r.id,
       testId: r.testId,
       title: r.title,
@@ -151,7 +185,8 @@ export async function loadRunResultsPage(
       durationMs: r.durationMs,
       retryCount: r.retryCount,
       shardIndex: r.shardIndex,
-    })),
-    nextCursor,
-  };
+    }),
+  );
+  if (!page) return null;
+  return { results: page.items, nextCursor: page.nextCursor };
 }

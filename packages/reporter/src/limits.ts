@@ -39,3 +39,31 @@ export function truncateNullable(
 ): string | null {
   return s == null ? null : truncate(s, max);
 }
+
+/**
+ * Join Playwright's per-attempt `TestResult.stdout`/`stderr` — an
+ * `Array<string | Buffer>` of the chunks written during that attempt — into a
+ * single UTF-8 string, truncated to `max` like every other free-form field so
+ * a chatty `console.log` loop can't 413 the ingest batch.
+ *
+ * Returns `null` when there is nothing captured (missing array, empty array, or
+ * an array that decodes to the empty string) so the wire carries an explicit
+ * `null` rather than `""` — the dashboard column is nullable and the two
+ * surfaces (reporter + Zod schema) agree on "no output === null".
+ *
+ * `Buffer` chunks are decoded as UTF-8 (`toString("utf8")`); already-string
+ * chunks pass through untouched. Chunks are concatenated in emission order with
+ * no separator — Playwright's chunks already carry their own newlines.
+ */
+export function joinStdio(
+  chunks: ReadonlyArray<string | Buffer> | undefined | null,
+  max: number,
+): string | null {
+  if (chunks == null || chunks.length === 0) return null;
+  let out = "";
+  for (const chunk of chunks) {
+    out += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  }
+  if (out.length === 0) return null;
+  return truncate(out, max);
+}
