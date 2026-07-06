@@ -24,6 +24,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // through context budgets. Local interactive runs still get `list`.
 const isMinimalReporter = process.env.CI || process.env.CLAUDE;
 
+// Dogfood: stream this suite's results into a Wrightful dashboard, same as the
+// demo suite (playwright.config.ts). The reporter no-ops gracefully when
+// WRIGHTFUL_URL / WRIGHTFUL_TOKEN aren't set (see reporter onBegin), so local
+// runs and the env-less CI leg stay quiet; set both to stream.
+const dashboardReporter: [string, Record<string, unknown>?] = ["@wrightful/reporter"];
+
 export default defineConfig({
   testDir: "./tests-dashboard",
   testMatch: /.*\.spec\.ts/,
@@ -48,8 +54,8 @@ export default defineConfig({
   // below let a merely-slow (not dead) server still pass.
   workers: process.env.CI ? 2 : 1,
   reporter: isMinimalReporter
-    ? [["line"], ["html", { open: "never" }]]
-    : [["list"]],
+    ? [["line"], ["html", { open: "never" }], dashboardReporter]
+    : [["list"], dashboardReporter],
   globalSetup: resolve(__dirname, "tests-dashboard/global-setup.ts"),
   globalTeardown: resolve(__dirname, "tests-dashboard/global-teardown.ts"),
   expect: {
