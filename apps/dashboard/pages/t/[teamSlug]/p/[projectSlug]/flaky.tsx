@@ -119,7 +119,6 @@ export default function FlakyTestsPage({
           flaky={flaky}
           fullPath={fullPath}
           ownerActionPath={ownerActionPath}
-          pathname={pathname}
           rangeDays={rangeDays}
         />
       </DeferredSection>
@@ -177,7 +176,6 @@ function FlakyTableRegion({
   branchFilter,
   branches,
   canManageOwners,
-  pathname,
 }: {
   flaky: Props["flaky"];
   base: string;
@@ -188,7 +186,6 @@ function FlakyTableRegion({
   branchFilter: string | null;
   branches: string[];
   canManageOwners: boolean;
-  pathname: string;
 }) {
   const { totalFlakyTests, ranked, sparkByTest, failsByTest, ownersByTestId } =
     use(flaky);
@@ -258,13 +255,10 @@ function FlakyTableRegion({
         </Table>
       </div>
       <TablePaginationFooter
-        currentPage={1}
         fromRow={1}
         itemNoun="flaky test"
-        pageHref={() => pathname}
         toRow={ranked.length}
         totalCount={totalFlakyTests}
-        totalPages={1}
       />
     </>
   );

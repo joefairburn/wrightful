@@ -1,4 +1,4 @@
-import { format, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
 import {
   CalendarIcon,
   CircleDotIcon,
@@ -28,6 +28,7 @@ import {
   toSearchParams,
 } from "@/lib/runs-filters";
 import { statusLabel, statusToken } from "@/lib/status";
+import { formatDateLabel, toIsoDate } from "@/lib/time-format";
 
 type FilterOptions = {
   branches: string[];
@@ -40,14 +41,6 @@ type Props = {
   filters: RunsFilters;
   options: FilterOptions;
 };
-
-function formatDisplayDate(iso: string): string {
-  return format(parseISO(iso), "dd/MM/yy");
-}
-
-function toIsoDate(date: Date): string {
-  return format(date, "yyyy-MM-dd");
-}
 
 type NavigateFn = (
   href: string,
@@ -124,9 +117,9 @@ export function RunsFilterBar({
 
   const dateLabel = (() => {
     if (filters.from && filters.to)
-      return `${formatDisplayDate(filters.from)} – ${formatDisplayDate(filters.to)}`;
-    if (filters.from) return `From ${formatDisplayDate(filters.from)}`;
-    if (filters.to) return `Until ${formatDisplayDate(filters.to)}`;
+      return `${formatDateLabel(filters.from)} – ${formatDateLabel(filters.to)}`;
+    if (filters.from) return `From ${formatDateLabel(filters.from)}`;
+    if (filters.to) return `Until ${formatDateLabel(filters.to)}`;
     return null;
   })();
 

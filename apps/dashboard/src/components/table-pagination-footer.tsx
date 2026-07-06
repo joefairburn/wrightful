@@ -18,11 +18,15 @@ export interface TablePaginationFooterProps {
   toRow: number;
   /** Total item count across all pages. */
   totalCount: number;
-  currentPage: number;
-  totalPages: number;
   /** Singular noun used in the summary, e.g. `"test"` → "tests". */
   itemNoun: string;
-  pageHref: (page: number) => string;
+  /**
+   * Pagination wiring — omit all three for unpaginated lists (monitors
+   * roster, flaky tests): the footer then renders only the "Showing …" line.
+   */
+  currentPage?: number;
+  totalPages?: number;
+  pageHref?: (page: number) => string;
   /** Override the wrapper class, e.g. for in-card embedding. */
   className?: string;
 }
@@ -45,11 +49,12 @@ export function TablePaginationFooter({
   pageHref,
   className,
 }: TablePaginationFooterProps): React.ReactElement {
-  const pageWindow = buildPageWindow(currentPage, totalPages);
   const plural = totalCount === 1 ? itemNoun : `${itemNoun}s`;
-  const prevHref = currentPage > 1 ? pageHref(currentPage - 1) : undefined;
-  const nextHref =
-    currentPage < totalPages ? pageHref(currentPage + 1) : undefined;
+  const paginated =
+    pageHref != null &&
+    currentPage != null &&
+    totalPages != null &&
+    totalPages > 1;
 
   return (
     <div
@@ -63,53 +68,76 @@ export function TablePaginationFooter({
           ? `No ${plural}`
           : `Showing ${fromRow}–${toRow} of ${totalCount.toLocaleString()} ${plural}`}
       </span>
-      {totalPages > 1 && (
-        <Pagination className="mx-0 w-auto justify-end">
-          <PaginationContent>
-            {/* `render={<Link/>}` swaps the literal `<a>` for @void/react's
-             * SPA <Link> — a page change re-runs the loader without a full
-             * document navigation. Disabled prev/next keep the plain <a>
-             * (no href, pointer-events-none). */}
-            <PaginationItem>
-              <PaginationPrevious
-                href={prevHref}
-                render={prevHref ? <Link href={prevHref} /> : undefined}
-                aria-disabled={currentPage === 1}
-                className={cn(
-                  currentPage === 1 && "pointer-events-none opacity-50",
-                )}
-              />
-            </PaginationItem>
-            {pageWindow.map((entry, i) =>
-              entry === "ellipsis" ? (
-                <PaginationItem key={`ellipsis-${i}`}>
-                  <PaginationEllipsis />
-                </PaginationItem>
-              ) : (
-                <PaginationItem key={entry}>
-                  <PaginationLink
-                    href={pageHref(entry)}
-                    isActive={entry === currentPage}
-                    render={<Link href={pageHref(entry)} />}
-                  >
-                    {entry}
-                  </PaginationLink>
-                </PaginationItem>
-              ),
-            )}
-            <PaginationItem>
-              <PaginationNext
-                href={nextHref}
-                render={nextHref ? <Link href={nextHref} /> : undefined}
-                aria-disabled={currentPage >= totalPages}
-                className={cn(
-                  currentPage >= totalPages && "pointer-events-none opacity-50",
-                )}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
+      {paginated && (
+        <PaginationStrip
+          currentPage={currentPage}
+          pageHref={pageHref}
+          totalPages={totalPages}
+        />
       )}
     </div>
+  );
+}
+
+/** The page-number strip — split out so the required props stay non-optional. */
+function PaginationStrip({
+  currentPage,
+  totalPages,
+  pageHref,
+}: {
+  currentPage: number;
+  totalPages: number;
+  pageHref: (page: number) => string;
+}): React.ReactElement {
+  const pageWindow = buildPageWindow(currentPage, totalPages);
+  const prevHref = currentPage > 1 ? pageHref(currentPage - 1) : undefined;
+  const nextHref =
+    currentPage < totalPages ? pageHref(currentPage + 1) : undefined;
+  return (
+    <Pagination className="mx-0 w-auto justify-end">
+      <PaginationContent>
+        {/* `render={<Link/>}` swaps the literal `<a>` for @void/react's
+         * SPA <Link> — a page change re-runs the loader without a full
+         * document navigation. Disabled prev/next keep the plain <a>
+         * (no href, pointer-events-none). */}
+        <PaginationItem>
+          <PaginationPrevious
+            href={prevHref}
+            render={prevHref ? <Link href={prevHref} /> : undefined}
+            aria-disabled={currentPage === 1}
+            className={cn(
+              currentPage === 1 && "pointer-events-none opacity-50",
+            )}
+          />
+        </PaginationItem>
+        {pageWindow.map((entry, i) =>
+          entry === "ellipsis" ? (
+            <PaginationItem key={`ellipsis-${i}`}>
+              <PaginationEllipsis />
+            </PaginationItem>
+          ) : (
+            <PaginationItem key={entry}>
+              <PaginationLink
+                href={pageHref(entry)}
+                isActive={entry === currentPage}
+                render={<Link href={pageHref(entry)} />}
+              >
+                {entry}
+              </PaginationLink>
+            </PaginationItem>
+          ),
+        )}
+        <PaginationItem>
+          <PaginationNext
+            href={nextHref}
+            render={nextHref ? <Link href={nextHref} /> : undefined}
+            aria-disabled={currentPage >= totalPages}
+            className={cn(
+              currentPage >= totalPages && "pointer-events-none opacity-50",
+            )}
+          />
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
   );
 }

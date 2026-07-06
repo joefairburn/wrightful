@@ -1,6 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
 import { DANGER_TRIGGER_CLASSES } from "@/components/danger-trigger";
-import { format } from "date-fns";
 import { ArrowLeft, Download, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "@void/react";
@@ -11,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RevealOnceDialog } from "@/components/settings/reveal-once-dialog";
 import { StatusPill } from "@/components/status-pill";
+import { formatDateTabular } from "@/lib/time-format";
 import {
   SettingsCard,
   SettingsField,
@@ -233,7 +233,7 @@ export default function SettingsProjectKeysPage({
                       : "never used"}
                   </div>
                   <div className="w-24 text-right font-mono text-[11.5px] text-fg-3 tabular-nums">
-                    {format(new Date(k.createdAt * 1000), "yyyy-MM-dd")}
+                    {formatDateTabular(new Date(k.createdAt * 1000))}
                   </div>
                   <StatusPill
                     className="w-[72px] justify-center"

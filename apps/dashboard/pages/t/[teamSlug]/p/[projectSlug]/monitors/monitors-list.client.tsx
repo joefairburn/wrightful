@@ -202,13 +202,10 @@ export function MonitorsList({
 
       {filtered.length > 0 && (
         <TablePaginationFooter
-          currentPage={1}
           fromRow={1}
           itemNoun="monitor"
-          pageHref={() => ""}
           toRow={filtered.length}
           totalCount={monitors.length}
-          totalPages={1}
         />
       )}
     </div>
