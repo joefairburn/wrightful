@@ -99,6 +99,12 @@ export const TestAttemptSchema = z.object({
   durationMs: z.number().int().min(0),
   errorMessage: truncatedText(MAX.MESSAGE),
   errorStack: truncatedText(MAX.STACK),
+  // Per-attempt captured stdout/stderr (the joined Playwright chunks). Free-form
+  // diagnostic text → TRUNCATE, not reject, like the error fields: a chatty
+  // console.log run must never 413/400 the whole batch. `.optional()` keeps
+  // pre-capture reporters (which omit the keys) parsing clean.
+  stdout: truncatedText(MAX.MESSAGE),
+  stderr: truncatedText(MAX.MESSAGE),
 });
 
 export type TestAttemptInput = z.infer<typeof TestAttemptSchema>;

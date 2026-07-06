@@ -1,11 +1,15 @@
 import { defineAuth, type VoidAuthConfigContext } from "void/auth";
+import { mcp } from "better-auth/plugins";
 import { checkout, polar, portal, webhooks } from "@polar-sh/better-auth";
 import { Polar } from "@polar-sh/sdk";
 import { ulid } from "ulid";
 import type { MirrorableAccount } from "@/lib/github-account-mirror";
 
-// Derive hook signatures from void/auth's defaults shape so we don't have
-// to add a direct dependency on `better-auth` (it's transitive via `void`).
+// NB: `better-auth` is now ALSO a direct dependency (pinned to the same 1.6.x
+// void resolves) purely for the `mcp` plugin import above — the OAuth provider
+// behind the /api/mcp endpoint. The hook-signature derivation below predates
+// that and still deliberately types against void/auth's defaults shape, so the
+// two copies can never disagree about what void actually instantiates.
 // Better Auth's `create.after` and `update.after` share the same
 // `(account, context) => Promise<void>` shape — using `create` covers both.
 type AccountAfter = NonNullable<
@@ -192,8 +196,34 @@ export default defineAuth(({ defaults }) => ({
   ...defaults,
   // Polar billing plugin, registered ONLY when billing is configured. Preserve
   // any void-default plugins (spread first) so we add rather than clobber.
+  //
+  // The `mcp` plugin turns this Better Auth instance into the OAuth 2.1
+  // authorization server for the /api/mcp endpoint (dynamic client
+  // registration + authorization-code + PKCE; tables `oauthApplication` /
+  // `oauthAccessToken` / `oauthConsent`, bootstrapped by void/auth like the
+  // core four). `loginPage: "/login"` — an unauthenticated /mcp/authorize sets
+  // the `oidc_login_prompt` cookie and redirects there; the plugin's after-hook
+  // resumes authorization when the login response sets a session cookie, so
+  // the existing login page needs no changes. `requirePKCE` because every MCP
+  // client is a public client (no secret) — the code exchange must be bound to
+  // the initiator. CONSENT IS FORCED separately: the plugin auto-issues codes
+  // unless `prompt=consent`, so `middleware/02.api-auth.ts` rewrites every
+  // /mcp/authorize request to carry it and `consentPage` renders our approval
+  // screen (pages/oauth/consent.tsx). Do not remove that middleware leg —
+  // without it any dynamically-registered client could silently mint tokens
+  // for a logged-in user's browser.
   plugins: [
     ...(defaults.plugins ?? []),
+    mcp({
+      loginPage: "/login",
+      oidcConfig: {
+        // `loginPage` is repeated here only to satisfy OIDCOptions' required
+        // field — the plugin overrides it with the top-level value anyway.
+        loginPage: "/login",
+        requirePKCE: true,
+        consentPage: "/oauth/consent",
+      },
+    }),
     ...(polarConfigured ? [buildPolarPlugin()] : []),
   ],
   // Session cookie cache: sign the resolved session into a short-lived cookie so

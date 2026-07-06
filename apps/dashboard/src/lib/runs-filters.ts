@@ -34,6 +34,19 @@ export type RunsFilters = {
   origin: RunOriginFilter;
   from: string | null;
   to: string | null;
+  /**
+   * Exact `runs.prNumber` match (`?pr=123`). Null = no PR filter. Added for
+   * the public query API + MCP surface ("failing tests on PR #123"); the
+   * dashboard filter bar doesn't set it (yet), so it round-trips through
+   * `toSearchParams` but has no UI control.
+   */
+  pr: number | null;
+  /**
+   * `runs.commitSha` PREFIX match (`?commit=abc1234`), case-insensitive.
+   * Prefix (not exact) because callers routinely hold a short SHA while the
+   * reporter records the full 40-char one. Null = no commit filter.
+   */
+  commit: string | null;
   page: number;
 };
 
@@ -46,6 +59,8 @@ export const EMPTY_FILTERS: RunsFilters = {
   origin: DEFAULT_ORIGIN_FILTER,
   from: null,
   to: null,
+  pr: null,
+  commit: null,
   page: 1,
 };
 
@@ -73,6 +88,22 @@ function parsePage(raw: string | null): number {
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 1) return 1;
   return n;
+}
+
+/** A git SHA prefix: 4–40 hex chars. Anything else is treated as "no filter". */
+const COMMIT_PREFIX_RE = /^[0-9a-fA-F]{4,40}$/;
+
+function parsePr(raw: string | null): number | null {
+  if (!raw) return null;
+  // Accept a leading '#' so "#123" pasted from GitHub works.
+  const n = Number.parseInt(raw.replace(/^#/, ""), 10);
+  if (!Number.isSafeInteger(n) || n < 1) return null;
+  return n;
+}
+
+function parseCommit(raw: string | null): string | null {
+  const trimmed = raw?.trim() ?? "";
+  return COMMIT_PREFIX_RE.test(trimmed) ? trimmed : null;
 }
 
 function parseOrigin(raw: string | null): RunOriginFilter {
@@ -105,6 +136,8 @@ export function parseRunsFilters(params: URLSearchParams): RunsFilters {
     origin: parseOrigin(params.get("origin")),
     from: inverted ? toValid : fromValid,
     to: inverted ? fromValid : toValid,
+    pr: parsePr(params.get("pr")),
+    commit: parseCommit(params.get("commit")),
     page: parsePage(params.get("page")),
   };
 }
@@ -121,6 +154,8 @@ export function toSearchParams(filters: RunsFilters): URLSearchParams {
     params.set("origin", filters.origin);
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
+  if (filters.pr !== null) params.set("pr", String(filters.pr));
+  if (filters.commit !== null) params.set("commit", filters.commit);
   if (filters.page > 1) params.set("page", String(filters.page));
   return params;
 }
@@ -134,6 +169,8 @@ export function hasAnyFilter(filters: RunsFilters): boolean {
     filters.environment.length > 0 ||
     filters.origin !== DEFAULT_ORIGIN_FILTER ||
     filters.from !== null ||
-    filters.to !== null
+    filters.to !== null ||
+    filters.pr !== null ||
+    filters.commit !== null
   );
 }

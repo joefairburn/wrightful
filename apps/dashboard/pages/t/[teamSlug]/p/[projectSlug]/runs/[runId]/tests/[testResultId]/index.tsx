@@ -102,6 +102,8 @@ export default function TestDetailPage(props: Props) {
       status: string;
       errorMessage: string | null;
       errorStack: string | null;
+      stdout: string | null;
+      stderr: string | null;
     }
   >();
   for (const row of attemptRows) {
@@ -109,6 +111,8 @@ export default function TestDetailPage(props: Props) {
       status: row.status,
       errorMessage: row.errorMessage,
       errorStack: row.errorStack,
+      stdout: row.stdout,
+      stderr: row.stderr,
     });
   }
 
@@ -142,6 +146,8 @@ export default function TestDetailPage(props: Props) {
         status: normaliseAttemptRowStatus(row.status),
         errorMessage: row.errorMessage,
         errorStack: row.errorStack,
+        stdout: row.stdout,
+        stderr: row.stderr,
       };
     }
     const finalStatus = result.status;
@@ -160,6 +166,9 @@ export default function TestDetailPage(props: Props) {
       status: inferred,
       errorMessage: isErrorOn ? result.errorMessage : null,
       errorStack: isErrorOn ? result.errorStack : null,
+      // No per-attempt row → no captured stdout/stderr to show.
+      stdout: null,
+      stderr: null,
     };
   };
   const tabItems: AttemptTabItem[] = allAttempts.map((attempt) => ({
@@ -169,6 +178,17 @@ export default function TestDetailPage(props: Props) {
     finalSuffix:
       attempt === totalAttempts - 1 && totalAttempts > 1 ? "(Final)" : null,
   }));
+  // Captured per-attempt stdout/stderr is eager (on the attempt row); surface it
+  // in the artifact rail alongside each attempt's artifacts.
+  const outputByAttempt = new Map<
+    number,
+    { stdout: string | null; stderr: string | null }
+  >(
+    allAttempts.map((attempt) => {
+      const view = resolveAttemptView(attempt);
+      return [attempt, { stdout: view.stdout, stderr: view.stderr }] as const;
+    }),
+  );
 
   return (
     <div className="flex flex-col">
@@ -262,6 +282,7 @@ export default function TestDetailPage(props: Props) {
           <div>
             {allAttempts.map((attempt) => {
               const view = resolveAttemptView(attempt);
+              const label = attemptLabel(attempt, totalAttempts);
               return (
                 <AttemptPanel
                   key={attempt}
@@ -277,9 +298,9 @@ export default function TestDetailPage(props: Props) {
                     />
                   ) : (
                     <p className="text-fg-3 text-sm">
-                      {attemptLabel(attempt, totalAttempts) === "only attempt"
+                      {label === "only attempt"
                         ? "No error details recorded."
-                        : `No error details recorded for this attempt (${attemptLabel(attempt, totalAttempts)}).`}
+                        : `No error details recorded for this attempt (${label}).`}
                     </p>
                   )}
                 </AttemptPanel>
@@ -301,6 +322,7 @@ export default function TestDetailPage(props: Props) {
                 workerIndex: result.workerIndex,
                 playwrightVersion: run.playwrightVersion,
               }}
+              outputByAttempt={outputByAttempt}
               reproduceCommand={reproduceCommand}
               tabValues={tabValues}
             />
@@ -370,6 +392,7 @@ function TestArtifactsRail({
   defaultTab,
   reproduceCommand,
   environment,
+  outputByAttempt,
 }: {
   artifacts: OkProps["artifacts"];
   allAttempts: number[];
@@ -377,6 +400,10 @@ function TestArtifactsRail({
   defaultTab: string;
   reproduceCommand: string;
   environment: EnvironmentFields;
+  outputByAttempt: Map<
+    number,
+    { stdout: string | null; stderr: string | null }
+  >;
 }) {
   const { artifactGroups } = use(artifacts);
   const groupsByAttempt = new Map<number, AttemptArtifactGroup>(
@@ -386,6 +413,7 @@ function TestArtifactsRail({
     <>
       {allAttempts.map((attempt) => {
         const group = groupsByAttempt.get(attempt);
+        const output = outputByAttempt.get(attempt);
         return (
           <AttemptPanel
             key={attempt}
@@ -398,6 +426,8 @@ function TestArtifactsRail({
               copyPrompt={group?.copyPrompt ?? null}
               reproduceCommand={reproduceCommand}
               environment={environment}
+              stdout={output?.stdout ?? null}
+              stderr={output?.stderr ?? null}
             />
           </AttemptPanel>
         );

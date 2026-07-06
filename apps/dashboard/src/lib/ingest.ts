@@ -393,6 +393,8 @@ export function buildResultInsertStatements(
     durationMs: number;
     errorMessage: string | null;
     errorStack: string | null;
+    stdout: string | null;
+    stderr: string | null;
     createdAt: number;
   }> = [];
   // Every touched result's id — the child rows of ALL of them are replaced (a
@@ -442,6 +444,8 @@ export function buildResultInsertStatements(
         durationMs: attempt.durationMs,
         errorMessage: attempt.errorMessage ?? null,
         errorStack: attempt.errorStack ?? null,
+        stdout: attempt.stdout ?? null,
+        stderr: attempt.stderr ?? null,
         createdAt: nowSeconds,
       });
     }

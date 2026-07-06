@@ -17,6 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { VisualDiffRailButton } from "@/components/visual-diff-dialog";
+import { ansiToHtml } from "@/lib/ansi";
 import { cn } from "@/lib/cn";
 import { useCopiedFlag } from "@/lib/use-copied-flag";
 
@@ -36,17 +37,24 @@ export function ArtifactsRail({
   copyPrompt,
   reproduceCommand,
   environment,
+  stdout,
+  stderr,
 }: {
   media: ArtifactAction[];
   copyPrompt: ArtifactAction | null;
   reproduceCommand: string | null;
   environment: EnvironmentFields;
+  /** The attempt's captured test-process stdout (Node-side `console.log`). */
+  stdout?: string | null;
+  /** The attempt's captured test-process stderr. */
+  stderr?: string | null;
 }): React.ReactElement | null {
   const envRows = environmentRows(environment);
   const hasArtifacts = media.length > 0;
+  const hasOutput = Boolean(stdout?.trim()) || Boolean(stderr?.trim());
   const hasRepro = Boolean(reproduceCommand) || Boolean(copyPrompt);
   const hasEnv = envRows.length > 0;
-  if (!hasArtifacts && !hasRepro && !hasEnv) return null;
+  if (!hasArtifacts && !hasOutput && !hasRepro && !hasEnv) return null;
   return (
     <div className="flex flex-col">
       {hasArtifacts ? (
@@ -56,6 +64,19 @@ export function ArtifactsRail({
             {media.map((a) => (
               <RailArtifactButton key={a.id} artifact={a} />
             ))}
+          </div>
+        </section>
+      ) : null}
+      {hasOutput ? (
+        <section className="p-5 border-b border-border">
+          <SectionLabel>Output</SectionLabel>
+          <div className="flex flex-col gap-3">
+            {stdout?.trim() ? (
+              <RailLogBlock label="stdout" text={stdout} />
+            ) : null}
+            {stderr?.trim() ? (
+              <RailLogBlock label="stderr" text={stderr} tone="error" />
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -112,6 +133,38 @@ function SectionLabel({
     <h4 className="mb-3 text-[12px] font-medium tracking-[0.1px] text-fg-3">
       {children}
     </h4>
+  );
+}
+
+/**
+ * A captured stdout/stderr stream, rendered in the rail as a scrollable,
+ * ANSI-aware monospace block. `ansiToHtml` HTML-escapes before colourising, so
+ * test-controlled output is not an injection sink (same path as the error
+ * stack). `stderr` is tinted so it reads as the error channel.
+ */
+function RailLogBlock({
+  label,
+  text,
+  tone,
+}: {
+  label: string;
+  text: string;
+  tone?: "error";
+}): React.ReactElement {
+  return (
+    <div>
+      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">
+        {label}
+      </div>
+      {/* biome-ignore lint/security/noDangerouslySetInnerHtml: ansiToHtml HTML-escapes before colourising */}
+      <pre
+        className={cn(
+          "max-h-64 overflow-auto rounded border border-border bg-muted/40 p-2 text-xs font-mono whitespace-pre-wrap break-words",
+          tone === "error" ? "text-destructive" : "text-foreground",
+        )}
+        dangerouslySetInnerHTML={{ __html: ansiToHtml(text) }}
+      />
+    </div>
   );
 }
 

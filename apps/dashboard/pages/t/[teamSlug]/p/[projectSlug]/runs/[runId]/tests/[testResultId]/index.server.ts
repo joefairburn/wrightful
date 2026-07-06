@@ -1,21 +1,12 @@
 import { defer, defineHandler, type InferProps } from "void";
-import { and, asc, db, desc, eq } from "void/db";
-import {
-  runs,
-  testAnnotations,
-  testResultAttempts,
-  testResults,
-  testTags,
-} from "@schema";
+import { and, db, desc, eq } from "void/db";
+import { runs, testResults } from "@schema";
 import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
 import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
-import {
-  childByTestIdWhere,
-  childByTestResultWhere,
-  runByIdWhere,
-} from "@/lib/scope";
+import { childByTestIdWhere, runByIdWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 import { loadAttemptArtifactGroups } from "@/lib/test-artifact-actions";
+import { loadTestResultChildren } from "@/lib/test-result-children";
 
 export type Props = InferProps<typeof loader>;
 
@@ -78,43 +69,19 @@ export const loader = defineHandler(async (c) => {
     };
   }
 
-  // Child reads repeat the projectId predicate even though the parent row was
-  // ownership-verified above: the project invariant is that EVERY query
-  // against these tables is project-scoped, so a future refactor that loosens
-  // the parent probe can't silently turn these into cross-tenant reads.
-  //
-  // Eager batch: tags + annotations + per-attempt rows + quarantine state —
+  // Eager batch: the tags + annotations + per-attempt child rows (shared with
+  // the MCP get_test_result surface via `loadTestResultChildren` so the
+  // projections + project-scoping can't drift) alongside quarantine state —
   // all tiny point/index reads that drive the above-the-fold header, metadata,
-  // attempt tabs and error panels. The two costly reads (the bounded history
-  // strip and the per-row artifact-signing fan-out) defer below.
-  const [tagRows, annotationRows, attemptRows, quarantineRows] =
-    await Promise.all([
-      db
-        .select({ tag: testTags.tag })
-        .from(testTags)
-        .where(childByTestResultWhere(testTags, scope, testResultId)),
-      db
-        .select({
-          type: testAnnotations.type,
-          description: testAnnotations.description,
-        })
-        .from(testAnnotations)
-        .where(childByTestResultWhere(testAnnotations, scope, testResultId)),
-      db
-        .select({
-          attempt: testResultAttempts.attempt,
-          status: testResultAttempts.status,
-          durationMs: testResultAttempts.durationMs,
-          errorMessage: testResultAttempts.errorMessage,
-          errorStack: testResultAttempts.errorStack,
-        })
-        .from(testResultAttempts)
-        .where(childByTestResultWhere(testResultAttempts, scope, testResultId))
-        .orderBy(asc(testResultAttempts.attempt)),
-      // Quarantine state for this test — drives the badge + owner-gated control
-      // in the page header. One testId, so at most one row.
-      loadQuarantineByTestId(project.id, [result.testId]),
-    ]);
+  // attempt tabs and error panels. Fired together so the fan-out stays
+  // concurrent. The two costly reads (the bounded history strip and the
+  // per-row artifact-signing fan-out) defer below.
+  const [children, quarantineRows] = await Promise.all([
+    loadTestResultChildren(scope, testResultId),
+    // Quarantine state for this test — drives the badge + owner-gated control
+    // in the page header. One testId, so at most one row.
+    loadQuarantineByTestId(project.id, [result.testId]),
+  ]);
 
   // A deferred loader streams a variant-specific body — set no-store so the
   // browser can't replay the wrong (NDJSON vs HTML) variant.
@@ -140,9 +107,9 @@ export const loader = defineHandler(async (c) => {
       : null,
     quarantineRedirectTo: url.pathname + url.search,
     quarantineError: url.searchParams.get("quarantineError"),
-    tags: tagRows,
-    annotations: annotationRows,
-    attempts: attemptRows,
+    tags: children.tags,
+    annotations: children.annotations,
+    attempts: children.attempts,
 
     // Below-the-fold duration-history strip — a bounded 30-row testId scan,
     // deferred behind the shared RunHistoryChart skeleton.

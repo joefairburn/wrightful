@@ -146,24 +146,49 @@ export function normalizeTestStatus(s: string): RunProgressTest["status"] {
   return TEST_STATUSES.find((status) => status === s) ?? "queued";
 }
 
+/** A non-undefined Drizzle WHERE fragment, suitable for `.where(...)`. */
+type SqlFragment = NonNullable<ReturnType<typeof and>>;
+
+/** The canonical `(createdAt, id)` DESC ordering every run-tests page shares. */
+export function runTestsOrderBy() {
+  return [desc(testResults.createdAt), desc(testResults.id)] as const;
+}
+
+/** ORDER BY fragments chosen by the engine (rank-aware for "recommended"). */
+type RunTestsOrderBy = readonly ReturnType<typeof desc>[];
+
 /**
- * Cursor-paginated fetch of testResults rows for a run, returned as
- * `RunProgressTest[]`. Default order is `(createdAt DESC, id DESC)`; the
- * `"recommended"` status bucket prepends a failed-before-flaky rank so its pages
- * stay coherent with the client's failed-first row sort (see the ordering block
- * below). The cursor is opaque base64 from the previous page's last row; invalid
- * cursors silently degrade to first-page (matches the legacy route).
+ * The one cursor-paginated read over a run's `testResults`: owner probe,
+ * status/bucket/group/search WHERE composition, the ordering, and the
+ * `hasMore → nextCursor` unwrap — all live HERE, once. Callers supply only the
+ * column projection (`fetchRows`, which owns its own typed `db.select` and
+ * applies the engine-chosen `orderBy`) and a row mapper, so a projection that
+ * carries extra columns (the MCP surface's `errorMessage`) reuses the exact
+ * pagination contract instead of forking it. `Row` must expose `id`,
+ * `createdAt` + `status` so the shared cursor can be minted from any
+ * projection.
  *
- * This is the one canonical definition of "a page of a run's testResults as
- * RunProgressTest[]": the GET /results API (per-group row pages + back-paginator),
- * the v1 tests API, and the CSV export loop all go through it, so the column
- * projection, ordering, scoping, and status normalization can never diverge.
+ * Default order is `(createdAt DESC, id DESC)`; the `"recommended"` status
+ * bucket prepends a failed-before-flaky rank so its pages stay coherent with
+ * the client's failed-first row sort (see the ordering block below) — both the
+ * ORDER BY and the keyset cursor carry the rank. Returns `null` when the run
+ * isn't in scope; invalid cursors silently degrade to first-page (matches the
+ * legacy route).
  */
-export async function loadRunResultsPage(
+export async function paginateRunTests<
+  Row extends { id: string; createdAt: number; status: string },
+  Out,
+>(
   scope: TenantScope,
   runId: string,
   opts: LoadRunResultsOpts,
-): Promise<RunResultsResponse | null> {
+  fetchRows: (
+    where: SqlFragment,
+    orderBy: RunTestsOrderBy,
+    limit: number,
+  ) => Promise<Row[]>,
+  mapRow: (row: Row) => Out,
+): Promise<{ items: Out[]; nextCursor: string | null } | null> {
   // Confirm the run belongs to this project.
   if (!opts.skipOwnershipCheck) {
     const owner = await db
@@ -236,27 +261,11 @@ export async function loadRunResultsPage(
     }
   }
 
-  const orderBy = rankByBucket
-    ? [asc(rankByBucket), desc(testResults.createdAt), desc(testResults.id)]
-    : [desc(testResults.createdAt), desc(testResults.id)];
+  const orderBy: RunTestsOrderBy = rankByBucket
+    ? [asc(rankByBucket), ...runTestsOrderBy()]
+    : runTestsOrderBy();
 
-  const rows = await db
-    .select({
-      id: testResults.id,
-      testId: testResults.testId,
-      title: testResults.title,
-      file: testResults.file,
-      projectName: testResults.projectName,
-      status: testResults.status,
-      durationMs: testResults.durationMs,
-      retryCount: testResults.retryCount,
-      shardIndex: testResults.shardIndex,
-      createdAt: testResults.createdAt,
-    })
-    .from(testResults)
-    .where(and(...conditions))
-    .orderBy(...orderBy)
-    .limit(limit + 1);
+  const rows = await fetchRows(and(...conditions)!, orderBy, limit + 1);
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
@@ -273,7 +282,48 @@ export async function loadRunResultsPage(
       : null;
 
   return {
-    results: page.map((r) => ({
+    items: page.map(mapRow),
+    nextCursor,
+  };
+}
+
+/**
+ * The one canonical definition of "a page of a run's testResults as
+ * `RunProgressTest[]`": the GET /results API (per-group row pages +
+ * back-paginator), the run-detail page loader (SSR seed for `useRunRoom`),
+ * the v1 tests API, and the CSV export loop all go through it. The MCP
+ * `list_tests` tool shares the same `paginateRunTests` engine with a wider
+ * projection (see `loadMcpRunTests`), so scoping, ordering, and the cursor
+ * contract can never drift between surfaces.
+ */
+export async function loadRunResultsPage(
+  scope: TenantScope,
+  runId: string,
+  opts: LoadRunResultsOpts,
+): Promise<RunResultsResponse | null> {
+  const page = await paginateRunTests(
+    scope,
+    runId,
+    opts,
+    (where, orderBy, limit) =>
+      db
+        .select({
+          id: testResults.id,
+          testId: testResults.testId,
+          title: testResults.title,
+          file: testResults.file,
+          projectName: testResults.projectName,
+          status: testResults.status,
+          durationMs: testResults.durationMs,
+          retryCount: testResults.retryCount,
+          shardIndex: testResults.shardIndex,
+          createdAt: testResults.createdAt,
+        })
+        .from(testResults)
+        .where(where)
+        .orderBy(...orderBy)
+        .limit(limit),
+    (r) => ({
       id: r.id,
       testId: r.testId,
       title: r.title,
@@ -283,7 +333,8 @@ export async function loadRunResultsPage(
       durationMs: r.durationMs,
       retryCount: r.retryCount,
       shardIndex: r.shardIndex,
-    })),
-    nextCursor,
-  };
+    }),
+  );
+  if (!page) return null;
+  return { results: page.items, nextCursor: page.nextCursor };
 }

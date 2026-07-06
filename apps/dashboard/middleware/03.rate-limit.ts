@@ -75,9 +75,11 @@ export default defineMiddleware(async (c, next) => {
   if (isQueryApiRoute(path)) {
     // Public query/export surface (roadmap 2.5). Same key resolution as ingest
     // (02.api-auth stashed the key; IP fallback), but a LOOSER per-tenant budget
-    // — see QUERY_RATE_LIMITER in wrangler.jsonc.
+    // — see QUERY_RATE_LIMITER in wrangler.jsonc. /api/mcp (part of this same
+    // surface) may instead be OAuth-token authed: key by the token's userId
+    // then, so one user's agents share a budget instead of hiding behind IPs.
     const apiKey = c.get("apiKey");
-    const key = apiKey?.id ?? clientIp(c.req.raw);
+    const key = apiKey?.id ?? c.get("mcpAuth")?.userId ?? clientIp(c.req.raw);
     const allowed = await checkRateLimit(c.env, "QUERY_RATE_LIMITER", key);
     if (!allowed) return tooManyRequests(60);
     await next();

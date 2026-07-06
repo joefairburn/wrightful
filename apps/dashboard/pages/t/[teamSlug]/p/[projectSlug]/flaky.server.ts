@@ -1,12 +1,12 @@
 import { defer, defineHandler, type InferProps } from "void";
-import { and, db, eq, gte, inArray, sql } from "void/db";
-import { runs, testResults, testTags } from "@schema";
+import { and, db, eq, inArray, sql } from "void/db";
+import { testResults, testTags } from "@schema";
 import {
   branchFragment,
   ciRunsJoinFragment,
-  ciRunsJoinOn,
   testResultsScopeJoin,
 } from "@/lib/analytics/filters";
+import { rankFlakyTests } from "@/lib/analytics/flaky-ranking";
 import {
   normalizeBranchFilter,
   resolveAnalyticsWindow,
@@ -14,11 +14,9 @@ import {
 import { latestPerTestRn } from "@/lib/analytics/per-test";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { numericSql } from "@/lib/db/sql-ops";
 import { runRows } from "@/lib/db-run";
-import { rate } from "@/lib/rate";
 import { type OwnerEntry, resolveTestOwners } from "@/lib/owners-repo";
-import { childProjectScopeWhere, type TenantScope } from "@/lib/scope";
+import { type TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -98,13 +96,6 @@ export const loader = defineHandler(async (c) => {
   const { windowStartSec, days } = resolveAnalyticsWindow(range);
   const rangeDays = days ?? 0;
 
-  // 1. Aggregates (in parallel with the independent branch-list query).
-  const aggConditions = [
-    childProjectScopeWhere(testResults.projectId, scope),
-    gte(testResults.createdAt, windowStartSec),
-  ];
-  if (branchFilter) aggConditions.push(eq(runs.branch, branchFilter));
-
   // The branch list is a cheap index-covered DISTINCT that drives the eager
   // toolbar filter, so it stays eager. Every heavy pass (the aggregate + the
   // per-test fan-out) defers together below.
@@ -147,38 +138,20 @@ export const loader = defineHandler(async (c) => {
     // These are the heaviest reads in the app — keeping them eager would defeat
     // the conversion. Returns plain serializable JSON (maps → objects).
     flaky: defer(async () => {
-      // Join `runs` unconditionally via ciRunsJoinOn: the ON clause carries the
-      // `origin <> 'synthetic'` exclusion, so monitor tests can't rank on the
-      // flaky page even with no branch filter active. (The join used to be
-      // branch-conditional as a perf nicety — skipping a `runs` PK probe per
-      // scanned row — but it's now load-bearing for correctness.)
-      const aggRows = await db
-        .select({
-          testId: testResults.testId,
-          total: numericSql(
-            sql`sum(case when ${testResults.status} != 'skipped' then 1 else 0 end)`,
-          ),
-          flakyCount: numericSql(
-            sql`sum(case when ${testResults.status} = 'flaky' then 1 else 0 end)`,
-          ),
-          passedCount: numericSql(
-            sql`sum(case when ${testResults.status} = 'passed' then 1 else 0 end)`,
-          ),
-        })
-        .from(testResults)
-        .innerJoin(runs, ciRunsJoinOn())
-        .where(and(...aggConditions))
-        .groupBy(testResults.testId)
-        .having(
-          sql`sum(case when ${testResults.status} = 'flaky' then 1 else 0 end) >= 1`,
-        );
-
-      const rankedAll: RankedTest[] = aggRows
-        .map((r) => ({
-          ...r,
-          pct: rate(r.flakyCount, r.flakyCount + r.passedCount),
-        }))
-        .sort((a, b) => b.pct - a.pct || b.flakyCount - a.flakyCount);
+      // PASS 1: the flakiest-tests ranking, shared verbatim with the MCP
+      // `list_flaky_tests` tool via `rankFlakyTests` so the page and an agent
+      // can't disagree about "the flakiest tests" for the same window. It joins
+      // `runs` unconditionally (ciRunsJoinOn) so its `origin <> 'synthetic'`
+      // exclusion keeps monitor tests from ranking even with no branch filter.
+      const rankedAll: RankedTest[] = (
+        await rankFlakyTests(scope, { windowStartSec, branch: branchFilter })
+      ).map((r) => ({
+        testId: r.testId,
+        total: r.total,
+        flakyCount: r.flakyCount,
+        passedCount: r.passedCount,
+        pct: r.flakeRatePct,
+      }));
 
       const totalFlakyTests = rankedAll.length;
       const ranked = rankedAll.slice(0, TOP_N);

@@ -119,6 +119,7 @@ const {
   computeAggregateDelta,
 } = await import("@/lib/ingest");
 const { makeTenantScope } = await import("@/lib/scope");
+const { loadTestResultChildren } = await import("@/lib/test-result-children");
 const { loadRunGroupSkeleton } = await import("@/lib/run-groups-page");
 const { loadRunResultsPage } = await import("@/lib/run-results-page");
 const { assertUserDeletable, cleanupUserData, findSoleOwnerTeamIds } =
@@ -879,6 +880,69 @@ describe("ingest /results upsert (batched flush)", () => {
     expect(row?.status).toBe("failed");
     expect(row?.createdAt).toBe(T1);
     expect(row?.updatedAt).toBe(T1);
+  });
+
+  it("persists per-attempt stdout/stderr — and loadTestResultChildren (the get_test_result path) reads them back", async () => {
+    // The reporter joins Playwright's stdout/stderr chunks per attempt; the
+    // dashboard writes them to the two new text columns and surfaces them via
+    // loadTestResultChildren (which loadMcpTestResultDetail passes straight
+    // through to the `get_test_result` tool). Prove both the persist and the
+    // read-back against real Postgres, per attempt, distinct across retries.
+    await flush(
+      [
+        makeResult({
+          testId: "t-logs",
+          status: "flaky",
+          durationMs: 40,
+          retryCount: 1,
+          attempts: [
+            {
+              attempt: 0,
+              status: "failed",
+              durationMs: 10,
+              errorMessage: "boom",
+              stdout: "attempt 0 stdout\n",
+              stderr: "attempt 0 stderr\n",
+            },
+            {
+              attempt: 1,
+              status: "passed",
+              durationMs: 30,
+              // A quiet retry: no stdout captured → column stays null.
+              stderr: "attempt 1 stderr\n",
+            },
+          ],
+        }),
+      ],
+      T1,
+    );
+
+    const [row] = await h.db
+      .select()
+      .from(testResults)
+      .where(and(eq(testResults.runId, RUN), eq(testResults.testId, "t-logs")));
+    const testResultId = row!.id;
+
+    // Raw column read: the two attempts persisted their logs distinctly.
+    const rawAttempts = await h.db
+      .select()
+      .from(testResultAttempts)
+      .where(eq(testResultAttempts.testResultId, testResultId))
+      .orderBy(testResultAttempts.attempt);
+    expect(rawAttempts).toHaveLength(2);
+    expect(rawAttempts[0]?.stdout).toBe("attempt 0 stdout\n");
+    expect(rawAttempts[0]?.stderr).toBe("attempt 0 stderr\n");
+    expect(rawAttempts[1]?.stdout).toBeNull();
+    expect(rawAttempts[1]?.stderr).toBe("attempt 1 stderr\n");
+
+    // MCP-surfacing read: loadTestResultChildren carries stdout/stderr per
+    // attempt in attempt order — exactly what get_test_result returns.
+    const { attempts } = await loadTestResultChildren(scope, testResultId);
+    expect(attempts.map((a) => a.attempt)).toEqual([0, 1]);
+    expect(attempts[0]?.stdout).toBe("attempt 0 stdout\n");
+    expect(attempts[0]?.stderr).toBe("attempt 0 stderr\n");
+    expect(attempts[1]?.stdout).toBeNull();
+    expect(attempts[1]?.stderr).toBe("attempt 1 stderr\n");
   });
 
   it("re-flushing the same result nets a ZERO aggregate delta (idempotent counters under serial replay)", async () => {

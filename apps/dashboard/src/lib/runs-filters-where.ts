@@ -69,6 +69,16 @@ export function buildRunsWhere(filters: RunsFilters): SqlFragment | undefined {
     );
     clauses.push(lte(runs.createdAt, toSeconds));
   }
+  if (filters.pr !== null) {
+    clauses.push(eq(runs.prNumber, filters.pr));
+  }
+  if (filters.commit !== null) {
+    // Prefix match (`sha%`, no leading wildcard) so a short SHA finds runs
+    // recorded under the full 40-char one; ILIKE for case-insensitivity. The
+    // value is hex-validated at parse time, but escape anyway — the WHERE
+    // builder shouldn't depend on the parser for injection safety.
+    clauses.push(likeEscaped(runs.commitSha, `${escapeLike(filters.commit)}%`));
+  }
   if (filters.q) {
     const pattern = `%${escapeLike(filters.q)}%`;
     const orClause = or(

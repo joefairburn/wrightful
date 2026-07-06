@@ -741,6 +741,13 @@ export const testResultAttempts = pgTable(
     durationMs: integer("durationMs").notNull(),
     errorMessage: text("errorMessage"),
     errorStack: text("errorStack"),
+    // Captured per-attempt stdout/stderr (the reporter joins Playwright's
+    // TestResult chunks, each truncated to MAX.MESSAGE = 65536 chars). Stored
+    // inline — attempts per test are few (1–10) and capped — so `get_test_result`
+    // can surface `console.log` CI output. Nullable, NOT indexed (never filtered
+    // or joined on; read only as part of the per-attempt row).
+    stdout: text("stdout"),
+    stderr: text("stderr"),
     createdAt: big("createdAt").notNull(),
   },
   (t) => [
