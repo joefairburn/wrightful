@@ -163,10 +163,17 @@ function authHint(context: string, status: number): string {
 }
 
 export class StreamClient {
+  private readonly baseUrl: string;
+
   constructor(
-    private baseUrl: string,
+    baseUrl: string,
     private token: string,
-  ) {}
+  ) {
+    // Strip trailing slash(es): endpoints are built as `${baseUrl}/api/...`, so
+    // a WRIGHTFUL_URL like "https://dash.example.com/" would yield "//api/runs",
+    // which 404s on the dashboard and silently drops the whole run.
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
+  }
 
   private get headers(): Record<string, string> {
     return {

@@ -50,6 +50,29 @@ at once, but they write to **separate projects**, so real and synthetic data
 never mix. `dogfood-stream` was left in place; it can be retired separately if
 the demo-suite dogfood is no longer wanted.
 
+## Bug found while wiring this up: trailing-slash 404 dropped every run
+
+First CI run with creds present streamed nothing:
+
+```
+[wrightful] openRun failed: openRun failed (404): Not Found. Streaming disabled.
+[wrightful] streamed 0/47 test(s); 47 result(s) dropped.
+```
+
+Root cause: the reporter builds endpoints by string concatenation
+(`${baseUrl}/api/runs`, `client.ts`), and the `WRIGHTFUL_URL` secret had a
+trailing slash — so it POSTed to `https://dash.wrightful.dev//api/runs`. On the
+dashboard, `/api/runs` → 401 (auth-gated, exists) but `//api/runs` → **404**,
+which the reporter treats as "streaming disabled" and drops the whole run.
+
+Fix (hardening, so the misconfig can't silently drop results for anyone):
+`StreamClient` now strips trailing slashes from `baseUrl` in its constructor
+(`packages/reporter/src/client.ts`), covered by a new test in
+`client.test.ts` and a patch changeset. Because the CI job builds the reporter
+from source, this fix takes effect immediately on this branch even if the secret
+keeps its trailing slash — though the secret should be cleaned up too
+(`https://dash.wrightful.dev`, no trailing `/`).
+
 ## To stream locally
 
 ```bash
