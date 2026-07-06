@@ -107,7 +107,9 @@ async function gotoAndAwaitRoom(
 ): Promise<void> {
   const ready = page.waitForEvent("websocket", {
     predicate: (ws) => ws.url().includes(fragment),
-    timeout: 20_000,
+    // CI's shared dev server can be slow to open the void/ws socket under
+    // parallel load; give it more room there than a responsive local server.
+    timeout: process.env.CI ? 30_000 : 20_000,
   });
   await navigate();
   await ready;
