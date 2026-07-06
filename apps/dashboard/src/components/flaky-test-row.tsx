@@ -1,4 +1,5 @@
-import { Link, PREFETCH_STABLE } from "@/components/ui/link";
+import { PREFETCH_STABLE } from "@/components/ui/link";
+import { RowLink } from "@/components/row-link";
 import type React from "react";
 import { OwnerCell, type OwnerChip } from "@/components/owner-cell";
 import { Sparkline, type SparklinePoint } from "@/components/sparkline";
@@ -92,14 +93,10 @@ export function FlakyTestRow({
   return (
     <TableRow>
       <TableCell className="w-10 px-4 align-middle">
-        <Link
-          cacheFor={PREFETCH_STABLE}
-          className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
-          href={rowHref}
-        >
+        <RowLink cacheFor={PREFETCH_STABLE} href={rowHref}>
           <span className="sr-only">View {cleanTitle}</span>
           <StatusGlyph size={14} status="flaky" />
-        </Link>
+        </RowLink>
       </TableCell>
       <TableCell className="px-4 py-3 align-middle">
         <div className="min-w-0">

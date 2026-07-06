@@ -1,4 +1,5 @@
 import { Link, PREFETCH_STABLE } from "@/components/ui/link";
+import { RowLink } from "@/components/row-link";
 import { Fragment, use } from "react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import { DeferredSection } from "@/components/defer-error-boundary";
@@ -351,21 +352,14 @@ function TestRow({ row, base }: { row: TestsPageRow; base: string }) {
   return (
     <TableRow>
       <TableCell className="w-10 px-4 py-3 align-middle">
-        {/* Stretched-link pattern — the `<Link>` is position: static so its
-         * `after:inset-0` pseudo fills the nearest positioned ancestor (the
-         * TableRow with `relative`). Whole row becomes the click target. */}
-        <Link
-          cacheFor={PREFETCH_STABLE}
-          className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
-          href={href}
-        >
+        <RowLink cacheFor={PREFETCH_STABLE} href={href}>
           <span className="sr-only">View {title}</span>
           <span
             aria-hidden
             className="inline-block size-2 rounded-full"
             style={{ backgroundColor: dotColor }}
           />
-        </Link>
+        </RowLink>
       </TableCell>
       <TableCell className="px-4 py-3 align-middle">
         <div className="flex min-w-0 items-center gap-2">

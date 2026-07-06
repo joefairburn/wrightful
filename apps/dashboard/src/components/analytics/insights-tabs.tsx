@@ -1,5 +1,5 @@
 import { Link, PREFETCH_STABLE } from "@/components/ui/link";
-import { cn } from "@/lib/cn";
+import { underlineTabClasses } from "@/components/underline-tabs";
 
 export type InsightsTabKey =
   | "run-status"
@@ -59,12 +59,7 @@ export function InsightsTabs({
       {tabs.map((t) => (
         <Link
           cacheFor={PREFETCH_STABLE}
-          className={cn(
-            "relative -mb-px px-3 py-2 text-[13px] transition-colors",
-            active === t.key
-              ? "text-foreground font-medium after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-[var(--running)] after:content-['']"
-              : "text-fg-3 hover:text-foreground",
-          )}
+          className={underlineTabClasses(active === t.key, "-mb-px")}
           href={t.href}
           key={t.key}
         >

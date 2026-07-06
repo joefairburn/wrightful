@@ -114,7 +114,7 @@ function MonitorsEmpty({
           <div className="mb-2 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             What a monitor looks like
           </div>
-          <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+          <div className="overflow-hidden rounded-[9px] border border-line-1 bg-card">
             <div className="flex items-center gap-2.5 border-b border-line-1 px-4 py-3">
               <MonGlyph size={14} state="pass" />
               <span className="text-[13.5px] font-medium">

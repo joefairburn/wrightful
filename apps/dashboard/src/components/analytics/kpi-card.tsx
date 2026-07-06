@@ -58,7 +58,7 @@ export function AnalyticsKpiCard({
           : "var(--fg-3)";
 
   return (
-    <div className="flex min-w-0 flex-col gap-1.5 rounded-[8px] border border-line-1 bg-card px-4 py-3.5">
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-[9px] border border-line-1 bg-card px-4 py-3.5">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
           {label}

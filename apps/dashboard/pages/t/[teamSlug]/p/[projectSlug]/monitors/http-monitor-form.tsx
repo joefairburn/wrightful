@@ -255,7 +255,7 @@ export function HttpMonitorForm({
       </div>
 
       {/* Request switches. */}
-      <div className="flex flex-col gap-3 rounded-lg border border-line-1 bg-bg-1 px-3.5 py-3">
+      <div className="flex flex-col gap-3 rounded-lg border border-line-1 bg-card px-3.5 py-3">
         <SwitchRow
           checked={followRedirects}
           description="Follow 3xx redirects to the final response."
@@ -364,7 +364,7 @@ function AssertionRowEditor({
   const showProperty = NEEDS_PROPERTY.has(row.source);
   const showTarget = !NO_TARGET.has(row.comparison);
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-line-1 bg-bg-1 px-2.5 py-2">
+    <div className="flex items-center gap-2 rounded-lg border border-line-1 bg-card px-2.5 py-2">
       <NativeSelect
         aria-label="Assertion source"
         className="w-[150px] shrink-0"
@@ -426,14 +426,15 @@ function AssertionRowEditor({
       )}
       {!showTarget && <div className="flex-1" />}
 
-      <button
+      <Button
         aria-label="Remove assertion"
-        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-bg-3 hover:text-fail"
+        className="shrink-0 text-fg-3 hover:text-fail"
         onClick={onRemove}
-        type="button"
+        size="icon-sm"
+        variant="ghost"
       >
         <X className="size-3.5" />
-      </button>
+      </Button>
     </div>
   );
 }

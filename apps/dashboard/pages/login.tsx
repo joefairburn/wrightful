@@ -101,7 +101,7 @@ export default function LoginPage({
       />
 
       <section className="relative w-full max-w-[380px]">
-        <div className="rounded-[12px] border border-line-1 bg-bg-1 p-8 shadow-[var(--shadow-lg)]">
+        <div className="rounded-[12px] border border-line-1 bg-card p-8 shadow-[var(--shadow-lg)]">
           <form
             className="w-full"
             onSubmit={(e) => {

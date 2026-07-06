@@ -1,4 +1,5 @@
-import { Link, PREFETCH_REALTIME } from "@/components/ui/link";
+import { PREFETCH_REALTIME } from "@/components/ui/link";
+import { RowLink } from "@/components/row-link";
 import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
 import { LiveDuration } from "@/components/live-duration";
@@ -57,16 +58,12 @@ export function RunListRow({
          * click target. Nested `relative z-10` external links (branch/PR/commit
          * chips) call `e.stopPropagation()` so their clicks don't bubble to this
          * Link's SPA-navigation handler. */}
-        <Link
-          cacheFor={PREFETCH_REALTIME}
-          className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
-          href={href}
-        >
+        <RowLink cacheFor={PREFETCH_REALTIME} href={href}>
           <span className="sr-only">
             View run {run.commitMessage ?? run.id.slice(0, 8)}
           </span>
           <StatusGlyph size={14} status={run.status} />
-        </Link>
+        </RowLink>
       </TableCell>
 
       <TableCell className="px-4 py-3 align-middle">

@@ -24,6 +24,7 @@ import {
 } from "@/components/run-meta-pills";
 import { RunProgress } from "@/components/run-progress";
 import { RunSummaryLive } from "@/components/run-summary-live";
+import { underlineTabClasses } from "@/components/underline-tabs";
 import { cn } from "@/lib/cn";
 import { makeHrefBuilder } from "@/lib/page-links";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
@@ -221,12 +222,7 @@ export default function RunDetailPage({
         <div className="sticky top-[52px] z-20 flex items-end gap-1 border-b border-line-1 bg-background px-6">
           {TAB_KEYS.map((key) => (
             <Link
-              className={cn(
-                "relative -mb-px px-3 py-2 text-[13px] transition-colors",
-                tab === key
-                  ? "text-foreground font-medium after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-[var(--running)] after:content-['']"
-                  : "text-fg-3 hover:text-foreground",
-              )}
+              className={underlineTabClasses(tab === key, "-mb-px")}
               href={tabHref(key)}
               key={key}
             >
@@ -379,7 +375,7 @@ function EnvironmentTab({ run }: { run: Props["run"] }): React.ReactElement {
 
   return (
     <div className="p-6">
-      <div className="max-w-[720px] overflow-hidden rounded-[8px] border border-line-1 bg-card">
+      <div className="max-w-[720px] overflow-hidden rounded-[9px] border border-line-1 bg-card">
         {rows.map((r, i) => (
           <div
             className={cn(

@@ -1,4 +1,5 @@
 import type React from "react";
+import { underlineTabClasses } from "@/components/underline-tabs";
 import { cn } from "@/lib/cn";
 import { useSearchParam } from "@/lib/use-search-param";
 
@@ -62,17 +63,7 @@ export function AttemptTabsBar({
               setActive(item.value);
             }}
             aria-pressed={isActive}
-            className={cn(
-              "relative inline-flex items-center gap-2 whitespace-nowrap",
-              "rounded-sm px-3 py-2 text-[13px] cursor-pointer transition-colors",
-              "outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              // Underline sits INSIDE the button box (`bottom-0`, not `-bottom-px`)
-              // so the container's `overflow-x-auto` — which forces overflow-y to
-              // clip — can't cut it off.
-              isActive
-                ? "font-medium text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-[var(--running)] after:content-['']"
-                : "text-fg-3 hover:text-foreground",
-            )}
+            className={underlineTabClasses(isActive, "cursor-pointer")}
           >
             <span
               className={cn(

@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
+import { DANGER_TRIGGER_CLASSES } from "@/components/danger-trigger";
 import { format } from "date-fns";
 import { ArrowLeft, Download, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
@@ -368,9 +369,7 @@ export default function SettingsProjectKeysPage({
             This cannot be undone.
           </p>
           <details className="group">
-            <summary className="inline-flex h-[30px] cursor-pointer list-none items-center justify-center self-start rounded-[5px] border border-fail/30 bg-fail-soft px-[11px] text-[13px] font-medium text-fail transition-colors hover:bg-fail/20 [&::-webkit-details-marker]:hidden">
-              Delete project
-            </summary>
+            <summary className={DANGER_TRIGGER_CLASSES}>Delete project</summary>
             <form
               action={`${here}?deleteProject`}
               className="mt-4 flex flex-col gap-3 border-fail/20 border-t pt-4"

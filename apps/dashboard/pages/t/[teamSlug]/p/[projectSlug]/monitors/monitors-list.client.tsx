@@ -1,8 +1,8 @@
 "use client";
 
 import { Search } from "lucide-react";
+import { RowLink } from "@/components/row-link";
 import { useState } from "react";
-import { Link } from "@/components/ui/link";
 import {
   ExecStrip,
   MonBadge,
@@ -281,10 +281,8 @@ function MonitorRow({
       </TableCell>
 
       <TableCell className="px-2 py-3 align-middle">
-        {/* Stretched-link: the TableRow is `relative`, this Link's
-         * `after:inset-0` fills it so the whole row is the click target. */}
-        <Link
-          className="flex min-w-0 flex-col gap-[3px] focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
+        <RowLink
+          className="min-w-0 flex-col items-stretch justify-start gap-[3px]"
           href={href}
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -302,7 +300,7 @@ function MonitorRow({
           <span className="mt-px">
             <MonBadge size="sm" state={status} />
           </span>
-        </Link>
+        </RowLink>
       </TableCell>
 
       <TableCell className="w-[100px] px-2 py-3 align-middle font-mono text-[12.5px] text-fg-2">

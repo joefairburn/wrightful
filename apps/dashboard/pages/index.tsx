@@ -63,12 +63,13 @@ export default function TeamPickerPage({ teams, pendingInvites }: Props) {
                 className="flex items-center justify-between gap-4 px-5 py-3"
               >
                 <p className="truncate font-medium text-sm">{t.name}</p>
-                <Link
-                  href={`/t/${t.slug}`}
-                  className="inline-flex h-8 items-center rounded-md border border-line-1 bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-accent"
+                <Button
+                  render={<Link href={`/t/${t.slug}`} />}
+                  size="sm"
+                  variant="outline"
                 >
                   Open
-                </Link>
+                </Button>
               </li>
             ))}
           </ul>
@@ -122,24 +123,22 @@ function PendingInvitesSection({ invites }: { invites: PendingInvite[] }) {
             <div className="flex items-center gap-2">
               <form method="post" action="/?decline" className="m-0">
                 <input type="hidden" name="inviteId" value={inv.id} />
-                <button
-                  type="submit"
+                <Button
                   aria-label={`Decline invite to ${inv.teamName}`}
+                  size="icon-sm"
                   title="Decline"
-                  className="inline-flex size-8 items-center justify-center rounded-sm border border-transparent text-fg-3 transition-colors hover:border-line-1/50 hover:bg-muted hover:text-foreground"
+                  type="submit"
+                  variant="ghost"
                 >
                   <X size={14} strokeWidth={2} />
-                </button>
+                </Button>
               </form>
               <form method="post" action="/?accept" className="m-0">
                 <input type="hidden" name="inviteId" value={inv.id} />
-                <button
-                  type="submit"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line-1 bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-accent"
-                >
+                <Button size="sm" type="submit" variant="outline">
                   <Check size={12} strokeWidth={2.5} />
                   Accept
-                </button>
+                </Button>
               </form>
             </div>
           </li>

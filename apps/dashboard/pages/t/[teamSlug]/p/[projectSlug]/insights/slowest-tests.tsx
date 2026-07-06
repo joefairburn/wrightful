@@ -1,6 +1,7 @@
 import { CheckCircle2, TriangleAlert, XCircle } from "lucide-react";
+import { RowLink } from "@/components/row-link";
 import { use } from "react";
-import { Link, PREFETCH_STABLE } from "@/components/ui/link";
+import { PREFETCH_STABLE } from "@/components/ui/link";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import {
   BucketBarChart,
@@ -361,15 +362,7 @@ function BottlenecksSection({
                 return (
                   <TableRow key={row.testId}>
                     <TableCell className="w-10 px-4 py-3 align-middle">
-                      {/* Stretched-link pattern — `<Link>` is
-                       * position: static so its `after:inset-0`
-                       * pseudo fills the TableRow (which is
-                       * `relative`). Whole row = click target. */}
-                      <Link
-                        cacheFor={PREFETCH_STABLE}
-                        className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
-                        href={href}
-                      >
+                      <RowLink cacheFor={PREFETCH_STABLE} href={href}>
                         <span className="sr-only">
                           View {row.title ?? row.testId}
                         </span>
@@ -377,7 +370,7 @@ function BottlenecksSection({
                           size={16}
                           style={{ color: tone.iconColor }}
                         />
-                      </Link>
+                      </RowLink>
                     </TableCell>
                     <TableCell className="px-4 py-3 align-middle">
                       <div className="min-w-0">

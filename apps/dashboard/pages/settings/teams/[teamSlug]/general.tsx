@@ -1,4 +1,5 @@
 import { Link } from "@/components/ui/link";
+import { DANGER_TRIGGER_CLASSES } from "@/components/danger-trigger";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -207,7 +208,7 @@ export default function SettingsTeamGeneralPage({
                 artifacts. There is no recovery.
               </p>
               <details className="group">
-                <summary className="inline-flex h-[30px] cursor-pointer list-none items-center justify-center self-start rounded-[5px] border border-fail/30 bg-fail-soft px-[11px] text-[13px] font-medium text-fail transition-colors hover:bg-fail/20 [&::-webkit-details-marker]:hidden">
+                <summary className={DANGER_TRIGGER_CLASSES}>
                   Delete team
                 </summary>
                 <form

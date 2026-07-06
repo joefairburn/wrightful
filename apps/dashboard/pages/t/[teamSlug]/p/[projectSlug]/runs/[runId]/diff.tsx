@@ -5,6 +5,7 @@ import { DeferredSection } from "@/components/defer-error-boundary";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
 import { StatusGlyph } from "@/components/status-glyph";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Empty,
@@ -233,9 +234,11 @@ function RunChip({
   runsBase: string;
 }): React.ReactElement {
   return (
-    <Link
-      className="inline-flex items-center gap-2 rounded-md border border-line-1 bg-card px-2.5 py-1.5 transition-colors hover:border-line-1"
-      href={`${runsBase}/${run.id}`}
+    <Button
+      className="gap-2"
+      render={<Link href={`${runsBase}/${run.id}`} />}
+      size="sm"
+      variant="outline"
     >
       <span className="text-fg-3">{label}</span>
       <StatusGlyph size={13} status={run.status} />
@@ -244,7 +247,7 @@ function RunChip({
         <span className="font-mono text-fg-3">{run.commitSha.slice(0, 7)}</span>
       ) : null}
       <span className="text-fg-3">{formatRelativeTime(run.createdAt)}</span>
-    </Link>
+    </Button>
   );
 }
 
@@ -330,7 +333,7 @@ function Section({
   if (count === 0) return null;
   return (
     <section>
-      <h2 className="mb-2 flex items-center gap-2 text-[14px] font-semibold">
+      <h2 className="mb-2 flex items-center gap-2 text-[13.5px] font-semibold">
         {title}
         <span className="font-mono text-[12px] tabular-nums text-fg-3">
           {count}

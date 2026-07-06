@@ -1,4 +1,5 @@
 import { use } from "react";
+import { RowLink } from "@/components/row-link";
 import { Link } from "@/components/ui/link";
 import { AnalyticsKpiCard } from "@/components/analytics/kpi-card";
 import { DeferredSection } from "@/components/defer-error-boundary";
@@ -336,17 +337,12 @@ function HistoryRegion({
               return (
                 <TableRow key={h.testResultId}>
                   <TableCell className="w-10 px-4 py-3 align-middle">
-                    {/* Stretched-link: the static <Link>'s after:inset-0 fills
-                     * the `relative` TableRow, making the whole row clickable. */}
-                    <Link
-                      className="flex items-center justify-center after:absolute after:inset-0 after:rounded-sm focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring"
-                      href={href}
-                    >
+                    <RowLink href={href}>
                       <span className="sr-only">
                         View {testTitle} in run #{shortId}
                       </span>
                       <StatusGlyph size={13} status={h.status} />
-                    </Link>
+                    </RowLink>
                   </TableCell>
                   <TableCell className="px-4 py-3 align-middle">
                     <div className="flex min-w-0 items-center gap-2">

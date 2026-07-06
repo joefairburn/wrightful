@@ -51,7 +51,7 @@ export function TextLineSkeleton({
  */
 export function KpiCardSkeleton(): React.ReactElement {
   return (
-    <div className="flex min-w-0 flex-col gap-1.5 rounded-[8px] border border-line-1 bg-card px-4 py-3.5">
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-[9px] border border-line-1 bg-card px-4 py-3.5">
       <TextLineSkeleton className="w-24" text="text-[12px]" />
       <TextLineSkeleton className="w-16" text="text-[26px]" />
       <TextLineSkeleton className="w-32" text="text-[11.5px]" />

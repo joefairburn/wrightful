@@ -67,7 +67,7 @@ export function SettingsCard({
   return (
     <div
       className={cn(
-        "mb-4 rounded-[9px] bg-bg-1",
+        "mb-4 rounded-[9px] bg-card",
         isDanger ? "border border-fail/30" : "border border-line-1",
         className,
       )}

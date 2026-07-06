@@ -337,7 +337,7 @@ export function SummaryPill({
 }) {
   const cfg = cfgFor(state);
   return (
-    <div className="flex items-center gap-[7px] rounded-md border border-line-1 bg-bg-1 py-1 pl-2 pr-2.5">
+    <div className="flex items-center gap-[7px] rounded-md border border-line-1 bg-card py-1 pl-2 pr-2.5">
       <MonGlyph size={13} state={state} />
       <span
         className="font-mono text-sm font-semibold tabular-nums"
