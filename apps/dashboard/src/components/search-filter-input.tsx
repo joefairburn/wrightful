@@ -15,7 +15,7 @@ import { cn } from "@/lib/cn";
  */
 export function searchFilterInputClassName(inputClassName?: string): string {
   return cn(
-    "h-8 w-full rounded-md border border-line-1 bg-card pl-8 pr-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 [&::-webkit-search-cancel-button]:appearance-none",
+    "h-8 w-full rounded-md border border-line-1 bg-card pl-8 pr-2.5 text-[13px] text-foreground outline-none placeholder:text-fg-3/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 [&::-webkit-search-cancel-button]:appearance-none",
     inputClassName,
   );
 }
@@ -48,7 +48,7 @@ export function SearchFilterInput({
     <div className={cn("relative", className)}>
       <SearchIcon
         aria-hidden
-        className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fg-3"
       />
       <input
         className={searchFilterInputClassName(inputClassName)}

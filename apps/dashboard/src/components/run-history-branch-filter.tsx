@@ -93,7 +93,7 @@ export function RunHistoryBranchFilter({
           ) : (
             <button
               aria-label="Filter history by branch"
-              className="inline-flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[11px] text-muted-foreground outline-none transition-colors cursor-pointer hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[11px] text-fg-3 outline-none transition-colors cursor-pointer hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               type="button"
             >
               <GitBranchIcon className="size-3 opacity-80" aria-hidden />
@@ -109,10 +109,10 @@ export function RunHistoryBranchFilter({
         className="w-56 flex-col"
       >
         {branches.length > 5 && (
-          <div className="border-b border-border p-2">
+          <div className="border-b border-line-1 p-2">
             <ComboboxPrimitive.Input
               autoFocus
-              className="h-7 w-full rounded-md border border-input bg-background px-2 text-sm outline-none placeholder:text-muted-foreground/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
+              className="h-7 w-full rounded-md border border-input bg-background px-2 text-sm outline-none placeholder:text-fg-3/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
               placeholder="Search branches"
             />
           </div>

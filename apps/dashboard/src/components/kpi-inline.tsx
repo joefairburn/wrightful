@@ -19,7 +19,7 @@ export function KpiInline({ label, value, accent, className }: KpiInlineProps) {
   return (
     <div
       className={cn(
-        "flex items-baseline gap-1.5 border-r border-border pr-3 mr-1",
+        "flex items-baseline gap-1.5 border-r border-line-1 pr-3 mr-1",
         className,
       )}
     >

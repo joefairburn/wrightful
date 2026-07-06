@@ -61,7 +61,7 @@ export function BucketBarChart({
     return (
       <div
         className={cn(
-          "flex items-center justify-center rounded-lg border border-dashed border-border py-16 text-sm text-muted-foreground",
+          "flex items-center justify-center rounded-lg border border-dashed border-line-1 py-16 text-sm text-fg-3",
           className,
         )}
         style={{ minHeight: height }}
@@ -92,7 +92,7 @@ export function BucketBarChart({
         className="grid gap-2"
         style={{ gridTemplateColumns: "48px 1fr", height }}
       >
-        <div className="relative pr-1 text-right font-mono text-[10px] text-muted-foreground">
+        <div className="relative pr-1 text-right font-mono text-[10px] text-fg-3">
           {yTicks.map((t) => (
             <span
               key={t}
@@ -168,7 +168,7 @@ export function BucketBarChart({
                    * tooltip when the bar itself is very thin. */}
                   <div className="pointer-events-auto absolute inset-0" />
                   {b.tooltip && (
-                    <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-44 -translate-x-1/2 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg group-hover:block">
+                    <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-44 -translate-x-1/2 rounded-lg border border-line-1 bg-popover p-3 text-popover-foreground shadow-lg group-hover:block">
                       {b.tooltip}
                     </div>
                   )}
@@ -178,13 +178,13 @@ export function BucketBarChart({
           </div>
 
           <div
-            className="absolute inset-x-0 bottom-0 flex items-start border-t border-border pt-[4px]"
+            className="absolute inset-x-0 bottom-0 flex items-start border-t border-line-1 pt-[4px]"
             style={{ height: X_AXIS_PX }}
           >
             {buckets.map((b, i) => (
               <div
                 key={`xl-${b.key}`}
-                className="flex flex-1 justify-center font-mono text-[10px] text-muted-foreground"
+                className="flex flex-1 justify-center font-mono text-[10px] text-fg-3"
               >
                 {labelIdx.has(i) ? b.label : ""}
               </div>

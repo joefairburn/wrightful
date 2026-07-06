@@ -64,7 +64,7 @@ export function ThemeToggle({
     return (
       <button
         aria-label={label}
-        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="inline-flex size-7 items-center justify-center rounded-md text-fg-3 hover:bg-accent hover:text-foreground"
         onClick={toggle}
         title={label}
         type="button"
@@ -83,7 +83,7 @@ export function ThemeToggle({
       onClick={toggle}
       type="button"
     >
-      <Icon className="size-4 text-muted-foreground" />
+      <Icon className="size-4 text-fg-3" />
       <span>{label}</span>
     </button>
   );

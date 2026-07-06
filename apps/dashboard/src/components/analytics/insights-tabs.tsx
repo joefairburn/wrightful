@@ -63,7 +63,7 @@ export function InsightsTabs({
             "relative -mb-px px-3 py-2 text-[13px] transition-colors",
             active === t.key
               ? "text-foreground font-medium after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-[var(--running)] after:content-['']"
-              : "text-muted-foreground hover:text-foreground",
+              : "text-fg-3 hover:text-foreground",
           )}
           href={t.href}
           key={t.key}

@@ -97,7 +97,7 @@ export function OutcomeBar({
   emptyDash = false,
 }: OutcomeBarProps) {
   if (emptyDash && isOutcomeEmpty({ passed, failed, flaky, skipped, total })) {
-    return <div className="font-mono text-[10px] text-muted-foreground">—</div>;
+    return <div className="font-mono text-[10px] text-fg-3">—</div>;
   }
   const segments = outcomeBarSegments({
     passed,

@@ -69,7 +69,7 @@ export function TcpMonitorForm({
       {limitReached && (
         <div className="flex items-center gap-2.5 rounded-lg border border-fail/30 bg-fail-soft px-3.5 py-2.5 text-[12.5px]">
           <X className="size-3.5 shrink-0 text-fail" />
-          <span className="text-fg-1">Monitor limit reached.</span>
+          <span className="text-foreground">Monitor limit reached.</span>
           <span className="text-fg-3">Delete one or upgrade to add more.</span>
         </div>
       )}
@@ -77,7 +77,7 @@ export function TcpMonitorForm({
       {error && (
         <div className="flex items-center gap-2.5 rounded-lg border border-fail/30 bg-fail-soft px-3.5 py-2.5 text-[12.5px]">
           <X className="size-3.5 shrink-0 text-fail" />
-          <span className="text-fg-1">{error}</span>
+          <span className="text-foreground">{error}</span>
         </div>
       )}
 

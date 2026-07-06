@@ -14,16 +14,16 @@ import type { Props } from "./new.server";
 export default function SettingsProjectNewPage({ team, error }: Props) {
   return (
     <div className="mx-auto w-full max-w-xl p-6 sm:p-8">
-      <div className="mb-6 border-border/50 border-b pb-5">
+      <div className="mb-6 border-line-1/50 border-b pb-5">
         <Link
           href={`/settings/teams/${team.slug}`}
-          className="mb-3 inline-flex items-center gap-1.5 font-mono text-muted-foreground text-xs transition-colors hover:text-foreground"
+          className="mb-3 inline-flex items-center gap-1.5 font-mono text-fg-3 text-xs transition-colors hover:text-foreground"
         >
           <ArrowLeft size={12} strokeWidth={2} />
           {team.name}
         </Link>
         <h1 className="font-semibold text-2xl tracking-tight">New project</h1>
-        <p className="mt-1 text-muted-foreground text-sm">
+        <p className="mt-1 text-fg-3 text-sm">
           Add a project to{" "}
           <span className="font-medium text-foreground">{team.name}</span>. A
           URL slug is generated from the name.
@@ -36,13 +36,9 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
         </Alert>
       )}
 
-      <section className="rounded-lg border border-border bg-card">
-        <header className="flex items-center gap-2 border-border/50 border-b px-5 py-3">
-          <FolderPlus
-            size={14}
-            strokeWidth={2}
-            className="text-muted-foreground"
-          />
+      <section className="rounded-lg border border-line-1 bg-card">
+        <header className="flex items-center gap-2 border-line-1/50 border-b px-5 py-3">
+          <FolderPlus size={14} strokeWidth={2} className="text-fg-3" />
           <h2 className="font-semibold text-sm tracking-tight">
             Project details
           </h2>
@@ -65,7 +61,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
             <Button type="submit">Create project</Button>
             <Link
               href={`/settings/teams/${team.slug}`}
-              className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className="text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
             >
               Cancel
             </Link>

@@ -172,7 +172,7 @@ export default function LoginPage({
                 {resetEnabled && (
                   <Link
                     href="/forgot-password"
-                    className="text-[12px] text-fg-3 underline-offset-2 transition-colors hover:text-fg-1 hover:underline"
+                    className="text-[12px] text-fg-3 underline-offset-2 transition-colors hover:text-foreground hover:underline"
                   >
                     Forgot password?
                   </Link>
@@ -243,7 +243,7 @@ export default function LoginPage({
                 New to Wrightful?{" "}
                 <Link
                   href="/signup"
-                  className="text-fg-1 underline underline-offset-2"
+                  className="text-foreground underline underline-offset-2"
                 >
                   Create an account
                 </Link>

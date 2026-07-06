@@ -162,7 +162,7 @@ function AuditTableRegion({
                     {initials(entry.actorName)}
                   </div>
                   <div className="min-w-0">
-                    <div className="truncate font-medium text-[length:var(--text-fs-13)] text-fg-1">
+                    <div className="truncate font-medium text-[length:var(--text-fs-13)] text-foreground">
                       {entry.actorName}
                     </div>
                     {entry.actorEmail && (

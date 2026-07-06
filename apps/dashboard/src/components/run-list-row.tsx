@@ -72,7 +72,7 @@ export function RunListRow({
       <TableCell className="px-4 py-3 align-middle">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-fg-3">
               #{runNum}
             </span>
             <span
@@ -84,11 +84,11 @@ export function RunListRow({
               ) : run.actor ? (
                 `@${run.actor}`
               ) : (
-                <span className="italic text-muted-foreground">No message</span>
+                <span className="italic text-fg-3">No message</span>
               )}
             </span>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px] text-muted-foreground">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px] text-fg-3">
             {run.branch ? (
               <BranchPill href={branchHref} name={run.branch} />
             ) : null}
@@ -153,7 +153,7 @@ export function RunListRow({
         </div>
       </TableCell>
 
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-muted-foreground">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-fg-3">
         <LiveDuration
           completedAt={run.completedAt}
           createdAt={run.createdAt}
@@ -162,7 +162,7 @@ export function RunListRow({
         />
       </TableCell>
 
-      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-fg-3">
         {formatRelativeTime(run.createdAt)}
       </TableCell>
     </TableRow>

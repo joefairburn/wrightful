@@ -90,7 +90,7 @@ export default function SettingsProjectKeysPage({
   return (
     <SettingsPage>
       <Link
-        className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11.5px] text-fg-3 transition-colors hover:text-fg-1"
+        className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11.5px] text-fg-3 transition-colors hover:text-foreground"
         href={`/settings/teams/${project.teamSlug}/projects`}
       >
         <ArrowLeft className="size-3" />
@@ -107,7 +107,7 @@ export default function SettingsProjectKeysPage({
         open={Boolean(revealedToken)}
         title="Save this key now"
       >
-        <pre className="overflow-x-auto rounded-md border border-line-1 bg-bg-0 p-2.5 font-mono text-[13px] text-fg-1">
+        <pre className="overflow-x-auto rounded-md border border-line-1 bg-bg-0 p-2.5 font-mono text-[13px] text-foreground">
           {revealedToken}
         </pre>
       </RevealOnceDialog>
@@ -290,7 +290,7 @@ export default function SettingsProjectKeysPage({
           </div>
           <p>
             Authenticate with{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
               Authorization: Bearer &lt;key&gt;
             </code>
             . Endpoints are scoped to this project — a key never sees another
@@ -303,21 +303,21 @@ export default function SettingsProjectKeysPage({
           </ul>
           <p>
             Lists are cursor-paged: pass{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
               ?cursor=
             </code>{" "}
             from the previous response&apos;s{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
               nextCursor
             </code>
             . Add{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
               ?format=csv
             </code>{" "}
             to download a CSV — the same data the Export CSV button above
             produces. See the full{" "}
             <a
-              className="text-fg-1 underline underline-offset-2 hover:text-accent"
+              className="text-foreground underline underline-offset-2 hover:text-accent"
               href="https://github.com/joefairburn/wrightful/blob/main/docs/api/query-export.md"
               rel="noreferrer"
               target="_blank"
@@ -389,7 +389,7 @@ export default function SettingsProjectKeysPage({
               )}
               <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
                 Type{" "}
-                <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+                <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
                   {project.slug}
                 </code>{" "}
                 below to confirm.

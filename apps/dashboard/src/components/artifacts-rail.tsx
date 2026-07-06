@@ -50,7 +50,7 @@ export function ArtifactsRail({
   return (
     <div className="flex flex-col">
       {hasArtifacts ? (
-        <section className="p-5 border-b border-border">
+        <section className="p-5 border-b border-line-1">
           <SectionLabel>Artifacts</SectionLabel>
           <div className="flex flex-col gap-2">
             {media.map((a) => (
@@ -60,7 +60,7 @@ export function ArtifactsRail({
         </section>
       ) : null}
       {hasRepro ? (
-        <section className="p-5 border-b border-border">
+        <section className="p-5 border-b border-line-1">
           <SectionLabel>Reproduction</SectionLabel>
           {reproduceCommand ? (
             <TerminalBlock command={reproduceCommand} />
@@ -78,7 +78,7 @@ export function ArtifactsRail({
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm font-mono">
             {envRows.map(([label, value]) => (
               <div key={label} className="contents">
-                <dt className="text-muted-foreground text-xs">{label}</dt>
+                <dt className="text-fg-3 text-xs">{label}</dt>
                 <dd className="text-foreground">{value}</dd>
               </div>
             ))}
@@ -152,7 +152,7 @@ function RailIconLabel({
       {icon}
       {label}
       {count != null && count > 1 ? (
-        <span className="text-muted-foreground text-xs">({count})</span>
+        <span className="text-fg-3 text-xs">({count})</span>
       ) : null}
     </span>
   );
@@ -251,8 +251,8 @@ function TerminalBlock({ command }: { command: string }): React.ReactElement {
     }
   }
   return (
-    <div className="rounded-md border border-border bg-background overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/60 bg-muted/30">
+    <div className="rounded-md border border-line-1 bg-background overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-line-1/60 bg-muted/30">
         <span className="inline-flex items-center gap-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           <Terminal size={12} />
           Terminal
@@ -262,7 +262,7 @@ function TerminalBlock({ command }: { command: string }): React.ReactElement {
           onClick={() => {
             void onCopy();
           }}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-fg-3 hover:text-foreground transition-colors"
           aria-label={copied ? "Copied" : "Copy command"}
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}

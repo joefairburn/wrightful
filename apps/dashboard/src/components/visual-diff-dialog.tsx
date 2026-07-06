@@ -52,9 +52,7 @@ export function VisualDiffRailButton({
         <span className="inline-flex items-center gap-2">
           <SplitSquareHorizontal />
           Visual diff
-          <span className="text-muted-foreground text-xs">
-            {group.snapshotName}
-          </span>
+          <span className="text-fg-3 text-xs">{group.snapshotName}</span>
         </span>
         <ArrowRight className="opacity-50" aria-hidden />
       </DialogTrigger>
@@ -197,7 +195,7 @@ function SideBySideFrame({
 
 function FrameMissing(): React.ReactElement {
   return (
-    <div className="flex aspect-video w-full items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 text-muted-foreground text-sm">
+    <div className="flex aspect-video w-full items-center justify-center gap-2 rounded-md border border-dashed border-line-1 bg-muted/30 text-fg-3 text-sm">
       <ImageOff className="size-4" aria-hidden />
       Not available
     </div>

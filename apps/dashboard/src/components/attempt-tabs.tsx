@@ -34,7 +34,7 @@ function useActiveAttempt(
 function statusDotClass(status: AttemptStatus): string {
   if (status === "passed") return "bg-success";
   if (status === "failed") return "bg-destructive";
-  return "bg-muted-foreground/50";
+  return "bg-fg-3/50";
 }
 
 export function AttemptTabsBar({
@@ -71,7 +71,7 @@ export function AttemptTabsBar({
               // clip — can't cut it off.
               isActive
                 ? "font-medium text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-[var(--running)] after:content-['']"
-                : "text-muted-foreground hover:text-foreground",
+                : "text-fg-3 hover:text-foreground",
             )}
           >
             <span

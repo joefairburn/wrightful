@@ -32,7 +32,7 @@ export function TrailingAction({
     return (
       <span
         aria-label="Clear"
-        className="relative z-10 -mr-1 inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-3"
+        className="relative z-10 -mr-1 inline-flex size-5 items-center justify-center rounded-sm text-fg-3 hover:bg-accent hover:text-foreground [&_svg]:size-3"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -72,16 +72,11 @@ export function FilterTriggerButton({
     >
       <span
         aria-hidden
-        className="inline-flex shrink-0 items-center text-muted-foreground [&_svg]:size-3.5"
+        className="inline-flex shrink-0 items-center text-fg-3 [&_svg]:size-3.5"
       >
         {icon}
       </span>
-      <span
-        className={cn(
-          "flex-1 truncate text-left",
-          muted && "text-muted-foreground",
-        )}
-      >
+      <span className={cn("flex-1 truncate text-left", muted && "text-fg-3")}>
         {label}
       </span>
       <TrailingAction hasValue={hasValue} onClear={onClear} />
@@ -176,10 +171,10 @@ export function MultiComboboxFilter({
         className="w-64 flex-col"
       >
         {searchable && (
-          <div className="border-b border-border p-2">
+          <div className="border-b border-line-1 p-2">
             <ComboboxPrimitive.Input
               autoFocus
-              className="h-7 w-full rounded-md border border-input bg-background px-2 text-sm outline-none placeholder:text-muted-foreground/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
+              className="h-7 w-full rounded-md border border-input bg-background px-2 text-sm outline-none placeholder:text-fg-3/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
               placeholder={`Search ${label.toLowerCase()}`}
             />
           </div>
@@ -200,7 +195,7 @@ export function MultiComboboxFilter({
         </ComboboxList>
         <ComboboxEmpty>No matches</ComboboxEmpty>
         {hasValue && (
-          <div className="flex justify-end border-t border-border p-1.5">
+          <div className="flex justify-end border-t border-line-1 p-1.5">
             <Button onClick={() => onChange([])} size="xs" variant="ghost">
               Clear
             </Button>

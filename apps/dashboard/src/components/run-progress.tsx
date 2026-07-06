@@ -313,7 +313,7 @@ export function RunProgress({
       {showSkeleton ? (
         <TestsListSkeleton />
       ) : groups.length === 0 ? (
-        <div className="px-6 py-10 text-center text-[12.5px] text-muted-foreground">
+        <div className="px-6 py-10 text-center text-[12.5px] text-fg-3">
           {summary.totalTests === 0
             ? "No tests recorded for this run."
             : statusFilter === "recommended"

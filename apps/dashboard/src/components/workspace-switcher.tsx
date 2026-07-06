@@ -89,11 +89,11 @@ export function WorkspaceSwitcher({
           <span className="truncate text-[13px] font-medium text-foreground">
             {selectedTeam.name}
           </span>
-          <span className="truncate font-mono text-[11px] text-muted-foreground">
+          <span className="truncate font-mono text-[11px] text-fg-3">
             {selectedProject.name}
           </span>
         </span>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+        <ChevronsUpDown className="size-3.5 shrink-0 text-fg-3" />
       </PopoverTrigger>
 
       <PopoverPopup
@@ -139,7 +139,7 @@ export function WorkspaceSwitcher({
                 onClick={() => switchProject(p.slug)}
                 type="button"
               >
-                <FlaskConical className="size-3.5 text-muted-foreground" />
+                <FlaskConical className="size-3.5 text-fg-3" />
                 <span className="flex-1 truncate">{p.name}</span>
                 {p.slug === selectedProject.slug && (
                   <Check className="size-3.5 text-foreground" />
@@ -153,7 +153,7 @@ export function WorkspaceSwitcher({
           <>
             <div className="my-1.5 h-px bg-border" />
             <Link
-              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-3 hover:bg-accent hover:text-foreground"
               href={link("/settings/teams/:teamSlug/projects/new", {
                 teamSlug: selectedTeam.slug,
               })}

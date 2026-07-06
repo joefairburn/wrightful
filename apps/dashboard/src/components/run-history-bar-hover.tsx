@@ -123,7 +123,7 @@ export function RunHistoryBarHoverCard(props: Props): React.ReactElement {
       >
         <div className="flex flex-col gap-3 px-4 py-3">
           {isError ? (
-            <div className="py-2 text-center text-sm text-muted-foreground">
+            <div className="py-2 text-center text-sm text-fg-3">
               <p>Couldn't load summary.</p>
               <button
                 type="button"
@@ -165,7 +165,7 @@ function RunSummaryBody({ summary }: { summary: RunSummaryResponse }) {
     <>
       <div className="flex items-center gap-2">
         <StatusChip status={summary.status} label={`#${shortId}`} />
-        <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-2 font-mono text-[11px] text-fg-3">
           <span className="inline-flex items-center gap-0.5 text-success">
             <Check size={10} strokeWidth={3} />
             {summary.passed}
@@ -216,23 +216,23 @@ function TestResultSummaryBody({
         <div className="line-clamp-2 text-sm font-medium leading-snug">
           {summary.title}
         </div>
-        <div className="mt-1 font-mono text-[11px] text-muted-foreground truncate">
+        <div className="mt-1 font-mono text-[11px] text-fg-3 truncate">
           {summary.projectName ? `${summary.projectName} · ` : ""}
           {summary.file}
         </div>
-        <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+        <div className="mt-1 font-mono text-[11px] text-fg-3">
           {formatDuration(summary.durationMs)} (
           {formatRelativeTime(summary.createdAt)})
         </div>
       </div>
       {(summary.commitSha || commitTitle) && (
-        <div className="flex flex-col gap-1 border-t border-border pt-2">
+        <div className="flex flex-col gap-1 border-t border-line-1 pt-2">
           {commitTitle && (
-            <div className="line-clamp-1 font-mono text-[11px] text-muted-foreground">
+            <div className="line-clamp-1 font-mono text-[11px] text-fg-3">
               {commitTitle}
             </div>
           )}
-          <div className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-1.5 font-mono text-[11px] text-fg-3">
             {summary.commitSha && (
               <>
                 <GitCommit size={11} />
@@ -275,7 +275,7 @@ function TitleAndMeta({
       <div className="line-clamp-2 text-sm font-medium leading-snug">
         {title}
       </div>
-      <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+      <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-fg-3">
         {actor && (
           <span className="inline-flex items-center gap-1">
             <User size={10} />
@@ -300,7 +300,7 @@ function CommitFooter({
 }) {
   if (!commitSha) return null;
   return (
-    <div className="flex items-center gap-1.5 border-t border-border pt-2 font-mono text-[11px] text-muted-foreground">
+    <div className="flex items-center gap-1.5 border-t border-line-1 pt-2 font-mono text-[11px] text-fg-3">
       <GitCommit size={11} />
       <span>{commitSha.slice(0, 7)}</span>
       {branch && (
@@ -324,7 +324,7 @@ function StatusChip({ status, label }: { status: string; label: string }) {
         ? "bg-destructive/12 text-destructive border-destructive/24"
         : status === "flaky"
           ? "bg-warning/12 text-warning border-warning/24"
-          : "bg-muted text-muted-foreground border-border";
+          : "bg-muted text-fg-3 border-line-1";
   return (
     <span
       className={cn(

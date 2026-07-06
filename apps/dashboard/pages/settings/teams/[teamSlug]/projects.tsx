@@ -38,7 +38,7 @@ export default function SettingsTeamProjectsPage({ team, projects }: Props) {
                   <FlaskConical className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-mono font-medium text-[length:var(--text-fs-14)] text-fg-1">
+                  <div className="truncate font-mono font-medium text-[length:var(--text-fs-14)] text-foreground">
                     {p.name}
                   </div>
                   <div className="mt-0.5 text-[11.5px] text-fg-3">
@@ -46,7 +46,7 @@ export default function SettingsTeamProjectsPage({ team, projects }: Props) {
                   </div>
                 </div>
                 <Link
-                  className="text-[12px] font-medium text-fg-3 transition-colors hover:text-fg-1"
+                  className="text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
                   href={`/settings/teams/${team.slug}/p/${p.slug}/keys`}
                 >
                   Project settings

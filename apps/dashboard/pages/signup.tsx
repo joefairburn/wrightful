@@ -75,7 +75,7 @@ export default function SignupPage({ githubEnabled, verifyEmail }: Props) {
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-6 text-center">
         <header className="space-y-2">
           <h1 className="text-2xl font-semibold">Check your inbox</h1>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-fg-3 text-sm">
             We sent a verification link to{" "}
             <span className="text-foreground font-medium">{email}</span>. Click
             it to finish setting up your account, then sign in.
@@ -94,9 +94,7 @@ export default function SignupPage({ githubEnabled, verifyEmail }: Props) {
         <h1 className="text-2xl font-semibold">
           Create your Wrightful account
         </h1>
-        <p className="text-muted-foreground text-sm">
-          Get started in a few seconds.
-        </p>
+        <p className="text-fg-3 text-sm">Get started in a few seconds.</p>
       </header>
 
       <form

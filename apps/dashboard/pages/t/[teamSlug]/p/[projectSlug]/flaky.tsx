@@ -153,7 +153,7 @@ function FlakyKpiSkeleton() {
     <>
       {widths.map((valueW, i) => (
         <div
-          className="flex items-baseline gap-1.5 border-r border-border pr-3 mr-1"
+          className="flex items-baseline gap-1.5 border-r border-line-1 pr-3 mr-1"
           key={i}
         >
           <Skeleton className="h-3 w-20" />
@@ -207,7 +207,7 @@ function FlakyTableRegion({
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
-              <span className="text-xs text-muted-foreground font-mono">
+              <span className="text-xs text-fg-3 font-mono">
                 {branches.length > 0 && (
                   <>
                     Branches: {branches.slice(0, 3).join(", ")}
@@ -277,24 +277,12 @@ function FlakyTableHead({ rangeDays }: { rangeDays: number }) {
     <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          Test
-        </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          Flake rate
-        </TableHead>
-        <TableHead className="w-[180px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          {rangeDays}d trend
-        </TableHead>
-        <TableHead className="w-[280px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          Last failure
-        </TableHead>
-        <TableHead className="w-[210px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          Owner
-        </TableHead>
-        <TableHead className="w-[90px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          Last seen
-        </TableHead>
+        <TableHead className="px-4">Test</TableHead>
+        <TableHead className="w-[110px] px-4 text-right">Flake rate</TableHead>
+        <TableHead className="w-[180px] px-4">{rangeDays}d trend</TableHead>
+        <TableHead className="w-[280px] px-4">Last failure</TableHead>
+        <TableHead className="w-[210px] px-4">Owner</TableHead>
+        <TableHead className="w-[90px] px-4 text-right">Last seen</TableHead>
       </TableRow>
     </TableHeader>
   );

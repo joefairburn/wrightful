@@ -253,7 +253,7 @@ function DateRangeFilter({
         <div className="flex gap-2">
           {/* Preset column — each calls the existing `onApply(from, to)` with a
               computed yyyy-MM-dd range; the URL/refetch plumbing is unchanged. */}
-          <div className="flex w-32 shrink-0 flex-col gap-0.5 border-r border-border pr-2">
+          <div className="flex w-32 shrink-0 flex-col gap-0.5 border-r border-line-1 pr-2">
             {DATE_RANGE_PRESETS.map((preset) => (
               <Button
                 className="justify-start"

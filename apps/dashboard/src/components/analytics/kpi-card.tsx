@@ -46,7 +46,7 @@ export function AnalyticsKpiCard({
   delta,
   spark,
   Icon,
-  iconColor = "var(--color-muted-foreground)",
+  iconColor = "var(--color-fg-3)",
 }: AnalyticsKpiCardProps) {
   const deltaColor =
     delta == null

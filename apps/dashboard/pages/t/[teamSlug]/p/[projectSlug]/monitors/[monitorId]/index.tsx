@@ -866,7 +866,7 @@ function ConfigField({ label, value }: { label: string; value: string }) {
       <span className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
         {label}
       </span>
-      <span className="font-mono text-fg-1">{value}</span>
+      <span className="font-mono text-foreground">{value}</span>
     </div>
   );
 }
@@ -1284,7 +1284,9 @@ function MetaItem({
       <span className="whitespace-nowrap text-[12px] font-medium tracking-[0.1px] text-fg-3">
         {label}
       </span>
-      <span className="whitespace-nowrap text-[12.5px] text-fg-1">{value}</span>
+      <span className="whitespace-nowrap text-[12.5px] text-foreground">
+        {value}
+      </span>
     </div>
   );
 }

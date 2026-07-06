@@ -78,7 +78,7 @@ export default function SettingsTeamGeneralPage({
                 Save changes
               </Button>
               <Link
-                className="text-[12px] font-medium text-fg-3 transition-colors hover:text-fg-1"
+                className="text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
                 href={here}
               >
                 Discard
@@ -159,7 +159,7 @@ export default function SettingsTeamGeneralPage({
               <ul className="mb-4 flex flex-col gap-1">
                 {github.installations.map((login) => (
                   <li
-                    className="flex items-center gap-2 text-[length:var(--text-fs-13)] text-fg-1"
+                    className="flex items-center gap-2 text-[length:var(--text-fs-13)] text-foreground"
                     key={login}
                   >
                     <span className="size-1.5 rounded-full bg-passed" />
@@ -201,8 +201,8 @@ export default function SettingsTeamGeneralPage({
             <div className="flex flex-col gap-3">
               <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
                 Permanently deletes{" "}
-                <span className="font-medium text-fg-1">{team.name}</span> and
-                all <span className="font-mono">{projectCount}</span>{" "}
+                <span className="font-medium text-foreground">{team.name}</span>{" "}
+                and all <span className="font-mono">{projectCount}</span>{" "}
                 {projectCount === 1 ? "project" : "projects"}, runs, and
                 artifacts. There is no recovery.
               </p>
@@ -222,7 +222,7 @@ export default function SettingsTeamGeneralPage({
                   )}
                   <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
                     Type{" "}
-                    <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+                    <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
                       {team.slug}
                     </code>{" "}
                     below to confirm.

@@ -54,7 +54,7 @@ export function TablePaginationFooter({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-4 border-t border-border shrink-0 px-6 py-3 text-xs font-mono text-muted-foreground",
+        "flex items-center justify-between gap-4 border-t border-line-1 shrink-0 px-6 py-3 text-xs font-mono text-fg-3",
         className,
       )}
     >

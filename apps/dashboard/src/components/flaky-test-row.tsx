@@ -40,7 +40,7 @@ export interface FlakyTestRowProps {
 function pctTone(pct: number): string {
   if (pct >= 20) return "var(--fail)";
   if (pct >= 5) return "var(--flaky)";
-  return "var(--muted-foreground)";
+  return "var(--fg-3)";
 }
 
 /**
@@ -109,7 +109,7 @@ export function FlakyTestRow({
           >
             {cleanTitle}
           </div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[11px] text-muted-foreground">
+          <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[11px] text-fg-3">
             <span className="min-w-0 truncate" title={file}>
               {file}
             </span>
@@ -132,16 +132,14 @@ export function FlakyTestRow({
         >
           {pct.toFixed(0)}%
         </div>
-        <div className="mt-0.5 text-[10.5px] text-muted-foreground">
-          over {rangeDays}d
-        </div>
+        <div className="mt-0.5 text-[10.5px] text-fg-3">over {rangeDays}d</div>
       </TableCell>
       <TableCell className="w-[180px] px-4 py-3 align-middle">
         <Sparkline height={22} points={sparklinePoints} width={160} />
       </TableCell>
       <TableCell className="w-[280px] max-w-[280px] px-4 py-3 align-middle">
         <div
-          className="truncate font-mono text-[11.5px] text-muted-foreground"
+          className="truncate font-mono text-[11.5px] text-fg-3"
           title={latest?.errorMessage ? stripAnsi(latest.errorMessage) : ""}
         >
           {latest?.errorMessage
@@ -159,7 +157,7 @@ export function FlakyTestRow({
           title={cleanTitle}
         />
       </TableCell>
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-fg-3">
         {latest ? formatRelativeTime(latest.createdAt) : "—"}
       </TableCell>
     </TableRow>

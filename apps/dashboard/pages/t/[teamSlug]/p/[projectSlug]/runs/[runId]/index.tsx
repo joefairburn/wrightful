@@ -121,7 +121,7 @@ export default function RunDetailPage({
         {/* Sticky H1 row — fixed 52px height so the tab bar below can pin to a
          * matching `top-[52px]` with zero gap. Padding-based heights aren't
          * deterministic enough (text metrics + border can drift a couple px). */}
-        <DetailHeaderBar className="sticky top-0 z-30 border-b border-border bg-background">
+        <DetailHeaderBar className="sticky top-0 z-30 border-b border-line-1 bg-background">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <HeaderCrumbs
               items={[
@@ -134,9 +134,7 @@ export default function RunDetailPage({
             >
               <span className="min-w-0 truncate">
                 {run.commitMessage ?? (
-                  <span className="italic text-muted-foreground">
-                    No message
-                  </span>
+                  <span className="italic text-fg-3">No message</span>
                 )}
               </span>
               <RunStatusGlyphLive
@@ -145,7 +143,7 @@ export default function RunDetailPage({
                 size={18}
               />
             </h1>
-            <div className="flex shrink-0 items-center gap-3 text-[12px] text-muted-foreground">
+            <div className="flex shrink-0 items-center gap-3 text-[12px] text-fg-3">
               <span className="font-mono text-[13px] tabular-nums">
                 #{shortId}
               </span>
@@ -161,7 +159,7 @@ export default function RunDetailPage({
         </DetailHeaderBar>
 
         {/* Scrolling header — chips + summary, OutcomeBar, duration trend */}
-        <div className="border-b border-border px-6 pt-3 pb-[18px]">
+        <div className="border-b border-line-1 px-6 pt-3 pb-[18px]">
           <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px]">
             {run.branch ? (
               <BranchPill
@@ -227,7 +225,7 @@ export default function RunDetailPage({
                 "relative -mb-px px-3 py-2 text-[13px] transition-colors",
                 tab === key
                   ? "text-foreground font-medium after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-[var(--running)] after:content-['']"
-                  : "text-muted-foreground hover:text-foreground",
+                  : "text-fg-3 hover:text-foreground",
               )}
               href={tabHref(key)}
               key={key}
@@ -249,7 +247,7 @@ export default function RunDetailPage({
            * edge of the tab bar so it doesn't shift the tab pills. */}
           <Link
             aria-label="Compare this run against a baseline"
-            className="-mb-px py-2 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+            className="-mb-px py-2 text-[12.5px] text-fg-3 transition-colors hover:text-foreground"
             href={`${base}/runs/${runId}/diff`}
           >
             Compare <span aria-hidden="true">↗</span>

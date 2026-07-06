@@ -225,11 +225,7 @@ function Th({
 }) {
   return (
     <TableHead
-      className={cn(
-        "px-2 text-[12px] font-medium tracking-[0.1px] text-fg-3",
-        align === "right" && "text-right",
-        className,
-      )}
+      className={cn("px-2", align === "right" && "text-right", className)}
     >
       {children}
     </TableHead>

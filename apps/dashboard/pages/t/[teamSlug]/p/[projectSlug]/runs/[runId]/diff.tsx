@@ -53,7 +53,7 @@ export default function RunDiffPage({
   return (
     <>
       <div className="flex-1 overflow-y-auto min-h-0">
-        <DetailHeaderBar className="gap-1.5 border-b border-border">
+        <DetailHeaderBar className="gap-1.5 border-b border-line-1">
           <HeaderCrumbs
             items={[
               { label: "Runs", href: runsBase, cacheFor: PREFETCH_REALTIME },
@@ -69,8 +69,8 @@ export default function RunDiffPage({
           </h1>
         </DetailHeaderBar>
 
-        <div className="border-b border-border px-6 pt-3 pb-3">
-          <div className="text-[12.5px] text-muted-foreground">
+        <div className="border-b border-line-1 px-6 pt-3 pb-3">
+          <div className="text-[12.5px] text-fg-3">
             Diffing test results against a baseline run on{" "}
             {head.branch ? (
               <span className="font-mono">{head.branch}</span>
@@ -85,7 +85,7 @@ export default function RunDiffPage({
             {base ? (
               <RunChip label="Base" run={base} runsBase={runsBase} />
             ) : (
-              <span className="text-muted-foreground italic">no base</span>
+              <span className="text-fg-3 italic">no base</span>
             )}
           </div>
 
@@ -234,7 +234,7 @@ function RunChip({
 }): React.ReactElement {
   return (
     <Link
-      className="inline-flex items-center gap-2 rounded-md border border-line-1 bg-card px-2.5 py-1.5 transition-colors hover:border-border"
+      className="inline-flex items-center gap-2 rounded-md border border-line-1 bg-card px-2.5 py-1.5 transition-colors hover:border-line-1"
       href={`${runsBase}/${run.id}`}
     >
       <span className="text-fg-3">{label}</span>
@@ -267,8 +267,8 @@ function BaseSelector({
           className={cn(
             "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
             selectedBaseId === null
-              ? "border-border bg-secondary text-foreground"
-              : "border-line-1 text-fg-2 hover:border-border",
+              ? "border-line-1 bg-secondary text-foreground"
+              : "border-line-1 text-fg-2 hover:border-line-1",
           )}
           href={diffHref(null)}
         >
@@ -279,8 +279,8 @@ function BaseSelector({
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
               selectedBaseId === c.id
-                ? "border-border bg-secondary text-foreground"
-                : "border-line-1 text-fg-2 hover:border-border",
+                ? "border-line-1 bg-secondary text-foreground"
+                : "border-line-1 text-fg-2 hover:border-line-1",
             )}
             href={diffHref(c.id)}
             key={c.id}

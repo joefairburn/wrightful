@@ -109,7 +109,7 @@ export function RunHistoryChartFrame({
 }): React.ReactElement {
   return (
     <div
-      className={cn("rounded-lg border border-border bg-card p-4", className)}
+      className={cn("rounded-lg border border-line-1 bg-card p-4", className)}
     >
       {(title || subtitle || rightSlot) && (
         <div className="mb-3 flex items-center gap-3">
@@ -118,13 +118,13 @@ export function RunHistoryChartFrame({
               <span className="text-sm font-medium truncate">{title}</span>
             )}
             {subtitle && (
-              <span className="font-mono text-[11px] text-muted-foreground truncate">
+              <span className="font-mono text-[11px] text-fg-3 truncate">
                 {subtitle}
               </span>
             )}
           </div>
           {rightSlot && (
-            <div className="ml-auto flex items-center gap-3 font-mono text-[11px] text-muted-foreground shrink-0">
+            <div className="ml-auto flex items-center gap-3 font-mono text-[11px] text-fg-3 shrink-0">
               {rightSlot}
             </div>
           )}
@@ -197,7 +197,7 @@ export function RunHistoryChart({
         subtitle={subtitle}
         title={title}
       >
-        <div className="py-6 text-center text-xs text-muted-foreground">
+        <div className="py-6 text-center text-xs text-fg-3">
           {emptyState ?? "No history yet."}
         </div>
       </RunHistoryChartFrame>
@@ -249,7 +249,7 @@ export function RunHistoryChart({
         {/* Y-axis labels — HTML, so text doesn't stretch with the SVG.
          * Positioned absolutely so each label pins to its tick's exact y,
          * matching the dashed gridlines from `yScale.ticks()`. */}
-        <div className="relative pr-1 text-right font-mono text-[9.5px] text-muted-foreground">
+        <div className="relative pr-1 text-right font-mono text-[9.5px] text-fg-3">
           {yTicks.map((t) => (
             <span
               key={t}
@@ -336,7 +336,7 @@ export function RunHistoryChart({
            * only render for slots that have a point, so empty leading slots
            * stay blank while still keeping the overall grid alignment. */}
           <div
-            className="absolute inset-x-0 bottom-0 flex items-start border-t border-border pt-[3px]"
+            className="absolute inset-x-0 bottom-0 flex items-start border-t border-line-1 pt-[3px]"
             style={{ height: X_AXIS_PX }}
           >
             {slotKeys.map((key, i) => {
@@ -352,7 +352,7 @@ export function RunHistoryChart({
                         height: p.current ? 5 : 3,
                         background: p.current
                           ? "var(--color-info)"
-                          : "var(--color-muted-foreground)",
+                          : "var(--color-fg-3)",
                         opacity: p.current ? 1 : 0.5,
                       }}
                     />

@@ -131,7 +131,7 @@ export default function TestsPage({
       </PageToolbar>
 
       {availableTags.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-background px-6 py-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line-1 bg-background px-6 py-2">
           <span className="mr-1 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             Tags
           </span>
@@ -145,7 +145,7 @@ export default function TestsPage({
                   "rounded-full border px-2.5 py-0.5 font-mono text-[11px] transition-colors",
                   active
                     ? "border-accent bg-accent-soft text-accent"
-                    : "border-border text-muted-foreground hover:text-foreground",
+                    : "border-line-1 text-fg-3 hover:text-foreground",
                 )}
                 href={tagHref(tag)}
                 key={tag}
@@ -234,7 +234,7 @@ function TestsCatalogRegion({
                         >
                           {g.key}
                         </span>
-                        <span className="ml-2 text-[11px] text-muted-foreground">
+                        <span className="ml-2 text-[11px] text-fg-3">
                           {g.testCount} test{g.testCount === 1 ? "" : "s"}
                         </span>
                       </TableCell>
@@ -285,21 +285,13 @@ function TestsCatalogHead() {
     <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          Test
-        </TableHead>
-        <TableHead className="w-[90px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          Total runs
-        </TableHead>
-        <TableHead className="w-[200px] px-4 text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          Mix
-        </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
+        <TableHead className="px-4">Test</TableHead>
+        <TableHead className="w-[90px] px-4 text-right">Total runs</TableHead>
+        <TableHead className="w-[200px] px-4">Mix</TableHead>
+        <TableHead className="w-[110px] px-4 text-right">
           Avg duration
         </TableHead>
-        <TableHead className="w-[100px] px-4 text-right text-[12px] font-medium tracking-[0.1px] text-fg-3">
-          Last seen
-        </TableHead>
+        <TableHead className="w-[100px] px-4 text-right">Last seen</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -381,14 +373,14 @@ function TestRow({ row, base }: { row: TestsPageRow; base: string }) {
             {title}
           </span>
           <span
-            className="truncate font-mono text-[11px] text-muted-foreground"
+            className="truncate font-mono text-[11px] text-fg-3"
             title={row.file}
           >
             {row.file}
           </span>
         </div>
       </TableCell>
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-muted-foreground">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-fg-3">
         {row.n.toLocaleString()}
       </TableCell>
       <TableCell className="w-[200px] px-4 py-3 align-middle">
@@ -408,7 +400,7 @@ function TestRow({ row, base }: { row: TestsPageRow; base: string }) {
           ? "—"
           : formatDuration(Math.round(row.avgDurationMs))}
       </TableCell>
-      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-fg-3">
         {formatRelativeTime(row.lastSeen)}
       </TableCell>
     </TableRow>
