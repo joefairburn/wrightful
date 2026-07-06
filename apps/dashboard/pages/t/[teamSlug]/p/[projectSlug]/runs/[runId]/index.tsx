@@ -24,6 +24,7 @@ import {
 } from "@/components/run-meta-pills";
 import { RunProgress } from "@/components/run-progress";
 import { RunSummaryLive } from "@/components/run-summary-live";
+import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import { makeHrefBuilder } from "@/lib/page-links";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
@@ -216,28 +217,19 @@ export default function RunDetailPage({
         {/* Sticky tab bar — `top-[52px]` matches the fixed H1 row height so
          * the two sticky bands butt up against each other with no gap and no
          * overlap. */}
-        <div className="sticky top-[52px] z-20 flex items-end gap-1 border-b border-line-1 bg-background px-6">
+        <TabBar className="sticky top-[52px] z-20 bg-background px-6">
           {TAB_KEYS.map((key) => (
-            <Link
-              className={cn(
-                "relative -mb-px px-3 py-2 text-[13px] transition-colors",
-                tab === key
-                  ? "text-foreground font-medium after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-[var(--running)] after:content-['']"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              href={tabHref(key)}
-              key={key}
-            >
+            <TabBarTab active={tab === key} href={tabHref(key)} key={key}>
               {TAB_LABEL[key]}
               {key === "tests" ? (
-                <span className="ml-1.5 font-mono text-[11px] tabular-nums text-fg-3">
+                <span className="font-mono text-[11px] tabular-nums text-fg-3">
                   <RunTestCountLive
                     initialSummary={initialSummary}
                     runId={runId}
                   />
                 </span>
               ) : null}
-            </Link>
+            </TabBarTab>
           ))}
           <div className="flex-1" />
           {/* Compare affordance (roadmap 2.4): diff this run against a baseline
@@ -250,7 +242,7 @@ export default function RunDetailPage({
           >
             Compare <span aria-hidden="true">↗</span>
           </Link>
-        </div>
+        </TabBar>
 
         {/* Tab content — scrolls with the rest of the page */}
         {tab === "tests" ? (
