@@ -42,16 +42,30 @@ pills, monitor-type chip) share `META_PILL_CLASSES` (PR pill picked up mono).
 
 ### 4. One implementation per interaction pattern
 
-| Pattern               | Shared home                                                                                        | Former copies                                                                                                  |
-| --------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Underline tabs        | `underlineTabClasses()` (`underline-tabs.tsx`)                                                     | run-detail section tabs, attempt tabs, Insights sub-nav (3 near-identical blocks)                              |
-| Stretched row link    | `<RowLink>` (`row-link.tsx`)                                                                       | 6 row components (runs, flaky, tests catalog, test history, slowest tests, monitors)                           |
-| Filter-combobox popup | `ComboboxFilterPopup` (`filter-controls.tsx`)                                                      | `MultiComboboxFilter` + `RunHistoryBranchFilter` (~85% duplicate incl. a byte-identical input class)           |
-| Danger-zone trigger   | `DANGER_TRIGGER_CLASSES` (`danger-trigger.tsx`)                                                    | 4 delete-confirm `<summary>`/button sites; snapped `h-[30px]` → `h-8`                                          |
-| Button-lookalikes     | `ui/Button` (+ `render={<Link/>}`)                                                                 | team-picker Open/Accept/Decline, settings links, diff-page run links, theme toggle, monitor-form remove button |
-| Empty states          | `ui/empty`                                                                                         | monitors onboarding hero was a hand-rolled centered column                                                     |
-| Footer without pager  | `TablePaginationFooter` pagination props now optional                                              | monitors + flaky passed stub props (`pageHref={() => ""}`)                                                     |
-| Display dates         | `lib/time-format.ts` (`formatDateLabel` "6 Jul 25", `formatDateTabular` `yyyy-MM-dd`, `toIsoDate`) | inline `dd/MM/yy` + `yyyy-MM-dd` `format()` calls                                                              |
+| Pattern               | Shared home                                                                                                           | Former copies                                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Underline tabs        | `TabBar`/`TabBarTab` (`ui/tabs.tsx`, absorbed from `audit-run-detail-tabs`; replaced the unused Base UI Tabs wrapper) | run-detail section tabs, attempt tabs, Insights sub-nav, visual-diff modal (4 divergent implementations)       |
+| Stretched row link    | `<RowLink>` (`row-link.tsx`)                                                                                          | 6 row components (runs, flaky, tests catalog, test history, slowest tests, monitors)                           |
+| Filter-combobox popup | `ComboboxFilterPopup` (`filter-controls.tsx`)                                                                         | `MultiComboboxFilter` + `RunHistoryBranchFilter` (~85% duplicate incl. a byte-identical input class)           |
+| Danger-zone trigger   | `DANGER_TRIGGER_CLASSES` (`danger-trigger.tsx`)                                                                       | 4 delete-confirm `<summary>`/button sites; snapped `h-[30px]` → `h-8`                                          |
+| Button-lookalikes     | `ui/Button` (+ `render={<Link/>}`)                                                                                    | team-picker Open/Accept/Decline, settings links, diff-page run links, theme toggle, monitor-form remove button |
+| Empty states          | `ui/empty`                                                                                                            | monitors onboarding hero was a hand-rolled centered column                                                     |
+| Footer without pager  | `TablePaginationFooter` pagination props now optional                                                                 | monitors + flaky passed stub props (`pageHref={() => ""}`)                                                     |
+| Display dates         | `lib/time-format.ts` (`formatDateLabel` "6 Jul 25", `formatDateTabular` `yyyy-MM-dd`, `toIsoDate`)                    | inline `dd/MM/yy` + `yyyy-MM-dd` `format()` calls                                                              |
+
+### 4b. Tab bars absorbed from `audit-run-detail-tabs`
+
+The tab consolidation initially shipped here as a class-string helper
+(`underlineTabClasses`), but the parallel `audit-run-detail-tabs` branch built
+the better version — a `TabBar`/`TabBarTab` primitive in `ui/tabs.tsx`
+(link/button discriminated union, scrollable-underline handling), covering the
+visual-diff modal too and deleting the unused Base UI Tabs wrapper. Its commit
+(`e6f3d24`) was cherry-picked in and the helper deleted. One fix on top: the
+old Base UI dialog tabs emitted `role="tab"`/`aria-selected`, which the plain
+buttons lost — button-variant `TabBarTab`s now carry real ARIA tab semantics
+(with `role="tablist"` on their bars); navigating (`href`) tabs stay plain
+links by design. Caught by `test-detail.spec.ts` ("visual diff dialog opens
+with all four mode tabs").
 
 ### 5. Chrome snaps
 

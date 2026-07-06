@@ -1,5 +1,5 @@
-import { Link, PREFETCH_STABLE } from "@/components/ui/link";
-import { underlineTabClasses } from "@/components/underline-tabs";
+import { PREFETCH_STABLE } from "@/components/ui/link";
+import { TabBar, TabBarTab } from "@/components/ui/tabs";
 
 export type InsightsTabKey =
   | "run-status"
@@ -55,17 +55,17 @@ export function InsightsTabs({
   ];
 
   return (
-    <div className="-mb-px flex items-center gap-1 border-b border-line-1 bg-background px-6">
+    <TabBar className="-mb-px items-center bg-background px-6">
       {tabs.map((t) => (
-        <Link
+        <TabBarTab
+          active={active === t.key}
           cacheFor={PREFETCH_STABLE}
-          className={underlineTabClasses(active === t.key, "-mb-px")}
           href={t.href}
           key={t.key}
         >
           {t.label}
-        </Link>
+        </TabBarTab>
       ))}
-    </div>
+    </TabBar>
   );
 }

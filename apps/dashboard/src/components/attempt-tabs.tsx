@@ -1,5 +1,5 @@
 import type React from "react";
-import { underlineTabClasses } from "@/components/underline-tabs";
+import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import { useSearchParam } from "@/lib/use-search-param";
 
@@ -48,38 +48,31 @@ export function AttemptTabsBar({
   const values = items.map((i) => i.value);
   const [active, setActive] = useActiveAttempt(values, defaultValue);
   return (
-    // Flat underline tabs — same style as the run-detail Tests / Environment
-    // tab bar: text labels with an accent underline under the active tab,
-    // rather than boxed folder tabs. The active underline (`after`) sits on the
-    // wrapping header's bottom border via `-mb-px`.
-    <div className="flex items-end gap-1 overflow-x-auto">
-      {items.map((item) => {
-        const isActive = active === item.value;
-        return (
-          <button
-            key={item.value}
-            type="button"
-            onClick={() => {
-              setActive(item.value);
-            }}
-            aria-pressed={isActive}
-            className={underlineTabClasses(isActive, "cursor-pointer")}
-          >
-            <span
-              className={cn(
-                "inline-block size-1.5 shrink-0 rounded-full",
-                statusDotClass(item.status),
-              )}
-              aria-hidden
-            />
-            <span>{item.label}</span>
-            {item.finalSuffix ? (
-              <span className="text-[11px] text-fg-3">{item.finalSuffix}</span>
-            ) : null}
-          </button>
-        );
-      })}
-    </div>
+    // `scrollable` so many retries overflow into a horizontal scroll; the
+    // bottom rule comes from the wrapping header rather than the bar itself.
+    <TabBar role="tablist" scrollable>
+      {items.map((item) => (
+        <TabBarTab
+          active={active === item.value}
+          key={item.value}
+          onSelect={() => {
+            setActive(item.value);
+          }}
+        >
+          <span
+            aria-hidden
+            className={cn(
+              "inline-block size-1.5 shrink-0 rounded-full",
+              statusDotClass(item.status),
+            )}
+          />
+          <span>{item.label}</span>
+          {item.finalSuffix ? (
+            <span className="text-[11px] text-fg-3">{item.finalSuffix}</span>
+          ) : null}
+        </TabBarTab>
+      ))}
+    </TabBar>
   );
 }
 
