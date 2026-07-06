@@ -1,7 +1,11 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { defineConfig, devices } from "@playwright/test";
+import {
+  defineConfig,
+  devices,
+  type ReporterDescription,
+} from "@playwright/test";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -28,7 +32,7 @@ const isMinimalReporter = process.env.CI || process.env.CLAUDE;
 // demo suite (playwright.config.ts). The reporter no-ops gracefully when
 // WRIGHTFUL_URL / WRIGHTFUL_TOKEN aren't set (see reporter onBegin), so local
 // runs and the env-less CI leg stay quiet; set both to stream.
-const dashboardReporter: [string, Record<string, unknown>?] = ["@wrightful/reporter"];
+const dashboardReporter: ReporterDescription = ["@wrightful/reporter"];
 
 export default defineConfig({
   testDir: "./tests-dashboard",

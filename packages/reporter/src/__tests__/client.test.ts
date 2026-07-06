@@ -122,7 +122,9 @@ describe("StreamClient", () => {
     it("strips a trailing slash from the base URL so it can't build //api/runs", async () => {
       const fetchMock = vi
         .fn()
-        .mockResolvedValueOnce(jsonResponse(200, { runId: "run_1", runUrl: null }));
+        .mockResolvedValueOnce(
+          jsonResponse(200, { runId: "run_1", runUrl: null }),
+        );
       vi.stubGlobal("fetch", fetchMock);
 
       // A WRIGHTFUL_URL with a trailing slash previously yielded a double slash,
