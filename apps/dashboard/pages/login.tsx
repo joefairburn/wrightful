@@ -101,7 +101,7 @@ export default function LoginPage({
       />
 
       <section className="relative w-full max-w-[380px]">
-        <div className="rounded-[12px] border border-line-1 bg-bg-1 p-8 shadow-[var(--shadow-lg)]">
+        <div className="rounded-[12px] border border-line-1 bg-card p-8 shadow-[var(--shadow-lg)]">
           <form
             className="w-full"
             onSubmit={(e) => {
@@ -141,9 +141,7 @@ export default function LoginPage({
 
                 <div className="my-5 flex items-center gap-3">
                   <div className="h-px flex-1 bg-line-1" />
-                  <span className="text-[11px] text-fg-3 uppercase tracking-[0.5px]">
-                    or
-                  </span>
+                  <span className="text-[12px] text-fg-3">or</span>
                   <div className="h-px flex-1 bg-line-1" />
                 </div>
               </>
@@ -174,7 +172,7 @@ export default function LoginPage({
                 {resetEnabled && (
                   <Link
                     href="/forgot-password"
-                    className="text-[12px] text-fg-3 underline-offset-2 transition-colors hover:text-fg-1 hover:underline"
+                    className="text-[12px] text-fg-3 underline-offset-2 transition-colors hover:text-foreground hover:underline"
                   >
                     Forgot password?
                   </Link>
@@ -245,7 +243,7 @@ export default function LoginPage({
                 New to Wrightful?{" "}
                 <Link
                   href="/signup"
-                  className="text-fg-1 underline underline-offset-2"
+                  className="text-foreground underline underline-offset-2"
                 >
                   Create an account
                 </Link>

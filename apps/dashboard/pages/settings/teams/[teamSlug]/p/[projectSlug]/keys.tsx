@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { DANGER_TRIGGER_CLASSES } from "@/components/danger-trigger";
 import { ArrowLeft, Download, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "@void/react";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RevealOnceDialog } from "@/components/settings/reveal-once-dialog";
+import { StatusPill } from "@/components/status-pill";
+import { formatDateTabular } from "@/lib/time-format";
 import {
   SettingsCard,
   SettingsField,
@@ -90,7 +92,7 @@ export default function SettingsProjectKeysPage({
   return (
     <SettingsPage>
       <Link
-        className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11.5px] text-fg-3 transition-colors hover:text-fg-1"
+        className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11.5px] text-fg-3 transition-colors hover:text-foreground"
         href={`/settings/teams/${project.teamSlug}/projects`}
       >
         <ArrowLeft className="size-3" />
@@ -107,7 +109,7 @@ export default function SettingsProjectKeysPage({
         open={Boolean(revealedToken)}
         title="Save this key now"
       >
-        <pre className="overflow-x-auto rounded-md border border-line-1 bg-bg-0 p-2.5 font-mono text-[13px] text-fg-1">
+        <pre className="overflow-x-auto rounded-md border border-line-1 bg-bg-0 p-2.5 font-mono text-[13px] text-foreground">
           {revealedToken}
         </pre>
       </RevealOnceDialog>
@@ -231,24 +233,17 @@ export default function SettingsProjectKeysPage({
                       : "never used"}
                   </div>
                   <div className="w-24 text-right font-mono text-[11.5px] text-fg-3 tabular-nums">
-                    {format(new Date(k.createdAt * 1000), "yyyy-MM-dd")}
+                    {formatDateTabular(new Date(k.createdAt * 1000))}
                   </div>
-                  <span
-                    className={cn(
-                      "inline-flex w-[72px] items-center justify-center gap-1.5 rounded-sm px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wider",
-                      revoked
-                        ? "bg-fail-soft text-fail"
-                        : "bg-pass-soft text-pass",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "inline-block size-1.5 rounded-full",
-                        revoked ? "bg-fail" : "bg-pass",
-                      )}
-                    />
-                    {revoked ? "revoked" : "active"}
-                  </span>
+                  <StatusPill
+                    className="w-[72px] justify-center"
+                    cssVar={revoked ? "--fail" : "--pass"}
+                    icon={
+                      <span className="inline-block size-1.5 rounded-full bg-current" />
+                    }
+                    label={revoked ? "Revoked" : "Active"}
+                    size="sm"
+                  />
                   {!revoked && (
                     <form
                       action={`${here}?revokeKey`}
@@ -290,7 +285,7 @@ export default function SettingsProjectKeysPage({
           </div>
           <p>
             Authenticate with{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
               Authorization: Bearer &lt;key&gt;
             </code>
             . Endpoints are scoped to this project — a key never sees another
@@ -303,21 +298,21 @@ export default function SettingsProjectKeysPage({
           </ul>
           <p>
             Lists are cursor-paged: pass{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
               ?cursor=
             </code>{" "}
             from the previous response&apos;s{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
               nextCursor
             </code>
             . Add{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
               ?format=csv
             </code>{" "}
             to download a CSV — the same data the Export CSV button above
             produces. See the full{" "}
             <a
-              className="text-fg-1 underline underline-offset-2 hover:text-accent"
+              className="text-foreground underline underline-offset-2 hover:text-accent"
               href="https://github.com/joefairburn/wrightful/blob/main/docs/api/query-export.md"
               rel="noreferrer"
               target="_blank"
@@ -374,9 +369,7 @@ export default function SettingsProjectKeysPage({
             This cannot be undone.
           </p>
           <details className="group">
-            <summary className="inline-flex h-[30px] cursor-pointer list-none items-center justify-center self-start rounded-[5px] border border-fail/30 bg-fail-soft px-[11px] text-[13px] font-medium text-fail transition-colors hover:bg-fail/20 [&::-webkit-details-marker]:hidden">
-              Delete project
-            </summary>
+            <summary className={DANGER_TRIGGER_CLASSES}>Delete project</summary>
             <form
               action={`${here}?deleteProject`}
               className="mt-4 flex flex-col gap-3 border-fail/20 border-t pt-4"
@@ -389,7 +382,7 @@ export default function SettingsProjectKeysPage({
               )}
               <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
                 Type{" "}
-                <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-fg-1">
+                <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
                   {project.slug}
                 </code>{" "}
                 below to confirm.

@@ -192,7 +192,7 @@ export default function TestDetailPage(props: Props) {
 
   return (
     <div className="flex flex-col">
-      <DetailHeaderBar className="justify-between gap-4 border-b border-border">
+      <DetailHeaderBar className="justify-between gap-4 border-b border-line-1">
         <div className="flex min-w-0 items-center gap-3">
           <HeaderCrumbs
             items={[
@@ -220,8 +220,8 @@ export default function TestDetailPage(props: Props) {
       </DetailHeaderBar>
 
       {/* Metadata + tags/annotations, below the title bar. */}
-      <div className="shrink-0 border-b border-border px-6 pt-3 pb-3">
-        <div className="font-mono text-muted-foreground text-xs">
+      <div className="shrink-0 border-b border-line-1 px-6 pt-3 pb-3">
+        <div className="font-mono text-fg-3 text-xs">
           {result.file}
           {result.projectName ? ` · ${result.projectName}` : ""} ·{" "}
           {formatDuration(result.durationMs)}
@@ -273,9 +273,9 @@ export default function TestDetailPage(props: Props) {
       </div>
 
       <div className="flex flex-row gap-0">
-        <section className="flex-[3] min-w-0 flex flex-col border-r border-border bg-background">
+        <section className="flex-[3] min-w-0 flex flex-col border-r border-line-1 bg-background">
           {totalAttempts > 1 ? (
-            <div className="shrink-0 border-b border-border px-3 pt-2">
+            <div className="shrink-0 border-b border-line-1 px-3 pt-2">
               <AttemptTabsBar items={tabItems} defaultValue={defaultTab} />
             </div>
           ) : null}
@@ -297,7 +297,7 @@ export default function TestDetailPage(props: Props) {
                       errorStack={view.errorStack}
                     />
                   ) : (
-                    <p className="text-muted-foreground text-sm">
+                    <p className="text-fg-3 text-sm">
                       {label === "only attempt"
                         ? "No error details recorded."
                         : `No error details recorded for this attempt (${label}).`}
@@ -443,14 +443,14 @@ function TestArtifactsRail({
 function ArtifactsRailSkeleton() {
   return (
     <div className="flex flex-col">
-      <section className="p-5 border-b border-border">
+      <section className="p-5 border-b border-line-1">
         <Skeleton className="mb-3 h-2.5 w-16" />
         <div className="flex flex-col gap-2">
           <Skeleton className="h-8 w-full" />
           <Skeleton className="h-8 w-full" />
         </div>
       </section>
-      <section className="p-5 border-b border-border">
+      <section className="p-5 border-b border-line-1">
         <Skeleton className="mb-3 h-2.5 w-20" />
         <Skeleton className="h-[68px] w-full rounded-md" />
       </section>

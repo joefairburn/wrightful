@@ -1,6 +1,7 @@
 import { CheckCircle2, TriangleAlert, XCircle } from "lucide-react";
+import { RowLink } from "@/components/row-link";
 import { use } from "react";
-import { Link, PREFETCH_STABLE } from "@/components/ui/link";
+import { PREFETCH_STABLE } from "@/components/ui/link";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import {
   BucketBarChart,
@@ -177,7 +178,7 @@ export default function SlowestTestsPage({
                 <input name="branch" type="hidden" value={branchParam} />
               ) : null}
               <input
-                className="w-56 rounded-md border border-line-1 bg-card px-3 py-1 font-mono text-[12.5px] text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/24"
+                className="w-56 rounded-md border border-line-1 bg-card px-3 py-1 font-mono text-[12.5px] text-foreground placeholder:text-fg-3 focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/24"
                 defaultValue={q}
                 name="q"
                 placeholder="Filter path or name…"
@@ -267,7 +268,7 @@ function HistogramChart({
         total: cnt,
         tooltip: (
           <>
-            <div className="mb-1 font-mono text-[10px] text-muted-foreground">
+            <div className="mb-1 font-mono text-[10px] text-fg-3">
               {i === topBin
                 ? `${formatDuration(loMs)}+`
                 : `${formatDuration(loMs)} – ${formatDuration(hiMs)}`}
@@ -298,21 +299,11 @@ function BottlenecksTableHead() {
     <TableHeader>
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Test
-        </TableHead>
-        <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Avg
-        </TableHead>
-        <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          P95
-        </TableHead>
-        <TableHead className="w-[120px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Trend
-        </TableHead>
-        <TableHead className="w-[80px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Runs
-        </TableHead>
+        <TableHead className="px-4">Test</TableHead>
+        <TableHead className="w-[100px] px-4 text-right">Avg</TableHead>
+        <TableHead className="w-[100px] px-4 text-right">P95</TableHead>
+        <TableHead className="w-[120px] px-4">Trend</TableHead>
+        <TableHead className="w-[80px] px-4 text-right">Runs</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -371,15 +362,7 @@ function BottlenecksSection({
                 return (
                   <TableRow key={row.testId}>
                     <TableCell className="w-10 px-4 py-3 align-middle">
-                      {/* Stretched-link pattern — `<Link>` is
-                       * position: static so its `after:inset-0`
-                       * pseudo fills the TableRow (which is
-                       * `relative`). Whole row = click target. */}
-                      <Link
-                        cacheFor={PREFETCH_STABLE}
-                        className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
-                        href={href}
-                      >
+                      <RowLink cacheFor={PREFETCH_STABLE} href={href}>
                         <span className="sr-only">
                           View {row.title ?? row.testId}
                         </span>
@@ -387,7 +370,7 @@ function BottlenecksSection({
                           size={16}
                           style={{ color: tone.iconColor }}
                         />
-                      </Link>
+                      </RowLink>
                     </TableCell>
                     <TableCell className="px-4 py-3 align-middle">
                       <div className="min-w-0">
@@ -398,7 +381,7 @@ function BottlenecksSection({
                           {row.title ?? row.testId}
                         </div>
                         <div
-                          className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground"
+                          className="mt-0.5 truncate font-mono text-[11px] text-fg-3"
                           title={row.file ?? ""}
                         >
                           {row.file ?? ""}
@@ -434,7 +417,7 @@ function BottlenecksSection({
                         width={80}
                       />
                     </TableCell>
-                    <TableCell className="w-[80px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-muted-foreground">
+                    <TableCell className="w-[80px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-fg-3">
                       {row.n.toLocaleString()}
                     </TableCell>
                   </TableRow>
@@ -446,7 +429,7 @@ function BottlenecksSection({
       </CardPanel>
       {bottlenecks.length > 0 && (
         <TablePaginationFooter
-          className="border-border/50"
+          className="border-line-1/50"
           currentPage={currentPage}
           fromRow={fromRow}
           itemNoun="test"
@@ -531,11 +514,11 @@ function BottlenecksSkeleton({
           </TableBody>
         </Table>
       </CardPanel>
-      {/* Mirrors the real footer (which passes className="border-border/50");
+      {/* Mirrors the real footer (which passes className="border-line-1/50");
        * the page-number strip only appears when totalPages > 1, so this lands at
        * ~57px (multi-page) / ~41px (single page), same as the resolved footer. */}
       <TablePaginationFooterSkeleton
-        className="border-border/50"
+        className="border-line-1/50"
         showPager={totalPages > 1}
       />
     </>
@@ -573,7 +556,7 @@ function rowTone(row: BottleneckRow): RowTone {
     Icon: CheckCircle2,
     iconColor: statusToken("passed"),
     border: "border-l-border",
-    p95Text: "text-muted-foreground",
+    p95Text: "text-fg-3",
     sparkColor: statusToken("passed"),
   };
 }

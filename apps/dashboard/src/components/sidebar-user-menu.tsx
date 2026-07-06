@@ -35,7 +35,7 @@ export function SidebarUserMenu({ name, email, image }: SidebarUserMenuProps) {
           <span className="truncate text-[13px] font-medium text-foreground">
             {name}
           </span>
-          <span className="truncate font-mono text-[11px] text-muted-foreground">
+          <span className="truncate font-mono text-[11px] text-fg-3">
             {email}
           </span>
         </span>
@@ -50,9 +50,7 @@ export function SidebarUserMenu({ name, email, image }: SidebarUserMenuProps) {
           <Avatar name={name} image={image} size={28} />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{name}</p>
-            <p className="truncate font-mono text-[11px] text-muted-foreground">
-              {email}
-            </p>
+            <p className="truncate font-mono text-[11px] text-fg-3">{email}</p>
           </div>
         </div>
         <div className="my-1 h-px bg-border" />
@@ -67,7 +65,7 @@ export function SidebarUserMenu({ name, email, image }: SidebarUserMenuProps) {
           }}
           type="button"
         >
-          <LogOut className="size-4 text-muted-foreground" />
+          <LogOut className="size-4 text-fg-3" />
           <span>Sign out</span>
         </button>
       </PopoverPopup>
@@ -88,7 +86,7 @@ function Avatar({
     return (
       <img
         alt=""
-        className="shrink-0 rounded-md border border-border/50 bg-muted object-cover"
+        className="shrink-0 rounded-md border border-line-1/50 bg-muted object-cover"
         height={size}
         referrerPolicy="no-referrer"
         src={image}
@@ -99,7 +97,7 @@ function Avatar({
   }
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted font-mono font-semibold text-muted-foreground"
+      className="inline-flex shrink-0 items-center justify-center rounded-md border border-line-1/50 bg-muted font-mono font-semibold text-fg-3"
       style={{
         width: size,
         height: size,

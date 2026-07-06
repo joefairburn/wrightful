@@ -37,7 +37,7 @@ interface PageHeaderProps {
  */
 export function PageHeader({ title, crumbs = [], right }: PageHeaderProps) {
   return (
-    <DetailHeaderBar className="justify-between gap-4 border-b border-border">
+    <DetailHeaderBar className="justify-between gap-4 border-b border-line-1">
       <div className="flex min-w-0 items-center gap-1.5">
         <HeaderCrumbs items={crumbs} />
         <h1 className="min-w-0 truncate text-[17px] font-semibold tracking-[-0.2px]">

@@ -5,6 +5,7 @@ import { DeferredSection } from "@/components/defer-error-boundary";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
 import { StatusGlyph } from "@/components/status-glyph";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Empty,
@@ -53,7 +54,7 @@ export default function RunDiffPage({
   return (
     <>
       <div className="flex-1 overflow-y-auto min-h-0">
-        <DetailHeaderBar className="gap-1.5 border-b border-border">
+        <DetailHeaderBar className="gap-1.5 border-b border-line-1">
           <HeaderCrumbs
             items={[
               { label: "Runs", href: runsBase, cacheFor: PREFETCH_REALTIME },
@@ -69,8 +70,8 @@ export default function RunDiffPage({
           </h1>
         </DetailHeaderBar>
 
-        <div className="border-b border-border px-6 pt-3 pb-3">
-          <div className="text-[12.5px] text-muted-foreground">
+        <div className="border-b border-line-1 px-6 pt-3 pb-3">
+          <div className="text-[12.5px] text-fg-3">
             Diffing test results against a baseline run on{" "}
             {head.branch ? (
               <span className="font-mono">{head.branch}</span>
@@ -85,7 +86,7 @@ export default function RunDiffPage({
             {base ? (
               <RunChip label="Base" run={base} runsBase={runsBase} />
             ) : (
-              <span className="text-muted-foreground italic">no base</span>
+              <span className="text-fg-3 italic">no base</span>
             )}
           </div>
 
@@ -233,9 +234,11 @@ function RunChip({
   runsBase: string;
 }): React.ReactElement {
   return (
-    <Link
-      className="inline-flex items-center gap-2 rounded-md border border-line-1 bg-card px-2.5 py-1.5 transition-colors hover:border-border"
-      href={`${runsBase}/${run.id}`}
+    <Button
+      className="gap-2"
+      render={<Link href={`${runsBase}/${run.id}`} />}
+      size="sm"
+      variant="outline"
     >
       <span className="text-fg-3">{label}</span>
       <StatusGlyph size={13} status={run.status} />
@@ -244,7 +247,7 @@ function RunChip({
         <span className="font-mono text-fg-3">{run.commitSha.slice(0, 7)}</span>
       ) : null}
       <span className="text-fg-3">{formatRelativeTime(run.createdAt)}</span>
-    </Link>
+    </Button>
   );
 }
 
@@ -259,7 +262,7 @@ function BaseSelector({
 }): React.ReactElement {
   return (
     <div className="mt-3">
-      <div className="mb-1.5 text-[11.5px] uppercase tracking-wide text-fg-3">
+      <div className="mb-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
         Base run
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -267,8 +270,8 @@ function BaseSelector({
           className={cn(
             "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
             selectedBaseId === null
-              ? "border-border bg-secondary text-foreground"
-              : "border-line-1 text-fg-2 hover:border-border",
+              ? "border-line-1 bg-secondary text-foreground"
+              : "border-line-1 text-fg-2 hover:border-line-1",
           )}
           href={diffHref(null)}
         >
@@ -279,8 +282,8 @@ function BaseSelector({
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
               selectedBaseId === c.id
-                ? "border-border bg-secondary text-foreground"
-                : "border-line-1 text-fg-2 hover:border-border",
+                ? "border-line-1 bg-secondary text-foreground"
+                : "border-line-1 text-fg-2 hover:border-line-1",
             )}
             href={diffHref(c.id)}
             key={c.id}
@@ -330,7 +333,7 @@ function Section({
   if (count === 0) return null;
   return (
     <section>
-      <h2 className="mb-2 flex items-center gap-2 text-[14px] font-semibold">
+      <h2 className="mb-2 flex items-center gap-2 text-[13.5px] font-semibold">
         {title}
         <span className="font-mono text-[12px] tabular-nums text-fg-3">
           {count}

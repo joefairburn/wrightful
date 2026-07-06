@@ -1,4 +1,5 @@
 import { use } from "react";
+import { DANGER_TRIGGER_CLASSES } from "@/components/danger-trigger";
 import {
   ArrowRight,
   Bell,
@@ -168,13 +169,13 @@ function TypeCard({
 }) {
   return (
     <Link
-      className="group flex flex-col gap-2.5 rounded-[11px] border border-line-1 bg-bg-1 p-5 transition-colors hover:border-accent/50 hover:bg-bg-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex flex-col gap-2.5 rounded-[11px] border border-line-1 bg-card p-5 transition-colors hover:border-accent/50 hover:bg-bg-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       href={href}
     >
       <span className="flex size-10 items-center justify-center rounded-[10px] border border-line-1 bg-bg-2 text-info">
         <MonTypeGlyph size={18} type={glyph} />
       </span>
-      <span className="text-[14.5px] font-semibold">{title}</span>
+      <span className="text-[13.5px] font-semibold">{title}</span>
       <span className="text-[12.5px] leading-relaxed text-fg-3">
         {description}
       </span>
@@ -458,7 +459,7 @@ function MonitorDetailView({
 
           {/* Danger zone (owner-only). */}
           {isOwner && (
-            <section className="mt-2 overflow-hidden rounded-[9px] border border-fail/30 bg-bg-1">
+            <section className="mt-2 overflow-hidden rounded-[9px] border border-fail/30 bg-card">
               <div className="border-b border-fail/20 bg-fail-soft px-[18px] py-3">
                 <h3 className="text-[13px] font-semibold text-fail">
                   Danger zone
@@ -475,7 +476,7 @@ function MonitorDetailView({
                   </p>
                 </div>
                 <details className="group shrink-0">
-                  <summary className="inline-flex h-[30px] cursor-pointer list-none items-center justify-center rounded-[5px] border border-fail/30 bg-fail-soft px-[11px] text-[13px] font-medium text-fail transition-colors hover:bg-fail/20 [&::-webkit-details-marker]:hidden">
+                  <summary className={cn(DANGER_TRIGGER_CLASSES, "self-auto")}>
                     Delete monitor
                   </summary>
                   <form
@@ -564,13 +565,13 @@ function AnalyticsAndExecutions({
           }
           title="Executions"
         />
-        <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+        <div className="overflow-hidden rounded-[9px] border border-line-1 bg-card">
           {executions.length === 0 ? (
             <div className="px-6 py-10 text-center">
               <div className="mb-2.5 inline-flex size-10 items-center justify-center rounded-[10px] border border-line-1 bg-bg-2 text-fg-3">
                 <Clock className="size-[18px]" />
               </div>
-              <div className="text-[14px] font-medium">No executions yet</div>
+              <div className="text-[13.5px] font-medium">No executions yet</div>
               <div className="mx-auto mt-1 max-w-[360px] text-[12.5px] leading-relaxed text-fg-3">
                 {enabled
                   ? "The first execution will appear here once the scheduler picks this monitor up — usually within a minute."
@@ -625,7 +626,7 @@ function AnalyticsAndExecutionsSkeleton({
         <section className="grid grid-cols-3 gap-3">
           {Array.from({ length: 3 }, (_, i) => (
             <div
-              className="rounded-[9px] border border-line-1 bg-bg-1 px-4 py-3"
+              className="rounded-[9px] border border-line-1 bg-card px-4 py-3"
               key={i}
             >
               <Skeleton className="h-[13px] w-16" />
@@ -647,7 +648,7 @@ function AnalyticsAndExecutionsSkeleton({
       )}
       <section>
         <SectionTitle title="Executions" />
-        <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+        <div className="overflow-hidden rounded-[9px] border border-line-1 bg-card">
           {Array.from({ length: 6 }, (_, i) => (
             <div
               className={cn(
@@ -735,11 +736,11 @@ function UptimePct({ value }: { value: number | null }) {
 /** A time-based uptime stat card (http detail). */
 function UptimeStat({ label, value }: { label: string; value: number | null }) {
   return (
-    <div className="rounded-[9px] border border-line-1 bg-bg-1 px-4 py-3">
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+    <div className="rounded-[9px] border border-line-1 bg-card px-4 py-3">
+      <div className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
         {label}
       </div>
-      <div className="mt-1 font-mono text-[18px] font-semibold tabular-nums">
+      <div className="mt-1 font-mono text-[17px] font-semibold tabular-nums">
         <UptimePct value={value} />
       </div>
     </div>
@@ -810,7 +811,7 @@ function HttpConfigSummary({ config }: { config: DetailProps["httpConfig"] }) {
     );
   }
   return (
-    <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+    <div className="overflow-hidden rounded-[9px] border border-line-1 bg-card">
       <div className="flex items-center gap-2 border-b border-line-1 px-[18px] py-3">
         <span className="rounded bg-bg-3 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-fg-2">
           GET
@@ -839,7 +840,7 @@ function HttpConfigSummary({ config }: { config: DetailProps["httpConfig"] }) {
       </div>
       {config.assertions.length > 0 && (
         <div className="border-t border-line-1 px-[18px] py-3.5">
-          <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+          <div className="mb-2 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             Assertions
           </div>
           <div className="flex flex-col gap-1.5">
@@ -863,10 +864,10 @@ function HttpConfigSummary({ config }: { config: DetailProps["httpConfig"] }) {
 function ConfigField({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+      <span className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
         {label}
       </span>
-      <span className="font-mono text-fg-1">{value}</span>
+      <span className="font-mono text-foreground">{value}</span>
     </div>
   );
 }
@@ -1065,7 +1066,7 @@ function HttpExecDetail({ detail }: { detail: HttpResultDetail }) {
     <div className="border-t border-line-1 bg-bg-0 px-[18px] py-3.5">
       {detail.assertions.length > 0 && (
         <div className="mb-3">
-          <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+          <div className="mb-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             Assertions
           </div>
           <div className="flex flex-col gap-1">
@@ -1118,7 +1119,7 @@ function HttpExecDetail({ detail }: { detail: HttpResultDetail }) {
         {detail.finalUrl}
       </div>
       {detail.bodyExcerpt != null && (
-        <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-line-1 bg-bg-1 p-2.5 font-mono text-[11px] leading-relaxed text-fg-2">
+        <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-line-1 bg-card p-2.5 font-mono text-[11px] leading-relaxed text-fg-2">
           {detail.bodyExcerpt}
         </pre>
       )}
@@ -1136,7 +1137,7 @@ function TcpConfigSummary({ config }: { config: DetailProps["tcpConfig"] }) {
     );
   }
   return (
-    <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
+    <div className="overflow-hidden rounded-[9px] border border-line-1 bg-card">
       <div className="flex items-center gap-2 border-b border-line-1 px-[18px] py-3">
         <span className="rounded bg-bg-3 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-fg-2">
           TCP
@@ -1281,10 +1282,12 @@ function MetaItem({
         !last && "border-r border-r-line-1",
       )}
     >
-      <span className="whitespace-nowrap text-[10.5px] font-semibold uppercase tracking-[0.4px] text-fg-3">
+      <span className="whitespace-nowrap text-[12px] font-medium tracking-[0.1px] text-fg-3">
         {label}
       </span>
-      <span className="whitespace-nowrap text-[12.5px] text-fg-1">{value}</span>
+      <span className="whitespace-nowrap text-[12.5px] text-foreground">
+        {value}
+      </span>
     </div>
   );
 }

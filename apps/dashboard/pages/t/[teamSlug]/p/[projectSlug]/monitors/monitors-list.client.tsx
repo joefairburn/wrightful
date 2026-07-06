@@ -1,8 +1,8 @@
 "use client";
 
 import { Search } from "lucide-react";
+import { RowLink } from "@/components/row-link";
 import { useState } from "react";
-import { Link } from "@/components/ui/link";
 import {
   ExecStrip,
   MonBadge,
@@ -12,6 +12,7 @@ import {
   SummaryPill,
 } from "@/components/monitors/monitor-status";
 import { PageToolbar } from "@/components/page-toolbar";
+import { META_PILL_CLASSES } from "@/components/run-meta-pills";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { SegmentedControl } from "@/components/segmented-control";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
@@ -148,7 +149,7 @@ export function MonitorsList({
         />
         <SearchFilterInput
           aria-label="Search monitors"
-          className="w-[220px]"
+          className="w-[240px]"
           onChange={(e) => setSearch(e.currentTarget.value)}
           placeholder="Search monitors…"
           value={search}
@@ -201,13 +202,10 @@ export function MonitorsList({
 
       {filtered.length > 0 && (
         <TablePaginationFooter
-          currentPage={1}
           fromRow={1}
           itemNoun="monitor"
-          pageHref={() => ""}
           toRow={filtered.length}
           totalCount={monitors.length}
-          totalPages={1}
         />
       )}
     </div>
@@ -225,11 +223,7 @@ function Th({
 }) {
   return (
     <TableHead
-      className={cn(
-        "px-2 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-fg-3",
-        align === "right" && "text-right",
-        className,
-      )}
+      className={cn("px-2", align === "right" && "text-right", className)}
     >
       {children}
     </TableHead>
@@ -284,10 +278,8 @@ function MonitorRow({
       </TableCell>
 
       <TableCell className="px-2 py-3 align-middle">
-        {/* Stretched-link: the TableRow is `relative`, this Link's
-         * `after:inset-0` fills it so the whole row is the click target. */}
-        <Link
-          className="flex min-w-0 flex-col gap-[3px] focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
+        <RowLink
+          className="min-w-0 flex-col items-stretch justify-start gap-[3px]"
           href={href}
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -297,7 +289,7 @@ function MonitorRow({
             >
               {m.name}
             </span>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-bg-3 px-[7px] py-px font-mono text-[10.5px] text-fg-2">
+            <span className={cn(META_PILL_CLASSES, "shrink-0 gap-1")}>
               <MonTypeGlyph type={m.type} />
               {monitorTypeLabel(m.type)}
             </span>
@@ -305,7 +297,7 @@ function MonitorRow({
           <span className="mt-px">
             <MonBadge size="sm" state={status} />
           </span>
-        </Link>
+        </RowLink>
       </TableCell>
 
       <TableCell className="w-[100px] px-2 py-3 align-middle font-mono text-[12.5px] text-fg-2">

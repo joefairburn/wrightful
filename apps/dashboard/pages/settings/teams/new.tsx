@@ -14,9 +14,9 @@ import type { Props } from "./new.server";
 export default function SettingsTeamNewPage({ error }: Props) {
   return (
     <div className="mx-auto w-full max-w-xl p-6 sm:p-8">
-      <div className="mb-6 border-border/50 border-b pb-5">
+      <div className="mb-6 border-line-1/50 border-b pb-5">
         <h1 className="font-semibold text-2xl tracking-tight">Create a team</h1>
-        <p className="mt-1 text-muted-foreground text-sm">
+        <p className="mt-1 text-fg-3 text-sm">
           Teams group projects and teammates together. A URL slug is generated
           from the name.
         </p>
@@ -28,16 +28,14 @@ export default function SettingsTeamNewPage({ error }: Props) {
         </Alert>
       )}
 
-      <section className="rounded-lg border border-border bg-card">
-        <header className="flex items-center gap-2 border-border/50 border-b px-5 py-3">
-          <Users size={14} strokeWidth={2} className="text-muted-foreground" />
+      <section className="rounded-lg border border-line-1 bg-card">
+        <header className="flex items-center gap-2 border-line-1/50 border-b px-5 py-3">
+          <Users size={14} strokeWidth={2} className="text-fg-3" />
           <h2 className="font-semibold text-sm tracking-tight">Team details</h2>
         </header>
         <form method="post" className="flex flex-col gap-4 p-5">
           <Field>
-            <FieldLabel className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">
-              Team name
-            </FieldLabel>
+            <FieldLabel>Team name</FieldLabel>
             <Input
               nativeInput
               name="name"
@@ -53,7 +51,7 @@ export default function SettingsTeamNewPage({ error }: Props) {
             <Button type="submit">Create team</Button>
             <Link
               href="/settings/profile"
-              className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider transition-colors hover:text-foreground"
+              className="text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
             >
               Cancel
             </Link>

@@ -1,4 +1,4 @@
-import { cn } from "@/lib/cn";
+import { StatusPill } from "@/components/status-pill";
 
 /**
  * Monitor status vocabulary + visuals, ported from the design bundle
@@ -204,21 +204,12 @@ export function MonBadge({
 }) {
   const cfg = cfgFor(state);
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-[5px] font-medium",
-        size === "sm"
-          ? "px-1.5 py-0.5 text-[11px]"
-          : "px-2 py-[3px] text-[11.5px]",
-      )}
-      style={{
-        background: `var(--${cfg.token}-soft)`,
-        color: `var(--${cfg.token})`,
-      }}
-    >
-      <MonGlyph size={size === "sm" ? 11 : 12} state={state} />
-      {cfg.label}
-    </span>
+    <StatusPill
+      cssVar={`--${cfg.token}`}
+      icon={<MonGlyph size={size === "sm" ? 11 : 12} state={state} />}
+      label={cfg.label}
+      size={size}
+    />
   );
 }
 
@@ -346,7 +337,7 @@ export function SummaryPill({
 }) {
   const cfg = cfgFor(state);
   return (
-    <div className="flex items-center gap-[7px] rounded-md border border-line-1 bg-bg-1 py-1 pl-2 pr-2.5">
+    <div className="flex items-center gap-[7px] rounded-md border border-line-1 bg-card py-1 pl-2 pr-2.5">
       <MonGlyph size={13} state={state} />
       <span
         className="font-mono text-sm font-semibold tabular-nums"

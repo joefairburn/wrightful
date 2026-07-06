@@ -119,7 +119,6 @@ export default function FlakyTestsPage({
           flaky={flaky}
           fullPath={fullPath}
           ownerActionPath={ownerActionPath}
-          pathname={pathname}
           rangeDays={rangeDays}
         />
       </DeferredSection>
@@ -153,10 +152,10 @@ function FlakyKpiSkeleton() {
     <>
       {widths.map((valueW, i) => (
         <div
-          className="flex items-baseline gap-1.5 border-r border-border pr-3 mr-1"
+          className="flex items-baseline gap-1.5 border-r border-line-1 pr-3 mr-1"
           key={i}
         >
-          <Skeleton className="h-[10.5px] w-20" />
+          <Skeleton className="h-3 w-20" />
           <Skeleton className={`h-[13px] ${valueW}`} />
         </div>
       ))}
@@ -177,7 +176,6 @@ function FlakyTableRegion({
   branchFilter,
   branches,
   canManageOwners,
-  pathname,
 }: {
   flaky: Props["flaky"];
   base: string;
@@ -188,7 +186,6 @@ function FlakyTableRegion({
   branchFilter: string | null;
   branches: string[];
   canManageOwners: boolean;
-  pathname: string;
 }) {
   const { totalFlakyTests, ranked, sparkByTest, failsByTest, ownersByTestId } =
     use(flaky);
@@ -207,7 +204,7 @@ function FlakyTableRegion({
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
-              <span className="text-xs text-muted-foreground font-mono">
+              <span className="text-xs text-fg-3 font-mono">
                 {branches.length > 0 && (
                   <>
                     Branches: {branches.slice(0, 3).join(", ")}
@@ -258,13 +255,10 @@ function FlakyTableRegion({
         </Table>
       </div>
       <TablePaginationFooter
-        currentPage={1}
         fromRow={1}
         itemNoun="flaky test"
-        pageHref={() => pathname}
         toRow={ranked.length}
         totalCount={totalFlakyTests}
-        totalPages={1}
       />
     </>
   );
@@ -277,24 +271,12 @@ function FlakyTableHead({ rangeDays }: { rangeDays: number }) {
     <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Test
-        </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Flake rate
-        </TableHead>
-        <TableHead className="w-[180px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          {rangeDays}d trend
-        </TableHead>
-        <TableHead className="w-[280px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Last failure
-        </TableHead>
-        <TableHead className="w-[210px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Owner
-        </TableHead>
-        <TableHead className="w-[90px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Last seen
-        </TableHead>
+        <TableHead className="px-4">Test</TableHead>
+        <TableHead className="w-[110px] px-4 text-right">Flake rate</TableHead>
+        <TableHead className="w-[180px] px-4">{rangeDays}d trend</TableHead>
+        <TableHead className="w-[280px] px-4">Last failure</TableHead>
+        <TableHead className="w-[210px] px-4">Owner</TableHead>
+        <TableHead className="w-[90px] px-4 text-right">Last seen</TableHead>
       </TableRow>
     </TableHeader>
   );

@@ -1,4 +1,5 @@
 import { use } from "react";
+import { RowLink } from "@/components/row-link";
 import { Link } from "@/components/ui/link";
 import { AnalyticsKpiCard } from "@/components/analytics/kpi-card";
 import { DeferredSection } from "@/components/defer-error-boundary";
@@ -51,7 +52,7 @@ export default function TestHistoryPage(props: Props) {
     return (
       <div className="mx-auto max-w-6xl p-6 sm:p-8">
         <h1 className="mb-2 font-semibold text-2xl">Test not found</h1>
-        <p className="mb-4 text-muted-foreground text-sm">
+        <p className="mb-4 text-fg-3 text-sm">
           No runs recorded for test{" "}
           <span className="font-mono text-foreground">{testId}</span> in this
           project.
@@ -81,7 +82,7 @@ export default function TestHistoryPage(props: Props) {
 
   return (
     <>
-      <DetailHeaderBar className="justify-between gap-4 border-b border-border">
+      <DetailHeaderBar className="justify-between gap-4 border-b border-line-1">
         <div className="flex min-w-0 items-center gap-3">
           <HeaderCrumbs items={[{ label: "Tests", href: `${base}/tests` }]} />
           <StatusBadge status={meta.latestStatus} />
@@ -107,8 +108,8 @@ export default function TestHistoryPage(props: Props) {
       </DetailHeaderBar>
 
       {/* Metadata + tags, below the title bar. */}
-      <div className="shrink-0 border-b border-border px-6 pt-3 pb-3">
-        <div className="font-mono text-muted-foreground text-xs">
+      <div className="shrink-0 border-b border-line-1 px-6 pt-3 pb-3">
+        <div className="font-mono text-fg-3 text-xs">
           {meta.describeChain.length > 0
             ? `${meta.describeChain.join(" › ")} · `
             : ""}
@@ -316,11 +317,11 @@ function HistoryRegion({
       />
 
       <Card className="overflow-hidden rounded-[9px]">
-        <div className="border-b border-border px-[18px] py-3">
+        <div className="border-b border-line-1 px-[18px] py-3">
           <h2 className="text-[13px] font-semibold tracking-tight">
             Recent runs
           </h2>
-          <p className="mt-0.5 text-[11.5px] text-muted-foreground">
+          <p className="mt-0.5 text-[11.5px] text-fg-3">
             {history.length === totalRuns
               ? `All ${totalRuns.toLocaleString()} runs of this test.`
               : `Most recent ${history.length} of ${totalRuns.toLocaleString()} runs. Open a row for attempts, errors, and artifacts.`}
@@ -336,21 +337,16 @@ function HistoryRegion({
               return (
                 <TableRow key={h.testResultId}>
                   <TableCell className="w-10 px-4 py-3 align-middle">
-                    {/* Stretched-link: the static <Link>'s after:inset-0 fills
-                     * the `relative` TableRow, making the whole row clickable. */}
-                    <Link
-                      className="flex items-center justify-center after:absolute after:inset-0 after:rounded-sm focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring"
-                      href={href}
-                    >
+                    <RowLink href={href}>
                       <span className="sr-only">
                         View {testTitle} in run #{shortId}
                       </span>
                       <StatusGlyph size={13} status={h.status} />
-                    </Link>
+                    </RowLink>
                   </TableCell>
                   <TableCell className="px-4 py-3 align-middle">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="shrink-0 font-mono text-[12px] text-muted-foreground">
+                      <span className="shrink-0 font-mono text-[12px] text-fg-3">
                         #{shortId}
                       </span>
                       {message ? (
@@ -361,12 +357,12 @@ function HistoryRegion({
                           {message}
                         </span>
                       ) : (
-                        <span className="text-[13px] text-muted-foreground">
+                        <span className="text-[13px] text-fg-3">
                           {h.actor ?? "—"}
                         </span>
                       )}
                       {h.retryCount > 0 && (
-                        <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">
+                        <span className="shrink-0 font-mono text-[10.5px] text-fg-3">
                           {h.retryCount} retr
                           {h.retryCount === 1 ? "y" : "ies"}
                         </span>
@@ -375,7 +371,7 @@ function HistoryRegion({
                   </TableCell>
                   <TableCell className="w-[220px] px-4 py-3 align-middle">
                     <span
-                      className="block truncate font-mono text-[11.5px] text-muted-foreground"
+                      className="block truncate font-mono text-[11.5px] text-fg-3"
                       title={h.branch ?? undefined}
                     >
                       {h.branch ?? "—"}
@@ -385,7 +381,7 @@ function HistoryRegion({
                   <TableCell className="w-[110px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-foreground">
                     {formatDuration(h.durationMs)}
                   </TableCell>
-                  <TableCell className="w-[110px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+                  <TableCell className="w-[110px] px-4 py-3 text-right align-middle text-[12px] text-fg-3">
                     {formatRelativeTime(h.createdAt)}
                   </TableCell>
                 </TableRow>
@@ -404,18 +400,10 @@ function RecentRunsTableHead() {
     <TableHeader>
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Run
-        </TableHead>
-        <TableHead className="w-[220px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Branch
-        </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Duration
-        </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          When
-        </TableHead>
+        <TableHead className="px-4">Run</TableHead>
+        <TableHead className="w-[220px] px-4">Branch</TableHead>
+        <TableHead className="w-[110px] px-4 text-right">Duration</TableHead>
+        <TableHead className="w-[110px] px-4 text-right">When</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -448,7 +436,7 @@ function HistoryRegionSkeleton({
         )} runs of this test`}
       />
       <Card className="overflow-hidden rounded-[9px]">
-        <div className="border-b border-border px-[18px] py-3">
+        <div className="border-b border-line-1 px-[18px] py-3">
           <h2 className="text-[13px] font-semibold tracking-tight">
             Recent runs
           </h2>

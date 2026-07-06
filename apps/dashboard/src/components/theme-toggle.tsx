@@ -1,5 +1,6 @@
 import { MoonIcon, SunIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { applyTheme, isDarkApplied, persistTheme } from "@/lib/theme";
 
@@ -62,15 +63,16 @@ export function ThemeToggle({
 
   if (variant === "icon-button") {
     return (
-      <button
+      <Button
         aria-label={label}
-        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="text-fg-3 hover:text-foreground"
         onClick={toggle}
+        size="icon-sm"
         title={label}
-        type="button"
+        variant="ghost"
       >
         <Icon className="size-3.5" />
-      </button>
+      </Button>
     );
   }
 
@@ -83,7 +85,7 @@ export function ThemeToggle({
       onClick={toggle}
       type="button"
     >
-      <Icon className="size-4 text-muted-foreground" />
+      <Icon className="size-4 text-fg-3" />
       <span>{label}</span>
     </button>
   );

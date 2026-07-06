@@ -207,16 +207,16 @@ function TrendChart({
       values: [peak ?? null],
       tooltip: (
         <>
-          <div className="mb-1 border-b border-border/50 pb-1 font-mono text-[10px] text-muted-foreground">
+          <div className="mb-1 border-b border-line-1/50 pb-1 font-mono text-[10px] text-fg-3">
             {s.label}
           </div>
           <div className="font-mono text-xs">
             {peak == null ? (
-              <span className="text-muted-foreground">No data</span>
+              <span className="text-fg-3">No data</span>
             ) : (
               <>
                 <span className="text-foreground">{peak.toLocaleString()}</span>{" "}
-                <span className="text-muted-foreground">tests</span>
+                <span className="text-fg-3">tests</span>
               </>
             )}
           </div>
@@ -385,7 +385,7 @@ function DistributionRow({
       <div className="w-16 text-right font-mono text-sm text-foreground">
         {value.toLocaleString()}
       </div>
-      <div className="w-12 text-right font-mono text-[11px] text-muted-foreground">
+      <div className="w-12 text-right font-mono text-[11px] text-fg-3">
         {pct.toFixed(0)}%
       </div>
     </li>
@@ -393,9 +393,5 @@ function DistributionRow({
 }
 
 function EmptyRow({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="py-6 text-center text-xs text-muted-foreground">
-      {children}
-    </div>
-  );
+  return <div className="py-6 text-center text-xs text-fg-3">{children}</div>;
 }

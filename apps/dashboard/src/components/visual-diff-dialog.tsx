@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs";
+import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import { useSearchParam } from "@/lib/use-search-param";
 
@@ -52,9 +52,7 @@ export function VisualDiffRailButton({
         <span className="inline-flex items-center gap-2">
           <SplitSquareHorizontal />
           Visual diff
-          <span className="text-muted-foreground text-xs">
-            {group.snapshotName}
-          </span>
+          <span className="text-fg-3 text-xs">{group.snapshotName}</span>
         </span>
         <ArrowRight className="opacity-50" aria-hidden />
       </DialogTrigger>
@@ -91,62 +89,52 @@ export function VisualDiffViewer({
   const activeMode: Mode =
     tabValues.find((m) => m === mode) ?? tabValues[0] ?? "diff";
 
+  // Panels are URL-driven off `?vmode=` — only the active one renders.
   return (
-    <Tabs
-      value={activeMode}
-      onValueChange={(v) => {
-        setMode(v);
-      }}
-      className="px-6 pb-6 gap-4"
-    >
-      <TabsList variant="underline" className="self-start">
+    <div className="flex flex-col gap-4 px-6 pb-6">
+      <TabBar role="tablist">
         {tabValues.map((m) => (
-          <TabsTab key={m} value={m}>
+          <TabBarTab
+            active={activeMode === m}
+            key={m}
+            onSelect={() => {
+              setMode(m);
+            }}
+          >
             {labelFor(m)}
-          </TabsTab>
+          </TabBarTab>
         ))}
-      </TabsList>
-      {tabValues.includes("diff") ? (
-        <TabsPanel value="diff">
-          <FrameImage
-            frame={group.diff}
-            alt={`Diff for ${group.snapshotName}`}
-          />
-        </TabsPanel>
+      </TabBar>
+      {activeMode === "diff" ? (
+        <FrameImage frame={group.diff} alt={`Diff for ${group.snapshotName}`} />
       ) : null}
-      {tabValues.includes("expected") ? (
-        <TabsPanel value="expected">
-          <FrameImage
+      {activeMode === "expected" ? (
+        <FrameImage
+          frame={group.expected}
+          alt={`Expected baseline for ${group.snapshotName}`}
+        />
+      ) : null}
+      {activeMode === "actual" ? (
+        <FrameImage
+          frame={group.actual}
+          alt={`Actual capture for ${group.snapshotName}`}
+        />
+      ) : null}
+      {activeMode === "side-by-side" ? (
+        <div className="grid grid-cols-2 gap-2">
+          <SideBySideFrame
+            label="Expected"
             frame={group.expected}
             alt={`Expected baseline for ${group.snapshotName}`}
           />
-        </TabsPanel>
-      ) : null}
-      {tabValues.includes("actual") ? (
-        <TabsPanel value="actual">
-          <FrameImage
+          <SideBySideFrame
+            label="Actual"
             frame={group.actual}
             alt={`Actual capture for ${group.snapshotName}`}
           />
-        </TabsPanel>
+        </div>
       ) : null}
-      {tabValues.includes("side-by-side") ? (
-        <TabsPanel value="side-by-side">
-          <div className="grid grid-cols-2 gap-2">
-            <SideBySideFrame
-              label="Expected"
-              frame={group.expected}
-              alt={`Expected baseline for ${group.snapshotName}`}
-            />
-            <SideBySideFrame
-              label="Actual"
-              frame={group.actual}
-              alt={`Actual capture for ${group.snapshotName}`}
-            />
-          </div>
-        </TabsPanel>
-      ) : null}
-    </Tabs>
+    </div>
   );
 }
 
@@ -179,7 +167,7 @@ function SideBySideFrame({
 }): React.ReactElement {
   return (
     <figure className="flex flex-col gap-1">
-      <figcaption className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+      <figcaption className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
         {label}
       </figcaption>
       {frame ? (
@@ -197,7 +185,7 @@ function SideBySideFrame({
 
 function FrameMissing(): React.ReactElement {
   return (
-    <div className="flex aspect-video w-full items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 text-muted-foreground text-sm">
+    <div className="flex aspect-video w-full items-center justify-center gap-2 rounded-md border border-dashed border-line-1 bg-muted/30 text-fg-3 text-sm">
       <ImageOff className="size-4" aria-hidden />
       Not available
     </div>

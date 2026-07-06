@@ -520,7 +520,7 @@ function SettingsSectionLabel({
 }) {
   return (
     <div
-      className="truncate px-2.5 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground"
+      className="truncate px-2.5 pb-1 pt-2 text-[12px] font-medium tracking-[0.1px] text-fg-3"
       title={title}
     >
       {children}

@@ -29,7 +29,7 @@ export function SettingsHeader({
 }) {
   return (
     <div className="mb-6">
-      <div className="font-semibold text-[length:var(--text-fs-12)] text-fg-3 uppercase tracking-wider">
+      <div className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
         Settings
       </div>
       <h1 className="mt-1 font-semibold text-[length:var(--text-fs-22)] tracking-tight">
@@ -67,7 +67,7 @@ export function SettingsCard({
   return (
     <div
       className={cn(
-        "mb-4 rounded-[9px] bg-bg-1",
+        "mb-4 rounded-[9px] bg-card",
         isDanger ? "border border-fail/30" : "border border-line-1",
         className,
       )}
