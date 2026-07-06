@@ -311,7 +311,7 @@ jobs:
         # (WRIGHTFUL_DOGFOOD_TOKEN), kept separate from the real dashboard e2e
         # suite (test-e2e-ui), which uses WRIGHTFUL_TOKEN.
         env:
-          WRIGHTFUL_URL: https://dash.wrightful.dev
+          WRIGHTFUL_URL: ${{ secrets.WRIGHTFUL_URL }}
           WRIGHTFUL_TOKEN: ${{ secrets.WRIGHTFUL_DOGFOOD_TOKEN }}
         run: pnpm --filter @wrightful/e2e exec playwright test tests/demo.spec.ts
 
@@ -369,16 +369,17 @@ jobs:
         # workflow_dispatch / `act`, commit the PNGs, then set the var to
         # "1" in repo settings). Until then, visual.spec self-skips.
         #
-        # Dogfood: on a push to main, stream this suite's results into the prod
-        # Wrightful dashboard. WRIGHTFUL_URL/TOKEN are gated on the push event so
-        # PR runs never write to prod; on PRs both resolve to '' and the reporter
-        # no-ops (streaming disabled). The suite still tests against the LOCAL
-        # dashboard it boots at :5189 — WRIGHTFUL_URL is only the stream target.
+        # Dogfood: stream this suite's results into the prod Wrightful dashboard
+        # on both PRs and push-to-main. Creds come from repo secrets; on fork PRs
+        # (where GitHub withholds secrets) both resolve to '' and the reporter
+        # no-ops (streaming disabled) rather than failing. The suite still tests
+        # against the LOCAL dashboard it boots at :5189 — WRIGHTFUL_URL is only
+        # the stream target.
         env:
           WRIGHTFUL_VISUAL_BASELINE_OK: ${{ vars.VISUAL_BASELINE_OK }}
           DATABASE_URL: postgres://wrightful:wrightful@localhost:5432/wrightful_test
-          WRIGHTFUL_URL: ${{ github.event_name == 'push' && 'https://dash.wrightful.dev' || '' }}
-          WRIGHTFUL_TOKEN: ${{ github.event_name == 'push' && secrets.WRIGHTFUL_TOKEN || '' }}
+          WRIGHTFUL_URL: ${{ secrets.WRIGHTFUL_URL }}
+          WRIGHTFUL_TOKEN: ${{ secrets.WRIGHTFUL_TOKEN }}
         run: pnpm --filter @wrightful/e2e test:dashboard
 
       - name: Upload Playwright report on failure

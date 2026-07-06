@@ -20,7 +20,7 @@ dogfoods on merge.
 | File | Change |
 | --- | --- |
 | `packages/e2e/playwright.dashboard.config.ts` | Added `["@wrightful/reporter"]` to **both** reporter arrays (the minimal `line`/`html` CI/agent branch and the interactive `list` branch), mirroring `playwright.config.ts`. Introduced a `dashboardReporter` const so both branches stay in sync. |
-| `.github/workflows/ci.yml` (`test-e2e-ui` job) | Added `WRIGHTFUL_URL` + `WRIGHTFUL_TOKEN` to the "Run dashboard UI e2e tests" step env, **gated on `github.event_name == 'push'`**. On PRs both resolve to `''` and the reporter no-ops. Uses `secrets.WRIGHTFUL_TOKEN` (the real/main project). |
+| `.github/workflows/ci.yml` (`test-e2e-ui` job) | Added `WRIGHTFUL_URL` + `WRIGHTFUL_TOKEN` (from `secrets.WRIGHTFUL_URL` / `secrets.WRIGHTFUL_TOKEN`) to the "Run dashboard UI e2e tests" step env. Streams on **both PRs and push-to-main**; only fork PRs (secrets withheld) resolve to `''` and no-op. Uses the real/main project token. |
 | `.github/workflows/ci.yml` (`dogfood-stream` job) | Repointed the demo suite from `secrets.WRIGHTFUL_TOKEN` to `secrets.WRIGHTFUL_DOGFOOD_TOKEN` so synthetic demo runs land in a dedicated dogfood project, kept separate from the real suite's project. |
 | `.github/workflows/ci.yml` (`test-e2e-ui` job) | Added a **Build reporter** step. Playwright resolves every reporter at config-load time, so once `playwright.dashboard.config.ts` references `@wrightful/reporter`, its `dist/` must exist even on the env-less PR leg — otherwise the config fails to load with `MODULE_NOT_FOUND` before any test runs. |
 
@@ -40,15 +40,15 @@ The dashboard suite boots its **own local dashboard at `:5189`** (its Playwright
 `baseURL` — what it tests against). `WRIGHTFUL_URL` is a *separate* concern: the
 dashboard the reporter *streams to*. They are intentionally different.
 
-### No double-streaming
+### Suite ↔ project isolation
 
-`dogfood-stream` (demo suite) keys off `github.event.pull_request.labels`, which
-is empty on push events, so it's skipped on push-to-main. On a labeled PR it
-streams the demo suite while `test-e2e-ui` stays quiet (PR event → empty creds).
-The two never stream simultaneously — and even if they did, they now write to
-**separate projects** (`WRIGHTFUL_DOGFOOD_TOKEN` vs `WRIGHTFUL_TOKEN`).
-`dogfood-stream` was left in place; it can be retired separately if the
-demo-suite dogfood is no longer wanted.
+The real dashboard suite (`test-e2e-ui`) streams to the main project
+(`WRIGHTFUL_TOKEN`) on every PR and push. The synthetic demo suite
+(`dogfood-stream`) streams to a dedicated dogfood project
+(`WRIGHTFUL_DOGFOOD_TOKEN`) only on labeled PRs. On a labeled PR both can stream
+at once, but they write to **separate projects**, so real and synthetic data
+never mix. `dogfood-stream` was left in place; it can be retired separately if
+the demo-suite dogfood is no longer wanted.
 
 ## To stream locally
 
