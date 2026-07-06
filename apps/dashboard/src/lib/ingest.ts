@@ -659,7 +659,7 @@ export function activityBumpStatement(
  * literals is safe (and, like {@link bucketExpr}, sidesteps D1's bound-param
  * text affinity).
  */
-function statusMatchSql(statuses: readonly string[]) {
+export function statusMatchSql(statuses: readonly string[]) {
   const list = statuses.map((s) => `'${s}'`).join(", ");
   return statuses.length === 1
     ? sql.raw(`"status" = ${list}`)

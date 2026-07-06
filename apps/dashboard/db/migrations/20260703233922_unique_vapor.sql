@@ -1,3 +1,4 @@
+-- void:allow-destructive
 CREATE TABLE "tests" (
 	"id" text PRIMARY KEY NOT NULL,
 	"projectId" text NOT NULL,

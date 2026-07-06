@@ -9,7 +9,7 @@ import {
 } from "@schema";
 import { ciRunsJoinOn } from "@/lib/analytics/filters";
 import { rankFlakyTests } from "@/lib/analytics/flaky-ranking";
-import { paginateRunTests, runTestsOrderBy } from "@/lib/run-results-page";
+import { paginateRunTests } from "@/lib/run-results-page";
 import {
   childByIdWhere,
   childByTestResultWhere,
@@ -105,7 +105,7 @@ export async function loadMcpRunTests(
     scope,
     runId,
     opts,
-    (where, limit) =>
+    (where, orderBy, limit) =>
       db
         .select({
           id: testResults.id,
@@ -121,7 +121,7 @@ export async function loadMcpRunTests(
         })
         .from(testResults)
         .where(where)
-        .orderBy(...runTestsOrderBy())
+        .orderBy(...orderBy)
         .limit(limit),
     (r) => ({
       id: r.id,

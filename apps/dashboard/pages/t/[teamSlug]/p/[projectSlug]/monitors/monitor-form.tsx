@@ -1,7 +1,7 @@
 "use client";
 
 import { Play } from "lucide-react";
-import { Link } from "@void/react";
+import { Link } from "@/components/ui/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CodeEditor } from "@/components/ui/code-editor";
@@ -12,20 +12,7 @@ import {
   MonitorFormBanners,
   NativeSelect,
 } from "./monitor-form-parts";
-import { INTERVAL_OPTIONS } from "./monitors-ui.shared";
-
-/**
- * The default Playwright spec seeded into a freshly-created monitor's editor.
- * A minimal, runnable smoke check the user edits to point at their own flow —
- * concrete enough to run as-is, simple enough to read at a glance.
- */
-export const DEFAULT_MONITOR_SPEC = `import { test, expect } from "@playwright/test";
-
-test("homepage loads", async ({ page }) => {
-  await page.goto("https://example.com");
-  await expect(page).toHaveTitle(/Example/);
-});
-`;
+import { DEFAULT_MONITOR_SPEC, INTERVAL_OPTIONS } from "./monitors-ui.shared";
 
 export interface MonitorFormProps {
   /** Where the form POSTs — `${monitorsBase}/new` or `…/${id}?updateMonitor`. */

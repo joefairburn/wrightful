@@ -3,7 +3,6 @@ import { and, db, desc, eq } from "void/db";
 import { runs } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { loadRunResultsPage } from "@/lib/run-results-page";
 import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
 import { runByIdWhere, runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
@@ -11,12 +10,17 @@ import { requireTenantContext } from "@/lib/tenant-context";
 export type Props = InferProps<typeof loader>;
 
 const HISTORY_LIMIT = 30;
-const TESTS_LIMIT = 200;
 
 /**
- * Run detail loader. Resolves the active run + its history strip + the
- * first page of tests in a single batch. The page component subscribes via
- * `useRunRoom(runId)` for live updates merged on top of these SSR-seeded rows.
+ * Run detail loader. Resolves the active run + the eager bits the shell needs
+ * (run row → live-chip seed, branch list → chart filter, history → deferred
+ * chart). The Tests-tab group list is NOT loaded here — it loads client-side
+ * behind a skeleton via TanStack (`RunProgress`), so the page shell + header +
+ * filter chips paint immediately and the group list streams in on demand,
+ * matching the deferred-load pattern used elsewhere on the page.
+ *
+ * The page subscribes via `useRunRoom(runId)`: the summary (from `run.*`) drives
+ * the live filter chips, and live `changedTests` merge into loaded groups.
  */
 export const loader = defineHandler(async (c) => {
   const runId = c.req.param("runId");
@@ -48,6 +52,9 @@ export const loader = defineHandler(async (c) => {
   if (effectiveBranch !== ALL_BRANCHES) {
     historyConditions.push(eq(runs.branch, effectiveBranch));
   }
+  // Duration-trend history query builder — DEFERRED (see `chart` in the return).
+  // The resolver awaits this so `defer()` streams the plot body below the fold.
+  // History is not a realtime seed, so deferring it can't tear the live islands.
   const historyQuery = db
     .select({
       id: runs.id,
@@ -63,36 +70,12 @@ export const loader = defineHandler(async (c) => {
     .orderBy(desc(runs.createdAt))
     .limit(HISTORY_LIMIT);
 
-  // Tests stay EAGER — they seed the realtime tests-list island. `<RunProgress>`
-  // feeds `tests` straight into `useRunRoom({ initialTests })`, and that seed is
-  // an identity dep of `useSeededState`: if `tests` streamed in as a deferred
-  // prop, the array would arrive with a fresh reference AFTER the island had
-  // already mounted its WS subscription and folded any `progress` events that
-  // landed in the gap — the reseed would then DISCARD those folded events (rooms
-  // have no replay, so they're gone for good), and the suspended island would
-  // also connect its socket late. Both break live progress on an in-flight run.
-  // So the ~200-row scan is awaited here alongside the 404-gated `run`.
   // `branches` is a cheap index-covered DISTINCT and drives the always-visible
-  // branch filter in the chart's title row. Loading it EAGER (in parallel with
-  // the tests scan) lets the chart's skeleton render the real filter + title
-  // row while only the history plot streams in — so the title row is identical
-  // markup in both states and can't shift. Only `history` stays deferred.
-  const [resultsPage, branches] = await Promise.all([
-    loadRunResultsPage(scope, runId, {
-      cursor: null,
-      limit: TESTS_LIMIT,
-      status: null,
-    }),
-    loadProjectBranches(scope),
-  ]);
-
-  // The full-run select() above already 404s on a foreign/missing run, so the
-  // run is owned here; loadRunResultsPage's own ownership probe agrees.
-  const tests = resultsPage?.results ?? [];
-  // Non-null when the run has more tests than TESTS_LIMIT — the client
-  // back-paginates the rest from GET /results (see `useRunRoom`'s backfill)
-  // so the Tests tab list + filter counts cover the whole run.
-  const testsCursor = resultsPage?.nextCursor ?? null;
+  // branch filter in the chart's title row. Loading it EAGER lets the chart's
+  // skeleton render the real filter + title row while only the history plot
+  // streams in — so the title row is identical markup in both states and can't
+  // shift.
+  const branches = await loadProjectBranches(scope);
 
   // This loader sets no Cache-Control, so nothing changes there: a deferred
   // loader streams its body (NDJSON on SPA nav / chunked HTML on document load),
@@ -115,8 +98,10 @@ export const loader = defineHandler(async (c) => {
     effectiveBranch,
     tab,
     pathname: url.pathname,
-    tests,
-    testsCursor,
+    // Whether the run is sharded — gates the "Shard" group-by option. Read off
+    // the run's declared shard total (set at open from config.shard.total) so
+    // it's known before any row loads, not derived from the loaded rows.
+    isSharded: run.expectedShards != null,
     branches,
 
     // Below-the-fold duration-trend history. ONLY the plot data is deferred —

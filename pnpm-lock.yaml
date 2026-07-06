@@ -104,6 +104,9 @@ importers:
       aws4fetch:
         specifier: ^1.0.20
         version: 1.0.20
+      better-all:
+        specifier: ^0.0.7
+        version: 0.0.7
       better-auth:
         specifier: ^1.6.11
         version: 1.6.11(@cloudflare/workers-types@4.20260522.1)(@opentelemetry/api@1.9.1)(better-sqlite3@12.10.0)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260522.1)(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(better-sqlite3@12.10.0)(kysely@0.28.17)(pg@8.22.0))(next@16.2.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.61.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(pg@8.22.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.9)
@@ -3469,6 +3472,9 @@ packages:
 
   bcrypt-pbkdf@1.0.2:
     resolution: {integrity: sha512-qeFIXtP4MSoi6NLqO12WfqARWWuCKi2Rn/9hJLEmtB5yTNr9DqFWkJRCf2qShWzPeAMRnOgCrq0sg/KLv5ES9w==}
+
+  better-all@0.0.7:
+    resolution: {integrity: sha512-xgdUMWb88Qhz6RtC/PY/7QtR61K/JabCcbKhNYYuXC/IoY3c/bgYdIjVxyTHXR41KP8JQeP+6dg4zH4KOpwJzw==}
 
   better-auth@1.6.11:
     resolution: {integrity: sha512-Wwt6+q07dwIhsp6XiM7L1qSXVUWBEtNl+eZvwM778CguFqDZFBN9Pt6LtFaHl55t8Z+Zc//5kxcbgDY8/79vFQ==}
@@ -8349,6 +8355,8 @@ snapshots:
   bcrypt-pbkdf@1.0.2:
     dependencies:
       tweetnacl: 0.14.5
+
+  better-all@0.0.7: {}
 
   better-auth@1.6.11(@cloudflare/workers-types@4.20260522.1)(@opentelemetry/api@1.9.1)(better-sqlite3@12.10.0)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260522.1)(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(better-sqlite3@12.10.0)(kysely@0.28.17)(pg@8.22.0))(next@16.2.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.61.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(pg@8.22.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.9):
     dependencies:
