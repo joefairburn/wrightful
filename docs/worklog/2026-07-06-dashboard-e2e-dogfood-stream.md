@@ -22,6 +22,7 @@ dogfoods on merge.
 | `packages/e2e/playwright.dashboard.config.ts` | Added `["@wrightful/reporter"]` to **both** reporter arrays (the minimal `line`/`html` CI/agent branch and the interactive `list` branch), mirroring `playwright.config.ts`. Introduced a `dashboardReporter` const so both branches stay in sync. |
 | `.github/workflows/ci.yml` (`test-e2e-ui` job) | Added `WRIGHTFUL_URL` + `WRIGHTFUL_TOKEN` to the "Run dashboard UI e2e tests" step env, **gated on `github.event_name == 'push'`**. On PRs both resolve to `''` and the reporter no-ops. Uses `secrets.WRIGHTFUL_TOKEN` (the real/main project). |
 | `.github/workflows/ci.yml` (`dogfood-stream` job) | Repointed the demo suite from `secrets.WRIGHTFUL_TOKEN` to `secrets.WRIGHTFUL_DOGFOOD_TOKEN` so synthetic demo runs land in a dedicated dogfood project, kept separate from the real suite's project. |
+| `.github/workflows/ci.yml` (`test-e2e-ui` job) | Added a **Build reporter** step. Playwright resolves every reporter at config-load time, so once `playwright.dashboard.config.ts` references `@wrightful/reporter`, its `dist/` must exist even on the env-less PR leg — otherwise the config fails to load with `MODULE_NOT_FOUND` before any test runs. |
 
 ### Why it's safe to always configure the reporter
 

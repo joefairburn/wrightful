@@ -353,6 +353,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # playwright.dashboard.config.ts references @wrightful/reporter (streaming
+      # dogfood). Playwright resolves every reporter at config-load time, so the
+      # reporter's dist/ must exist even on the PR leg where it no-ops.
+      - name: Build reporter
+        run: pnpm --filter @wrightful/reporter build
+
       - name: Install Playwright browsers
         run: pnpm --filter @wrightful/e2e exec playwright install --with-deps chromium
 
