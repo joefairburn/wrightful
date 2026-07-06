@@ -60,8 +60,10 @@ describe("buildArtifactHeaders", () => {
     const headers = buildArtifactHeaders(read({ size: 4096 }), baseOpts);
     expect(headers.get("etag")).toBe('"abc123"');
     expect(headers.get("content-length")).toBe("4096");
+    // s-maxage caps SHARED caches (Workers Cache) to the artifact-token TTL so
+    // an edge-cached response can't outlive the token that authorized it.
     expect(headers.get("cache-control")).toBe(
-      "public, max-age=31536000, immutable",
+      "public, max-age=31536000, s-maxage=3600, immutable",
     );
   });
 

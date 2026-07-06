@@ -3,6 +3,7 @@ import { and, db, eq, inArray } from "void/db";
 import { logger } from "void/log";
 import { storage } from "void/storage";
 import { artifacts, runs, testResults } from "@schema";
+import { ARTIFACT_TOKEN_TTL_SECONDS } from "@/lib/artifact-tokens";
 import { safeContentType } from "@/lib/content-types";
 import { isUniqueViolation, runBatch } from "@/lib/db-batch";
 import {
@@ -815,7 +816,14 @@ export function buildArtifactHeaders(
   headers.set("content-type", safeContentType(opts.tokenContentType));
   headers.set("etag", read.httpEtag);
   headers.set("content-length", String(read.size));
-  headers.set("cache-control", "public, max-age=31536000, immutable");
+  // Browsers may hold the immutable bytes for a year, but SHARED caches
+  // (Cloudflare Workers Cache) are capped to the artifact-token TTL: the
+  // `?t=` token in the URL is the cache key's capability, and an edge-cached
+  // response must not outlive the token that authorized it.
+  headers.set(
+    "cache-control",
+    `public, max-age=31536000, s-maxage=${ARTIFACT_TOKEN_TTL_SECONDS}, immutable`,
+  );
   headers.set("content-disposition", artifactContentDisposition(opts.r2Key));
   headers.set("access-control-allow-origin", opts.allowedOrigin);
   headers.set("vary", "Origin");

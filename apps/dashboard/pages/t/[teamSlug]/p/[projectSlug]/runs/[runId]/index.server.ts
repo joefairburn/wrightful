@@ -77,11 +77,13 @@ export const loader = defineHandler(async (c) => {
   // shift.
   const branches = await loadProjectBranches(scope);
 
-  // This loader sets no Cache-Control, so nothing changes there: a deferred
-  // loader streams its body (NDJSON on SPA nav / chunked HTML on document load),
-  // and the absence of a stored SWR/max-age response means the browser can't
-  // replay the wrong variant. (See suite-size.server.ts for the case where a
-  // pre-existing max-age header had to become `private, no-store`.)
+  // This loader sets no explicit Cache-Control: a deferred loader streams its
+  // body (NDJSON on SPA nav / chunked HTML on document load), and the absence
+  // of a stored SWR/max-age response means the browser can't replay the wrong
+  // variant. middleware/00.cache.ts stamps the response `private, no-store`,
+  // which also keeps Workers Cache from heuristically storing it at the edge.
+  // (See suite-size.server.ts for the case where a pre-existing max-age header
+  // had to become `private, no-store`.)
   return {
     project: {
       id: project.id,
