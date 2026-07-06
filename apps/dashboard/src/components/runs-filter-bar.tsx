@@ -1,4 +1,4 @@
-import { format, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
 import {
   CalendarIcon,
   CircleDotIcon,
@@ -28,6 +28,7 @@ import {
   toSearchParams,
 } from "@/lib/runs-filters";
 import { statusLabel, statusToken } from "@/lib/status";
+import { formatDateLabel, toIsoDate } from "@/lib/time-format";
 
 type FilterOptions = {
   branches: string[];
@@ -40,14 +41,6 @@ type Props = {
   filters: RunsFilters;
   options: FilterOptions;
 };
-
-function formatDisplayDate(iso: string): string {
-  return format(parseISO(iso), "dd/MM/yy");
-}
-
-function toIsoDate(date: Date): string {
-  return format(date, "yyyy-MM-dd");
-}
 
 type NavigateFn = (
   href: string,
@@ -91,7 +84,6 @@ export function RunsSearchInput({
     <SearchFilterInput
       aria-label="Search runs"
       className="w-[240px] shrink-0"
-      inputClassName="h-8 text-[13px] placeholder:text-muted-foreground/72 [&::-webkit-search-cancel-button]:appearance-none"
       onChange={(e) => setQLocal(e.target.value)}
       placeholder="Search commits…"
       value={qLocal}
@@ -125,9 +117,9 @@ export function RunsFilterBar({
 
   const dateLabel = (() => {
     if (filters.from && filters.to)
-      return `${formatDisplayDate(filters.from)} – ${formatDisplayDate(filters.to)}`;
-    if (filters.from) return `From ${formatDisplayDate(filters.from)}`;
-    if (filters.to) return `Until ${formatDisplayDate(filters.to)}`;
+      return `${formatDateLabel(filters.from)} – ${formatDateLabel(filters.to)}`;
+    if (filters.from) return `From ${formatDateLabel(filters.from)}`;
+    if (filters.to) return `Until ${formatDateLabel(filters.to)}`;
     return null;
   })();
 
@@ -254,7 +246,7 @@ function DateRangeFilter({
         <div className="flex gap-2">
           {/* Preset column — each calls the existing `onApply(from, to)` with a
               computed yyyy-MM-dd range; the URL/refetch plumbing is unchanged. */}
-          <div className="flex w-32 shrink-0 flex-col gap-0.5 border-r border-border pr-2">
+          <div className="flex w-32 shrink-0 flex-col gap-0.5 border-r border-line-1 pr-2">
             {DATE_RANGE_PRESETS.map((preset) => (
               <Button
                 className="justify-start"

@@ -1,4 +1,5 @@
 import { Link, PREFETCH_STABLE } from "@/components/ui/link";
+import { RowLink } from "@/components/row-link";
 import { Fragment, use } from "react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import { DeferredSection } from "@/components/defer-error-boundary";
@@ -101,7 +102,7 @@ export default function TestsPage({
       <PageHeader title="Tests catalog" />
 
       <PageToolbar sticky>
-        <form className="max-w-[360px] flex-1" method="get">
+        <form className="w-[240px]" method="get">
           <input name="range" type="hidden" value={range} />
           {branchParam ? (
             <input name="branch" type="hidden" value={branchParam} />
@@ -109,7 +110,7 @@ export default function TestsPage({
           <SearchFilterInput
             defaultValue={q}
             name="q"
-            placeholder="Search by test name or path…"
+            placeholder="Search tests…"
           />
         </form>
         <RunHistoryBranchFilter
@@ -118,7 +119,6 @@ export default function TestsPage({
         />
         <div className="flex-1" />
         <AnalyticsButtonGroup
-          className="capitalize"
           hrefFor={(g) => hrefWith({ group: g === "none" ? null : g })}
           labelFor={(g) => GROUP_LABEL[g]}
           options={GROUP_OPTIONS}
@@ -132,8 +132,8 @@ export default function TestsPage({
       </PageToolbar>
 
       {availableTags.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-background px-6 py-2">
-          <span className="mr-1 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line-1 bg-background px-6 py-2">
+          <span className="mr-1 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             Tags
           </span>
           {availableTags.map((tag) => {
@@ -146,7 +146,7 @@ export default function TestsPage({
                   "rounded-full border px-2.5 py-0.5 font-mono text-[11px] transition-colors",
                   active
                     ? "border-accent bg-accent-soft text-accent"
-                    : "border-border text-muted-foreground hover:text-foreground",
+                    : "border-line-1 text-fg-3 hover:text-foreground",
                 )}
                 href={tagHref(tag)}
                 key={tag}
@@ -235,7 +235,7 @@ function TestsCatalogRegion({
                         >
                           {g.key}
                         </span>
-                        <span className="ml-2 text-[11px] text-muted-foreground">
+                        <span className="ml-2 text-[11px] text-fg-3">
                           {g.testCount} test{g.testCount === 1 ? "" : "s"}
                         </span>
                       </TableCell>
@@ -286,21 +286,13 @@ function TestsCatalogHead() {
     <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Test
-        </TableHead>
-        <TableHead className="w-[90px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Total runs
-        </TableHead>
-        <TableHead className="w-[200px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Mix
-        </TableHead>
-        <TableHead className="w-[110px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+        <TableHead className="px-4">Test</TableHead>
+        <TableHead className="w-[90px] px-4 text-right">Total runs</TableHead>
+        <TableHead className="w-[200px] px-4">Mix</TableHead>
+        <TableHead className="w-[110px] px-4 text-right">
           Avg duration
         </TableHead>
-        <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-          Last seen
-        </TableHead>
+        <TableHead className="w-[100px] px-4 text-right">Last seen</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -360,21 +352,14 @@ function TestRow({ row, base }: { row: TestsPageRow; base: string }) {
   return (
     <TableRow>
       <TableCell className="w-10 px-4 py-3 align-middle">
-        {/* Stretched-link pattern — the `<Link>` is position: static so its
-         * `after:inset-0` pseudo fills the nearest positioned ancestor (the
-         * TableRow with `relative`). Whole row becomes the click target. */}
-        <Link
-          cacheFor={PREFETCH_STABLE}
-          className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
-          href={href}
-        >
+        <RowLink cacheFor={PREFETCH_STABLE} href={href}>
           <span className="sr-only">View {title}</span>
           <span
             aria-hidden
             className="inline-block size-2 rounded-full"
             style={{ backgroundColor: dotColor }}
           />
-        </Link>
+        </RowLink>
       </TableCell>
       <TableCell className="px-4 py-3 align-middle">
         <div className="flex min-w-0 items-center gap-2">
@@ -382,14 +367,14 @@ function TestRow({ row, base }: { row: TestsPageRow; base: string }) {
             {title}
           </span>
           <span
-            className="truncate font-mono text-[11px] text-muted-foreground"
+            className="truncate font-mono text-[11px] text-fg-3"
             title={row.file}
           >
             {row.file}
           </span>
         </div>
       </TableCell>
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-muted-foreground">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-fg-3">
         {row.n.toLocaleString()}
       </TableCell>
       <TableCell className="w-[200px] px-4 py-3 align-middle">
@@ -409,7 +394,7 @@ function TestRow({ row, base }: { row: TestsPageRow; base: string }) {
           ? "—"
           : formatDuration(Math.round(row.avgDurationMs))}
       </TableCell>
-      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-fg-3">
         {formatRelativeTime(row.lastSeen)}
       </TableCell>
     </TableRow>

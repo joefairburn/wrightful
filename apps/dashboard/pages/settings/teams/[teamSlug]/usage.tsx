@@ -19,7 +19,7 @@ function UsageMeter({ row }: { row: UsageRow }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="font-medium text-[length:var(--text-fs-13)] text-fg-1">
+        <span className="font-medium text-[length:var(--text-fs-13)] text-foreground">
           {row.label}
         </span>
         <span className="font-mono text-[11px] text-fg-3 tabular-nums">

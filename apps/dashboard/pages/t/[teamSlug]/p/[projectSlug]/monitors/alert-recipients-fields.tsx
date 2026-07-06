@@ -84,7 +84,7 @@ export function AlertRecipientsFields({
 
       {groups.length > 0 && (
         <div className="mb-3.5">
-          <div className="mb-1.5 text-[11.5px] font-medium uppercase tracking-wider text-fg-3">
+          <div className="mb-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
             Groups
           </div>
           <div className="flex flex-col gap-1.5">
@@ -104,7 +104,7 @@ export function AlertRecipientsFields({
       )}
 
       <div>
-        <div className="mb-1.5 text-[11.5px] font-medium uppercase tracking-wider text-fg-3">
+        <div className="mb-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
           Members
         </div>
         {members.length === 0 ? (

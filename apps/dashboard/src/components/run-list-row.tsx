@@ -1,4 +1,5 @@
-import { Link, PREFETCH_REALTIME } from "@/components/ui/link";
+import { PREFETCH_REALTIME } from "@/components/ui/link";
+import { RowLink } from "@/components/row-link";
 import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
 import { LiveDuration } from "@/components/live-duration";
@@ -57,22 +58,18 @@ export function RunListRow({
          * click target. Nested `relative z-10` external links (branch/PR/commit
          * chips) call `e.stopPropagation()` so their clicks don't bubble to this
          * Link's SPA-navigation handler. */}
-        <Link
-          cacheFor={PREFETCH_REALTIME}
-          className="flex items-center justify-center focus-visible:outline-none after:absolute after:inset-0 after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring"
-          href={href}
-        >
+        <RowLink cacheFor={PREFETCH_REALTIME} href={href}>
           <span className="sr-only">
             View run {run.commitMessage ?? run.id.slice(0, 8)}
           </span>
           <StatusGlyph size={14} status={run.status} />
-        </Link>
+        </RowLink>
       </TableCell>
 
       <TableCell className="px-4 py-3 align-middle">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-fg-3">
               #{runNum}
             </span>
             <span
@@ -84,11 +81,11 @@ export function RunListRow({
               ) : run.actor ? (
                 `@${run.actor}`
               ) : (
-                <span className="italic text-muted-foreground">No message</span>
+                <span className="italic text-fg-3">No message</span>
               )}
             </span>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px] text-muted-foreground">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px] text-fg-3">
             {run.branch ? (
               <BranchPill href={branchHref} name={run.branch} />
             ) : null}
@@ -153,7 +150,7 @@ export function RunListRow({
         </div>
       </TableCell>
 
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-muted-foreground">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-fg-3">
         <LiveDuration
           completedAt={run.completedAt}
           createdAt={run.createdAt}
@@ -162,7 +159,7 @@ export function RunListRow({
         />
       </TableCell>
 
-      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-muted-foreground">
+      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-fg-3">
         {formatRelativeTime(run.createdAt)}
       </TableCell>
     </TableRow>

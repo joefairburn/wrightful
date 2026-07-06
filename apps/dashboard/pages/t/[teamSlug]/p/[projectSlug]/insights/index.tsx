@@ -256,7 +256,7 @@ function OutcomesChart({
       ],
       tooltip: (
         <>
-          <div className="mb-2 border-b border-border/50 pb-1 font-mono text-[10px] text-muted-foreground">
+          <div className="mb-2 border-b border-line-1/50 pb-1 font-mono text-[10px] text-fg-3">
             {s.label}
           </div>
           <div className="space-y-1 font-mono text-[11px]">
@@ -264,7 +264,7 @@ function OutcomesChart({
             <TooltipRow label="Failed" value={failed} color={failedColor} />
             <TooltipRow label="Flaky" value={flaky} color={flakyColor} />
             <TooltipRow label="Skipped" value={skipped} color={skippedColor} />
-            <div className="mt-1 flex justify-between border-t border-border/50 pt-1 text-muted-foreground">
+            <div className="mt-1 flex justify-between border-t border-line-1/50 pt-1 text-fg-3">
               <span>Runs</span>
               <span>{runs.toLocaleString()}</span>
             </div>

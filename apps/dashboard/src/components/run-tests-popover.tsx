@@ -79,7 +79,7 @@ export function RunTestsPopover({
         {count}
       </PopoverTrigger>
       <PopoverPopup className="w-96 p-0" align="start" side="bottom">
-        <div className="px-4 py-3 border-b border-border">
+        <div className="px-4 py-3 border-b border-line-1">
           <h3 className="text-xs font-semibold tracking-tight">
             {isLoading || !items
               ? `${count} ${variantLabel(variant)} tests`
@@ -88,7 +88,7 @@ export function RunTestsPopover({
         </div>
 
         {isError ? (
-          <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+          <div className="px-4 py-6 text-center text-sm text-fg-3">
             <p>Couldn't load tests.</p>
             <button
               type="button"
@@ -99,7 +99,7 @@ export function RunTestsPopover({
             </button>
           </div>
         ) : isLoading || !items ? (
-          <ul className="divide-y divide-border/60">
+          <ul className="divide-y divide-line-1/60">
             {[0, 1, 2].map((i) => (
               <li key={i} className="px-4 py-2.5">
                 <div className="h-3 w-3/4 rounded-sm bg-muted animate-pulse" />
@@ -108,11 +108,11 @@ export function RunTestsPopover({
             ))}
           </ul>
         ) : items.length === 0 ? (
-          <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+          <div className="px-4 py-6 text-center text-sm text-fg-3">
             No {variantLabel(variant)} tests found.
           </div>
         ) : (
-          <ul className="divide-y divide-border/60 max-h-80 overflow-y-auto">
+          <ul className="divide-y divide-line-1/60 max-h-80 overflow-y-auto">
             {items.map((item) => {
               const testHref = `${runHref}/tests/${item.id}`;
               return (
@@ -124,7 +124,7 @@ export function RunTestsPopover({
                     <div className="text-xs font-medium truncate">
                       {item.title}
                     </div>
-                    <div className="font-mono text-[11px] text-muted-foreground truncate">
+                    <div className="font-mono text-[11px] text-fg-3 truncate">
                       {item.projectName ? `${item.projectName} · ` : ""}
                       {item.file}
                     </div>
@@ -140,7 +140,7 @@ export function RunTestsPopover({
           </ul>
         )}
 
-        <div className="px-4 py-2.5 border-t border-border bg-muted/20">
+        <div className="px-4 py-2.5 border-t border-line-1 bg-muted/20">
           {/* runHref is the realtime-seeded run-detail page (useRunRoom) — tighten
            * the prefetch reuse window to 5s so a click can't commit a stale seed
            * (rooms have no replay; no initial-mount refresh). */}

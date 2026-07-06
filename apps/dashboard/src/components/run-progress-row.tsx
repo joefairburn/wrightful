@@ -77,7 +77,7 @@ export function TestRow({
     <Link
       className={cn(
         "group flex w-full items-center gap-1 py-1.5 pl-[50px] pr-6",
-        "min-h-8 text-left text-foreground hover:bg-bg-1",
+        "min-h-8 text-left text-foreground hover:bg-card",
       )}
       href={href}
     >

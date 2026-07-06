@@ -300,7 +300,7 @@ export function CommandMenu({
                           onClick={item.action}
                           value={item.value}
                         >
-                          <item.icon className="size-3.5 text-muted-foreground" />
+                          <item.icon className="size-3.5 text-fg-3" />
                           <span
                             className={
                               item.mono ? "font-mono" : "min-w-0 truncate"
@@ -309,7 +309,7 @@ export function CommandMenu({
                             {item.label}
                           </span>
                           {item.hint ? (
-                            <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+                            <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-fg-3">
                               {item.hint}
                             </span>
                           ) : null}

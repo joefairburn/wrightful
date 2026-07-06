@@ -233,13 +233,11 @@ function DurationChart({
       values: [p50, p90, p95],
       tooltip: (
         <>
-          <div className="mb-2 border-b border-border/50 pb-1 font-mono text-[10px] text-muted-foreground">
+          <div className="mb-2 border-b border-line-1/50 pb-1 font-mono text-[10px] text-fg-3">
             {s.label} · {cnt} run{cnt === 1 ? "" : "s"}
           </div>
           {cnt === 0 ? (
-            <div className="font-mono text-[11px] text-muted-foreground">
-              No runs
-            </div>
+            <div className="font-mono text-[11px] text-fg-3">No runs</div>
           ) : (
             <div className="space-y-1 font-mono text-[11px]">
               <PercentileRow

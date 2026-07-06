@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DANGER_TRIGGER_CLASSES } from "@/components/danger-trigger";
 import { Github, LogOut } from "lucide-react";
 import { useRouter } from "@void/react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -367,7 +368,7 @@ function SessionCard() {
         </Alert>
       )}
       <button
-        className="inline-flex h-[30px] cursor-pointer items-center justify-center gap-1.5 self-start rounded-[5px] border border-fail/30 bg-fail-soft px-[11px] text-[13px] font-medium text-fail transition-colors hover:bg-fail/20 disabled:opacity-50"
+        className={DANGER_TRIGGER_CLASSES}
         disabled={busy}
         onClick={() => {
           void handleSignOut();

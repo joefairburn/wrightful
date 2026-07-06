@@ -2,6 +2,26 @@ import type React from "react";
 import { cn } from "@/lib/cn";
 import { statusToken } from "@/lib/status";
 
+/**
+ * Shared chrome for segmented controls, exported so the anchor-based
+ * `<AnalyticsButtonGroup>` renders pixel-identically to the client-state
+ * `<SegmentedControl>`. `h-8` matches the standard toolbar control height
+ * (search inputs, filter triggers) so every control in a `PageToolbar` /
+ * `RunsFilterBar` sits on the same line.
+ */
+export const SEGMENTED_GROUP_CLASSES =
+  "inline-flex h-8 items-stretch gap-0.5 rounded-md border border-line-1 bg-card p-0.5";
+
+export function segmentedItemClasses(active: boolean, compact = false): string {
+  return cn(
+    "inline-flex items-center gap-1.5 rounded-[4px] text-[12px] transition-colors",
+    compact ? "px-2" : "px-2.5",
+    active
+      ? "bg-bg-3 font-medium text-foreground"
+      : "text-fg-2 hover:text-foreground",
+  );
+}
+
 export interface SegmentedOption<T extends string> {
   value: T;
   label: string;
@@ -26,7 +46,8 @@ export interface SegmentedControlProps<T extends string> {
  * option, optional status dot + count next to each label.
  *
  * Use this for in-page filter/group-by state. For URL-driven controls (where
- * each click is a navigation), see `<AnalyticsButtonGroup>`.
+ * each click is a navigation), see `<AnalyticsButtonGroup>` — same chrome via
+ * the shared class helpers above.
  */
 export function SegmentedControl<T extends string>({
   value,
@@ -35,7 +56,7 @@ export function SegmentedControl<T extends string>({
   compact = false,
 }: SegmentedControlProps<T>): React.ReactElement {
   return (
-    <div className="inline-flex items-center gap-0.5 rounded-md border border-line-1 bg-card p-0.5">
+    <div className={SEGMENTED_GROUP_CLASSES}>
       {options.map((opt) => {
         const active = opt.value === value;
         // `running` is a glyph-only state absent from the status registry, so
@@ -51,13 +72,7 @@ export function SegmentedControl<T extends string>({
             // Selection is otherwise conveyed only by the background pill —
             // expose it to AT as a toggle, matching attempt-tabs.tsx.
             aria-pressed={active}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-[4px] text-[12px] transition-colors",
-              compact ? "px-2 py-[3px]" : "px-2.5 py-[3px]",
-              active
-                ? "bg-bg-3 font-medium text-foreground"
-                : "text-fg-2 hover:text-foreground",
-            )}
+            className={segmentedItemClasses(active, compact)}
             key={opt.value}
             onClick={() => onChange(opt.value)}
             type="button"

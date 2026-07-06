@@ -215,7 +215,7 @@ export default function SettingsTeamMembersPage({
         open={Boolean(revealedInviteUrl)}
         title="Invite link ready"
       >
-        <pre className="overflow-x-auto rounded-md border border-line-1 bg-bg-0 p-2.5 font-mono text-[12.5px] text-fg-1">
+        <pre className="overflow-x-auto rounded-md border border-line-1 bg-bg-0 p-2.5 font-mono text-[12.5px] text-foreground">
           {revealedInviteUrl}
         </pre>
       </RevealOnceDialog>
@@ -317,7 +317,7 @@ export default function SettingsTeamMembersPage({
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-[length:var(--text-fs-14)] text-fg-1">
+                <div className="truncate font-medium text-[length:var(--text-fs-14)] text-foreground">
                   {m.name}
                 </div>
                 <div className="truncate font-mono text-[11.5px] text-fg-3">
@@ -392,7 +392,7 @@ export default function SettingsTeamMembersPage({
                   <Mail className="size-3.5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-mono text-[13px] text-fg-1">
+                  <div className="truncate font-mono text-[13px] text-foreground">
                     {inv.email ??
                       (inv.githubLogin
                         ? `@${inv.githubLogin}`

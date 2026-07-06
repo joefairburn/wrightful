@@ -57,7 +57,7 @@ export function OwnerCell({
     <div className="relative z-[1] flex min-w-0 flex-col gap-1.5">
       <div className="flex min-w-0 flex-wrap items-center gap-1">
         {owners.length === 0 ? (
-          <span className="text-[12px] text-muted-foreground">—</span>
+          <span className="text-[12px] text-fg-3">—</span>
         ) : (
           owners.map((o) => (
             <span

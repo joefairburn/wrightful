@@ -110,16 +110,12 @@ export default function RunsListPage({
             <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
               <TableRow>
                 <TableHead className="w-10 px-4" />
-                <TableHead className="px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                  Commit
-                </TableHead>
-                <TableHead className="w-[220px] px-4 text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                  Outcome
-                </TableHead>
-                <TableHead className="w-[90px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                <TableHead className="px-4">Commit</TableHead>
+                <TableHead className="w-[220px] px-4">Outcome</TableHead>
+                <TableHead className="w-[90px] px-4 text-right">
                   Duration
                 </TableHead>
-                <TableHead className="w-[100px] px-4 text-right text-[10.5px] font-semibold uppercase tracking-[0.5px] text-muted-foreground">
+                <TableHead className="w-[100px] px-4 text-right">
                   When
                 </TableHead>
               </TableRow>

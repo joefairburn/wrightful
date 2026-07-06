@@ -39,9 +39,14 @@ export default defineConfig({
   // One shared dev server (single miniflare + vite + Better Auth on a local
   // D1) backs the whole suite. Under parallel load it gets slow enough that the
   // client-side auth calls and live-update propagation blow their timeouts and
-  // flip pass↔fail. Run serially locally so each test hits a responsive server;
-  // CI keeps 3 workers + retries:2 for throughput and absorbs residual flake.
-  workers: process.env.CI ? 3 : 1,
+  // flip pass↔fail. Run serially locally so each test hits a responsive server.
+  // CI ran 3 workers for throughput, but on a resource-starved runner that
+  // tipped the shared server over a cliff — one run came in at 1 failed / 3
+  // flaky, the next (same commit) at 18 failed, all pure websocket/navigation/
+  // getAttribute timeouts. Dropping to 2 workers gives the server ~33% more
+  // headroom and keeps retries:2 to absorb residual flake; the timeout bumps
+  // below let a merely-slow (not dead) server still pass.
+  workers: process.env.CI ? 2 : 1,
   reporter: isMinimalReporter
     ? [["line"], ["html", { open: "never" }]]
     : [["list"]],
@@ -59,8 +64,11 @@ export default defineConfig({
     storageState: "./tests-dashboard/.auth/storageState.json",
     trace: process.env.CI ? "retain-on-failure" : "on-first-retry",
     screenshot: "only-on-failure",
-    actionTimeout: 10_000,
-    navigationTimeout: 15_000,
+    // Generous under CI's shared-server load (see the workers note above); the
+    // ceilings only bite when the server has genuinely stalled, not merely
+    // slowed. Kept tighter locally where each test hits a responsive server.
+    actionTimeout: process.env.CI ? 15_000 : 10_000,
+    navigationTimeout: process.env.CI ? 25_000 : 15_000,
   },
   projects: [
     {
