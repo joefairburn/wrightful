@@ -1,15 +1,14 @@
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
 import type React from "react";
 import { useRef, useState } from "react";
-import { FilterTriggerButton } from "@/components/filter-controls";
+import {
+  ComboboxFilterPopup,
+  FilterTriggerButton,
+} from "@/components/filter-controls";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import {
   Combobox,
-  ComboboxEmpty,
   ComboboxItem,
-  ComboboxList,
-  ComboboxPopup,
-  ComboboxPrimitive,
   ComboboxTrigger,
 } from "@/components/ui/combobox";
 import { useNavigatingSearchParam } from "@/lib/use-search-param";
@@ -103,29 +102,17 @@ export function RunHistoryBranchFilter({
           )
         }
       />
-      <ComboboxPopup
-        align="start"
+      <ComboboxFilterPopup
         anchor={triggerRef}
-        className="w-56 flex-col"
-      >
-        {branches.length > 5 && (
-          <div className="border-b border-line-1 p-2">
-            <ComboboxPrimitive.Input
-              autoFocus
-              className="h-7 w-full rounded-md border border-input bg-background px-2 text-sm outline-none placeholder:text-fg-3/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
-              placeholder="Search branches"
-            />
-          </div>
+        className="w-56"
+        renderRow={(v: string) => (
+          <ComboboxItem key={v} value={v}>
+            <span className="truncate">{branchLabel(v)}</span>
+          </ComboboxItem>
         )}
-        <ComboboxList>
-          {(v: string) => (
-            <ComboboxItem key={v} value={v}>
-              <span className="truncate">{branchLabel(v)}</span>
-            </ComboboxItem>
-          )}
-        </ComboboxList>
-        <ComboboxEmpty>No matches</ComboboxEmpty>
-      </ComboboxPopup>
+        searchable={branches.length > 5}
+        searchPlaceholder="Search branches"
+      />
     </Combobox>
   );
 }

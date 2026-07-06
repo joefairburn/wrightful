@@ -4,11 +4,12 @@ import type React from "react";
 import { useCallback, useState } from "react";
 import { fetch } from "void/client";
 import { Link } from "@void/react";
+import { StatusPill } from "@/components/status-pill";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import type { RunSummaryResponse } from "@/lib/api-response-types";
 import type { TestResultSummaryResponse } from "@/lib/api-response-types";
-import { cn } from "@/lib/cn";
 import { firstLine } from "@/lib/text";
+import { statusCssVar } from "@/lib/status";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
 type HoverTarget =
@@ -314,25 +315,12 @@ function CommitFooter({
 }
 
 function StatusChip({ status, label }: { status: string; label: string }) {
-  // Text colour is the status token itself (`text-success` etc.), not the
-  // `*-foreground` contrast-on-solid pair — the chip background is a 12% tint,
-  // so the solid-fill foreground would be near-invisible on it.
-  const tone =
-    status === "passed"
-      ? "bg-success/12 text-success border-success/24"
-      : status === "failed" || status === "timedout"
-        ? "bg-destructive/12 text-destructive border-destructive/24"
-        : status === "flaky"
-          ? "bg-warning/12 text-warning border-warning/24"
-          : "bg-muted text-fg-3 border-line-1";
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[11px] font-semibold",
-        tone,
-      )}
-    >
-      {label}
-    </span>
+    <StatusPill
+      className="font-mono"
+      cssVar={statusCssVar(status)}
+      label={label}
+      size="sm"
+    />
   );
 }

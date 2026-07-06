@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RevealOnceDialog } from "@/components/settings/reveal-once-dialog";
+import { StatusPill } from "@/components/status-pill";
 import {
   SettingsCard,
   SettingsField,
@@ -233,22 +234,15 @@ export default function SettingsProjectKeysPage({
                   <div className="w-24 text-right font-mono text-[11.5px] text-fg-3 tabular-nums">
                     {format(new Date(k.createdAt * 1000), "yyyy-MM-dd")}
                   </div>
-                  <span
-                    className={cn(
-                      "inline-flex w-[72px] items-center justify-center gap-1.5 rounded-sm px-1.5 py-0.5 text-[11px] font-medium capitalize",
-                      revoked
-                        ? "bg-fail-soft text-fail"
-                        : "bg-pass-soft text-pass",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "inline-block size-1.5 rounded-full",
-                        revoked ? "bg-fail" : "bg-pass",
-                      )}
-                    />
-                    {revoked ? "revoked" : "active"}
-                  </span>
+                  <StatusPill
+                    className="w-[72px] justify-center"
+                    cssVar={revoked ? "--fail" : "--pass"}
+                    icon={
+                      <span className="inline-block size-1.5 rounded-full bg-current" />
+                    }
+                    label={revoked ? "Revoked" : "Active"}
+                    size="sm"
+                  />
                   {!revoked && (
                     <form
                       action={`${here}?revokeKey`}

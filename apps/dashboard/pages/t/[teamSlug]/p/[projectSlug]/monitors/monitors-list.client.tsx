@@ -12,6 +12,7 @@ import {
   SummaryPill,
 } from "@/components/monitors/monitor-status";
 import { PageToolbar } from "@/components/page-toolbar";
+import { META_PILL_CLASSES } from "@/components/run-meta-pills";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { SegmentedControl } from "@/components/segmented-control";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
@@ -293,7 +294,7 @@ function MonitorRow({
             >
               {m.name}
             </span>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-bg-3 px-[7px] py-px font-mono text-[10.5px] text-fg-2">
+            <span className={cn(META_PILL_CLASSES, "shrink-0 gap-1")}>
               <MonTypeGlyph type={m.type} />
               {monitorTypeLabel(m.type)}
             </span>

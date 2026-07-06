@@ -84,6 +84,50 @@ export function FilterTriggerButton({
   );
 }
 
+/**
+ * Shared popup body for filter comboboxes — optional search header, list,
+ * empty state, optional footer. `MultiComboboxFilter` (multi-select facets)
+ * and `RunHistoryBranchFilter` (single-select branch) both render through
+ * this so the popup chrome and its search-input styling exist exactly once.
+ */
+export function ComboboxFilterPopup({
+  anchor,
+  className = "w-64",
+  searchable,
+  searchPlaceholder,
+  renderRow,
+  footer,
+}: {
+  anchor: React.RefObject<HTMLElement | null>;
+  /** Popup width class(es); merged with the flex-col base. */
+  className?: string;
+  searchable: boolean;
+  searchPlaceholder: string;
+  renderRow: (value: string) => React.ReactNode;
+  footer?: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <ComboboxPopup
+      align="start"
+      anchor={anchor}
+      className={cn(className, "flex-col")}
+    >
+      {searchable && (
+        <div className="border-b border-line-1 p-2">
+          <ComboboxPrimitive.Input
+            autoFocus
+            className="h-7 w-full rounded-md border border-input bg-background px-2 text-sm outline-none placeholder:text-fg-3/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
+            placeholder={searchPlaceholder}
+          />
+        </div>
+      )}
+      <ComboboxList>{renderRow}</ComboboxList>
+      <ComboboxEmpty>No matches</ComboboxEmpty>
+      {footer}
+    </ComboboxPopup>
+  );
+}
+
 export type FilterOption = { value: string; label: string };
 
 function buildDisplayValue(
@@ -165,43 +209,32 @@ export function MultiComboboxFilter({
           />
         }
       />
-      <ComboboxPopup
-        align="start"
+      <ComboboxFilterPopup
         anchor={triggerRef}
-        className="w-64 flex-col"
-      >
-        {searchable && (
-          <div className="border-b border-line-1 p-2">
-            <ComboboxPrimitive.Input
-              autoFocus
-              className="h-7 w-full rounded-md border border-input bg-background px-2 text-sm outline-none placeholder:text-fg-3/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
-              placeholder={`Search ${label.toLowerCase()}`}
-            />
-          </div>
-        )}
-        <ComboboxList>
-          {(value: string) => {
-            const itemLabel = labelByValue.get(value) ?? value;
-            return (
-              <ComboboxItem key={value} value={value}>
-                {renderItem ? (
-                  renderItem(value, itemLabel)
-                ) : (
-                  <span className="truncate">{itemLabel}</span>
-                )}
-              </ComboboxItem>
-            );
-          }}
-        </ComboboxList>
-        <ComboboxEmpty>No matches</ComboboxEmpty>
-        {hasValue && (
-          <div className="flex justify-end border-t border-line-1 p-1.5">
-            <Button onClick={() => onChange([])} size="xs" variant="ghost">
-              Clear
-            </Button>
-          </div>
-        )}
-      </ComboboxPopup>
+        footer={
+          hasValue && (
+            <div className="flex justify-end border-t border-line-1 p-1.5">
+              <Button onClick={() => onChange([])} size="xs" variant="ghost">
+                Clear
+              </Button>
+            </div>
+          )
+        }
+        renderRow={(value: string) => {
+          const itemLabel = labelByValue.get(value) ?? value;
+          return (
+            <ComboboxItem key={value} value={value}>
+              {renderItem ? (
+                renderItem(value, itemLabel)
+              ) : (
+                <span className="truncate">{itemLabel}</span>
+              )}
+            </ComboboxItem>
+          );
+        }}
+        searchable={searchable}
+        searchPlaceholder={`Search ${label.toLowerCase()}`}
+      />
     </Combobox>
   );
 }

@@ -1,6 +1,7 @@
 import { Check, Users } from "lucide-react";
 import { Link } from "@void/react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Props } from "./index.server";
 
@@ -90,9 +91,9 @@ export default function InvitePage(props: Props) {
         You&apos;ve been invited to join{" "}
         <span className="font-medium text-foreground">{invite.teamName}</span>{" "}
         as a{" "}
-        <span className="rounded-sm border border-line-1/50 bg-muted px-1.5 py-0.5 text-[11px] font-medium capitalize">
+        <Badge className="capitalize" variant="secondary">
           {invite.role}
-        </span>
+        </Badge>
         .
       </p>
       {error && (
