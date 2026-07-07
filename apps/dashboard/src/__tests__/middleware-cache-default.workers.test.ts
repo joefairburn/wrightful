@@ -36,6 +36,40 @@ describe("00.cache default Cache-Control stamp", () => {
     expect(c.res.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  it("stamps a Response THROWN past next() (the /api/* control-flow 404 path)", async () => {
+    // On /api/* paths 00.errors re-throws control-flow Responses; without the
+    // catch, a thrown GET 404 with no Cache-Control could be edge-cached.
+    const c = ctx(undefined);
+    await cacheMiddleware(c, async () => {
+      throw new Response("Not Found", { status: 404 });
+    });
+    expect(c.res.status).toBe(404);
+    expect(c.res.headers.get("cache-control")).toBe("private, no-store");
+    expect(await c.res.text()).toBe("Not Found");
+  });
+
+  it("delivers a thrown Response with an explicit policy untouched", async () => {
+    const c = ctx(undefined);
+    await cacheMiddleware(c, async () => {
+      throw new Response("no", {
+        status: 403,
+        headers: { "cache-control": "public, max-age=60" },
+      });
+    });
+    expect(c.res.status).toBe(403);
+    expect(c.res.headers.get("cache-control")).toBe("public, max-age=60");
+  });
+
+  it("re-throws a genuine Error (not a Response) unchanged", async () => {
+    const c = ctx(undefined);
+    const boom = new Error("db exploded");
+    await expect(
+      cacheMiddleware(c, async () => {
+        throw boom;
+      }),
+    ).rejects.toBe(boom);
+  });
+
   it("leaves an explicit Cache-Control untouched", async () => {
     const c = ctx(
       new Response("summary json", {

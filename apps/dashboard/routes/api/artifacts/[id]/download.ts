@@ -35,6 +35,16 @@ export async function handle(c: Context): Promise<Response> {
   const corsOrigin = resolveAllowedOrigin(c.req.raw, url.origin);
   const { r2Key, contentType, exp } = payload;
 
+  // Seconds of token life left (≥1s; the token is already verified non-expired
+  // above). Caps BOTH capabilities that outlive this request to the token's
+  // remaining life so neither can be replayed past its expiry: the direct-R2
+  // presigned URL, and the worker-proxy response's SHARED-cache (`s-maxage`)
+  // window in Cloudflare Workers Cache.
+  const remainingTokenSeconds = Math.max(
+    1,
+    exp - Math.floor(Date.now() / 1000),
+  );
+
   // Direct-R2 (ADR 0003): once the token is verified, hand the byte transfer to
   // R2 itself — 302 to a short-lived presigned GET so the worker moves zero
   // bytes. The same-origin dashboard initiator means only the final R2 response
@@ -44,14 +54,12 @@ export async function handle(c: Context): Promise<Response> {
   // so a HEAD against it would 403.
   const directCfg = r2DirectConfig(env);
   if (directCfg && c.req.method === "GET") {
-    // Cap the presigned URL to the token's REMAINING life so the R2 capability
-    // can't outlive the token that authorized it (≥1s; the token is already
-    // verified non-expired above).
-    const expiresIn = Math.max(1, exp - Math.floor(Date.now() / 1000));
+    // Cap the presigned URL to the token's remaining life so the R2 capability
+    // can't outlive the token that authorized it.
     const location = await signGetUrl(directCfg, r2Key, {
       responseContentType: safeContentType(contentType),
       responseContentDisposition: artifactContentDisposition(r2Key),
-      expiresIn,
+      expiresIn: remainingTokenSeconds,
     });
     return new Response(null, {
       status: 302,
@@ -73,6 +81,7 @@ export async function handle(c: Context): Promise<Response> {
     allowedOrigin: corsOrigin,
     r2Key,
     method: c.req.method,
+    sharedMaxAgeSeconds: remainingTokenSeconds,
   });
 }
 

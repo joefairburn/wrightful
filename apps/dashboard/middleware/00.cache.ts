@@ -18,31 +18,67 @@ import { defineMiddleware } from "void";
  *
  * Must sort BEFORE `00.errors.ts` (outermost) so the stamp lands on the FINAL
  * response — including the /oops and /not-found rewrites (404 is a
- * heuristically-cacheable status). Deliberately no try/catch around `next()`:
- * exceptions 00.errors re-throws (API-path errors, pass-through Responses)
- * propagate unchanged.
+ * heuristically-cacheable status).
+ *
+ * The stamp covers both ways a response leaves the stack:
+ *   - the normal post-`next()` `c.res`, and
+ *   - a Response *thrown* past `next()`. On `/api/*` paths `00.errors` never
+ *     rewrites; it re-throws control-flow Responses (e.g. a handler's `throw
+ *     new Response("Not Found", { status: 404 })`) and genuine Errors alike.
+ *     A thrown Response becomes the wire response via Hono's throw-Response
+ *     handling, so without the catch below a GET 404 with no Cache-Control
+ *     could be heuristically edge-cached. Genuine Errors (and anything that
+ *     already set a policy) propagate / pass through unchanged.
  */
 export default defineMiddleware(async (c, next) => {
-  await next();
+  try {
+    await next();
+  } catch (err) {
+    if (err instanceof Response) {
+      // Deliver the thrown Response ourselves so it gets the default stamp;
+      // clear `c.res` first so Hono's setter doesn't merge stale headers into
+      // the replacement (see 00.errors.ts's replaceResponse).
+      const stamped = stampDefault(err);
+      c.res = undefined;
+      c.res = stamped;
+      return;
+    }
+    throw err;
+  }
   const res = c.res;
+  if (!res) return;
+  const stamped = stampDefault(res);
+  // A same-object return means the header was mutated in place (the common
+  // case) — no reassignment, so Hono's header-merging setter never runs. Only
+  // a rebuilt (immutable-header) response needs the clear-then-set dance.
+  if (stamped !== res) {
+    c.res = undefined;
+    c.res = stamped;
+  }
+});
+
+/**
+ * Apply the default `private, no-store` stamp, returning the response to serve.
+ * Returns the SAME object when it stamped in place or had nothing to do (101
+ * WebSocket upgrade / an explicit policy already set); returns a fresh rebuilt
+ * Response only when the original's headers are immutable (a `fetch()`
+ * pass-through). Callers reassign `c.res` only on a rebuild.
+ */
+function stampDefault(res: Response): Response {
   // WebSocket upgrades (`/ws/*` rooms) carry immutable headers and are never
   // cacheable; leave them untouched.
-  if (!res || res.status === 101) return;
-  if (res.headers.has("cache-control")) return;
+  if (res.status === 101) return res;
+  if (res.headers.has("cache-control")) return res;
   try {
     res.headers.set("cache-control", "private, no-store");
+    return res;
   } catch {
-    // A response passed through from `fetch()` has immutable headers — rebuild
-    // it with a mutable copy. `c.res = undefined` first so Hono's setter
-    // doesn't merge the old headers into the replacement (see 00.errors.ts's
-    // replaceResponse).
     const headers = new Headers(res.headers);
     headers.set("cache-control", "private, no-store");
-    c.res = undefined;
-    c.res = new Response(res.body, {
+    return new Response(res.body, {
       status: res.status,
       statusText: res.statusText,
       headers,
     });
   }
-});
+}

@@ -3,7 +3,6 @@ import { and, db, eq, inArray } from "void/db";
 import { logger } from "void/log";
 import { storage } from "void/storage";
 import { artifacts, runs, testResults } from "@schema";
-import { ARTIFACT_TOKEN_TTL_SECONDS } from "@/lib/artifact-tokens";
 import { safeContentType } from "@/lib/content-types";
 import { isUniqueViolation, runBatch } from "@/lib/db-batch";
 import {
@@ -789,6 +788,14 @@ export interface BuildArtifactResponseOptions {
   r2Key: string;
   /** HTTP method; `"HEAD"` forces a body-less metadata response. */
   method: string;
+  /**
+   * Seconds a SHARED cache (Cloudflare Workers Cache) may hold this response —
+   * the artifact token's *remaining* life, not the full mint TTL. The `?t=`
+   * token in the URL is the cache key's capability, so an edge-cached copy must
+   * not outlive the token that authorized it. The direct-R2 302 path caps its
+   * presigned URL from the same `exp`, so both capabilities expire together.
+   */
+  sharedMaxAgeSeconds: number;
 }
 
 /**
@@ -809,7 +816,7 @@ export function buildArtifactHeaders(
   read: Pick<ArtifactRead, "size" | "httpEtag" | "httpMetadata">,
   opts: Pick<
     BuildArtifactResponseOptions,
-    "tokenContentType" | "allowedOrigin" | "r2Key"
+    "tokenContentType" | "allowedOrigin" | "r2Key" | "sharedMaxAgeSeconds"
   >,
 ): Headers {
   const headers = new Headers(read.httpMetadata);
@@ -817,12 +824,15 @@ export function buildArtifactHeaders(
   headers.set("etag", read.httpEtag);
   headers.set("content-length", String(read.size));
   // Browsers may hold the immutable bytes for a year, but SHARED caches
-  // (Cloudflare Workers Cache) are capped to the artifact-token TTL: the
-  // `?t=` token in the URL is the cache key's capability, and an edge-cached
-  // response must not outlive the token that authorized it.
+  // (Cloudflare Workers Cache) are capped to the token's *remaining* life
+  // (`sharedMaxAgeSeconds`): the `?t=` token in the URL is the cache key's
+  // capability, so an edge-cached copy must not outlive the token that
+  // authorized it. Using the full mint TTL here would let a copy cached from a
+  // late-in-life token linger up to ~TTL past expiry; the caller derives this
+  // from `exp`, exactly like the direct-R2 302 path caps its presigned URL.
   headers.set(
     "cache-control",
-    `public, max-age=31536000, s-maxage=${ARTIFACT_TOKEN_TTL_SECONDS}, immutable`,
+    `public, max-age=31536000, s-maxage=${opts.sharedMaxAgeSeconds}, immutable`,
   );
   headers.set("content-disposition", artifactContentDisposition(opts.r2Key));
   headers.set("access-control-allow-origin", opts.allowedOrigin);
@@ -870,6 +880,12 @@ export function buildArtifactResponse(
       `bytes ${offset}-${offset + length - 1}/${read.size}`,
     );
     headers.set("content-length", String(length));
+    // Workers Cache keys on the URL and does NOT vary by `Range`, so a 206
+    // partial must never enter the SHARED edge cache — a later full-body or
+    // different-range GET to the same `?t=` URL could otherwise be answered
+    // with this partial. Keep the year-long *browser* cache (`private`); drop
+    // `public`/`s-maxage` so only full 200s are edge-cacheable.
+    headers.set("cache-control", "private, max-age=31536000, immutable");
   }
 
   // No body on a non-HEAD GET means R2 honoured a conditional request

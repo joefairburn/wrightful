@@ -43,6 +43,7 @@ const EXECUTABLE_OR_RENDERABLE = [
 const READ_OPTS = {
   allowedOrigin: "https://dash.example.com",
   r2Key: "t/team1/p/proj1/runs/r1/tr1/a1/payload.bin",
+  sharedMaxAgeSeconds: 3600,
 };
 
 function headersFor(tokenContentType: string): Headers {
