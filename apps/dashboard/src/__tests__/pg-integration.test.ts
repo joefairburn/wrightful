@@ -10,7 +10,7 @@ import {
 } from "vite-plus/test";
 import type { Order } from "@polar-sh/sdk/models/components/order";
 import type { Subscription } from "@polar-sh/sdk/models/components/subscription";
-import type { TestResultInput } from "@/lib/schemas";
+import type { OpenRunPayload, TestResultInput } from "@/lib/schemas";
 
 /**
  * The database integration test — proves the data layer actually EXECUTES on
@@ -110,6 +110,8 @@ const { runRows } = await import("@/lib/db-run");
 const { bucketExpr } = await import("@/lib/analytics/bucketing-sql");
 const { numericSql } = await import("@/lib/db/sql-ops");
 const {
+  applyShardExpectedTests,
+  buildRunInsertValues,
   chunkByParams,
   mergeRunStatus,
   mergeRunStatusSql,
@@ -1493,6 +1495,152 @@ describe("jsonb columns round-trip (object in → object out, no double-encoding
     const byId = new Map(rows.map((r) => [r.id, r.metadata]));
     expect(byId.get("al-1")).toEqual({ role: "viewer", extra: [1, 2] });
     expect(byId.get("al-2")).toBeNull();
+  });
+});
+
+describe("sharded expected-total merge (applyShardExpectedTests jsonb re-sum)", () => {
+  // Executes the EXACT production UPDATE (`jsonb_set` merge + `jsonb_each_text`
+  // re-sum) against the real schema — hand-written jsonb SQL the mocked
+  // ingest-pipeline lane can't vouch for. pglite locally; real node-postgres
+  // under PG_TEST_URL in CI. The `runs` table comes from the file's top-level
+  // beforeAll; rows here are isolated by their own tenant scope.
+  const scope = makeTenantScope({
+    teamId: "t-shardsum",
+    projectId: "p-shardsum",
+    teamSlug: "shardsum",
+    projectSlug: "shardsum",
+  });
+  const T = 1_700_000_000;
+
+  function openerPayload(over: Partial<OpenRunPayload> = {}): OpenRunPayload {
+    return {
+      idempotencyKey: "shard-key",
+      run: {
+        plannedTests: [
+          { testId: "s1-a", title: "a", file: "spec.ts" },
+          { testId: "s1-b", title: "b", file: "spec.ts" },
+        ],
+        expectedTotalTests: 2,
+      },
+      shard: { index: 1, total: 3 },
+      ...over,
+    } as OpenRunPayload;
+  }
+
+  async function readRun(id: string) {
+    const rows = await h.db
+      .select({
+        expectedTotalTests: runs.expectedTotalTests,
+        shardExpectedTests: runs.shardExpectedTests,
+        expectedShards: runs.expectedShards,
+        lastActivityAt: runs.lastActivityAt,
+      })
+      .from(runs)
+      .where(eq(runs.id, id));
+    return rows[0];
+  }
+
+  it("merges each later shard's count and re-derives the exact suite total", async () => {
+    await h.db
+      .insert(runs)
+      .values(buildRunInsertValues("run-shardsum", scope, openerPayload(), T));
+    // Opener's slice only, seeded by the insert values.
+    expect(await readRun("run-shardsum")).toMatchObject({
+      expectedTotalTests: 2,
+      shardExpectedTests: { "1": 2 },
+    });
+
+    await applyShardExpectedTests(
+      scope,
+      "run-shardsum",
+      { index: 2, total: 3 },
+      3,
+      T + 1,
+    );
+    expect(await readRun("run-shardsum")).toMatchObject({
+      expectedTotalTests: 5,
+      shardExpectedTests: { "1": 2, "2": 3 },
+    });
+
+    await applyShardExpectedTests(
+      scope,
+      "run-shardsum",
+      { index: 3, total: 3 },
+      4,
+      T + 2,
+    );
+    expect(await readRun("run-shardsum")).toMatchObject({
+      expectedTotalTests: 9,
+      shardExpectedTests: { "1": 2, "2": 3, "3": 4 },
+      lastActivityAt: T + 2,
+    });
+  });
+
+  it("a retried shard open REPLACES its count — a shrunken re-run can LOWER the total", async () => {
+    // CI re-ran shard 2 with one test fewer; keying `jsonb_set` on the shard
+    // index must replace (not add), and the exact re-sum must go DOWN — a
+    // `greatest`-style merge would show phantom pending tests forever.
+    await applyShardExpectedTests(
+      scope,
+      "run-shardsum",
+      { index: 2, total: 3 },
+      1,
+      T + 3,
+    );
+    expect(await readRun("run-shardsum")).toMatchObject({
+      expectedTotalTests: 7,
+      shardExpectedTests: { "1": 2, "2": 1, "3": 4 },
+    });
+  });
+
+  it("starts the map from '{}' for a legacy opener and backfills expectedShards", async () => {
+    // Mixed-version fleet: the opener predates shard-aware opens (no map, no
+    // expectedShards). A later shard's merge must coalesce the null map — its
+    // sum covers only shard-aware opens (the UI clamps the display with
+    // max(expected, totalTests, buckets)) — and backfill expectedShards.
+    const legacy = buildRunInsertValues(
+      "run-legacyopener",
+      scope,
+      openerPayload({ idempotencyKey: "legacy-key", shard: undefined }),
+      T,
+    );
+    await h.db.insert(runs).values(legacy);
+    expect(await readRun("run-legacyopener")).toMatchObject({
+      expectedTotalTests: 2,
+      shardExpectedTests: null,
+      expectedShards: null,
+    });
+
+    await applyShardExpectedTests(
+      scope,
+      "run-legacyopener",
+      { index: 2, total: 3 },
+      3,
+      T + 1,
+    );
+    expect(await readRun("run-legacyopener")).toMatchObject({
+      expectedTotalTests: 3,
+      shardExpectedTests: { "2": 3 },
+      expectedShards: 3,
+    });
+  });
+
+  it("is tenant-scoped: a foreign scope's write does not touch the run", async () => {
+    const foreign = makeTenantScope({
+      teamId: "t-other",
+      projectId: "p-other",
+      teamSlug: "other",
+      projectSlug: "other",
+    });
+    const before = await readRun("run-shardsum");
+    await applyShardExpectedTests(
+      foreign,
+      "run-shardsum",
+      { index: 9, total: 9 },
+      999,
+      T + 9,
+    );
+    expect(await readRun("run-shardsum")).toEqual(before);
   });
 });
 

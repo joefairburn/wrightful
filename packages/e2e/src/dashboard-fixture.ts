@@ -215,10 +215,14 @@ export async function bootDashboard(
   let devServer: ChildProcess | undefined;
   let envBackedUp = false;
   let tornDown = false;
+  // Flipped by teardown so the intentional kill doesn't trip the mid-run
+  // death reporter attached to the dev server's `exit` event below.
+  let expectedExit = false;
 
   const teardown = () => {
     if (tornDown) return;
     tornDown = true;
+    expectedExit = true;
     if (devServer) {
       // Kill the whole process group (detached leader) so vp/vite/miniflare
       // don't outlive the parent and hold the port. Fall back to a direct kill.
@@ -321,6 +325,16 @@ export async function bootDashboard(
     let serverLog = "";
     devServer.stdout?.on("data", (d) => (serverLog += d.toString()));
     devServer.stderr?.on("data", (d) => (serverLog += d.toString()));
+    // A dev server that dies MID-RUN otherwise fails every remaining spec with
+    // an opaque ERR_CONNECTION_REFUSED and takes its output with it. Surface
+    // the exit cause + last output the moment it happens. `expectedExit` is
+    // flipped by teardown so the intentional kill stays silent.
+    devServer.on("exit", (code, signal) => {
+      if (expectedExit) return;
+      console.error(
+        `\n[dashboard-fixture] dev server EXITED MID-RUN (code=${code}, signal=${signal}). Last output:\n${serverLog.slice(-4000)}`,
+      );
+    });
     try {
       await waitForServer(url);
     } catch (err) {

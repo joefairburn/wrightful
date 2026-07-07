@@ -118,6 +118,7 @@ function test(overrides: Partial<RunProgressTest> = {}): RunProgressTest {
 function summary(
   overrides: Partial<{
     totalTests: number;
+    expectedTotalTests: number | null;
     passed: number;
     failed: number;
     flaky: number;
@@ -129,6 +130,7 @@ function summary(
 ) {
   return {
     totalTests: 1,
+    expectedTotalTests: null,
     passed: 1,
     failed: 0,
     flaky: 0,
@@ -153,6 +155,7 @@ function row(
     flaky: 0,
     skipped: 0,
     totalTests: 0,
+    expectedTotalTests: null,
     durationMs: 0,
     completedAt: null,
     createdAt: 1,

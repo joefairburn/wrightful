@@ -59,7 +59,11 @@ JSON response:
 ### `GET /api/v1/runs/:runId`
 
 A single run's summary (totals + commit/branch/actor metadata). 404 if the run
-doesn't belong to the key's project.
+doesn't belong to the key's project. Alongside `totalTests` (results recorded)
+the summary carries `expectedTotalTests` — the suite size the reporter declared
+at `onBegin`, summed across shards on a sharded run (`null` on runs ingested
+before this field existed). `totalTests < expectedTotalTests` means part of the
+suite never ran (e.g. an interrupted run).
 
 ### `GET /api/v1/runs/:runId/tests`
 

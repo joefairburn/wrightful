@@ -15,6 +15,7 @@ import { StatusGlyph } from "@/components/status-glyph";
 import { TableCell, TableRow } from "@/components/ui/table";
 import type { RunListRowData } from "@/realtime/events";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
+import { runOutcomeTotals } from "@/lib/run-outcome";
 import { formatRelativeTime } from "@/lib/time-format";
 
 interface RunListRowProps {
@@ -47,7 +48,9 @@ export function RunListRow({
   const prHref = prUrl(run.ciProvider, run.repo, run.prNumber);
   const commitHref = commitUrl(run.ciProvider, run.repo, run.commitSha);
   const branchHref = branchUrl(run.ciProvider, run.repo, run.branch);
-  const total = run.passed + run.failed + run.flaky + run.skipped;
+  // Denominator = full declared suite size; `pending` = the not-yet-reported
+  // remainder. Clamp rules live in `runOutcomeTotals` (see its doc).
+  const { total, pending } = runOutcomeTotals(run);
 
   return (
     <TableRow>
@@ -144,6 +147,9 @@ export function RunListRow({
                 teamSlug={teamSlug}
                 variant="flaky"
               />
+            ) : null}
+            {pending > 0 ? (
+              <span className="shrink-0 text-fg-4">{pending} pending</span>
             ) : null}
             <span className="ml-auto text-[color:var(--fg-4)]">/{total}</span>
           </div>

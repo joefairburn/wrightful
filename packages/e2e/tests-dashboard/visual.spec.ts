@@ -11,7 +11,7 @@
  *      changed; do NOT commit a macOS PNG.
  *
  *   2. CI ratchet: enable the env var in `.github/workflows/ci.yml`
- *      for the test-e2e-ui job, generate Linux baselines via a
+ *      for the test-e2e-dashboard job, generate Linux baselines via a
  *      one-shot --update-snapshots run, commit them, then re-enable
  *      in the regular CI job.
  */

@@ -267,7 +267,7 @@ jobs:
   # A dedicated, self-contained job — NOT a step in test-e2e — because:
   #   * the demo suite drives playwright.dev and streams to prod; it never boots
   #     a local dashboard, so it has no DATABASE_URL / `void db reset` dependency
-  #     (unlike test-e2e's Vitest suite + test-e2e-ui, which do);
+  #     (unlike test-e2e's Vitest suite + test-e2e-dashboard, which do);
   #   * a streaming step buried after `pnpm test:e2e` inherits an implicit
   #     `success()` and is skipped whenever that (DB-dependent) step fails.
   # Isolating it means streaming runs on its own merits.
@@ -309,7 +309,7 @@ jobs:
       - name: Stream demo suite to production Wrightful
         # The synthetic demo suite streams to a dedicated dogfood project
         # (WRIGHTFUL_DOGFOOD_TOKEN), kept separate from the real dashboard e2e
-        # suite (test-e2e-ui), which uses WRIGHTFUL_TOKEN.
+        # suite (test-e2e-dashboard), which uses WRIGHTFUL_TOKEN.
         env:
           WRIGHTFUL_URL: ${{ secrets.WRIGHTFUL_URL }}
           WRIGHTFUL_TOKEN: ${{ secrets.WRIGHTFUL_DOGFOOD_TOKEN }}
@@ -320,8 +320,8 @@ jobs:
   # API-level e2e and component RTL tests can't see. The fixtures boot the Void
   # dashboard at apps/dashboard (.env.local + `void db reset`); the suite is
   # green (35/35) locally. CI runs 3 workers + retries:2 to absorb timing flake.
-  test-e2e-ui:
-    name: E2E UI Tests (Playwright)
+  test-e2e-dashboard:
+    name: Dashboard E2E Tests (Playwright)
     runs-on: ubuntu-latest
     needs: [test-reporter, test-dashboard]
     # Throwaway Postgres for bootDashboard's `void db reset` + `vp dev` (see the

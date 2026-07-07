@@ -95,6 +95,7 @@ export default function RunDetailPage({
   const initialSummary = useMemo(
     () => ({
       totalTests: run.totalTests,
+      expectedTotalTests: run.expectedTotalTests,
       passed: run.passed,
       failed: run.failed,
       flaky: run.flaky,

@@ -31,6 +31,10 @@ export const GET = defineHandler(async (c) => {
       repo: runs.repo,
       origin: runs.origin,
       totalTests: runs.totalTests,
+      // Declared suite size from the reporter's onBegin (summed across shards
+      // on a sharded run); null on legacy rows. Lets an API consumer detect a
+      // partially-run suite: totalTests < expectedTotalTests ⇒ tests never ran.
+      expectedTotalTests: runs.expectedTotalTests,
       passed: runs.passed,
       failed: runs.failed,
       flaky: runs.flaky,

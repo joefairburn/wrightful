@@ -205,6 +205,7 @@ const NOW = 1_700_000_000;
 function summaryRow(over: Partial<Record<string, unknown>> = {}) {
   return {
     totalTests: 3,
+    expectedTotalTests: null,
     passed: 2,
     failed: 1,
     flaky: 0,
@@ -277,6 +278,7 @@ describe("openRun", () => {
       changedTests: [],
       summary: {
         totalTests: 1,
+        expectedTotalTests: 1,
         passed: 0,
         failed: 0,
         flaky: 0,
@@ -343,6 +345,33 @@ describe("openRun", () => {
     expect(out).toEqual({ runId: "run-existing", duplicate: true });
     expect(transactionSpy).not.toHaveBeenCalled();
     expect(broadcastRunSpy).not.toHaveBeenCalled();
+  });
+
+  it("on a SHARDED duplicate open: merges the shard's count without a prefill transaction or broadcast", async () => {
+    // [0] idempotency SELECT → existing run. The shard-count merge + re-sum is
+    // a SINGLE pooled UPDATE (`jsonb_set` into runs.shardExpectedTests; racing
+    // sibling opens serialize on the row lock), so — like the non-sharded
+    // duplicate — NO transaction runs: still no prefill (the guarded invariant
+    // from the tests above) and no broadcast. The jsonb statement's pg-side
+    // behavior is covered by the real-Postgres verification in the worklog,
+    // not this mock. The opener's own map seed is pinned in
+    // build-run-insert-values.workers.test.ts.
+    awaitResults = [[{ id: "run-existing" }]];
+    const payload: OpenRunPayload = {
+      idempotencyKey: "key-shared",
+      run: {
+        plannedTests: [{ testId: "t9", title: "shard2", file: "spec.ts" }],
+        expectedTotalTests: 1,
+      },
+      shard: { index: 2, total: 4 },
+    } as OpenRunPayload;
+
+    const out = await openRun(scope, payload, NOW);
+
+    expect(out).toEqual({ runId: "run-existing", duplicate: true });
+    expect(transactionSpy).not.toHaveBeenCalled();
+    expect(broadcastRunSpy).not.toHaveBeenCalled();
+    expect(broadcastProjectSpy).not.toHaveBeenCalled();
   });
 
   it("recovers a synthetic run whose monitor was deleted mid-open: nulls monitorId and retries once", async () => {

@@ -27,6 +27,7 @@ function summary(
 ): RunProgressEvent["summary"] {
   return {
     totalTests: 1,
+    expectedTotalTests: null,
     passed: 1,
     failed: 0,
     flaky: 0,

@@ -45,6 +45,15 @@ export interface RunProgressEvent {
   changedTests: RunProgressTest[];
   summary: {
     totalTests: number;
+    /**
+     * Reporter-declared suite size (`runs.expectedTotalTests`), or `null` for
+     * runs opened before the column existed. On a sharded run this GROWS as
+     * shards open: each shard's `onBegin` sees only its own slice, so ingest
+     * re-derives the run's value as the sum over per-shard counts
+     * (`runs.shardExpectedTests`) on every duplicate open — carried on the
+     * summary so live viewers converge on the exact suite total.
+     */
+    expectedTotalTests: number | null;
     passed: number;
     failed: number;
     flaky: number;
@@ -77,6 +86,15 @@ export interface RunListRowData {
   flaky: number;
   skipped: number;
   totalTests: number;
+  /**
+   * Reporter-declared suite size (`runs.expectedTotalTests`), or `null` for
+   * runs opened before the column existed. Lets the list render a
+   * still-pending remainder (`expected - reported buckets`) while results
+   * stream. Carried on every `run-progress` summary too, so the overlay keeps
+   * it fresh — on a sharded run the value grows as each shard's open adds its
+   * slice to the per-shard sum (see the summary field's doc above).
+   */
+  expectedTotalTests: number | null;
   durationMs: number;
   completedAt: number | null;
   createdAt: number;
@@ -167,6 +185,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 const summarySchema = z.object({
   totalTests: z.number(),
+  expectedTotalTests: z.number().nullable(),
   passed: z.number(),
   failed: z.number(),
   flaky: z.number(),

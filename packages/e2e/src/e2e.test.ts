@@ -338,6 +338,171 @@ describe("Wrightful E2E", () => {
     });
   });
 
+  describe("Sharded ingest (multi-shard run over the raw wire)", () => {
+    // Drives the full sharded-suite lifecycle exactly as N reporter processes
+    // would — one `idempotencyKey`, per-shard opens/results/completes over raw
+    // HTTP — against the live dashboard. Pins the three sharded invariants
+    // end-to-end: (1) every shard lands on ONE run, in any open order; (2) the
+    // run's `expectedTotalTests` aggregates to the EXACT suite size as shards
+    // open (each shard's onBegin only sees its own slice); (3) the run defers
+    // its terminal flip until the LAST shard completes, then takes the worst
+    // status across shards.
+    const INGEST_HEADERS = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${API_KEY}`,
+      "X-Wrightful-Version": "3",
+    };
+    const idempotencyKey = `e2e-sharded-${Date.now()}`;
+    const SHARD_TOTAL = 3;
+    // Shard slices: 3 + 2 + 1 = 6 planned tests across the suite.
+    const SHARD_TESTS: Record<number, { testId: string; title: string }[]> = {
+      1: [
+        { testId: "sh1-a", title: "shard1 a" },
+        { testId: "sh1-b", title: "shard1 b" },
+        { testId: "sh1-c", title: "shard1 c" },
+      ],
+      2: [
+        { testId: "sh2-a", title: "shard2 a" },
+        { testId: "sh2-b", title: "shard2 b (fails)" },
+      ],
+      3: [{ testId: "sh3-a", title: "shard3 a" }],
+    };
+    let runId: string;
+
+    function openShard(index: number): Promise<Response> {
+      const tests = SHARD_TESTS[index]!;
+      return fetch(`${DASHBOARD_URL}/api/runs`, {
+        method: "POST",
+        headers: INGEST_HEADERS,
+        body: JSON.stringify({
+          idempotencyKey,
+          run: {
+            plannedTests: tests.map((t) => ({ ...t, file: "sharded.spec.ts" })),
+            expectedTotalTests: tests.length,
+            branch: "e2e-sharded",
+          },
+          shard: { index, total: SHARD_TOTAL },
+        }),
+      });
+    }
+
+    function streamShardResults(
+      index: number,
+      failTestId?: string,
+    ): Promise<Response> {
+      const results = SHARD_TESTS[index]!.map((t) => {
+        const status = t.testId === failTestId ? "failed" : "passed";
+        return {
+          testId: t.testId,
+          title: t.title,
+          file: "sharded.spec.ts",
+          status,
+          durationMs: 25,
+          shardIndex: index,
+          attempts: [{ attempt: 0, status, durationMs: 25 }],
+        };
+      });
+      return fetch(`${DASHBOARD_URL}/api/runs/${runId}/results`, {
+        method: "POST",
+        headers: INGEST_HEADERS,
+        body: JSON.stringify({ results }),
+      });
+    }
+
+    function completeShard(
+      index: number,
+      status: "passed" | "failed",
+    ): Promise<Response> {
+      return fetch(`${DASHBOARD_URL}/api/runs/${runId}/complete`, {
+        method: "POST",
+        headers: INGEST_HEADERS,
+        body: JSON.stringify({
+          status,
+          durationMs: 500 + index,
+          shard: { index, total: SHARD_TOTAL },
+        }),
+      });
+    }
+
+    interface RunSummary {
+      status: string;
+      totalTests: number;
+      expectedTotalTests: number | null;
+      passed: number;
+      failed: number;
+      completedAt: number | null;
+    }
+
+    async function readRunSummary(): Promise<RunSummary> {
+      const res = await fetch(`${DASHBOARD_URL}/api/v1/runs/${runId}`, {
+        headers: { Authorization: `Bearer ${API_KEY}` },
+      });
+      expect(res.status).toBe(200);
+      return (await res.json()) as RunSummary;
+    }
+
+    it("lands every shard on ONE run (any open order) and aggregates the exact suite total", async () => {
+      // Shard 2 wins the open race — deliberately NOT shard 1, so nothing
+      // accidentally depends on the opener being the first shard.
+      const first = await openShard(2);
+      expect(first.status).toBe(201);
+      const firstBody = (await first.json()) as { runId: string };
+      runId = firstBody.runId;
+
+      // Mid-open: only shard 2's slice is declared so far.
+      expect((await readRunSummary()).expectedTotalTests).toBe(2);
+
+      const second = await openShard(1);
+      expect(second.status).toBe(200); // duplicate open
+      const third = await openShard(3);
+      expect(third.status).toBe(200);
+      for (const res of [second, third]) {
+        const body = (await res.json()) as { runId: string; duplicate?: true };
+        expect(body.runId).toBe(runId);
+        expect(body.duplicate).toBe(true);
+      }
+
+      // All shards open → the run knows the EXACT suite size (3 + 2 + 1).
+      expect((await readRunSummary()).expectedTotalTests).toBe(6);
+    });
+
+    it("streams each shard's results against the shared run", async () => {
+      for (const [index, fail] of [
+        [1, undefined],
+        [2, "sh2-b"],
+        [3, undefined],
+      ] as const) {
+        const res = await streamShardResults(index, fail);
+        expect(res.status).toBe(200);
+      }
+      const summary = await readRunSummary();
+      expect(summary.totalTests).toBe(6);
+      expect(summary.passed).toBe(5);
+      expect(summary.failed).toBe(1);
+      // Everything declared has reported — nothing left pending.
+      expect(summary.totalTests).toBe(summary.expectedTotalTests);
+    });
+
+    it("stays running until the LAST shard completes, then takes the worst status", async () => {
+      expect((await completeShard(1, "passed")).status).toBe(200);
+      expect((await readRunSummary()).status).toBe("running");
+
+      expect((await completeShard(3, "passed")).status).toBe(200);
+      expect((await readRunSummary()).status).toBe("running");
+
+      // The failing shard completes LAST: the run flips terminal exactly once,
+      // to the worst status across shards.
+      expect((await completeShard(2, "failed")).status).toBe(200);
+      const final = await readRunSummary();
+      expect(final.status).toBe("failed");
+      expect(final.completedAt).not.toBeNull();
+      expect(final.totalTests).toBe(6);
+      expect(final.expectedTotalTests).toBe(6);
+      expect(final.passed).toBe(5);
+      expect(final.failed).toBe(1);
+    });
+  });
+
   describe("MCP endpoint (/api/mcp)", () => {
     // Raw JSON-RPC over Streamable HTTP — deliberately NOT the MCP SDK client,
     // so this exercises exactly the bytes any MCP client puts on the wire

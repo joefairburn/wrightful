@@ -45,6 +45,7 @@ import type {
 /** Columns published in every `RunProgressEvent.summary`. */
 export const AGGREGATE_SUMMARY_COLUMNS = {
   totalTests: runs.totalTests,
+  expectedTotalTests: runs.expectedTotalTests,
   passed: runs.passed,
   failed: runs.failed,
   flaky: runs.flaky,
@@ -951,7 +952,16 @@ export function buildRunInsertValues(
     repo: payload.run.repo ?? null,
     actor: payload.run.actor ?? null,
     totalTests: plannedTests.length,
-    expectedTotalTests: payload.run.expectedTotalTests ?? plannedTests.length,
+    // For a sharded run this is only the OPENER's slice at insert time; each
+    // later shard's duplicate open merges its own count into
+    // `shardExpectedTests` and re-derives this as the sum over the map (see
+    // `reopenRunForWrites`), converging on the exact suite total.
+    expectedTotalTests: expectedTestsFromOpenPayload(payload),
+    // A sharded opener seeds the map with its own slice so the later re-sums
+    // include it; null for non-sharded runs (the count above is already exact).
+    shardExpectedTests: payload.shard
+      ? { [String(payload.shard.index)]: expectedTestsFromOpenPayload(payload) }
+      : null,
     // Total shards this run must wait for before it may finalize (from
     // `config.shard.total`). Null for a non-sharded suite — `completeRun` then
     // takes the legacy finalize-on-first-complete path. All shards send the
@@ -1022,12 +1032,7 @@ export async function openRun(
     // A later passing shard can no longer flip the run terminal early: the run
     // now stays 'running' until every shard has a `runShards` row and only then
     // takes the worst status across shards (see `completeRun`).
-    await reopenRunForWrites(
-      scope,
-      existing[0].id,
-      nowSeconds,
-      payload.shard?.total,
-    );
+    await reopenRunForWrites(scope, existing[0].id, nowSeconds, payload);
     return { runId: existing[0].id, duplicate: true };
   }
 
@@ -1082,12 +1087,7 @@ export async function openRun(
       )
       .limit(1);
     if (!winner[0]) return null;
-    await reopenRunForWrites(
-      scope,
-      winner[0].id,
-      nowSeconds,
-      payload.shard?.total,
-    );
+    await reopenRunForWrites(scope, winner[0].id, nowSeconds, payload);
     return { runId: winner[0].id, duplicate: true };
   };
 
@@ -1137,6 +1137,7 @@ export async function openRun(
 
   const summary: RunAggregateSummary = {
     totalTests: plannedTests.length,
+    expectedTotalTests: runValues.expectedTotalTests ?? null,
     passed: 0,
     failed: 0,
     flaky: 0,
@@ -1164,6 +1165,7 @@ export async function openRun(
       flaky: 0,
       skipped: 0,
       totalTests: plannedTests.length,
+      expectedTotalTests: runValues.expectedTotalTests ?? null,
       durationMs: 0,
       completedAt: null,
       createdAt: nowSeconds,
@@ -1237,30 +1239,94 @@ export const RUN_WRITE_GUARD_COLUMNS = {
 } as const;
 
 /**
+ * The shard's planned-test count from an open payload: the reporter's explicit
+ * `onBegin` count, falling back to the planned-test list's length for a
+ * reporter that sends the list but not the count. In a sharded run this is one
+ * SHARD's slice, not the suite total — Playwright filters the suite before
+ * reporters see it, so the suite total only exists as the SUM across shards
+ * (see `runs.shardExpectedTests`).
+ */
+function expectedTestsFromOpenPayload(payload: OpenRunPayload): number {
+  return (
+    payload.run.expectedTotalTests ?? (payload.run.plannedTests ?? []).length
+  );
+}
+
+/**
  * Re-arm a terminal run's write window from `openRun`'s duplicate path: a
  * caller presenting the run's idempotency key is a legitimate re-stream (CI
  * re-run, late shard, seeder), so its appends/completes must not 409 against
  * the idle-run closure guard. Bumping `lastActivityAt` is sufficient —
  * `runClosedForWrites` keys on it.
+ *
+ * A sharded duplicate open (shards 2..N, or a shard's retry) additionally
+ * merges that shard's planned-test count into `runs.shardExpectedTests` and
+ * re-derives `expectedTotalTests` as the sum over the map — the only way to
+ * know the full suite size, since each shard's `onBegin` sees only its own
+ * slice. Everything happens in ONE UPDATE statement, so racing sibling opens
+ * simply serialize on the row lock (a blocked UPDATE re-evaluates its SET
+ * against the winner's committed row under READ COMMITTED) — no explicit
+ * transaction or `FOR UPDATE` needed.
+ *
+ * Idempotent per shard: `jsonb_set` keys on the shard index, so a reporter
+ * retry or CI re-run of one shard REPLACES its count, and the exact re-sum
+ * (not `greatest`) lets a shrunken re-run LOWER the total instead of showing
+ * phantom pending tests forever. This is hand-written jsonb SQL the pglite
+ * test lane can't fully vouch for — the statement shape is verified against
+ * real Postgres 16 (see the 2026-07-06 worklog).
  */
 async function reopenRunForWrites(
   scope: TenantScope,
   runId: string,
   nowSeconds: number,
-  expectedShards?: number,
+  payload: OpenRunPayload,
 ): Promise<void> {
+  const shard = payload.shard;
+  if (!shard) {
+    await db
+      .update(runs)
+      .set({ lastActivityAt: nowSeconds })
+      .where(runByIdWhere(scope, runId));
+    return;
+  }
+  await applyShardExpectedTests(
+    scope,
+    runId,
+    shard,
+    expectedTestsFromOpenPayload(payload),
+    nowSeconds,
+  );
+}
+
+/**
+ * The single UPDATE behind {@link reopenRunForWrites}' sharded branch (see its
+ * doc for the semantics). Exported so `pg-integration.test.ts` can execute the
+ * EXACT production statement against a real schema — this is hand-written
+ * jsonb SQL the mocked unit lane can't vouch for.
+ */
+export async function applyShardExpectedTests(
+  scope: TenantScope,
+  runId: string,
+  shard: { index: number; total: number },
+  expectedTests: number,
+  nowSeconds: number,
+): Promise<void> {
+  // The merged map, evaluated against the OLD row — SET expressions can't
+  // reference each other's new values, so the same fragment appears in both
+  // assignments (bound params duplicate; that's fine). `array[<text>]` is the
+  // jsonb_set path (top-level key = the shard index); casts keep node-postgres'
+  // text-typed bound params and the bigint `sum` driver-proof.
+  const mergedMap = sql`jsonb_set(coalesce(${runs.shardExpectedTests}, '{}'::jsonb), array[${String(shard.index)}], to_jsonb(cast(${expectedTests} as integer)))`;
   await db
     .update(runs)
     .set({
+      shardExpectedTests: mergedMap,
+      expectedTotalTests: sql`cast((select sum(cast(value as integer)) from jsonb_each_text(${mergedMap})) as integer)`,
+      // Backfill expectedShards if the run's opener didn't set it (e.g. a
+      // mixed-version fleet where an older shard opened first). `coalesce`
+      // never lowers an already-set total.
+      expectedShards: sql`coalesce(${runs.expectedShards}, ${shard.total})`,
       lastActivityAt: nowSeconds,
-      // A duplicate open from a sharded suite backfills expectedShards if the
-      // run's opener didn't set it (e.g. a mixed-version fleet where an older
-      // shard opened first). `coalesce` never lowers an already-set total.
-      ...(expectedShards !== undefined
-        ? {
-            expectedShards: sql`coalesce(${runs.expectedShards}, ${expectedShards})`,
-          }
-        : {}),
     })
     .where(runByIdWhere(scope, runId));
 }

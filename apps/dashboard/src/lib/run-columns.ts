@@ -36,6 +36,7 @@ export const RUN_PUBLIC_COLUMNS = {
   actor: runs.actor,
   totalTests: runs.totalTests,
   expectedTotalTests: runs.expectedTotalTests,
+  shardExpectedTests: runs.shardExpectedTests,
   expectedShards: runs.expectedShards,
   passed: runs.passed,
   failed: runs.failed,

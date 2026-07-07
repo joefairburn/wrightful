@@ -405,7 +405,29 @@ export const runs = pgTable(
     repo: text("repo"),
     actor: text("actor"),
     totalTests: integer("totalTests").notNull(),
+    /**
+     * Reporter-declared suite size from `onBegin` — the exact denominator for
+     * "how far through the suite is this run". Null only on rows that predate
+     * the column. For a sharded run this is the SUM over
+     * {@link runs.shardExpectedTests}, re-derived on every shard's open.
+     */
     expectedTotalTests: integer("expectedTotalTests"),
+    /**
+     * Per-shard planned-test counts for a sharded run: a jsonb map of
+     * 1-based shard index → that shard's `onBegin` `suite.allTests()` size,
+     * e.g. `{"1": 100, "2": 120}`. Playwright filters the suite before
+     * reporters see it, so no single shard knows the full suite size — the
+     * exact total only exists as the sum of these slices. `openRun` merges
+     * each shard's count in via `jsonb_set` (keyed by shard index, so a
+     * reporter retry / CI re-run REPLACES a shard's count instead of
+     * double-counting) and re-derives `expectedTotalTests` as the sum in the
+     * same UPDATE. Kept on the run row (not a child table) deliberately: the
+     * retention cron that tidies old runs never has to know about it. Null for
+     * non-sharded runs, whose open count lands directly on
+     * `expectedTotalTests`.
+     */
+    shardExpectedTests:
+      jsonb("shardExpectedTests").$type<Record<string, number>>(),
     /**
      * Total number of Playwright shards contributing to this run, from
      * `config.shard.total` on the open payload. NULL for a non-sharded run (or
