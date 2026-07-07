@@ -113,9 +113,6 @@ export const loader = defineHandler(async (c) => {
       slug: project.slug,
       name: project.name,
       teamSlug: project.teamSlug,
-      // Owner-gating for the manual test-ownership assign/remove controls; the
-      // mutation is owner-gated server-side too, so non-owners just see chips.
-      canManageOwners: project.role === "owner",
     },
     range,
     branchParam,
@@ -123,11 +120,7 @@ export const loader = defineHandler(async (c) => {
     branchFilter,
     branches,
     rangeDays,
-    // Set by the owner mutation route on a validation / conflict failure
-    // (it redirects back here with ?ownerError=…). Surfaced as a banner.
-    ownerError: url.searchParams.get("ownerError"),
     pathname: url.pathname,
-    fullPath: url.pathname + url.search,
     ranges: RANGES,
 
     // The whole flaky payload streams as ONE grouped resolver behind the KPI

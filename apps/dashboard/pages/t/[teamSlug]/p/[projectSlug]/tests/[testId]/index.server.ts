@@ -3,9 +3,11 @@ import { and, asc, db, desc, eq, sql } from "void/db";
 import { runs, testResults, testTags } from "@schema";
 import { ciRunsJoinOn } from "@/lib/analytics/filters";
 import { statusCounter } from "@/lib/analytics/per-test";
+import { listTeamMembers } from "@/lib/auth-users";
 import { runRow } from "@/lib/db-run";
 import { intAggExpr, numAggExpr } from "@/lib/db/sql-ops";
 import { parseTitleSegments } from "@/lib/group-tests-by-file";
+import { resolveTestOwners } from "@/lib/owners-repo";
 import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
 import { rate } from "@/lib/rate";
 import { childByTestIdWhere } from "@/lib/scope";
@@ -47,7 +49,8 @@ interface AggregateRow {
  *   3. the recent `HISTORY_LIMIT` results joined to their runs (duration-trend
  *      chart + recent-runs table);
  *   4. the union of tags the test has carried;
- *   5. its quarantine state.
+ *   5. its quarantine state;
+ *   6. its resolved owners + (for owners) the assignable team members.
  *
  * Every read scopes by `projectId` (via the branded `TenantScope`) per the
  * logical-tenancy invariant — there is no DO boundary. An empty history means
@@ -141,8 +144,11 @@ export const loader = defineHandler(async (c) => {
     project: {
       teamSlug: project.teamSlug,
       projectSlug: project.slug,
+      teamName: project.teamName,
       // Owner-only quarantine control; non-owners see only the badge.
       canManageQuarantine: project.role === "owner",
+      // Owner-only test-ownership assign popover; non-owners see only chips.
+      canManageOwners: project.role === "owner",
     },
     testId,
     meta: {
@@ -168,52 +174,64 @@ export const loader = defineHandler(async (c) => {
     },
     quarantineRedirectTo: url.pathname + url.search,
     quarantineError: url.searchParams.get("quarantineError"),
+    // Set by the owner mutation route on a validation / conflict failure
+    // (it redirects back here with ?ownerError=…). Surfaced as a banner.
+    ownerError: url.searchParams.get("ownerError"),
 
     // Streamed behind skeletons: the recent-runs slice (chart + table), the
-    // tag union, and the quarantine state. All three were a single Promise.all
-    // leg before; grouping them into one `defer()` keeps them resolving
-    // together while the header + KPI strip paint from the eager reads above.
+    // tag union, the quarantine state, the test's resolved owners, and — for
+    // owners only — the member list the assign popover selects from. Grouping
+    // them into one `defer()` keeps them resolving together while the header +
+    // KPI strip paint from the eager reads above.
     details: defer(async () => {
-      const [history, tagRows, quarantineRows] = await Promise.all([
-        // Recent results + their run metadata. Drizzle builder → decoders fire,
-        // so `createdAt` (bigint, mode:"number") and `durationMs` come back as
-        // numbers. `ciRunsJoinOn()` excludes synthetic monitor traffic.
-        db
-          .select({
-            testResultId: testResults.id,
-            runId: testResults.runId,
-            status: testResults.status,
-            durationMs: testResults.durationMs,
-            retryCount: testResults.retryCount,
-            title: testResults.title,
-            file: testResults.file,
-            projectName: testResults.projectName,
-            createdAt: testResults.createdAt,
-            branch: runs.branch,
-            commitSha: runs.commitSha,
-            commitMessage: runs.commitMessage,
-            actor: runs.actor,
-          })
-          .from(testResults)
-          .innerJoin(runs, ciRunsJoinOn())
-          .where(childByTestIdWhere(testResults, scope, testId))
-          .orderBy(desc(testResults.createdAt))
-          .limit(HISTORY_LIMIT),
-        // Union of every tag the test has carried, across its results.
-        db
-          .selectDistinct({ tag: testTags.tag })
-          .from(testTags)
-          .innerJoin(testResults, eq(testResults.id, testTags.testResultId))
-          .where(
-            and(
-              eq(testTags.projectId, scope.projectId),
-              eq(testResults.projectId, scope.projectId),
-              eq(testResults.testId, testId),
-            ),
-          )
-          .orderBy(asc(testTags.tag)),
-        loadQuarantineByTestId(project.id, [testId]),
-      ]);
+      const [history, tagRows, quarantineRows, ownerMap, members] =
+        await Promise.all([
+          // Recent results + their run metadata. Drizzle builder → decoders fire,
+          // so `createdAt` (bigint, mode:"number") and `durationMs` come back as
+          // numbers. `ciRunsJoinOn()` excludes synthetic monitor traffic.
+          db
+            .select({
+              testResultId: testResults.id,
+              runId: testResults.runId,
+              status: testResults.status,
+              durationMs: testResults.durationMs,
+              retryCount: testResults.retryCount,
+              title: testResults.title,
+              file: testResults.file,
+              projectName: testResults.projectName,
+              createdAt: testResults.createdAt,
+              branch: runs.branch,
+              commitSha: runs.commitSha,
+              commitMessage: runs.commitMessage,
+              actor: runs.actor,
+            })
+            .from(testResults)
+            .innerJoin(runs, ciRunsJoinOn())
+            .where(childByTestIdWhere(testResults, scope, testId))
+            .orderBy(desc(testResults.createdAt))
+            .limit(HISTORY_LIMIT),
+          // Union of every tag the test has carried, across its results.
+          db
+            .selectDistinct({ tag: testTags.tag })
+            .from(testTags)
+            .innerJoin(testResults, eq(testResults.id, testTags.testResultId))
+            .where(
+              and(
+                eq(testTags.projectId, scope.projectId),
+                eq(testResults.projectId, scope.projectId),
+                eq(testResults.testId, testId),
+              ),
+            )
+            .orderBy(asc(testTags.tag)),
+          loadQuarantineByTestId(project.id, [testId]),
+          // This test's owners (manual + CODEOWNERS-derived, manual-wins).
+          resolveTestOwners(scope, [testId]),
+          // The assign popover's member options — only loaded for owners (the
+          // only viewers who get the control).
+          project.role === "owner"
+            ? listTeamMembers(project.teamId)
+            : Promise.resolve([]),
+        ]);
 
       return {
         history,
@@ -221,6 +239,11 @@ export const loader = defineHandler(async (c) => {
         quarantine: quarantineRows[0]
           ? { mode: quarantineRows[0].mode, reason: quarantineRows[0].reason }
           : null,
+        owners: ownerMap.get(testId) ?? [],
+        assignableMembers: members.map((m) => ({
+          name: m.name,
+          email: m.email,
+        })),
       };
     }),
   };

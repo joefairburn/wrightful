@@ -9,7 +9,6 @@ import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { TablePaginationFooterSkeleton } from "@/components/skeletons";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Empty,
   EmptyContent,
@@ -54,13 +53,10 @@ export default function FlakyTestsPage({
   branches,
   rangeDays,
   flaky,
-  ownerError,
   pathname,
-  fullPath,
   ranges,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
-  const ownerActionPath = `/api/t/${project.teamSlug}/p/${project.slug}/owners`;
   const { with: hrefWith } = makeHrefBuilder(pathname, {
     range,
     branch: branchParam,
@@ -98,14 +94,6 @@ export default function FlakyTestsPage({
         />
       </PageToolbar>
 
-      {ownerError && (
-        <div className="shrink-0 px-6 pt-3">
-          <Alert variant="error">
-            <AlertDescription>{ownerError}</AlertDescription>
-          </Alert>
-        </div>
-      )}
-
       <DeferredSection
         resetKey={resetKey}
         skeleton={<FlakyTableSkeleton rangeDays={rangeDays} />}
@@ -115,10 +103,7 @@ export default function FlakyTestsPage({
           branchAll={branchAll}
           branchFilter={branchFilter}
           branches={branches}
-          canManageOwners={project.canManageOwners}
           flaky={flaky}
-          fullPath={fullPath}
-          ownerActionPath={ownerActionPath}
           rangeDays={rangeDays}
         />
       </DeferredSection>
@@ -169,23 +154,17 @@ function FlakyKpiSkeleton() {
 function FlakyTableRegion({
   flaky,
   base,
-  ownerActionPath,
-  fullPath,
   rangeDays,
   branchAll,
   branchFilter,
   branches,
-  canManageOwners,
 }: {
   flaky: Props["flaky"];
   base: string;
-  ownerActionPath: string;
-  fullPath: string;
   rangeDays: number;
   branchAll: boolean;
   branchFilter: string | null;
   branches: string[];
-  canManageOwners: boolean;
 }) {
   const { totalFlakyTests, ranked, sparkByTest, failsByTest, ownersByTestId } =
     use(flaky);
@@ -234,11 +213,8 @@ function FlakyTableRegion({
                 : base;
               return (
                 <FlakyTestRow
-                  canManageOwners={canManageOwners}
                   file={meta?.file ?? ""}
                   key={row.testId}
-                  ownerActionPath={ownerActionPath}
-                  ownerRedirectTo={fullPath}
                   owners={ownersByTestId[row.testId] ?? []}
                   pct={row.pct}
                   rangeDays={rangeDays}
@@ -246,7 +222,6 @@ function FlakyTableRegion({
                   rowHref={rowHref}
                   sparklinePoints={meta?.sparkline ?? []}
                   tags={meta?.tags ?? []}
-                  testId={row.testId}
                   title={meta?.title ?? row.testId}
                 />
               );
