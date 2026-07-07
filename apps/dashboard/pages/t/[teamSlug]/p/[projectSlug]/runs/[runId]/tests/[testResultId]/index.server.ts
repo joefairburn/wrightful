@@ -1,6 +1,8 @@
 import { defer, defineHandler, type InferProps } from "void";
 import { and, db, desc, eq } from "void/db";
 import { runs, testResults } from "@schema";
+import { listTeamMembers } from "@/lib/auth-users";
+import { resolveTestOwners } from "@/lib/owners-repo";
 import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
 import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
 import { childByTestIdWhere, runByIdWhere } from "@/lib/scope";
@@ -76,11 +78,19 @@ export const loader = defineHandler(async (c) => {
   // attempt tabs and error panels. Fired together so the fan-out stays
   // concurrent. The two costly reads (the bounded history strip and the
   // per-row artifact-signing fan-out) defer below.
-  const [children, quarantineRows] = await Promise.all([
+  const [children, quarantineRows, ownerMap, members] = await Promise.all([
     loadTestResultChildren(scope, testResultId),
     // Quarantine state for this test — drives the badge + owner-gated control
     // in the page header. One testId, so at most one row.
     loadQuarantineByTestId(project.id, [result.testId]),
+    // The test's owners (manual + CODEOWNERS-derived, manual-wins) — chips +
+    // the assign popover in the header.
+    resolveTestOwners(scope, [result.testId]),
+    // The assign popover's member options — only loaded for owners (the only
+    // viewers who get the control).
+    project.role === "owner"
+      ? listTeamMembers(project.teamId)
+      : Promise.resolve([]),
   ]);
 
   // A deferred loader streams a variant-specific body — set no-store so the
@@ -92,8 +102,11 @@ export const loader = defineHandler(async (c) => {
       id: project.id,
       teamSlug: project.teamSlug,
       projectSlug: project.slug,
+      teamName: project.teamName,
       // Owner-only quarantine control; non-owners see only the badge.
       canManageQuarantine: project.role === "owner",
+      // Owner-only test-ownership assign popover; non-owners see only chips.
+      canManageOwners: project.role === "owner",
     },
     runId,
     testResultId,
@@ -107,6 +120,11 @@ export const loader = defineHandler(async (c) => {
       : null,
     quarantineRedirectTo: url.pathname + url.search,
     quarantineError: url.searchParams.get("quarantineError"),
+    // This test's resolved owners + (for owners) the member options the assign
+    // popover selects from. `ownerError` mirrors `quarantineError`.
+    owners: ownerMap.get(result.testId) ?? [],
+    assignableMembers: members.map((m) => ({ name: m.name, email: m.email })),
+    ownerError: url.searchParams.get("ownerError"),
     tags: children.tags,
     annotations: children.annotations,
     attempts: children.attempts,

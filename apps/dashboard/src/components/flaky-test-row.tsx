@@ -20,7 +20,6 @@ export interface FlakyRecentFailure {
 }
 
 export interface FlakyTestRowProps {
-  testId: string;
   title: string;
   file: string;
   tags: string[];
@@ -33,9 +32,6 @@ export interface FlakyTestRowProps {
   rowHref: string;
   /** Resolved owners for this test (manual + CODEOWNERS, manual-wins). */
   owners: OwnerChip[];
-  ownerActionPath: string;
-  ownerRedirectTo: string;
-  canManageOwners: boolean;
 }
 
 function pctTone(pct: number): string {
@@ -58,9 +54,9 @@ function displayTitle(title: string, file: string): string {
 
 /**
  * Flaky test row. Layout mirrors the design bundle's `FlakyRow`
- * (`wrightful/project/screen-flaky-tests.jsx:84-122`), with the Owner column
- * widened to host the ownership chips + owner-gated assign/remove control
- * (roadmap 2.3):
+ * (`wrightful/project/screen-flaky-tests.jsx:84-122`), with an Owner column
+ * showing the test's ownership chips read-only (assignment lives in the
+ * per-test page's popover, roadmap 2.3):
  *   [glyph 40] [Test flex] [Flake rate 110 r] [Nd trend 180] [Last failure 280] [Owner 210] [Last seen 90 r]
  *
  * Test cell is two lines:
@@ -72,7 +68,6 @@ function displayTitle(title: string, file: string): string {
  * X-padding matches the runs table (`px-4`).
  */
 export function FlakyTestRow({
-  testId,
   title,
   file,
   tags,
@@ -82,9 +77,6 @@ export function FlakyTestRow({
   recentFailures,
   rowHref,
   owners,
-  ownerActionPath,
-  ownerRedirectTo,
-  canManageOwners,
 }: FlakyTestRowProps): React.ReactElement {
   const tone = pctTone(pct);
   const latest = recentFailures[0];
@@ -145,14 +137,7 @@ export function FlakyTestRow({
         </div>
       </TableCell>
       <TableCell className="w-[210px] px-4 py-3 align-middle">
-        <OwnerCell
-          actionPath={ownerActionPath}
-          canManage={canManageOwners}
-          owners={owners}
-          redirectTo={ownerRedirectTo}
-          testId={testId}
-          title={cleanTitle}
-        />
+        <OwnerCell owners={owners} />
       </TableCell>
       <TableCell className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-fg-3">
         {latest ? formatRelativeTime(latest.createdAt) : "—"}

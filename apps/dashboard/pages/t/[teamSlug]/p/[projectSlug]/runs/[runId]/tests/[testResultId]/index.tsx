@@ -10,6 +10,7 @@ import {
   type AttemptTabItem,
 } from "@/components/attempt-tabs";
 import { DeferredSection } from "@/components/defer-error-boundary";
+import { OwnerAssignControl } from "@/components/owner-assign-popover";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
 import { QuarantineControl } from "@/components/quarantine-control";
 import {
@@ -79,6 +80,9 @@ export default function TestDetailPage(props: Props) {
     quarantine,
     quarantineRedirectTo,
     quarantineError,
+    owners,
+    assignableMembers,
+    ownerError,
     tags: tagRows,
     annotations: annotationRows,
     attempts: attemptRows,
@@ -88,6 +92,7 @@ export default function TestDetailPage(props: Props) {
 
   const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
   const quarantineActionPath = `/api/t/${project.teamSlug}/p/${project.projectSlug}/quarantine`;
+  const ownerActionPath = `/api/t/${project.teamSlug}/p/${project.projectSlug}/owners`;
 
   // Attempt count from the eager per-attempt rows; the fallback trusts the
   // reporter's `retryCount + 1`. (Formerly also `max`'d with an artifact-derived
@@ -209,14 +214,26 @@ export default function TestDetailPage(props: Props) {
             {testTitle}
           </h1>
         </div>
-        <QuarantineControl
-          actionPath={quarantineActionPath}
-          canManage={project.canManageQuarantine}
-          quarantine={quarantine}
-          redirectTo={quarantineRedirectTo}
-          testId={result.testId}
-          title={testTitle}
-        />
+        <div className="flex min-w-0 shrink-0 items-center gap-3">
+          <OwnerAssignControl
+            actionPath={ownerActionPath}
+            canManage={project.canManageOwners}
+            members={assignableMembers}
+            owners={owners}
+            redirectTo={quarantineRedirectTo}
+            team={{ slug: project.teamSlug, name: project.teamName }}
+            testId={result.testId}
+            title={testTitle}
+          />
+          <QuarantineControl
+            actionPath={quarantineActionPath}
+            canManage={project.canManageQuarantine}
+            quarantine={quarantine}
+            redirectTo={quarantineRedirectTo}
+            testId={result.testId}
+            title={testTitle}
+          />
+        </div>
       </DetailHeaderBar>
 
       {/* Metadata + tags/annotations, below the title bar. */}
@@ -230,6 +247,11 @@ export default function TestDetailPage(props: Props) {
         {quarantineError && (
           <Alert className="mt-3" variant="error">
             <AlertDescription>{quarantineError}</AlertDescription>
+          </Alert>
+        )}
+        {ownerError && (
+          <Alert className="mt-3" variant="error">
+            <AlertDescription>{ownerError}</AlertDescription>
           </Alert>
         )}
         {(tagRows.length > 0 || annotationRows.length > 0) && (

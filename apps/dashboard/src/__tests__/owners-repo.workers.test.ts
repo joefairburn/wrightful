@@ -18,6 +18,8 @@ let capturedWhere: unknown = null;
 let capturedConflict: unknown = null;
 let capturedSet: unknown = null;
 let setCalled = false;
+let capturedValues: unknown = null;
+let valuesCalled = false;
 // The single row the `select(...).limit(1)` read resolves to. Drives the
 // unchanged-guard in `setCodeownersFile`; default `[]` (no current row → null
 // current value), tests override it.
@@ -35,7 +37,11 @@ vi.mock("void/db", async () => {
   node.orderBy = chain;
   node.groupBy = chain;
   node.limit = chain;
-  node.values = chain;
+  node.values = (v: unknown) => {
+    capturedValues = v;
+    valuesCalled = true;
+    return node;
+  };
   node.set = (v: unknown) => {
     capturedSet = v;
     setCalled = true;
@@ -53,12 +59,21 @@ vi.mock("void/db", async () => {
     insert: chain,
     delete: chain,
     update: chain,
+    // `runBatch` builds its statements against the transaction executor; the
+    // stub hands the same chainable node back so captures keep working.
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ select: chain, insert: chain, delete: chain, update: chain }),
   };
   return { ...stub, db };
 });
 
-const { assignOwner, mergeOwners, removeOwner, setCodeownersFile } =
-  await import("@/lib/owners-repo");
+const {
+  assignOwner,
+  mergeOwners,
+  removeOwner,
+  setCodeownersFile,
+  setManualOwners,
+} = await import("@/lib/owners-repo");
 
 type RecordedOp = { __op: string; args: readonly unknown[] };
 
@@ -88,6 +103,8 @@ beforeEach(() => {
   capturedConflict = null;
   capturedSet = null;
   setCalled = false;
+  capturedValues = null;
+  valuesCalled = false;
   selectResult = [];
 });
 
@@ -173,6 +190,59 @@ describe("removeOwner", () => {
     const [projectEq] = and.args as [RecordedOp];
     expect(readEq(projectEq).value).toBe("proj_OTHER");
     expect(readEq(projectEq).value).not.toBe("proj_xyz");
+  });
+});
+
+describe("setManualOwners", () => {
+  it("deletes the manual rows scoped by (projectId, testId, source) then inserts the new set", async () => {
+    await setManualOwners(scope, "t1", ["@web", "a@b.c"], 1700);
+    // The delete's WHERE is captured first; the insert has no WHERE, so the
+    // last-captured predicate is still the delete's.
+    const and = capturedWhere as RecordedOp;
+    expect(and.__op).toBe("and");
+    const [projectEq, testEq, sourceEq] = and.args as [
+      RecordedOp,
+      RecordedOp,
+      RecordedOp,
+    ];
+    expect(readEq(projectEq)).toEqual({
+      column: "projectId",
+      value: "proj_xyz",
+    });
+    expect(readEq(testEq)).toEqual({ column: "testId", value: "t1" });
+    expect(readEq(sourceEq)).toEqual({ column: "source", value: "manual" });
+
+    const rows = capturedValues as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.owner)).toEqual(["@web", "a@b.c"]);
+    for (const row of rows) {
+      expect(row.projectId).toBe("proj_xyz");
+      expect(row.testId).toBe("t1");
+      expect(row.source).toBe("manual");
+      expect(row.createdAt).toBe(1700);
+    }
+  });
+
+  it("de-duplicates the incoming owners, preserving order", async () => {
+    await setManualOwners(scope, "t1", ["@a", "@b", "@a"], 1700);
+    const rows = capturedValues as Array<Record<string, unknown>>;
+    expect(rows.map((r) => r.owner)).toEqual(["@a", "@b"]);
+  });
+
+  it("an empty set only deletes (clears manual ownership, no insert)", async () => {
+    await setManualOwners(scope, "t1", [], 1700);
+    expect(valuesCalled).toBe(false);
+    const and = capturedWhere as RecordedOp;
+    expect(and.__op).toBe("and");
+  });
+
+  it("a different scope binds a different projectId (cross-tenant isolation)", async () => {
+    await setManualOwners(otherScope, "t1", ["@web"], 1700);
+    const and = capturedWhere as RecordedOp;
+    const [projectEq] = and.args as [RecordedOp];
+    expect(readEq(projectEq).value).toBe("proj_OTHER");
+    const rows = capturedValues as Array<Record<string, unknown>>;
+    expect(rows[0]?.projectId).toBe("proj_OTHER");
   });
 });
 

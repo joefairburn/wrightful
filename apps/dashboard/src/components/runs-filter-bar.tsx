@@ -165,11 +165,6 @@ export function RunsFilterBar({
           onChange={(v) => apply({ ...filters, branch: v })}
           options={options.branches.map((b) => ({ value: b, label: b }))}
           placeholder="All branches"
-          renderItem={(_value, itemLabel) => (
-            <span className="truncate font-mono text-[12.5px]">
-              {itemLabel}
-            </span>
-          )}
         />
 
         <MultiComboboxFilter

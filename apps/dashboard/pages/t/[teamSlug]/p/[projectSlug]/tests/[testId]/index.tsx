@@ -3,6 +3,7 @@ import { RowLink } from "@/components/row-link";
 import { Link } from "@/components/ui/link";
 import { AnalyticsKpiCard } from "@/components/analytics/kpi-card";
 import { DeferredSection } from "@/components/defer-error-boundary";
+import { OwnerAssignControl } from "@/components/owner-assign-popover";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
 import { QuarantineControl } from "@/components/quarantine-control";
 import {
@@ -41,9 +42,9 @@ type OkProps = Extract<Props, { kind: "ok" }>;
  * `kind: "not_found"` so this component doesn't gate existence itself.
  *
  * The header (title/status) + all-time KPI strip paint immediately from the
- * eager aggregate + latest-result reads; the quarantine control, tag row, and
- * the chart + recent-runs table stream in behind skeletons (the `details`
- * deferred group).
+ * eager aggregate + latest-result reads; the owner + quarantine controls, tag
+ * row, and the chart + recent-runs table stream in behind skeletons (the
+ * `details` deferred group).
  */
 export default function TestHistoryPage(props: Props) {
   if (props.kind === "not_found") {
@@ -74,11 +75,13 @@ export default function TestHistoryPage(props: Props) {
     stats,
     quarantineRedirectTo,
     quarantineError,
+    ownerError,
     details,
   } = props;
 
   const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
   const quarantineActionPath = `/api/t/${project.teamSlug}/p/${project.projectSlug}/quarantine`;
+  const ownerActionPath = `/api/t/${project.teamSlug}/p/${project.projectSlug}/owners`;
 
   return (
     <>
@@ -90,16 +93,17 @@ export default function TestHistoryPage(props: Props) {
             {meta.testTitle}
           </h1>
         </div>
-        {/* Quarantine state is a DB read → deferred; the control streams in on
-         * the right of the header behind a small skeleton. */}
+        {/* Ownership + quarantine state are DB reads → deferred; the controls
+         * stream in on the right of the header behind small skeletons. */}
         <DeferredSection
           errorFallback={null}
-          skeleton={<QuarantineControlSkeleton />}
+          skeleton={<HeaderControlsSkeleton />}
         >
-          <QuarantineControlRegion
-            actionPath={quarantineActionPath}
-            canManage={project.canManageQuarantine}
+          <HeaderControlsRegion
             details={details}
+            ownerActionPath={ownerActionPath}
+            project={project}
+            quarantineActionPath={quarantineActionPath}
             redirectTo={quarantineRedirectTo}
             testId={testId}
             title={meta.testTitle}
@@ -122,6 +126,11 @@ export default function TestHistoryPage(props: Props) {
         {quarantineError && (
           <Alert className="mt-3" variant="error">
             <AlertDescription>{quarantineError}</AlertDescription>
+          </Alert>
+        )}
+        {ownerError && (
+          <Alert className="mt-3" variant="error">
+            <AlertDescription>{ownerError}</AlertDescription>
           </Alert>
         )}
         {/* Tags are a DB union → deferred. The skeleton shows a couple of badge
@@ -192,39 +201,55 @@ export default function TestHistoryPage(props: Props) {
   );
 }
 
-/** Header-right quarantine control — reads the deferred `quarantine` state. */
-function QuarantineControlRegion({
+/** Header-right ownership + quarantine controls — both read the deferred
+ *  `details` group (owners / member options / quarantine state). */
+function HeaderControlsRegion({
   details,
-  actionPath,
-  canManage,
+  project,
+  ownerActionPath,
+  quarantineActionPath,
   redirectTo,
   testId,
   title,
 }: {
   details: OkProps["details"];
-  actionPath: string;
-  canManage: boolean;
+  project: OkProps["project"];
+  ownerActionPath: string;
+  quarantineActionPath: string;
   redirectTo: string;
   testId: string;
   title: string;
 }) {
-  const { quarantine } = use(details);
+  const { quarantine, owners, assignableMembers } = use(details);
   return (
-    <QuarantineControl
-      actionPath={actionPath}
-      canManage={canManage}
-      quarantine={quarantine}
-      redirectTo={redirectTo}
-      testId={testId}
-      title={title}
-    />
+    <div className="flex min-w-0 shrink-0 items-center gap-3">
+      <OwnerAssignControl
+        actionPath={ownerActionPath}
+        canManage={project.canManageOwners}
+        members={assignableMembers}
+        owners={owners}
+        redirectTo={redirectTo}
+        team={{ slug: project.teamSlug, name: project.teamName }}
+        testId={testId}
+        title={title}
+      />
+      <QuarantineControl
+        actionPath={quarantineActionPath}
+        canManage={project.canManageQuarantine}
+        quarantine={quarantine}
+        redirectTo={redirectTo}
+        testId={testId}
+        title={title}
+      />
+    </div>
   );
 }
 
-/** Fallback for the header-right quarantine control while its state resolves. */
-function QuarantineControlSkeleton() {
+/** Fallback for the header-right controls while their state resolves. */
+function HeaderControlsSkeleton() {
   return (
     <div className="flex shrink-0 items-center gap-2">
+      <Skeleton className="h-8 w-16 rounded-md" />
       <Skeleton className="h-8 w-24 rounded-md" />
     </div>
   );

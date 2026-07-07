@@ -86,9 +86,14 @@ export function FilterTriggerButton({
 
 /**
  * Shared popup body for filter comboboxes — optional search header, list,
- * empty state, optional footer. `MultiComboboxFilter` (multi-select facets)
- * and `RunHistoryBranchFilter` (single-select branch) both render through
- * this so the popup chrome and its search-input styling exist exactly once.
+ * empty state, optional footer. `MultiComboboxFilter` (multi-select facets),
+ * `RunHistoryBranchFilter` (single-select branch) and the owner assign picker
+ * all render through this so the popup chrome and its search-input styling
+ * exist exactly once.
+ *
+ * The search input is a borderless command-menu-style row that IS the popup's
+ * top edge (Linear-style), separated from the list by a hairline — not a
+ * boxed field floating inside the popover.
  */
 export function ComboboxFilterPopup({
   anchor,
@@ -113,10 +118,10 @@ export function ComboboxFilterPopup({
       className={cn(className, "flex-col")}
     >
       {searchable && (
-        <div className="border-b border-line-1 p-2">
+        <div className="border-b border-line-1">
           <ComboboxPrimitive.Input
             autoFocus
-            className="h-7 w-full rounded-md border border-input bg-background px-2 text-sm outline-none placeholder:text-fg-3/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
+            className="h-9 w-full bg-transparent px-3 text-sm outline-none placeholder:text-fg-3/72"
             placeholder={searchPlaceholder}
           />
         </div>
