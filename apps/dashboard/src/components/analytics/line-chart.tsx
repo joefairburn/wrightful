@@ -2,6 +2,7 @@ import type React from "react";
 import { scaleLinear } from "@visx/scale";
 import { Line, LinePath } from "@visx/shape";
 import { cn } from "@/lib/cn";
+import { ChartColumnTooltip, ChartTooltipProvider } from "./chart-tooltip";
 
 export interface LineChartSeries {
   key: string;
@@ -14,8 +15,8 @@ export interface LineChartBucket {
   label: string;
   /** Values aligned to the caller-supplied `series` order. `null` = gap. */
   values: (number | null)[];
-  /** Tooltip content rendered on hover (HTML, no client JS). */
-  tooltip?: React.ReactNode;
+  /** Tooltip content rendered on hover (portaled Base UI tooltip). */
+  tooltip: React.ReactNode;
 }
 
 export interface AnalyticsLineChartProps {
@@ -40,8 +41,10 @@ function pickLabelIndices(count: number): Set<number> {
 }
 
 /**
- * Shared RSC line chart. `series` defines the legend order and color;
+ * Shared line chart. `series` defines the legend order and color;
  * each bucket carries its per-series values aligned by index.
+ * Tooltips use the shared `ui/tooltip` (Base UI) — portaled, so the
+ * surrounding `overflow-hidden` cards never clip them.
  *
  * SVG rendered with a non-uniform `preserveAspectRatio="none"` viewBox
  * so strokes stretch cleanly to fill the container — same trick used
@@ -169,25 +172,22 @@ export function AnalyticsLineChart({
           </svg>
 
           {/* Column hit-boxes — one per bucket, full height. `group`
-           * drives the tooltip visibility; pointer events stay off the
+           * drives the hover hairline; pointer events stay off the
            * SVG so line strokes don't steal focus from the column. */}
-          <div
-            className="pointer-events-none absolute inset-x-0 top-0 flex"
-            style={{ height: plotH }}
-          >
-            {buckets.map((b) => (
-              <div key={b.key} className="group relative flex-1 h-full">
-                <div className="pointer-events-auto absolute inset-0" />
-                {/* Vertical hairline shown only on hover. */}
-                <div className="pointer-events-none absolute inset-y-0 left-1/2 hidden w-px -translate-x-1/2 bg-border group-hover:block" />
-                {b.tooltip && (
-                  <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-48 -translate-x-1/2 rounded-lg border border-line-1 bg-popover p-3 text-popover-foreground shadow-lg group-hover:block">
-                    {b.tooltip}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          <ChartTooltipProvider widthClass="w-44">
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 flex"
+              style={{ height: plotH }}
+            >
+              {buckets.map((b) => (
+                <div key={b.key} className="group relative flex-1 h-full">
+                  <ChartColumnTooltip tooltip={b.tooltip} />
+                  {/* Vertical hairline shown only on hover. */}
+                  <div className="pointer-events-none absolute inset-y-0 left-1/2 hidden w-px -translate-x-1/2 bg-border group-hover:block" />
+                </div>
+              ))}
+            </div>
+          </ChartTooltipProvider>
 
           <div
             className="absolute inset-x-0 bottom-0 flex items-start border-t border-line-1 pt-[4px]"

@@ -160,16 +160,16 @@ export function MonitorsList({
         <Table className="min-w-[980px] table-fixed">
           <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
             <TableRow className="hover:bg-transparent">
-              <Th className="w-[44px]" />
-              <Th>Monitor</Th>
-              <Th className="w-[100px]">Interval</Th>
-              <Th className="w-[186px]">Recent</Th>
-              <Th align="right" className="w-[116px]">
+              <TableHead className="w-10 px-4" />
+              <TableHead className="px-4">Monitor</TableHead>
+              <TableHead className="w-[100px] px-4">Interval</TableHead>
+              <TableHead className="w-[186px] px-4">Recent</TableHead>
+              <TableHead className="w-[116px] px-4 text-right">
                 Last run
-              </Th>
-              <Th align="right" className="w-[104px]">
+              </TableHead>
+              <TableHead className="w-[104px] px-4 text-right">
                 Enabled
-              </Th>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -209,24 +209,6 @@ export function MonitorsList({
         />
       )}
     </div>
-  );
-}
-
-function Th({
-  children,
-  className,
-  align = "left",
-}: {
-  children?: React.ReactNode;
-  className?: string;
-  align?: "left" | "right";
-}) {
-  return (
-    <TableHead
-      className={cn("px-2", align === "right" && "text-right", className)}
-    >
-      {children}
-    </TableHead>
   );
 }
 
@@ -271,13 +253,15 @@ function MonitorRow({
 
   return (
     <TableRow className="cursor-pointer">
-      <TableCell className="w-[44px] px-2 py-3 text-center align-middle">
-        <span className="inline-flex justify-center">
+      <TableCell className="w-10 px-4 py-3 align-middle">
+        {/* Match RowLink's default centered-flex layout so the glyph lands at
+         * the same x as the RowLink-wrapped glyphs on runs/flaky/tests. */}
+        <span className="flex items-center justify-center">
           <MonGlyph size={14} state={status} />
         </span>
       </TableCell>
 
-      <TableCell className="px-2 py-3 align-middle">
+      <TableCell className="px-4 py-3 align-middle">
         <RowLink
           className="min-w-0 flex-col items-stretch justify-start gap-[3px]"
           href={href}
@@ -300,15 +284,15 @@ function MonitorRow({
         </RowLink>
       </TableCell>
 
-      <TableCell className="w-[100px] px-2 py-3 align-middle font-mono text-[12.5px] text-fg-2">
+      <TableCell className="w-[100px] px-4 py-3 align-middle font-mono text-[12.5px] text-fg-2">
         {humanizeInterval(m.intervalSeconds)}
       </TableCell>
 
-      <TableCell className="w-[186px] px-2 py-3 align-middle">
+      <TableCell className="w-[186px] px-4 py-3 align-middle">
         <ExecStrip executions={m.recentExecutions} />
       </TableCell>
 
-      <TableCell className="w-[116px] px-2 py-3 text-right align-middle text-[12px] text-fg-2">
+      <TableCell className="w-[116px] px-4 py-3 text-right align-middle text-[12px] text-fg-2">
         {m.lastRunAt ? (
           formatRelativeTime(m.lastRunAt)
         ) : (
@@ -316,7 +300,7 @@ function MonitorRow({
         )}
       </TableCell>
 
-      <TableCell className="w-[104px] px-2 py-3 align-middle">
+      <TableCell className="w-[104px] px-4 py-3 align-middle">
         {/* `relative z-10` lifts the switch above the row's stretched-link so
          * the toggle gets the click instead of navigating. */}
         <div className="relative z-10 flex justify-end">
