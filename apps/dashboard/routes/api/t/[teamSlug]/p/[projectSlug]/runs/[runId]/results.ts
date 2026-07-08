@@ -1,10 +1,13 @@
 import { defineHandler } from "void";
+import { and, db, eq, inArray } from "void/db";
 import { z } from "zod";
+import { artifacts } from "@schema";
 import { GROUP_BY_AXES, STATUS_FILTER_VALUES } from "@/lib/run-groups-page";
 import {
   DEFAULT_RUN_RESULTS_LIMIT,
   loadRunResultsPage,
 } from "@/lib/run-results-page";
+import { childProjectScopeWhere } from "@/lib/scope";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 
 const STATUS_VALUES = [
@@ -64,5 +67,32 @@ export const GET = defineHandler.withValidator({
     search: query.search ?? null,
   });
   if (!result) return c.json({ error: "Not found" }, 404);
-  return result;
+
+  // Attach `hasTrace` per row so the Tests-tab list can gate its per-row "Test
+  // Replay" button (opens the embedded trace viewer). One batched distinct-id
+  // query over just this page's test ids: artifacts register in a flush AFTER
+  // results post, so trace-presence can't ride the realtime event — it's minted
+  // on the paginated read instead (see `RunProgressTest.hasTrace`).
+  const ids = result.results.map((r) => r.id);
+  const traced = ids.length
+    ? new Set(
+        (
+          await db
+            .selectDistinct({ testResultId: artifacts.testResultId })
+            .from(artifacts)
+            .where(
+              and(
+                childProjectScopeWhere(artifacts.projectId, scope),
+                eq(artifacts.type, "trace"),
+                inArray(artifacts.testResultId, ids),
+              ),
+            )
+        ).map((r) => r.testResultId),
+      )
+    : new Set<string>();
+
+  return {
+    results: result.results.map((r) => ({ ...r, hasTrace: traced.has(r.id) })),
+    nextCursor: result.nextCursor,
+  };
 });
