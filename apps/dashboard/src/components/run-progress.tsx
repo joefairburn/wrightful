@@ -280,7 +280,7 @@ export function RunProgress({
 
   return (
     <div className="flex flex-col">
-      <div className="sticky top-[84px] z-10 flex flex-wrap items-center gap-2 border-b border-line-1 bg-background px-6 py-2.5">
+      <div className="sticky top-[84px] z-10 flex flex-wrap items-center gap-2 border-b border-line-1 bg-bg-0 px-6 py-2.5">
         <SearchFilterInput
           aria-label="Filter tests"
           className="w-[240px]"
@@ -297,7 +297,7 @@ export function RunProgress({
 
         <div className="flex-1" />
 
-        <span className="text-[12px] text-fg-3">Group by</span>
+        <span className="text-12 text-fg-3">Group by</span>
         <SegmentedControl
           compact
           onChange={onGroupBy}
@@ -313,7 +313,7 @@ export function RunProgress({
       {showSkeleton ? (
         <TestsListSkeleton />
       ) : groups.length === 0 ? (
-        <div className="px-6 py-10 text-center text-[12.5px] text-fg-3">
+        <div className="px-6 py-10 text-center text-13 text-fg-3">
           {summary.totalTests === 0
             ? "No tests recorded for this run."
             : statusFilter === "recommended"

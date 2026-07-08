@@ -12,8 +12,8 @@ import { Skeleton } from "@/components/ui/skeleton";
  *
  * A text placeholder must reserve the real text's **line box**, not the glyph
  * height. In this Tailwind v4 app the root line-height is `1.5` and arbitrary
- * font-size utilities (`text-[26px]`, `text-[11.5px]`, …) set *only* font-size,
- * so a `text-[26px]` label occupies `26 × 1.5 = 39px` — not 24px. Reserving a
+ * font-size utilities (`text-26`, `text-12`, …) set *only* font-size,
+ * so a `text-26` label occupies `26 × 1.5 = 39px` — not 24px. Reserving a
  * fixed `h-6` there leaves the region 15px short and the page jumps when data
  * lands. {@link TextLineSkeleton} sidesteps the arithmetic: it carries the same
  * font-size class as the real text and reserves `h-[1lh]` (one line box), which
@@ -23,7 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * A shimmer bar sized to exactly one line box of the real text it stands in
- * for. Pass the same font-size utility the real text uses (`text-[12px]`,
+ * for. Pass the same font-size utility the real text uses (`text-12`,
  * `text-sm`, …); `h-[1lh]` then resolves to that text's line box, so the
  * placeholder height tracks the real content across font sizes and any
  * inherited line-height with no hardcoded pixels.
@@ -44,17 +44,17 @@ export function TextLineSkeleton({
 
 /**
  * Fallback matching `AnalyticsKpiCard`'s chrome (label / value / footnote).
- * Each bar reserves the real card's line box — label `text-[12px]` → 18px,
- * value `text-[26px]` → 39px, footnote `text-[11.5px]` → 17.25px — so the
+ * Each bar reserves the real card's line box — label `text-12` → 18px,
+ * value `text-26` → 39px, footnote `text-12` → 17.25px — so the
  * card is ~116px tall in both states and the KPI row (and everything below it)
  * doesn't shift when the deferred numbers resolve.
  */
 export function KpiCardSkeleton(): React.ReactElement {
   return (
-    <div className="flex min-w-0 flex-col gap-1.5 rounded-[9px] border border-line-1 bg-card px-4 py-3.5">
-      <TextLineSkeleton className="w-24" text="text-[12px]" />
-      <TextLineSkeleton className="w-16" text="text-[26px]" />
-      <TextLineSkeleton className="w-32" text="text-[11.5px]" />
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-[9px] border border-line-1 bg-bg-1 px-4 py-3.5">
+      <TextLineSkeleton className="w-24" text="text-12" />
+      <TextLineSkeleton className="w-16" text="text-26" />
+      <TextLineSkeleton className="w-32" text="text-12" />
     </div>
   );
 }

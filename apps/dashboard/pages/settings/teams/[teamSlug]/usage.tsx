@@ -10,7 +10,7 @@ import { cn } from "@/lib/cn";
 import type { Props, UsageRow, UsageRowTone } from "./usage.server";
 
 const TONE_BAR: Record<UsageRowTone, string> = {
-  ok: "bg-accent",
+  ok: "bg-bg-3",
   warn: "bg-warning",
   over: "bg-fail",
 };
@@ -19,10 +19,8 @@ function UsageMeter({ row }: { row: UsageRow }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="font-medium text-[length:var(--text-fs-13)] text-foreground">
-          {row.label}
-        </span>
-        <span className="font-mono text-[11px] text-fg-3 tabular-nums">
+        <span className="font-medium text-13 text-fg-1">{row.label}</span>
+        <span className="font-mono text-11 text-fg-3 tabular-nums">
           {row.usedLabel} / {row.limitLabel}
         </span>
       </div>
@@ -41,7 +39,7 @@ function UsageMeter({ row }: { row: UsageRow }) {
         )}
       </div>
       {row.tone === "over" && (
-        <span className="text-[11px] text-fail">
+        <span className="text-11 text-fail">
           Over the plan limit — new {row.label.toLowerCase()} are blocked until
           the next billing period.
         </span>
@@ -84,7 +82,7 @@ function UsageMetersRegion({ usage }: { usage: Props["usage"] }) {
       {rows.map((row) => (
         <UsageMeter key={row.key} row={row} />
       ))}
-      <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+      <p className="text-13 text-fg-3 leading-relaxed">
         <span className="font-mono tabular-nums">
           {artifactCount.toLocaleString("en-US")}
         </span>{" "}

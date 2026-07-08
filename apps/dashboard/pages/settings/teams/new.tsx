@@ -28,7 +28,7 @@ export default function SettingsTeamNewPage({ error }: Props) {
         </Alert>
       )}
 
-      <section className="rounded-lg border border-line-1 bg-card">
+      <section className="rounded-lg border border-line-1 bg-bg-1">
         <header className="flex items-center gap-2 border-line-1/50 border-b px-5 py-3">
           <Users size={14} strokeWidth={2} className="text-fg-3" />
           <h2 className="font-semibold text-sm tracking-tight">Team details</h2>
@@ -43,7 +43,7 @@ export default function SettingsTeamNewPage({ error }: Props) {
               maxLength={60}
               placeholder="e.g. Platform Engineering"
             />
-            <FieldDescription className="font-mono text-[11px]">
+            <FieldDescription className="font-mono text-11">
               Must contain at least one letter or number.
             </FieldDescription>
           </Field>
@@ -51,7 +51,7 @@ export default function SettingsTeamNewPage({ error }: Props) {
             <Button type="submit">Create team</Button>
             <Link
               href="/settings/profile"
-              className="text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
+              className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
             >
               Cancel
             </Link>

@@ -23,19 +23,18 @@
     "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular,
     Menlo, monospace;
 
-  /* Explicit type scale from the Wrightful design bundle's tokens.css.
-   * Consume via Tailwind arbitrary values, e.g. text-[length:var(--text-fs-18)]. */
-  --text-fs-12: 11.5px;
-  --text-fs-13: 12.5px;
-  --text-fs-14: 13.5px;
-  --text-fs-15: 14px;
-  --text-fs-16: 15px;
-  --text-fs-18: 17px;
-  --text-fs-19: 19px;
-  --text-fs-22: 21px;
-  --text-fs-28: 26px;
-  --text-fs-36: 34px;
-  --text-fs-48: 44px;
+  /* Curated 7-step type ramp. The sole source of font sizes for app code —
+   * consume via the generated utilities, e.g. `text-13`. Do NOT hand-write
+   * text-[NNpx]; snap to the nearest step here so the ramp stays tight
+   * (near-duplicate 0.5px pairs and off-scale sizes were collapsed into these
+   * steps). Whole-pixel values; token name equals its rendered px. */
+  --text-11: 11px; /* micro: badges, timestamps, uppercase meta labels */
+  --text-12: 12px; /* small: dense table cells, secondary text */
+  --text-13: 13px; /* base: body text, most rows */
+  --text-14: 14px; /* medium: emphasized body, row titles */
+  --text-18: 18px; /* heading: section + card headings */
+  --text-22: 22px; /* title: page titles */
+  --text-26: 26px; /* display: KPI / big numbers */
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -44,9 +43,6 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar: var(--sidebar);
-  --color-code-highlight: var(--code-highlight);
-  --code-foreground: var(--code-foreground);
-  --color-code: var(--code);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -90,13 +86,6 @@
   --color-accent-soft: var(--accent-soft);
   --color-accent-line: var(--accent-line);
 
-  /* Past-tense status aliases — keeps porting JSX from the design bundle
-   * literal (it writes `bg-passed-soft` / `text-failed`). */
-  --color-passed: var(--pass);
-  --color-passed-soft: var(--pass-soft);
-  --color-failed: var(--fail);
-  --color-failed-soft: var(--fail-soft);
-
   /* Synthetic-monitor status tokens (consumed by monitor-status.tsx). */
   --color-degraded: var(--degraded);
   --color-degraded-soft: var(--degraded-soft);
@@ -132,12 +121,6 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
-  /* Explicit r-* scale matching the design bundle (tokens.css --r-*). */
-  --radius-r-2: 3px;
-  --radius-r-4: 5px;
-  --radius-r-6: 7px;
-  --radius-r-8: 9px;
-  --radius-r-12: 12px;
   @keyframes skeleton {
     to {
       background-position: -200% 0;
@@ -309,12 +292,6 @@
   --running: oklch(0.5 0.16 268);
   --running-soft: oklch(0.5 0.16 268 / 0.1);
 
-  /* Past-tense aliases — design bundle JSX writes these names directly. */
-  --passed: var(--pass);
-  --passed-soft: var(--pass-soft);
-  --failed: var(--fail);
-  --failed-soft: var(--fail-soft);
-
   /* Synthetic-monitor status palette (var() refs → follow the active theme).
    * degraded ≈ flaky (amber / soft-fail); error ≈ fail red — distinguished from
    * Fail by glyph + label (shape-paired, colorblind-safe), not hue; queued /
@@ -335,14 +312,11 @@
   --chart-4: var(--running);
   --chart-5: var(--skipped);
 
-  /* Code blocks */
-  --code: oklch(0.975 0.004 260);
-  --code-foreground: var(--foreground);
-  --code-highlight: oklch(0 0 0 / 0.04);
-
-  /* Elevation. */
-  --shadow-sm: 0 1px 0 oklch(0 0 0 / 0.04), 0 1px 2px oklch(0 0 0 / 0.05);
-  --shadow-md: 0 6px 18px oklch(0 0 0 / 0.06), 0 1px 0 oklch(0 0 0 / 0.04);
+  /* Bespoke elevation for the standalone auth card (login page) only —
+   * consumed via shadow-[var(--shadow-lg)]. App/component elevation otherwise
+   * uses the ui/ layered system (low-opacity shadow utilities plus before-pseudo
+   * highlights), which relies on Tailwind's DEFAULT shadow scale — do NOT
+   * register these into @theme or it will override those defaults everywhere. */
   --shadow-lg: 0 30px 80px oklch(0 0 0 / 0.18);
 
   --radius: 0.3125rem; /* design bundle's --r-4 = 5px */
@@ -427,12 +401,6 @@
   --running: oklch(0.74 0.1 268);
   --running-soft: oklch(0.74 0.1 268 / 0.16);
 
-  /* Past-tense aliases. */
-  --passed: var(--pass);
-  --passed-soft: var(--pass-soft);
-  --failed: var(--fail);
-  --failed-soft: var(--fail-soft);
-
   /* Synthetic-monitor status palette (var() refs → follow the active theme).
    * degraded ≈ flaky (amber / soft-fail); error ≈ fail red — distinguished from
    * Fail by glyph + label (shape-paired, colorblind-safe), not hue; queued /
@@ -452,14 +420,7 @@
   --chart-4: var(--running);
   --chart-5: var(--skipped);
 
-  --code: oklch(0.165 0.005 260);
-  --code-foreground: var(--foreground);
-  --code-highlight: oklch(1 0 0 / 0.04);
-
-  /* Elevation tuned for dark. */
-  --shadow-sm: 0 1px 0 oklch(0 0 0 / 0.4), 0 1px 2px oklch(0 0 0 / 0.3);
-  --shadow-md:
-    0 4px 12px oklch(0 0 0 / 0.45), 0 1px 0 oklch(1 0 0 / 0.04) inset;
+  /* Bespoke auth-card elevation (see :root note). */
   --shadow-lg:
     0 24px 60px oklch(0 0 0 / 0.6), 0 1px 0 oklch(1 0 0 / 0.06) inset;
 

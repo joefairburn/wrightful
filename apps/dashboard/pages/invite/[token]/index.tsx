@@ -25,7 +25,7 @@ export default function InvitePage(props: Props) {
         <p className="text-fg-3 text-sm">{props.message}</p>
         <Link
           href="/"
-          className="mt-2 inline-flex text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
+          className="mt-2 inline-flex text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
         >
           Go home
         </Link>
@@ -42,7 +42,7 @@ export default function InvitePage(props: Props) {
         <p className="text-fg-3 text-sm">{props.message}</p>
         <Link
           href="/"
-          className="mt-2 inline-flex text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
+          className="mt-2 inline-flex text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
         >
           Go home
         </Link>
@@ -65,9 +65,7 @@ export default function InvitePage(props: Props) {
         </h1>
         <p className="text-fg-3 text-sm">
           You&apos;re already a member of{" "}
-          <span className="font-medium text-foreground">
-            {props.invite.teamName}
-          </span>
+          <span className="font-medium text-fg-1">{props.invite.teamName}</span>
           .
         </p>
         <Button
@@ -89,8 +87,7 @@ export default function InvitePage(props: Props) {
       </h1>
       <p className="text-fg-3 text-sm">
         You&apos;ve been invited to join{" "}
-        <span className="font-medium text-foreground">{invite.teamName}</span>{" "}
-        as a{" "}
+        <span className="font-medium text-fg-1">{invite.teamName}</span> as a{" "}
         <Badge className="capitalize" variant="secondary">
           {invite.role}
         </Badge>
@@ -105,7 +102,7 @@ export default function InvitePage(props: Props) {
         <Button type="submit">Accept invite</Button>
         <Link
           href="/"
-          className="text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
+          className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
         >
           Not now
         </Link>
@@ -116,8 +113,8 @@ export default function InvitePage(props: Props) {
 
 function InviteShell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-6">
-      <section className="flex w-full max-w-md flex-col items-start gap-4 rounded-lg border border-line-1 bg-card p-8">
+    <main className="flex min-h-screen items-center justify-center bg-bg-0 p-6">
+      <section className="flex w-full max-w-md flex-col items-start gap-4 rounded-lg border border-line-1 bg-bg-1 p-8">
         {children}
       </section>
     </main>

@@ -52,7 +52,7 @@ export default function TeamPickerPage({ teams, pendingInvites }: Props) {
       {hasInvites && <PendingInvitesSection invites={pendingInvites} />}
 
       {hasTeams && (
-        <section className="mt-6 rounded-lg border border-line-1 bg-card">
+        <section className="mt-6 rounded-lg border border-line-1 bg-bg-1">
           <header className="border-line-1/50 border-b px-5 py-3">
             <h2 className="font-semibold text-sm tracking-tight">Your teams</h2>
           </header>
@@ -79,7 +79,7 @@ export default function TeamPickerPage({ teams, pendingInvites }: Props) {
       <div className="mt-6 text-center">
         <Link
           href="/settings/teams/new"
-          className="text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
+          className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
         >
           Or create your own team →
         </Link>
@@ -90,13 +90,13 @@ export default function TeamPickerPage({ teams, pendingInvites }: Props) {
 
 function PendingInvitesSection({ invites }: { invites: PendingInvite[] }) {
   return (
-    <section className="rounded-lg border border-line-1 bg-card">
+    <section className="rounded-lg border border-line-1 bg-bg-1">
       <header className="flex items-center gap-2 border-line-1/50 border-b px-5 py-3">
         <Users size={14} strokeWidth={2} className="text-fg-3" />
         <h2 className="font-semibold text-sm tracking-tight">
           Pending invites
         </h2>
-        <span className="rounded-sm border border-line-1/50 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-fg-3 tabular-nums">
+        <span className="rounded-sm border border-line-1/50 bg-muted px-1.5 py-0.5 font-mono text-11 text-fg-3 tabular-nums">
           {invites.length}
         </span>
       </header>
@@ -112,7 +112,7 @@ function PendingInvitesSection({ invites }: { invites: PendingInvite[] }) {
               </div>
               <div className="min-w-0">
                 <p className="truncate font-medium text-sm">{inv.teamName}</p>
-                <p className="truncate font-mono text-[11px] text-fg-3">
+                <p className="truncate font-mono text-11 text-fg-3">
                   Invited as {inv.role} ·{" "}
                   {inv.matchedBy === "email"
                     ? "matched by email"

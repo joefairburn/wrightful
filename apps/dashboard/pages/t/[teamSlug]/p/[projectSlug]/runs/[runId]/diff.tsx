@@ -65,13 +65,13 @@ export default function RunDiffPage({
               },
             ]}
           />
-          <h1 className="text-[17px] font-semibold tracking-[-0.2px]">
+          <h1 className="text-18 font-semibold tracking-[-0.2px]">
             Compare runs
           </h1>
         </DetailHeaderBar>
 
         <div className="border-b border-line-1 px-6 pt-3 pb-3">
-          <div className="text-[12.5px] text-fg-3">
+          <div className="text-13 text-fg-3">
             Diffing test results against a baseline run on{" "}
             {head.branch ? (
               <span className="font-mono">{head.branch}</span>
@@ -80,7 +80,7 @@ export default function RunDiffPage({
             )}
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-[12.5px]">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-13">
             <RunChip label="Head" run={head} runsBase={runsBase} />
             <span className="text-fg-4">vs</span>
             {base ? (
@@ -262,15 +262,15 @@ function BaseSelector({
 }): React.ReactElement {
   return (
     <div className="mt-3">
-      <div className="mb-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
+      <div className="mb-1.5 text-12 font-medium tracking-[0.1px] text-fg-3">
         Base run
       </div>
       <div className="flex flex-wrap gap-1.5">
         <Link
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
+            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-12 transition-colors",
             selectedBaseId === null
-              ? "border-line-1 bg-secondary text-foreground"
+              ? "border-line-1 bg-secondary text-fg-1"
               : "border-line-1 text-fg-2 hover:border-line-1",
           )}
           href={diffHref(null)}
@@ -280,9 +280,9 @@ function BaseSelector({
         {baseCandidates.map((c) => (
           <Link
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
+              "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-12 transition-colors",
               selectedBaseId === c.id
-                ? "border-line-1 bg-secondary text-foreground"
+                ? "border-line-1 bg-secondary text-fg-1"
                 : "border-line-1 text-fg-2 hover:border-line-1",
             )}
             href={diffHref(c.id)}
@@ -308,7 +308,7 @@ function CountPill({
   accent?: string;
 }): React.ReactElement {
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-md border border-line-1 bg-card px-2.5 py-1 text-[12px]">
+    <div className="inline-flex items-center gap-1.5 rounded-md border border-line-1 bg-bg-1 px-2.5 py-1 text-12">
       <span className="text-fg-3">{label}</span>
       <span
         className="font-mono font-medium tabular-nums"
@@ -333,9 +333,9 @@ function Section({
   if (count === 0) return null;
   return (
     <section>
-      <h2 className="mb-2 flex items-center gap-2 text-[13.5px] font-semibold">
+      <h2 className="mb-2 flex items-center gap-2 text-14 font-semibold">
         {title}
-        <span className="font-mono text-[12px] tabular-nums text-fg-3">
+        <span className="font-mono text-12 tabular-nums text-fg-3">
           {count}
         </span>
       </h2>
@@ -398,7 +398,7 @@ function StatusChangeSection({
         <TableBody>
           {rows.map((r) => (
             <TableRow key={r.testId}>
-              <TableCell className="max-w-[420px] truncate font-mono text-[12px]">
+              <TableCell className="max-w-[420px] truncate font-mono text-12">
                 {r.testId}
               </TableCell>
               <TableCell>
@@ -437,7 +437,7 @@ function FlakyDeltaSection({
         <TableBody>
           {rows.map((r) => (
             <TableRow key={r.testId}>
-              <TableCell className="max-w-[420px] truncate font-mono text-[12px]">
+              <TableCell className="max-w-[420px] truncate font-mono text-12">
                 {r.testId}
               </TableCell>
               <TableCell>
@@ -482,7 +482,7 @@ function PresenceSection({
         <TableBody>
           {rows.map((r) => (
             <TableRow key={r.testId}>
-              <TableCell className="max-w-[420px] truncate font-mono text-[12px]">
+              <TableCell className="max-w-[420px] truncate font-mono text-12">
                 {r.testId}
               </TableCell>
               <TableCell>

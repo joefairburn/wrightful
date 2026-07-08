@@ -77,7 +77,7 @@ export function TestRow({
     <Link
       className={cn(
         "group flex w-full items-center gap-1 py-1.5 pl-[50px] pr-6",
-        "min-h-8 text-left text-foreground hover:bg-card",
+        "min-h-8 text-left text-fg-1 hover:bg-bg-1",
       )}
       href={href}
     >
@@ -85,10 +85,10 @@ export function TestRow({
         <StatusGlyph size={12} status={test.status} />
       </span>
       <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
-        <span className="min-w-0 truncate text-[12.5px]">{displayTitle}</span>
+        <span className="min-w-0 truncate text-13">{displayTitle}</span>
         {test.retryCount > 0 ? (
           <span
-            className="shrink-0 font-mono text-[10.5px]"
+            className="shrink-0 font-mono text-11"
             style={{ color: statusToken("flaky") }}
           >
             ×{test.retryCount + 1}
@@ -98,7 +98,7 @@ export function TestRow({
       {meta ? (
         <span
           className={cn(
-            "inline-flex max-w-[128px] shrink-0 items-center rounded-[4px] bg-bg-2 px-1.5 py-px font-mono text-[10.5px] leading-[16px] text-fg-3",
+            "inline-flex max-w-[128px] shrink-0 items-center rounded-[4px] bg-bg-2 px-1.5 py-px font-mono text-11 leading-[16px] text-fg-3",
             groupBy === "file" && "capitalize",
           )}
           title={meta}
@@ -106,7 +106,7 @@ export function TestRow({
           <span className="truncate">{meta}</span>
         </span>
       ) : null}
-      <span className="w-[70px] shrink-0 px-2 text-right font-mono text-[12px] tabular-nums text-fg-3">
+      <span className="w-[70px] shrink-0 px-2 text-right font-mono text-12 tabular-nums text-fg-3">
         {formatDuration(test.durationMs)}
       </span>
       <span className="w-5 shrink-0 px-1 text-center text-fg-3 opacity-0 group-hover:opacity-100">

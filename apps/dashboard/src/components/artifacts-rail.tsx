@@ -68,7 +68,7 @@ export function ArtifactsRail({
         </section>
       ) : null}
       {hasOutput ? (
-        <section className="p-5 border-b border-border">
+        <section className="p-5 border-b border-line-1">
           <SectionLabel>Output</SectionLabel>
           <div className="flex flex-col gap-3">
             {stdout?.trim() ? (
@@ -100,7 +100,7 @@ export function ArtifactsRail({
             {envRows.map(([label, value]) => (
               <div key={label} className="contents">
                 <dt className="text-fg-3 text-xs">{label}</dt>
-                <dd className="text-foreground">{value}</dd>
+                <dd className="text-fg-1">{value}</dd>
               </div>
             ))}
           </dl>
@@ -130,7 +130,7 @@ function SectionLabel({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <h4 className="mb-3 text-[12px] font-medium tracking-[0.1px] text-fg-3">
+    <h4 className="mb-3 text-12 font-medium tracking-[0.1px] text-fg-3">
       {children}
     </h4>
   );
@@ -153,14 +153,14 @@ function RailLogBlock({
 }): React.ReactElement {
   return (
     <div>
-      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">
+      <div className="text-11 font-mono uppercase tracking-wider text-fg-3 mb-1">
         {label}
       </div>
       {/* biome-ignore lint/security/noDangerouslySetInnerHtml: ansiToHtml HTML-escapes before colourising */}
       <pre
         className={cn(
-          "max-h-64 overflow-auto rounded border border-border bg-muted/40 p-2 text-xs font-mono whitespace-pre-wrap break-words",
-          tone === "error" ? "text-destructive" : "text-foreground",
+          "max-h-64 overflow-auto rounded border border-line-1 bg-muted/40 p-2 text-xs font-mono whitespace-pre-wrap break-words",
+          tone === "error" ? "text-destructive" : "text-fg-1",
         )}
         dangerouslySetInnerHTML={{ __html: ansiToHtml(text) }}
       />
@@ -304,9 +304,9 @@ function TerminalBlock({ command }: { command: string }): React.ReactElement {
     }
   }
   return (
-    <div className="rounded-md border border-line-1 bg-background overflow-hidden">
+    <div className="rounded-md border border-line-1 bg-bg-0 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-line-1/60 bg-muted/30">
-        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium tracking-[0.1px] text-fg-3">
+        <span className="inline-flex items-center gap-1.5 text-12 font-medium tracking-[0.1px] text-fg-3">
           <Terminal size={12} />
           Terminal
         </span>
@@ -315,13 +315,13 @@ function TerminalBlock({ command }: { command: string }): React.ReactElement {
           onClick={() => {
             void onCopy();
           }}
-          className="text-fg-3 hover:text-foreground transition-colors"
+          className="text-fg-3 hover:text-fg-1 transition-colors"
           aria-label={copied ? "Copied" : "Copy command"}
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
       </div>
-      <pre className="px-3 py-2.5 font-mono text-xs text-foreground/80 whitespace-pre-wrap break-all leading-relaxed">
+      <pre className="px-3 py-2.5 font-mono text-xs text-fg-1/80 whitespace-pre-wrap break-all leading-relaxed">
         {command}
       </pre>
     </div>

@@ -92,7 +92,7 @@ export default function SettingsProjectKeysPage({
   return (
     <SettingsPage>
       <Link
-        className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11.5px] text-fg-3 transition-colors hover:text-foreground"
+        className="mb-2 inline-flex items-center gap-1.5 font-mono text-12 text-fg-3 transition-colors hover:text-fg-1"
         href={`/settings/teams/${project.teamSlug}/projects`}
       >
         <ArrowLeft className="size-3" />
@@ -109,7 +109,7 @@ export default function SettingsProjectKeysPage({
         open={Boolean(revealedToken)}
         title="Save this key now"
       >
-        <pre className="overflow-x-auto rounded-md border border-line-1 bg-bg-0 p-2.5 font-mono text-[13px] text-foreground">
+        <pre className="overflow-x-auto rounded-md border border-line-1 bg-bg-0 p-2.5 font-mono text-13 text-fg-1">
           {revealedToken}
         </pre>
       </RevealOnceDialog>
@@ -200,9 +200,7 @@ export default function SettingsProjectKeysPage({
           </Alert>
         )}
         {keys.length === 0 ? (
-          <div className="py-6 text-center text-[length:var(--text-fs-13)] text-fg-3">
-            No keys yet.
-          </div>
+          <div className="py-6 text-center text-13 text-fg-3">No keys yet.</div>
         ) : (
           <div className="-mx-[18px]">
             {keys.map((k, i) => {
@@ -219,20 +217,18 @@ export default function SettingsProjectKeysPage({
                     <KeyRound className="size-3.5" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium text-[length:var(--text-fs-14)]">
-                      {k.label}
-                    </div>
-                    <div className="mt-0.5 font-mono text-[11.5px] text-fg-3">
+                    <div className="font-medium text-14">{k.label}</div>
+                    <div className="mt-0.5 font-mono text-12 text-fg-3">
                       {k.keyPrefix}
                       <span className="opacity-40">················</span>
                     </div>
                   </div>
-                  <div className="w-32 text-right font-mono text-[11.5px] text-fg-3">
+                  <div className="w-32 text-right font-mono text-12 text-fg-3">
                     {k.lastUsedAt
                       ? `used ${formatRelativeTime(k.lastUsedAt)}`
                       : "never used"}
                   </div>
-                  <div className="w-24 text-right font-mono text-[11.5px] text-fg-3 tabular-nums">
+                  <div className="w-24 text-right font-mono text-12 text-fg-3 tabular-nums">
                     {formatDateTabular(new Date(k.createdAt * 1000))}
                   </div>
                   <StatusPill
@@ -267,7 +263,7 @@ export default function SettingsProjectKeysPage({
         subtitle="Read your runs and test results programmatically with a project API key. Same Bearer token as the reporter, in the Authorization header."
         title="Query & export API"
       >
-        <div className="flex flex-col gap-3 text-[length:var(--text-fs-13)] text-fg-2 leading-relaxed">
+        <div className="flex flex-col gap-3 text-13 text-fg-2 leading-relaxed">
           <div className="flex flex-wrap items-center gap-3">
             <Button
               render={
@@ -285,34 +281,34 @@ export default function SettingsProjectKeysPage({
           </div>
           <p>
             Authenticate with{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-11 text-fg-1">
               Authorization: Bearer &lt;key&gt;
             </code>
             . Endpoints are scoped to this project — a key never sees another
             project&apos;s data.
           </p>
-          <ul className="flex flex-col gap-1 font-mono text-[11.5px] text-fg-3">
+          <ul className="flex flex-col gap-1 font-mono text-12 text-fg-3">
             <li>GET /api/v1/runs</li>
             <li>GET /api/v1/runs/:runId</li>
             <li>GET /api/v1/runs/:runId/tests</li>
           </ul>
           <p>
             Lists are cursor-paged: pass{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-11 text-fg-1">
               ?cursor=
             </code>{" "}
             from the previous response&apos;s{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-11 text-fg-1">
               nextCursor
             </code>
             . Add{" "}
-            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
+            <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-11 text-fg-1">
               ?format=csv
             </code>{" "}
             to download a CSV — the same data the Export CSV button above
             produces. See the full{" "}
             <a
-              className="text-foreground underline underline-offset-2 hover:text-accent"
+              className="text-fg-1 underline underline-offset-2 hover:text-info"
               href="https://github.com/joefairburn/wrightful/blob/main/docs/api/query-export.md"
               rel="noreferrer"
               target="_blank"
@@ -364,7 +360,7 @@ export default function SettingsProjectKeysPage({
 
       <SettingsCard title="Danger zone" tone="danger">
         <div className="flex flex-col gap-3">
-          <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+          <p className="text-13 text-fg-3 leading-relaxed">
             Permanently delete this project, its API keys, and all run history.
             This cannot be undone.
           </p>
@@ -380,9 +376,9 @@ export default function SettingsProjectKeysPage({
                   <AlertDescription>{dangerError}</AlertDescription>
                 </Alert>
               )}
-              <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+              <p className="text-13 text-fg-3 leading-relaxed">
                 Type{" "}
-                <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
+                <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-11 text-fg-1">
                   {project.slug}
                 </code>{" "}
                 below to confirm.

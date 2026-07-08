@@ -6,4 +6,4 @@
  * the standard control height.
  */
 export const DANGER_TRIGGER_CLASSES =
-  "inline-flex h-8 cursor-pointer list-none items-center justify-center gap-1.5 self-start rounded-[5px] border border-fail/30 bg-fail-soft px-[11px] text-[13px] font-medium text-fail transition-colors hover:bg-fail/20 disabled:opacity-50 [&::-webkit-details-marker]:hidden";
+  "inline-flex h-8 cursor-pointer list-none items-center justify-center gap-1.5 self-start rounded-[5px] border border-fail/30 bg-fail-soft px-[11px] text-13 font-medium text-fail transition-colors hover:bg-fail/20 disabled:opacity-50 [&::-webkit-details-marker]:hidden";

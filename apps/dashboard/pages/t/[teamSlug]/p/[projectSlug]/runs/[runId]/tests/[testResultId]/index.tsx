@@ -63,7 +63,7 @@ export default function TestDetailPage(props: Props) {
         <h1 className="mb-2 font-semibold text-2xl">Test not found</h1>
         <Link
           href={`${base}/runs/${runId}`}
-          className="text-foreground underline-offset-4 hover:underline"
+          className="text-fg-1 underline-offset-4 hover:underline"
         >
           Back to run
         </Link>
@@ -210,7 +210,7 @@ export default function TestDetailPage(props: Props) {
             ]}
           />
           <StatusBadge status={result.status} />
-          <h1 className="min-w-0 truncate text-[17px] font-semibold tracking-[-0.2px]">
+          <h1 className="min-w-0 truncate text-18 font-semibold tracking-[-0.2px]">
             {testTitle}
           </h1>
         </div>
@@ -295,7 +295,7 @@ export default function TestDetailPage(props: Props) {
       </div>
 
       <div className="flex flex-row gap-0">
-        <section className="flex-[3] min-w-0 flex flex-col border-r border-line-1 bg-background">
+        <section className="flex-[3] min-w-0 flex flex-col border-r border-line-1 bg-bg-0">
           {totalAttempts > 1 ? (
             <div className="shrink-0 border-b border-line-1 px-3 pt-2">
               <AttemptTabsBar items={tabItems} defaultValue={defaultTab} />

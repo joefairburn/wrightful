@@ -29,16 +29,12 @@ export function SettingsHeader({
 }) {
   return (
     <div className="mb-6">
-      <div className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
+      <div className="text-12 font-medium tracking-[0.1px] text-fg-3">
         Settings
       </div>
-      <h1 className="mt-1 font-semibold text-[length:var(--text-fs-22)] tracking-tight">
-        {title}
-      </h1>
+      <h1 className="mt-1 font-semibold text-22 tracking-tight">{title}</h1>
       {subtitle && (
-        <p className="mt-1.5 max-w-[600px] text-[length:var(--text-fs-13)] text-fg-3">
-          {subtitle}
-        </p>
+        <p className="mt-1.5 max-w-[600px] text-13 text-fg-3">{subtitle}</p>
       )}
     </div>
   );
@@ -67,7 +63,7 @@ export function SettingsCard({
   return (
     <div
       className={cn(
-        "mb-4 rounded-[9px] bg-card",
+        "mb-4 rounded-[9px] bg-bg-1",
         isDanger ? "border border-fail/30" : "border border-line-1",
         className,
       )}
@@ -80,16 +76,11 @@ export function SettingsCard({
             : "border-b border-line-1",
         )}
       >
-        <div
-          className={cn(
-            "font-semibold text-[length:var(--text-fs-14)]",
-            isDanger && "text-fail",
-          )}
-        >
+        <div className={cn("font-semibold text-14", isDanger && "text-fail")}>
           {title}
         </div>
         {subtitle && (
-          <div className="mt-0.5 text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+          <div className="mt-0.5 text-13 text-fg-3 leading-relaxed">
             {subtitle}
           </div>
         )}
@@ -121,16 +112,11 @@ export function SettingsField({
 }) {
   return (
     <div className="mb-3.5 flex flex-col gap-1.5">
-      <label
-        className="font-medium text-[length:var(--text-fs-12)] text-fg-2"
-        htmlFor={htmlFor}
-      >
+      <label className="font-medium text-12 text-fg-2" htmlFor={htmlFor}>
         {label}
       </label>
       {children}
-      {hint && (
-        <span className="text-[11.5px] text-fg-3 leading-snug">{hint}</span>
-      )}
+      {hint && <span className="text-12 text-fg-3 leading-snug">{hint}</span>}
     </div>
   );
 }

@@ -79,7 +79,7 @@ export default function SettingsTeamGeneralPage({
                 Save changes
               </Button>
               <Link
-                className="text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
+                className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
                 href={here}
               >
                 Discard
@@ -97,7 +97,7 @@ export default function SettingsTeamGeneralPage({
               <AlertDescription>{retentionError}</AlertDescription>
             </Alert>
           )}
-          <p className="mb-4 text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+          <p className="mb-4 text-13 text-fg-3 leading-relaxed">
             How long to keep data before it's automatically deleted. Leave a
             field blank to use the default. Artifacts (traces, videos,
             screenshots) are usually kept for a shorter window than run history.
@@ -151,7 +151,7 @@ export default function SettingsTeamGeneralPage({
                 <AlertDescription>{githubError}</AlertDescription>
               </Alert>
             )}
-            <p className="mb-4 text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+            <p className="mb-4 text-13 text-fg-3 leading-relaxed">
               Connect a GitHub organization to post a check run on each commit —
               pass/fail/flaky with a link to the run report — so test results
               gate pull-request merges.
@@ -160,16 +160,16 @@ export default function SettingsTeamGeneralPage({
               <ul className="mb-4 flex flex-col gap-1">
                 {github.installations.map((login) => (
                   <li
-                    className="flex items-center gap-2 text-[length:var(--text-fs-13)] text-foreground"
+                    className="flex items-center gap-2 text-13 text-fg-1"
                     key={login}
                   >
-                    <span className="size-1.5 rounded-full bg-passed" />
+                    <span className="size-1.5 rounded-full bg-pass" />
                     <code className="font-mono">{login}</code>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="mb-4 text-[length:var(--text-fs-13)] text-fg-3">
+              <p className="mb-4 text-13 text-fg-3">
                 No GitHub organizations connected yet.
               </p>
             )}
@@ -184,7 +184,7 @@ export default function SettingsTeamGeneralPage({
                     : "Connect a GitHub organization"}
                 </Button>
               ) : (
-                <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+                <p className="text-13 text-fg-3 leading-relaxed">
                   Set <code className="font-mono">GITHUB_APP_SLUG</code> to
                   enable one-click install, or install the GitHub App manually
                   and point its setup URL at{" "}
@@ -200,10 +200,10 @@ export default function SettingsTeamGeneralPage({
           <SettingsGroupGap />
           <SettingsCard title="Danger zone" tone="danger">
             <div className="flex flex-col gap-3">
-              <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+              <p className="text-13 text-fg-3 leading-relaxed">
                 Permanently deletes{" "}
-                <span className="font-medium text-foreground">{team.name}</span>{" "}
-                and all <span className="font-mono">{projectCount}</span>{" "}
+                <span className="font-medium text-fg-1">{team.name}</span> and
+                all <span className="font-mono">{projectCount}</span>{" "}
                 {projectCount === 1 ? "project" : "projects"}, runs, and
                 artifacts. There is no recovery.
               </p>
@@ -221,9 +221,9 @@ export default function SettingsTeamGeneralPage({
                       <AlertDescription>{dangerError}</AlertDescription>
                     </Alert>
                   )}
-                  <p className="text-[length:var(--text-fs-13)] text-fg-3 leading-relaxed">
+                  <p className="text-13 text-fg-3 leading-relaxed">
                     Type{" "}
-                    <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-[11px] text-foreground">
+                    <code className="rounded-sm bg-bg-3 px-1 py-0.5 font-mono text-11 text-fg-1">
                       {team.slug}
                     </code>{" "}
                     below to confirm.

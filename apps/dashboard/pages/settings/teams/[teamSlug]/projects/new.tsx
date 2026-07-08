@@ -17,7 +17,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
       <div className="mb-6 border-line-1/50 border-b pb-5">
         <Link
           href={`/settings/teams/${team.slug}`}
-          className="mb-3 inline-flex items-center gap-1.5 font-mono text-fg-3 text-xs transition-colors hover:text-foreground"
+          className="mb-3 inline-flex items-center gap-1.5 font-mono text-fg-3 text-xs transition-colors hover:text-fg-1"
         >
           <ArrowLeft size={12} strokeWidth={2} />
           {team.name}
@@ -25,8 +25,8 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
         <h1 className="font-semibold text-2xl tracking-tight">New project</h1>
         <p className="mt-1 text-fg-3 text-sm">
           Add a project to{" "}
-          <span className="font-medium text-foreground">{team.name}</span>. A
-          URL slug is generated from the name.
+          <span className="font-medium text-fg-1">{team.name}</span>. A URL slug
+          is generated from the name.
         </p>
       </div>
 
@@ -36,7 +36,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
         </Alert>
       )}
 
-      <section className="rounded-lg border border-line-1 bg-card">
+      <section className="rounded-lg border border-line-1 bg-bg-1">
         <header className="flex items-center gap-2 border-line-1/50 border-b px-5 py-3">
           <FolderPlus size={14} strokeWidth={2} className="text-fg-3" />
           <h2 className="font-semibold text-sm tracking-tight">
@@ -53,7 +53,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
               maxLength={60}
               placeholder="e.g. Checkout Flow"
             />
-            <FieldDescription className="font-mono text-[11px]">
+            <FieldDescription className="font-mono text-11">
               Must contain at least one letter or number.
             </FieldDescription>
           </Field>
@@ -61,7 +61,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
             <Button type="submit">Create project</Button>
             <Link
               href={`/settings/teams/${team.slug}`}
-              className="text-[12px] font-medium text-fg-3 transition-colors hover:text-foreground"
+              className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
             >
               Cancel
             </Link>

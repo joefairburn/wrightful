@@ -109,7 +109,7 @@ export function RunHistoryChartFrame({
 }): React.ReactElement {
   return (
     <div
-      className={cn("rounded-lg border border-line-1 bg-card p-4", className)}
+      className={cn("rounded-lg border border-line-1 bg-bg-1 p-4", className)}
     >
       {(title || subtitle || rightSlot) && (
         <div className="mb-3 flex items-center gap-3">
@@ -118,13 +118,13 @@ export function RunHistoryChartFrame({
               <span className="text-sm font-medium truncate">{title}</span>
             )}
             {subtitle && (
-              <span className="font-mono text-[11px] text-fg-3 truncate">
+              <span className="font-mono text-11 text-fg-3 truncate">
                 {subtitle}
               </span>
             )}
           </div>
           {rightSlot && (
-            <div className="ml-auto flex items-center gap-3 font-mono text-[11px] text-fg-3 shrink-0">
+            <div className="ml-auto flex items-center gap-3 font-mono text-11 text-fg-3 shrink-0">
               {rightSlot}
             </div>
           )}
@@ -249,7 +249,7 @@ export function RunHistoryChart({
         {/* Y-axis labels — HTML, so text doesn't stretch with the SVG.
          * Positioned absolutely so each label pins to its tick's exact y,
          * matching the dashed gridlines from `yScale.ticks()`. */}
-        <div className="relative pr-1 text-right font-mono text-[9.5px] text-fg-3">
+        <div className="relative pr-1 text-right font-mono text-11 text-fg-3">
           {yTicks.map((t) => (
             <span
               key={t}

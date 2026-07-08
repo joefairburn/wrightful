@@ -213,7 +213,7 @@ export function OwnerAssignControl({
           className="w-64"
           footer={
             display?.source === "codeowners" ? (
-              <p className="border-t border-line-1 px-3 py-2 text-[11.5px] text-fg-3">
+              <p className="border-t border-line-1 px-3 py-2 text-12 text-fg-3">
                 Owned via CODEOWNERS — assigning here overrides it.
               </p>
             ) : undefined
@@ -226,9 +226,7 @@ export function OwnerAssignControl({
                 <span className="flex min-w-0 items-center gap-2">
                   <UsersIcon className="size-3.5 shrink-0 text-fg-3" />
                   <span className="truncate">{team.name}</span>
-                  <span className="shrink-0 text-[11px] text-fg-3">
-                    everyone
-                  </span>
+                  <span className="shrink-0 text-11 text-fg-3">everyone</span>
                 </span>
               ) : (
                 <span className="flex min-w-0 items-center gap-2">

@@ -19,7 +19,7 @@ import { cn } from "@/lib/cn";
 // and a bare `h-8` doesn't override the `sm:`-scoped rule — without it the
 // triggers render 28px on desktop next to the 32px toolbar inputs.
 export const FILTER_TRIGGER_CLASSES =
-  "group h-8 sm:h-8 min-w-0 justify-start gap-2 rounded-md border border-line-1 bg-transparent px-2.5 font-normal text-foreground hover:bg-muted data-[has-value=true]:bg-muted data-[popup-open]:bg-muted";
+  "group h-8 sm:h-8 min-w-0 justify-start gap-2 rounded-md border border-line-1 bg-transparent px-2.5 font-normal text-fg-1 hover:bg-muted data-[has-value=true]:bg-muted data-[popup-open]:bg-muted";
 
 export function TrailingAction({
   hasValue,
@@ -32,7 +32,7 @@ export function TrailingAction({
     return (
       <span
         aria-label="Clear"
-        className="relative z-10 -mr-1 inline-flex size-5 items-center justify-center rounded-sm text-fg-3 hover:bg-accent hover:text-foreground [&_svg]:size-3"
+        className="relative z-10 -mr-1 inline-flex size-5 items-center justify-center rounded-sm text-fg-3 hover:bg-bg-3 hover:text-fg-1 [&_svg]:size-3"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();

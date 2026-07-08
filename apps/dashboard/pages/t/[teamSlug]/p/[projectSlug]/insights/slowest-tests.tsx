@@ -136,10 +136,10 @@ export default function SlowestTestsPage({
         <Card className="overflow-hidden rounded-[9px] border-line-1">
           <div className="flex items-center justify-between gap-3 border-b border-line-1 px-[18px] py-3">
             <div className="min-w-0">
-              <h2 className="text-[13px] font-semibold tracking-tight">
+              <h2 className="text-13 font-semibold tracking-tight">
                 Execution time distribution
               </h2>
-              <p className="mt-0.5 text-[11.5px] text-fg-3">
+              <p className="mt-0.5 text-12 text-fg-3">
                 Count of test results per duration bin
                 {totals.maxDurationMs > 0
                   ? ` · bin width ${formatDuration(bucketMs)}`
@@ -147,7 +147,7 @@ export default function SlowestTestsPage({
                 .
               </p>
             </div>
-            <span className="shrink-0 font-mono text-[11.5px] text-fg-3">
+            <span className="shrink-0 font-mono text-12 text-fg-3">
               n={totals.totalResults.toLocaleString()}
             </span>
           </div>
@@ -164,10 +164,10 @@ export default function SlowestTestsPage({
         <Card className="overflow-hidden rounded-[9px] border-line-1">
           <div className="flex items-center justify-between gap-4 border-b border-line-1 px-[18px] py-3">
             <div className="min-w-0">
-              <h2 className="text-[13px] font-semibold tracking-tight">
+              <h2 className="text-13 font-semibold tracking-tight">
                 Slowest tests
               </h2>
-              <p className="mt-0.5 text-[11.5px] text-fg-3">
+              <p className="mt-0.5 text-12 text-fg-3">
                 {totals.totalUniqueTests.toLocaleString()} unique test
                 {totals.totalUniqueTests === 1 ? "" : "s"} sorted by p95.
               </p>
@@ -178,7 +178,7 @@ export default function SlowestTestsPage({
                 <input name="branch" type="hidden" value={branchParam} />
               ) : null}
               <input
-                className="w-56 rounded-md border border-line-1 bg-card px-3 py-1 font-mono text-[12.5px] text-foreground placeholder:text-fg-3 focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/24"
+                className="w-56 rounded-md border border-line-1 bg-bg-1 px-3 py-1 font-mono text-13 text-fg-1 placeholder:text-fg-3 focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/24"
                 defaultValue={q}
                 name="q"
                 placeholder="Filter path or name…"
@@ -268,7 +268,7 @@ function HistogramChart({
         total: cnt,
         tooltip: (
           <>
-            <div className="mb-1 font-mono text-[10px] text-fg-3">
+            <div className="mb-1 font-mono text-11 text-fg-3">
               {i === topBin
                 ? `${formatDuration(loMs)}+`
                 : `${formatDuration(loMs)} – ${formatDuration(hiMs)}`}
@@ -375,27 +375,27 @@ function BottlenecksSection({
                     <TableCell className="px-4 py-3 align-middle">
                       <div className="min-w-0">
                         <div
-                          className="truncate text-[13px] text-foreground"
+                          className="truncate text-13 text-fg-1"
                           title={row.title ?? row.testId}
                         >
                           {row.title ?? row.testId}
                         </div>
                         <div
-                          className="mt-0.5 truncate font-mono text-[11px] text-fg-3"
+                          className="mt-0.5 truncate font-mono text-11 text-fg-3"
                           title={row.file ?? ""}
                         >
                           {row.file ?? ""}
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="w-[100px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-foreground">
+                    <TableCell className="w-[100px] px-4 py-3 text-right align-middle font-mono text-12 tabular-nums text-fg-1">
                       {row.avgDur === null
                         ? "—"
                         : formatDuration(Math.round(row.avgDur))}
                     </TableCell>
                     <TableCell
                       className={cn(
-                        "w-[100px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums font-medium",
+                        "w-[100px] px-4 py-3 text-right align-middle font-mono text-12 tabular-nums font-medium",
                         tone.p95Text,
                       )}
                     >
@@ -417,7 +417,7 @@ function BottlenecksSection({
                         width={80}
                       />
                     </TableCell>
-                    <TableCell className="w-[80px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-fg-3">
+                    <TableCell className="w-[80px] px-4 py-3 text-right align-middle font-mono text-12 tabular-nums text-fg-3">
                       {row.n.toLocaleString()}
                     </TableCell>
                   </TableRow>
@@ -449,7 +449,7 @@ function BottlenecksSection({
  * page), so the table doesn't grow or collapse on resolve; `rowCount === 0`
  * mirrors `BottlenecksSection`'s Empty branch (no table, no footer). Table
  * cells inherit `leading-none` (line-height 1) from `TableCell`, so the Test
- * cell reserves `h-[13px]` + `h-[11px]` (its `text-[13px]`/`text-[11px]` lines,
+ * cell reserves `h-[13px]` + `h-[11px]` (its `text-13`/`text-11` lines,
  * NOT their 1.5× line boxes) for a 26px content stack, matching the real row.
  * The footer placeholder reserves `TablePaginationFooter`'s box, which the old
  * skeleton omitted entirely (the footer popped in below the table on resolve).
@@ -491,7 +491,7 @@ function BottlenecksSkeleton({
                   <Skeleton className="mx-auto h-4 w-4 rounded-full" />
                 </TableCell>
                 <TableCell className="px-4 py-3 align-middle">
-                  {/* leading-none: text-[13px] + mt-0.5 + text-[11px] = 26px */}
+                  {/* leading-none: text-13 + mt-0.5 + text-11 = 26px */}
                   <div className="min-w-0">
                     <Skeleton className="h-[13px] w-2/3" />
                     <Skeleton className="mt-0.5 h-[11px] w-1/2" />

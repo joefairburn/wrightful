@@ -55,7 +55,7 @@ export function InsightsTabs({
   ];
 
   return (
-    <TabBar className="-mb-px items-center bg-background px-6">
+    <TabBar className="-mb-px items-center bg-bg-0 px-6">
       {tabs.map((t) => (
         <TabBarTab
           active={active === t.key}

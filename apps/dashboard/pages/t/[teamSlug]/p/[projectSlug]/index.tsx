@@ -141,7 +141,7 @@ export default function RunsListPage({
 
       {liveRows.length > 0 && (
         <TablePaginationFooter
-          className="bg-background"
+          className="bg-bg-0"
           currentPage={currentPage}
           fromRow={fromRow}
           itemNoun="run"

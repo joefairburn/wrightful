@@ -309,7 +309,7 @@ export function CommandMenu({
                             {item.label}
                           </span>
                           {item.hint ? (
-                            <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-fg-3">
+                            <span className="ml-auto min-w-0 truncate font-mono text-11 text-fg-3">
                               {item.hint}
                             </span>
                           ) : null}

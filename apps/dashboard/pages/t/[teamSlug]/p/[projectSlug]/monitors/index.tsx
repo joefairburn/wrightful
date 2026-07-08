@@ -87,7 +87,7 @@ function MonitorsEmpty({
           <EmptyTitle>
             Monitor production with the tests you already write
           </EmptyTitle>
-          <EmptyDescription className="text-[13.5px] leading-relaxed">
+          <EmptyDescription className="text-14 leading-relaxed">
             A monitor runs a Playwright test on a schedule against your live app
             — so you find out that login or checkout is broken{" "}
             <em>before a customer does</em>. Each run lands as a normal
@@ -120,19 +120,17 @@ function MonitorsEmpty({
 
           {/* Sample */}
           <div className="mt-3 w-full text-left">
-            <div className="mb-2 text-[12px] font-medium tracking-[0.1px] text-fg-3">
+            <div className="mb-2 text-12 font-medium tracking-[0.1px] text-fg-3">
               What a monitor looks like
             </div>
-            <div className="overflow-hidden rounded-[9px] border border-line-1 bg-card">
+            <div className="overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
               <div className="flex items-center gap-2.5 border-b border-line-1 px-4 py-3">
                 <MonGlyph size={14} state="pass" />
-                <span className="text-[13.5px] font-medium">
+                <span className="text-14 font-medium">
                   Checkout — reach payment
                 </span>
                 <span className={cn(META_PILL_CLASSES, "gap-1")}>browser</span>
-                <span className="font-mono text-[11.5px] text-fg-3">
-                  every 5m
-                </span>
+                <span className="font-mono text-12 text-fg-3">every 5m</span>
                 <div className="flex-1" />
                 <ExecStrip
                   count={12}
@@ -141,7 +139,7 @@ function MonitorsEmpty({
                   width={96}
                 />
               </div>
-              <pre className="m-0 overflow-x-auto px-4 py-3.5 font-mono text-[12px] leading-relaxed text-foreground">
+              <pre className="m-0 overflow-x-auto px-4 py-3.5 font-mono text-12 leading-relaxed text-fg-1">
                 {DEFAULT_MONITOR_SPEC}
               </pre>
             </div>

@@ -109,7 +109,7 @@ export function AnalyticsLineChart({
         className="grid gap-2"
         style={{ gridTemplateColumns: "56px 1fr", height }}
       >
-        <div className="relative pr-1 text-right font-mono text-[10px] text-fg-3">
+        <div className="relative pr-1 text-right font-mono text-11 text-fg-3">
           {yTicks.map((t) => (
             <span
               key={t}
@@ -183,7 +183,7 @@ export function AnalyticsLineChart({
                 <div key={b.key} className="group relative flex-1 h-full">
                   <ChartColumnTooltip tooltip={b.tooltip} />
                   {/* Vertical hairline shown only on hover. */}
-                  <div className="pointer-events-none absolute inset-y-0 left-1/2 hidden w-px -translate-x-1/2 bg-border group-hover:block" />
+                  <div className="pointer-events-none absolute inset-y-0 left-1/2 hidden w-px -translate-x-1/2 bg-line-1 group-hover:block" />
                 </div>
               ))}
             </div>
@@ -196,7 +196,7 @@ export function AnalyticsLineChart({
             {buckets.map((b, i) => (
               <div
                 key={`xl-${b.key}`}
-                className="flex flex-1 justify-center font-mono text-[10px] text-fg-3"
+                className="flex flex-1 justify-center font-mono text-11 text-fg-3"
               >
                 {labelIdx.has(i) ? b.label : ""}
               </div>

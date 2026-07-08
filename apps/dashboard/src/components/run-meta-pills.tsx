@@ -52,7 +52,7 @@ function LinkOrSpan({
  * the monitors roster), so "small mono meta pill" has exactly one look.
  */
 export const META_PILL_CLASSES =
-  "inline-flex items-center rounded-full border border-line-1 bg-bg-2 px-2 py-px font-mono text-[11.5px] leading-[18px] text-fg-2";
+  "inline-flex items-center rounded-full border border-line-1 bg-bg-2 px-2 py-px font-mono text-12 leading-[18px] text-fg-2";
 
 export function BranchPill({
   name,
@@ -68,7 +68,7 @@ export function BranchPill({
     <LinkOrSpan
       className={cn(
         META_PILL_CLASSES,
-        "relative z-10 max-w-[180px] gap-1 hover:text-foreground",
+        "relative z-10 max-w-[180px] gap-1 hover:text-fg-1",
         className,
       )}
       href={href}
@@ -90,7 +90,7 @@ export function PrPill({
     <LinkOrSpan
       className={cn(
         META_PILL_CLASSES,
-        "relative z-10 shrink-0 gap-1 hover:text-foreground",
+        "relative z-10 shrink-0 gap-1 hover:text-fg-1",
       )}
       href={href}
       title={`Open PR #${num}`}
@@ -112,7 +112,7 @@ export function EnvPill({ env }: { env: string }): React.ReactElement {
         : { bg: "var(--bg-3)", fg: "var(--fg-2)" };
   return (
     <span
-      className="inline-flex shrink-0 items-center rounded-[4px] px-2 py-px font-mono text-[11px] font-medium tracking-[0.2px]"
+      className="inline-flex shrink-0 items-center rounded-[4px] px-2 py-px font-mono text-11 font-medium tracking-[0.2px]"
       style={{ background: tone.bg, color: tone.fg }}
     >
       {env}
@@ -132,7 +132,7 @@ export function CommitPill({
 }): React.ReactElement {
   return (
     <LinkOrSpan
-      className="relative z-10 inline-flex shrink-0 items-center gap-1 font-mono text-[11.5px] text-fg-3 hover:text-foreground"
+      className="relative z-10 inline-flex shrink-0 items-center gap-1 font-mono text-12 text-fg-3 hover:text-fg-1"
       href={href}
       title="View commit"
     >

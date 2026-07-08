@@ -77,8 +77,8 @@ export default function SignupPage({ githubEnabled, verifyEmail }: Props) {
           <h1 className="text-2xl font-semibold">Check your inbox</h1>
           <p className="text-fg-3 text-sm">
             We sent a verification link to{" "}
-            <span className="text-foreground font-medium">{email}</span>. Click
-            it to finish setting up your account, then sign in.
+            <span className="text-fg-1 font-medium">{email}</span>. Click it to
+            finish setting up your account, then sign in.
           </p>
         </header>
         <Link href="/login" className="text-sm underline">
@@ -149,14 +149,14 @@ export default function SignupPage({ githubEnabled, verifyEmail }: Props) {
 
       {githubEnabled && (
         <div className="space-y-2">
-          <div className="bg-border h-px" />
+          <div className="bg-line-1 h-px" />
           <Button
             type="button"
             disabled={busy || !hydrated}
             onClick={() => {
               void handleGithub();
             }}
-            className="bg-foreground text-background hover:bg-foreground/90 w-full"
+            className="bg-fg-1 text-bg-0 hover:bg-fg-1/90 w-full"
           >
             Continue with GitHub
           </Button>

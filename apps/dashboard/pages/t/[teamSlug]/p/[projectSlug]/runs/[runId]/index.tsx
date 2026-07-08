@@ -2,6 +2,7 @@ import { Link, PREFETCH_REALTIME } from "@/components/ui/link";
 import type React from "react";
 import { use, useMemo } from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
+import { githubAvatarUrl } from "@/lib/github-avatar";
 import { DeferredSection } from "@/components/defer-error-boundary";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
@@ -123,7 +124,7 @@ export default function RunDetailPage({
         {/* Sticky H1 row — fixed 52px height so the tab bar below can pin to a
          * matching `top-[52px]` with zero gap. Padding-based heights aren't
          * deterministic enough (text metrics + border can drift a couple px). */}
-        <DetailHeaderBar className="sticky top-0 z-30 border-b border-line-1 bg-background">
+        <DetailHeaderBar className="sticky top-0 z-30 border-b border-line-1 bg-bg-0">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <HeaderCrumbs
               items={[
@@ -131,7 +132,7 @@ export default function RunDetailPage({
               ]}
             />
             <h1
-              className="flex min-w-0 flex-1 items-center gap-2 text-[17px] font-semibold tracking-[-0.2px]"
+              className="flex min-w-0 flex-1 items-center gap-2 text-18 font-semibold tracking-[-0.2px]"
               title={run.commitMessage ?? run.id}
             >
               <span className="min-w-0 truncate">
@@ -145,10 +146,8 @@ export default function RunDetailPage({
                 size={18}
               />
             </h1>
-            <div className="flex shrink-0 items-center gap-3 text-[12px] text-fg-3">
-              <span className="font-mono text-[13px] tabular-nums">
-                #{shortId}
-              </span>
+            <div className="flex shrink-0 items-center gap-3 text-12 text-fg-3">
+              <span className="font-mono text-13 tabular-nums">#{shortId}</span>
               <RunDurationLive
                 createdAt={run.createdAt}
                 initialSummary={initialSummary}
@@ -162,7 +161,7 @@ export default function RunDetailPage({
 
         {/* Scrolling header — chips + summary, OutcomeBar, duration trend */}
         <div className="border-b border-line-1 px-6 pt-3 pb-[18px]">
-          <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px]">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-12">
             {run.branch ? (
               <BranchPill
                 className="max-w-[220px]"
@@ -176,7 +175,11 @@ export default function RunDetailPage({
             {run.environment ? <EnvPill env={run.environment} /> : null}
             {run.actor ? (
               <span className="inline-flex shrink-0 items-center gap-1.5 text-fg-2">
-                <ActorAvatar actor={run.actor} size={14} />
+                <ActorAvatar
+                  actor={run.actor}
+                  imageUrl={githubAvatarUrl(run.actor, run.ciProvider)}
+                  size={14}
+                />
                 <span>{run.actor}</span>
               </span>
             ) : null}
@@ -220,12 +223,12 @@ export default function RunDetailPage({
         {/* Sticky tab bar — `top-[52px]` matches the fixed H1 row height so
          * the two sticky bands butt up against each other with no gap and no
          * overlap. */}
-        <TabBar className="sticky top-[52px] z-20 bg-background px-6">
+        <TabBar className="sticky top-[52px] z-20 bg-bg-0 px-6">
           {TAB_KEYS.map((key) => (
             <TabBarTab active={tab === key} href={tabHref(key)} key={key}>
               {TAB_LABEL[key]}
               {key === "tests" ? (
-                <span className="font-mono text-[11px] tabular-nums text-fg-3">
+                <span className="font-mono text-11 tabular-nums text-fg-3">
                   <RunTestCountLive
                     initialSummary={initialSummary}
                     runId={runId}
@@ -240,7 +243,7 @@ export default function RunDetailPage({
            * edge of the tab bar so it doesn't shift the tab pills. */}
           <Link
             aria-label="Compare this run against a baseline"
-            className="-mb-px py-2 text-[12.5px] text-fg-3 transition-colors hover:text-foreground"
+            className="-mb-px py-2 text-13 text-fg-3 transition-colors hover:text-fg-1"
             href={`${base}/runs/${runId}/diff`}
           >
             Compare <span aria-hidden="true">↗</span>
@@ -372,11 +375,11 @@ function EnvironmentTab({ run }: { run: Props["run"] }): React.ReactElement {
 
   return (
     <div className="p-6">
-      <div className="max-w-[720px] overflow-hidden rounded-[9px] border border-line-1 bg-card">
+      <div className="max-w-[720px] overflow-hidden rounded-[9px] border border-line-1 bg-bg-1">
         {rows.map((r, i) => (
           <div
             className={cn(
-              "flex items-center px-4 py-2.5 text-[13px]",
+              "flex items-center px-4 py-2.5 text-13",
               i !== rows.length - 1 && "border-b border-line-1",
             )}
             key={r.label}
@@ -384,7 +387,7 @@ function EnvironmentTab({ run }: { run: Props["run"] }): React.ReactElement {
             <span className="w-[140px] shrink-0 text-fg-3">{r.label}</span>
             <span
               className={cn(
-                "min-w-0 truncate text-foreground",
+                "min-w-0 truncate text-fg-1",
                 r.mono && "font-mono",
               )}
             >

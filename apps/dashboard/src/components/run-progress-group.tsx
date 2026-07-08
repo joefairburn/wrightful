@@ -109,7 +109,7 @@ export function TestGroup({
     <div className="border-b border-line-1">
       <button
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-6 py-2 text-left hover:bg-card"
+        className="flex w-full items-center gap-2 px-6 py-2 text-left hover:bg-bg-1"
         data-testid="run-test-group"
         onClick={onToggle}
         type="button"
@@ -125,19 +125,19 @@ export function TestGroup({
           </span>
         ) : null}
         {groupBy === "file" ? (
-          <span className="min-w-0 truncate font-mono text-[12.5px] text-foreground">
+          <span className="min-w-0 truncate font-mono text-13 text-fg-1">
             {label}
           </span>
         ) : (
-          <span className="truncate text-[13px] font-medium text-foreground">
+          <span className="truncate text-13 font-medium text-fg-1">
             {label}
           </span>
         )}
-        <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-fg-3">
+        <span className="shrink-0 font-mono text-12 tabular-nums text-fg-3">
           {header.total}
         </span>
         <div className="flex-1" />
-        <div className="flex shrink-0 items-center gap-2.5 font-mono text-[11px] tabular-nums">
+        <div className="flex shrink-0 items-center gap-2.5 font-mono text-11 tabular-nums">
           {header.failed > 0 ? (
             <GroupStatusCount n={header.failed} status="failed" />
           ) : null}

@@ -93,12 +93,12 @@ export function FlakyTestRow({
       <TableCell className="px-4 py-3 align-middle">
         <div className="min-w-0">
           <div
-            className="truncate text-[13px] font-[450] text-foreground"
+            className="truncate text-13 font-[450] text-fg-1"
             title={cleanTitle}
           >
             {cleanTitle}
           </div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[11px] text-fg-3">
+          <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-11 text-fg-3">
             <span className="min-w-0 truncate" title={file}>
               {file}
             </span>
@@ -116,19 +116,19 @@ export function FlakyTestRow({
       </TableCell>
       <TableCell className="w-[110px] px-4 py-3 text-right align-middle">
         <div
-          className="font-mono text-[13px] font-semibold tabular-nums"
+          className="font-mono text-13 font-semibold tabular-nums"
           style={{ color: tone }}
         >
           {pct.toFixed(0)}%
         </div>
-        <div className="mt-0.5 text-[10.5px] text-fg-3">over {rangeDays}d</div>
+        <div className="mt-0.5 text-11 text-fg-3">over {rangeDays}d</div>
       </TableCell>
       <TableCell className="w-[180px] px-4 py-3 align-middle">
         <Sparkline height={22} points={sparklinePoints} width={160} />
       </TableCell>
       <TableCell className="w-[280px] max-w-[280px] px-4 py-3 align-middle">
         <div
-          className="truncate font-mono text-[11.5px] text-fg-3"
+          className="truncate font-mono text-12 text-fg-3"
           title={latest?.errorMessage ? stripAnsi(latest.errorMessage) : ""}
         >
           {latest?.errorMessage
@@ -139,7 +139,7 @@ export function FlakyTestRow({
       <TableCell className="w-[210px] px-4 py-3 align-middle">
         <OwnerCell owners={owners} />
       </TableCell>
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle text-[12px] text-fg-3">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle text-12 text-fg-3">
         {latest ? formatRelativeTime(latest.createdAt) : "—"}
       </TableCell>
     </TableRow>

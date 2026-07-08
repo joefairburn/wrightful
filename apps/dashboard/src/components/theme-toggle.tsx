@@ -65,7 +65,7 @@ export function ThemeToggle({
     return (
       <Button
         aria-label={label}
-        className="text-fg-3 hover:text-foreground"
+        className="text-fg-3 hover:text-fg-1"
         onClick={toggle}
         size="icon-sm"
         title={label}
@@ -80,7 +80,7 @@ export function ThemeToggle({
     <button
       className={cn(
         "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-        "text-foreground hover:bg-accent",
+        "text-fg-1 hover:bg-bg-3",
       )}
       onClick={toggle}
       type="button"

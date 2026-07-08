@@ -107,7 +107,7 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
 
   return (
     <QueryProvider>
-      <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans">
+      <div className="flex h-screen overflow-hidden bg-bg-0 text-fg-1 font-sans">
         <nav className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
           <SidebarTop
             selectedProject={selectedProject}
@@ -228,7 +228,7 @@ function SidebarBottom({
         <Link
           className={cn(
             "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-            "text-sidebar-foreground hover:bg-accent hover:text-foreground",
+            "text-sidebar-foreground hover:bg-bg-3 hover:text-fg-1",
           )}
           href={href}
         >
@@ -243,7 +243,7 @@ function SidebarBottom({
       <Link
         className={cn(
           "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-          "text-sidebar-foreground hover:bg-accent hover:text-foreground",
+          "text-sidebar-foreground hover:bg-bg-3 hover:text-fg-1",
         )}
         href="/settings/profile"
       >
@@ -318,8 +318,8 @@ function AppSidebarMiddle({ pathname, base }: AppSidebarMiddleProps) {
             className={cn(
               "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
               active
-                ? "bg-accent font-medium text-foreground"
-                : "text-sidebar-foreground hover:bg-accent hover:text-foreground",
+                ? "bg-bg-3 font-medium text-fg-1"
+                : "text-sidebar-foreground hover:bg-bg-3 hover:text-fg-1",
             )}
             href={item.href}
             key={item.id}
@@ -327,7 +327,7 @@ function AppSidebarMiddle({ pathname, base }: AppSidebarMiddleProps) {
             <item.icon className="size-4" />
             <span className="flex-1">{item.label}</span>
             {item.count != null && (
-              <span className="rounded-full bg-flaky-soft px-1.5 py-px font-mono text-[10.5px] font-semibold text-flaky tabular-nums">
+              <span className="rounded-full bg-flaky-soft px-1.5 py-px font-mono text-11 font-semibold text-flaky tabular-nums">
                 {item.count}
               </span>
             )}
@@ -500,8 +500,8 @@ function SettingsNavLink({
       className={cn(
         "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
         active
-          ? "bg-accent font-medium text-foreground"
-          : "text-sidebar-foreground hover:bg-accent hover:text-foreground",
+          ? "bg-bg-3 font-medium text-fg-1"
+          : "text-sidebar-foreground hover:bg-bg-3 hover:text-fg-1",
       )}
       href={href}
     >
@@ -520,7 +520,7 @@ function SettingsSectionLabel({
 }) {
   return (
     <div
-      className="truncate px-2.5 pb-1 pt-2 text-[12px] font-medium tracking-[0.1px] text-fg-3"
+      className="truncate px-2.5 pb-1 pt-2 text-12 font-medium tracking-[0.1px] text-fg-3"
       title={title}
     >
       {children}

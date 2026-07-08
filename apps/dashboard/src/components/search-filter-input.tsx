@@ -15,7 +15,7 @@ import { cn } from "@/lib/cn";
  */
 export function searchFilterInputClassName(inputClassName?: string): string {
   return cn(
-    "h-8 w-full rounded-md border border-line-1 bg-card pl-8 pr-2.5 text-[13px] text-foreground outline-none placeholder:text-fg-3/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 [&::-webkit-search-cancel-button]:appearance-none",
+    "h-8 w-full rounded-md border border-line-1 bg-bg-1 pl-8 pr-2.5 text-13 text-fg-1 outline-none placeholder:text-fg-3/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 [&::-webkit-search-cancel-button]:appearance-none",
     inputClassName,
   );
 }

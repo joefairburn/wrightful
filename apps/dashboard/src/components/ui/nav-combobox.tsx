@@ -136,7 +136,7 @@ export function NavComboboxSearchInput({
         placeholder={placeholder}
         {...props}
       />
-      <Kbd className="pointer-events-none absolute end-3 text-[10px]">Esc</Kbd>
+      <Kbd className="pointer-events-none absolute end-3 text-11">Esc</Kbd>
     </div>
   );
 }

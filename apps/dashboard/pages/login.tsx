@@ -101,17 +101,17 @@ export default function LoginPage({
       />
 
       <section className="relative w-full max-w-[380px]">
-        <div className="rounded-[12px] border border-line-1 bg-card p-8 shadow-[var(--shadow-lg)]">
+        <div className="rounded-[12px] border border-line-1 bg-bg-1 p-8 shadow-[var(--shadow-lg)]">
           <form
             className="w-full"
             onSubmit={(e) => {
               void handleSubmit(e);
             }}
           >
-            <h2 className="text-center font-semibold text-[22px] tracking-[-0.4px]">
+            <h2 className="text-center font-semibold text-22 tracking-[-0.4px]">
               Sign in to Wrightful
             </h2>
-            <p className="mt-1.5 text-center text-[13px] text-fg-3">
+            <p className="mt-1.5 text-center text-13 text-fg-3">
               Welcome back. Let's get you to your runs.
             </p>
 
@@ -141,14 +141,14 @@ export default function LoginPage({
 
                 <div className="my-5 flex items-center gap-3">
                   <div className="h-px flex-1 bg-line-1" />
-                  <span className="text-[12px] text-fg-3">or</span>
+                  <span className="text-12 text-fg-3">or</span>
                   <div className="h-px flex-1 bg-line-1" />
                 </div>
               </>
             )}
 
             <div className={githubEnabled ? "mb-3.5" : "mt-6 mb-3.5"}>
-              <Label htmlFor="email" className="text-[12px] text-fg-2">
+              <Label htmlFor="email" className="text-12 text-fg-2">
                 Work email
               </Label>
               <Input
@@ -166,13 +166,13 @@ export default function LoginPage({
 
             <div className="mb-3.5">
               <div className="flex items-baseline justify-between">
-                <Label htmlFor="password" className="text-[12px] text-fg-2">
+                <Label htmlFor="password" className="text-12 text-fg-2">
                   Password
                 </Label>
                 {resetEnabled && (
                   <Link
                     href="/forgot-password"
-                    className="text-[12px] text-fg-3 underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                    className="text-12 text-fg-3 underline-offset-2 transition-colors hover:text-fg-1 hover:underline"
                   >
                     Forgot password?
                   </Link>
@@ -215,14 +215,14 @@ export default function LoginPage({
               />
               <Label
                 htmlFor="remember"
-                className="cursor-pointer font-normal text-[12.5px] text-fg-2"
+                className="cursor-pointer font-normal text-13 text-fg-2"
               >
                 Keep me signed in
               </Label>
             </div>
 
             {error && (
-              <p role="alert" className="mb-3 text-[13px] text-destructive">
+              <p role="alert" className="mb-3 text-13 text-destructive">
                 {error}
               </p>
             )}
@@ -239,11 +239,11 @@ export default function LoginPage({
             </Button>
 
             {signupAllowed && (
-              <div className="mt-[22px] text-center text-[12.5px] text-fg-3">
+              <div className="mt-[22px] text-center text-13 text-fg-3">
                 New to Wrightful?{" "}
                 <Link
                   href="/signup"
-                  className="text-foreground underline underline-offset-2"
+                  className="text-fg-1 underline underline-offset-2"
                 >
                   Create an account
                 </Link>

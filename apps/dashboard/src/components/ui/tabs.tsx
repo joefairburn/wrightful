@@ -75,7 +75,7 @@ export function TabBarTab(props: TabBarTabProps): React.ReactElement {
   const { active = false, className, children } = props;
   const scrollable = useContext(TabBarScrollableContext);
   const classes = cn(
-    "relative inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+    "relative inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-13 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
     scrollable ? null : "-mb-px",
     active
       ? cn(

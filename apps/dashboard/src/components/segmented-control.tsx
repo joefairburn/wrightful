@@ -10,15 +10,13 @@ import { statusToken } from "@/lib/status";
  * `RunsFilterBar` sits on the same line.
  */
 export const SEGMENTED_GROUP_CLASSES =
-  "inline-flex h-8 items-stretch gap-0.5 rounded-md border border-line-1 bg-card p-0.5";
+  "inline-flex h-8 items-stretch gap-0.5 rounded-md border border-line-1 bg-bg-1 p-0.5";
 
 export function segmentedItemClasses(active: boolean, compact = false): string {
   return cn(
-    "inline-flex items-center gap-1.5 rounded-[4px] text-[12px] transition-colors",
+    "inline-flex items-center gap-1.5 rounded-[4px] text-12 transition-colors",
     compact ? "px-2" : "px-2.5",
-    active
-      ? "bg-bg-3 font-medium text-foreground"
-      : "text-fg-2 hover:text-foreground",
+    active ? "bg-bg-3 font-medium text-fg-1" : "text-fg-2 hover:text-fg-1",
   );
 }
 
@@ -41,7 +39,7 @@ export interface SegmentedControlProps<T extends string> {
 
 /**
  * Client-state segmented control. Mirrors the design bundle's
- * `SegmentedControl` (`screen-run-detail.jsx:313-342`): `bg-card border-line-1
+ * `SegmentedControl` (`screen-run-detail.jsx:313-342`): `bg-bg-1 border-line-1
  * rounded-md` container with a `bg-bg-3` highlight pill behind the active
  * option, optional status dot + count next to each label.
  *
@@ -88,7 +86,7 @@ export function SegmentedControl<T extends string>({
             {opt.count != null ? (
               <span
                 className={cn(
-                  "font-mono text-[11px] tabular-nums",
+                  "font-mono text-11 tabular-nums",
                   active ? "text-fg-3" : "text-fg-4",
                 )}
               >

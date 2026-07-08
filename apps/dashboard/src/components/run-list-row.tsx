@@ -2,6 +2,7 @@ import { PREFETCH_REALTIME } from "@/components/ui/link";
 import { RowLink } from "@/components/row-link";
 import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
+import { githubAvatarUrl } from "@/lib/github-avatar";
 import { LiveDuration } from "@/components/live-duration";
 import { OutcomeBar } from "@/components/outcome-bar";
 import {
@@ -72,11 +73,11 @@ export function RunListRow({
       <TableCell className="px-4 py-3 align-middle">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-fg-3">
+            <span className="shrink-0 font-mono text-12 tabular-nums text-fg-3">
               #{runNum}
             </span>
             <span
-              className="min-w-0 flex-1 truncate text-[13.5px] text-foreground"
+              className="min-w-0 flex-1 truncate text-14 text-fg-1"
               title={run.commitMessage ?? undefined}
             >
               {run.commitMessage ? (
@@ -88,7 +89,7 @@ export function RunListRow({
               )}
             </span>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11.5px] text-fg-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-12 text-fg-3">
             {run.branch ? (
               <BranchPill href={branchHref} name={run.branch} />
             ) : null}
@@ -101,7 +102,10 @@ export function RunListRow({
             ) : null}
             {run.actor ? (
               <span className="inline-flex shrink-0 items-center gap-1.5">
-                <ActorAvatar actor={run.actor} />
+                <ActorAvatar
+                  actor={run.actor}
+                  imageUrl={githubAvatarUrl(run.actor, run.ciProvider)}
+                />
                 <span className="truncate">{run.actor}</span>
               </span>
             ) : null}
@@ -119,7 +123,7 @@ export function RunListRow({
             skipped={run.skipped}
             total={total}
           />
-          <div className="flex items-center gap-2.5 font-mono text-[11px] tabular-nums">
+          <div className="flex items-center gap-2.5 font-mono text-11 tabular-nums">
             <RunTestsPopover
               count={run.passed}
               projectSlug={projectSlug}
@@ -156,7 +160,7 @@ export function RunListRow({
         </div>
       </TableCell>
 
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-[12px] tabular-nums text-fg-3">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-12 tabular-nums text-fg-3">
         <LiveDuration
           completedAt={run.completedAt}
           createdAt={run.createdAt}
@@ -165,7 +169,7 @@ export function RunListRow({
         />
       </TableCell>
 
-      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-[12px] text-fg-3">
+      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-12 text-fg-3">
         {formatRelativeTime(run.createdAt)}
       </TableCell>
     </TableRow>

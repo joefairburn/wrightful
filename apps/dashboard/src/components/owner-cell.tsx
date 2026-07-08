@@ -44,7 +44,7 @@ export interface OwnerCellProps {
 
 export function OwnerCell({ owners }: OwnerCellProps): React.ReactElement {
   if (owners.length === 0) {
-    return <span className="text-[12px] text-fg-3">—</span>;
+    return <span className="text-12 text-fg-3">—</span>;
   }
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1">

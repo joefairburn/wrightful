@@ -167,7 +167,7 @@ function SideBySideFrame({
 }): React.ReactElement {
   return (
     <figure className="flex flex-col gap-1">
-      <figcaption className="text-[12px] font-medium tracking-[0.1px] text-fg-3">
+      <figcaption className="text-12 font-medium tracking-[0.1px] text-fg-3">
         {label}
       </figcaption>
       {frame ? (

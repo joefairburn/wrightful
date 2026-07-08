@@ -68,7 +68,7 @@ export function AttemptTabsBar({
           />
           <span>{item.label}</span>
           {item.finalSuffix ? (
-            <span className="text-[11px] text-fg-3">{item.finalSuffix}</span>
+            <span className="text-11 text-fg-3">{item.finalSuffix}</span>
           ) : null}
         </TabBarTab>
       ))}

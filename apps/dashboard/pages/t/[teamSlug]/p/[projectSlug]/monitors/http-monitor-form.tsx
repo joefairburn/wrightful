@@ -211,7 +211,7 @@ export function HttpMonitorForm({
           required
           type="url"
         />
-        <p className="mt-1.5 text-[11.5px] text-fg-3">
+        <p className="mt-1.5 text-12 text-fg-3">
           A GET request runs on schedule. Private, loopback, and link-local
           addresses can&apos;t be monitored.
         </p>
@@ -232,7 +232,7 @@ export function HttpMonitorForm({
             nativeInput
             type="number"
           />
-          <p className="mt-1.5 text-[11.5px] text-fg-3">
+          <p className="mt-1.5 text-12 text-fg-3">
             Slower than this still passes, but as{" "}
             <span className="text-degraded">Degraded</span>.
           </p>
@@ -248,14 +248,14 @@ export function HttpMonitorForm({
             nativeInput
             type="number"
           />
-          <p className="mt-1.5 text-[11.5px] text-fg-3">
+          <p className="mt-1.5 text-12 text-fg-3">
             Slower than this is a <span className="text-fail">Fail</span>.
           </p>
         </div>
       </div>
 
       {/* Request switches. */}
-      <div className="flex flex-col gap-3 rounded-lg border border-line-1 bg-card px-3.5 py-3">
+      <div className="flex flex-col gap-3 rounded-lg border border-line-1 bg-bg-1 px-3.5 py-3">
         <SwitchRow
           checked={followRedirects}
           description="Follow 3xx redirects to the final response."
@@ -276,7 +276,7 @@ export function HttpMonitorForm({
       <div>
         <div className="mb-[7px] flex items-baseline justify-between">
           <FieldLabel className="mb-0">Assertions</FieldLabel>
-          <span className="text-[11.5px] text-fg-3">
+          <span className="text-12 text-fg-3">
             Optional. All must pass. {assertions.length}/{HTTP_MAX_ASSERTIONS}
           </span>
         </div>
@@ -295,7 +295,7 @@ export function HttpMonitorForm({
         />
         <div className="flex flex-col gap-2">
           {assertions.length === 0 && (
-            <p className="rounded-lg border border-dashed border-line-1 px-3.5 py-3 text-[12px] text-fg-3">
+            <p className="rounded-lg border border-dashed border-line-1 px-3.5 py-3 text-12 text-fg-3">
               No assertions — the check passes on a 2xx/3xx response within the
               response-time limit. Add one to assert on status, headers, or
               body.
@@ -364,7 +364,7 @@ function AssertionRowEditor({
   const showProperty = NEEDS_PROPERTY.has(row.source);
   const showTarget = !NO_TARGET.has(row.comparison);
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-line-1 bg-card px-2.5 py-2">
+    <div className="flex items-center gap-2 rounded-lg border border-line-1 bg-bg-1 px-2.5 py-2">
       <NativeSelect
         aria-label="Assertion source"
         className="w-[150px] shrink-0"
@@ -458,10 +458,8 @@ function SwitchRow({
       <Switch checked={checked} onCheckedChange={onChange} />
       {checked && <input name={name} type="hidden" value="on" />}
       <span>
-        <span className="block text-[12.5px] font-medium text-foreground">
-          {label}
-        </span>
-        <span className="block text-[11.5px] text-fg-3">{description}</span>
+        <span className="block text-13 font-medium text-fg-1">{label}</span>
+        <span className="block text-12 text-fg-3">{description}</span>
       </span>
     </label>
   );

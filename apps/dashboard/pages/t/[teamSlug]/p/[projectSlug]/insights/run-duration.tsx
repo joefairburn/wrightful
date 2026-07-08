@@ -111,10 +111,10 @@ export default function RunDurationPage({
 
         <Card className="overflow-hidden rounded-[9px] border-line-1">
           <div className="border-b border-line-1 px-[18px] py-3">
-            <h2 className="text-[13px] font-semibold tracking-tight">
+            <h2 className="text-13 font-semibold tracking-tight">
               Duration percentiles
             </h2>
-            <p className="mt-0.5 text-[11.5px] text-fg-3">
+            <p className="mt-0.5 text-12 text-fg-3">
               Per {segment} — p50, p90, p95 of run duration.
             </p>
           </div>
@@ -132,7 +132,7 @@ export default function RunDurationPage({
             </DeferredSection>
             {/* Legend is static (derived from SERIES, no data) — kept eager so
              * it reserves its space in both states and paints immediately. */}
-            <div className="mt-3.5 flex items-center gap-3.5 text-[11.5px] text-fg-3">
+            <div className="mt-3.5 flex items-center gap-3.5 text-12 text-fg-3">
               {SERIES.map((s) => (
                 <span className="inline-flex items-center gap-1.5" key={s.key}>
                   <span className="h-0.5 w-3" style={{ background: s.color }} />
@@ -233,13 +233,13 @@ function DurationChart({
       values: [p50, p90, p95],
       tooltip: (
         <>
-          <div className="mb-2 border-b border-line-1/50 pb-1 font-mono text-[10px] text-fg-3">
+          <div className="mb-2 border-b border-line-1/50 pb-1 font-mono text-11 text-fg-3">
             {s.label} · {cnt} run{cnt === 1 ? "" : "s"}
           </div>
           {cnt === 0 ? (
-            <div className="font-mono text-[11px] text-fg-3">No runs</div>
+            <div className="font-mono text-11 text-fg-3">No runs</div>
           ) : (
-            <div className="space-y-1 font-mono text-[11px]">
+            <div className="space-y-1 font-mono text-11">
               <PercentileRow
                 label="p50"
                 value={p50}
@@ -294,9 +294,9 @@ function PercentileRow({
           className="inline-block h-2 w-2 rounded-full"
           style={{ background: color }}
         />
-        <span className="text-foreground">{label}</span>
+        <span className="text-fg-1">{label}</span>
       </span>
-      <span className="text-foreground">{formatOrDash(value)}</span>
+      <span className="text-fg-1">{formatOrDash(value)}</span>
     </div>
   );
 }

@@ -94,7 +94,7 @@ export function BucketBarChart({
         className="grid gap-2"
         style={{ gridTemplateColumns: "48px 1fr", height }}
       >
-        <div className="relative pr-1 text-right font-mono text-[10px] text-fg-3">
+        <div className="relative pr-1 text-right font-mono text-11 text-fg-3">
           {yTicks.map((t) => (
             <span
               key={t}
@@ -181,7 +181,7 @@ export function BucketBarChart({
             {buckets.map((b, i) => (
               <div
                 key={`xl-${b.key}`}
-                className="flex flex-1 justify-center font-mono text-[10px] text-fg-3"
+                className="flex flex-1 justify-center font-mono text-11 text-fg-3"
               >
                 {labelIdx.has(i) ? b.label : ""}
               </div>

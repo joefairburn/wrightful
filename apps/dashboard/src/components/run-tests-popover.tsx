@@ -19,7 +19,7 @@ type Props = {
 };
 
 const TRIGGER_CLASS =
-  "relative z-10 inline-flex shrink-0 cursor-pointer items-center font-mono text-[11px] tabular-nums outline-none transition-colors hover:underline focus-visible:underline";
+  "relative z-10 inline-flex shrink-0 cursor-pointer items-center font-mono text-11 tabular-nums outline-none transition-colors hover:underline focus-visible:underline";
 
 /** Sentence-case (lowercase) label for inline use, e.g. "2 failed tests". */
 function variantLabel(variant: Variant): string {
@@ -92,7 +92,7 @@ export function RunTestsPopover({
             <p>Couldn't load tests.</p>
             <button
               type="button"
-              className="mt-2 font-mono text-[11px] underline hover:text-foreground"
+              className="mt-2 font-mono text-11 underline hover:text-fg-1"
               onClick={() => void refetch()}
             >
               Retry
@@ -124,12 +124,12 @@ export function RunTestsPopover({
                     <div className="text-xs font-medium truncate">
                       {item.title}
                     </div>
-                    <div className="font-mono text-[11px] text-fg-3 truncate">
+                    <div className="font-mono text-11 text-fg-3 truncate">
                       {item.projectName ? `${item.projectName} · ` : ""}
                       {item.file}
                     </div>
                     {variant === "failed" && item.errorMessage ? (
-                      <div className="mt-1 font-mono text-[11px] text-destructive/80 line-clamp-2">
+                      <div className="mt-1 font-mono text-11 text-destructive/80 line-clamp-2">
                         {item.errorMessage}
                       </div>
                     ) : null}
