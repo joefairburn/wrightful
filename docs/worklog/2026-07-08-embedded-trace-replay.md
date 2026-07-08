@@ -103,8 +103,43 @@ a possible follow-up, kept generic per the OSS/self-hosting stance.
   groups, so traced rows render and the per-row button appears without manual
   expansion.
 
+## Follow-up (same day): deep-linkable modal, Escape fix, "Replay" rename
+
+Post-review polish (four asks):
+
+- **Deep-linkable via query param.** The Replay modal's open state now lives in
+  `?replay=<id>` (`useSearchParam`, shallow `replaceState` — no loader re-run),
+  so a specific replay is shareable. On the run's Tests tab the id is a
+  `testResultId` and the modal is hosted **once** by a new `ReplayModalHost`
+  (mounted in `RunProgress`), which mints the viewer URL from the replay
+  endpoint on demand — so a link opens even when the target test's group is
+  collapsed. On the test-detail rail the id is the `artifactId` (URL known at
+  SSR). The per-row button (`ReplayRowButton`) now just sets the param. A bad
+  deep-link (no trace → 404) clears the param so the URL never lies.
+- **Escape now closes it.** The viewer is self-hosted (same-origin), so a
+  keydown inside the iframe never bubbled to the parent Dialog and Escape was
+  swallowed. `TestReplayContent` now binds an Escape listener on the iframe's
+  own `contentWindow` (on `load`) that clears the param; the Dialog's built-in
+  handler still covers focus on the header controls.
+- **Rename** "Test Replay" → **"Replay"** (rail label + per-row button + iframe
+  title + route docstring).
+- **Title font.** The modal's `DialogTitle` dropped `font-mono` → the standard
+  body font.
+- `useSearchParam`/`useNavigatingSearchParam` now **drop the key** when a value
+  returns to its default (via a shared `normalizeNext`), so a closed modal
+  leaves no bare `?replay=` behind. The replay route also returns the test
+  `title` so a deep-linked modal renders its header without a click.
+
+Verification (this round): typecheck 0 errors; dashboard node 281 / workers 1219
+pass; `pnpm check` 0 errors. `test-replay.spec.ts` extended to assert the
+`?replay=` URL round-trip (open → URL carries it → Escape closes + clears →
+cold-load the link re-opens the modal) — **CI-run** (still blocked locally by
+the dev-server guard).
+
 ## Follow-ups (not in this change)
 
 - Run headless verification of the in-browser DOM-snapshot scrub on a real trace.
 - Optionally mirror `/trace-viewer/*` headers into `public/_headers` for
   own-account deploy parity.
+- Escape-from-inside-nested-snapshot-iframe isn't covered (the handler binds the
+  top viewer window only); the header/backdrop still close it.

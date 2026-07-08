@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { Link } from "@void/react";
 import { StatusGlyph } from "@/components/status-glyph";
-import { TestReplayButton } from "@/components/trace-viewer-dialog";
+import { ReplayRowButton } from "@/components/trace-viewer-dialog";
 import { cn } from "@/lib/cn";
 import {
   type GroupByAxis,
@@ -119,15 +119,7 @@ export function TestRow({
           {formatDuration(test.durationMs)}
         </span>
       </Link>
-      {test.hasTrace ? (
-        <TestReplayButton
-          projectSlug={projectSlug}
-          runId={runId}
-          teamSlug={teamSlug}
-          testResultId={test.id}
-          title={displayTitle}
-        />
-      ) : null}
+      {test.hasTrace ? <ReplayRowButton testResultId={test.id} /> : null}
       {/*
        * Decorative hover affordance only — the primary row <Link> above already
        * navigates. Kept a non-interactive aria-hidden <span> (not a second

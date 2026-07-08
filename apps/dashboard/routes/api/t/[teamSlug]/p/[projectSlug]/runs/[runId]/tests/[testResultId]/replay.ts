@@ -1,12 +1,12 @@
 import { defineHandler } from "void";
 import { and, db, desc, eq } from "void/db";
-import { artifacts } from "@schema";
+import { artifacts, testResults } from "@schema";
 import {
   signArtifactToken,
   signedDownloadHref,
   signedTraceViewerUrl,
 } from "@/lib/artifact-tokens";
-import { childByTestResultWhere } from "@/lib/scope";
+import { childByTestResultWhere, childProjectScopeWhere } from "@/lib/scope";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 
 export type TestReplayResponse = {
@@ -14,17 +14,19 @@ export type TestReplayResponse = {
   traceViewerUrl: string;
   /** Signed direct download of the raw `trace.zip`. */
   downloadHref: string;
+  /** The test's title, so a deep-linked modal can render its header. */
+  title: string;
 };
 
 /**
  * GET /api/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId/replay
  *
- * Lazily mints a Test Replay (trace-viewer) URL for one test. The run's live
- * test list (`RunProgress`) is a realtime island carrying only minimal per-test
- * rows — no artifact rows, no signed URLs — so the "Test Replay" button on each
- * row fetches here on click. Minting on demand (rather than pre-signing every
- * row in the SSR loader) keeps the download token fresh (1h TTL) and avoids
- * embedding a token per test in the page.
+ * Lazily mints a Replay (trace-viewer) URL for one test. The run's Tests-tab
+ * list carries only minimal per-test rows — no artifact rows, no signed URLs —
+ * so the per-row "Replay" button (and any `?replay=<testResultId>` deep-link)
+ * fetches here. Minting on demand (rather than pre-signing every row in the
+ * loader) keeps the download token fresh (1h TTL) and avoids embedding a token
+ * per test in the page.
  *
  * Returns the trace of the LAST attempt (highest `attempt`) — the final,
  * authoritative run of the test. 404 when the test recorded no trace (e.g. a
@@ -54,6 +56,19 @@ export const GET = defineHandler(async (c) => {
   const row = rows[0];
   if (!row) return c.json({ error: "No trace recorded for this test" }, 404);
 
+  // The test title for the modal header (the row already scoped the artifact,
+  // so this is the same project + the row's own id).
+  const titleRow = await db
+    .select({ title: testResults.title })
+    .from(testResults)
+    .where(
+      and(
+        childProjectScopeWhere(testResults.projectId, scope),
+        eq(testResults.id, testResultId),
+      ),
+    )
+    .limit(1);
+
   const token = await signArtifactToken({
     r2Key: row.r2Key,
     contentType: row.contentType,
@@ -63,5 +78,6 @@ export const GET = defineHandler(async (c) => {
   return {
     traceViewerUrl: signedTraceViewerUrl(origin, row.id, token),
     downloadHref: signedDownloadHref(row.id, token),
+    title: titleRow[0]?.title ?? "Trace",
   } satisfies TestReplayResponse;
 });

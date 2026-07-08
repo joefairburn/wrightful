@@ -220,7 +220,7 @@ function RailTraceButton({
   if (!artifact.traceViewerUrl) return <></>;
   return (
     <TraceViewerDialog artifact={artifact}>
-      <RailIconLabel icon={<History />} label="Test Replay" />
+      <RailIconLabel icon={<History />} label="Replay" />
       <ArrowRight className="opacity-50" aria-hidden />
     </TraceViewerDialog>
   );
