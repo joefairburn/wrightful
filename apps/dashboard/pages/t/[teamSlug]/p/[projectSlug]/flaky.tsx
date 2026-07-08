@@ -201,7 +201,7 @@ function FlakyTableRegion({
   return (
     <>
       <div className="flex-1 overflow-y-auto min-h-0">
-        <Table className="table-fixed">
+        <Table className="table-fixed" stickyHeader>
           <FlakyTableHead rangeDays={rangeDays} />
           <TableBody>
             {ranked.map((row) => {
@@ -243,7 +243,7 @@ function FlakyTableRegion({
  *  skeleton so the column widths can't drift between states. */
 function FlakyTableHead({ rangeDays }: { rangeDays: number }) {
   return (
-    <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
+    <TableHeader className="sticky top-0 z-20 bg-bg-0/95 backdrop-blur-sm">
       <TableRow>
         <TableHead className="w-10 px-4" />
         <TableHead className="px-4">Test</TableHead>
@@ -265,7 +265,7 @@ function FlakyTableSkeleton({ rangeDays }: { rangeDays: number }) {
   return (
     <>
       <div className="flex-1 overflow-y-auto min-h-0">
-        <Table className="table-fixed">
+        <Table className="table-fixed" stickyHeader>
           <FlakyTableHead rangeDays={rangeDays} />
           <TableBody>
             {Array.from({ length: SKELETON_ROWS }, (_, i) => (

@@ -220,7 +220,7 @@ function TestsCatalogRegion({
   return (
     <>
       <div className="flex-1 overflow-y-auto min-h-0">
-        <Table className="table-fixed">
+        <Table className="table-fixed" stickyHeader>
           <TestsCatalogHead />
           <TableBody>
             {group
@@ -283,7 +283,7 @@ function TestsCatalogRegion({
  *  fixed column widths can't drift between states. */
 function TestsCatalogHead() {
   return (
-    <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
+    <TableHeader className="sticky top-0 z-20 bg-bg-0/95 backdrop-blur-sm">
       <TableRow>
         <TableHead className="w-10 px-4" />
         <TableHead className="px-4">Test</TableHead>
@@ -306,7 +306,7 @@ function TestsCatalogSkeleton() {
   return (
     <>
       <div className="flex-1 overflow-y-auto min-h-0">
-        <Table className="table-fixed">
+        <Table className="table-fixed" stickyHeader>
           <TestsCatalogHead />
           <TableBody>
             {Array.from({ length: SKELETON_ROWS }, (_, i) => (

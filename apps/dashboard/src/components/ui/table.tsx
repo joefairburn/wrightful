@@ -6,13 +6,28 @@ export type TableVariant = "default" | "card";
 export function Table({
   className,
   variant = "default",
+  stickyHeader = false,
   ...props
 }: React.ComponentProps<"table"> & {
   variant?: TableVariant;
+  /**
+   * Let a `sticky top-0` `TableHeader` pin against an ancestor scroll region
+   * (e.g. a `flex-1 overflow-y-auto` list container) instead of this wrapper.
+   * The default `overflow-x-auto` wrapper forces `overflow-y:auto`, which makes
+   * it the header's own (never-scrolling) scroll container and silently defeats
+   * the sticky. When set, the wrapper stops scrolling and the enclosing region
+   * owns both axes — so that region must allow horizontal scroll for any table
+   * wider than it (e.g. a `min-w-*` table needs `overflow-auto`, not just
+   * `overflow-y-auto`).
+   */
+  stickyHeader?: boolean;
 }): React.ReactElement {
   return (
     <div
-      className="relative w-full overflow-x-auto"
+      className={cn(
+        "relative w-full",
+        stickyHeader ? "overflow-visible" : "overflow-x-auto",
+      )}
       data-slot="table-container"
       data-variant={variant}
     >

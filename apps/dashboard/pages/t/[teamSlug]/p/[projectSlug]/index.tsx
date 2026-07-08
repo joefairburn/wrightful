@@ -106,8 +106,8 @@ export default function RunsListPage({
             </Empty>
           </div>
         ) : (
-          <Table className="table-fixed">
-            <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
+          <Table className="table-fixed" stickyHeader>
+            <TableHeader className="sticky top-0 z-20 bg-bg-0/95 backdrop-blur-sm">
               <TableRow>
                 <TableHead className="w-10 px-4" />
                 <TableHead className="px-4">Commit</TableHead>

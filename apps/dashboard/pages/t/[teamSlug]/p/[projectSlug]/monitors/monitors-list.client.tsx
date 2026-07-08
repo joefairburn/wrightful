@@ -156,9 +156,9 @@ export function MonitorsList({
         />
       </PageToolbar>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <Table className="min-w-[980px] table-fixed">
-          <TableHeader className="sticky top-0 z-10 bg-bg-0/95 backdrop-blur-sm">
+      <div className="min-h-0 flex-1 overflow-auto">
+        <Table className="min-w-[980px] table-fixed" stickyHeader>
+          <TableHeader className="sticky top-0 z-20 bg-bg-0/95 backdrop-blur-sm">
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-10 px-4" />
               <TableHead className="px-4">Monitor</TableHead>
