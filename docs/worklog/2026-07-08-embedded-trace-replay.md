@@ -136,6 +136,32 @@ pass; `pnpm check` 0 errors. `test-replay.spec.ts` extended to assert the
 cold-load the link re-opens the modal) — **CI-run** (still blocked locally by
 the dev-server guard).
 
+## Follow-up (same day): embed must be self-hosted under direct-R2 (reviewer)
+
+A reviewer noted the iframe embed assumes a same-origin viewer URL, but the
+**direct-R2 seam** (ADR 0003) produced a `trace.playwright.dev` URL — which the
+page CSP (`default-src 'self'` → `frame-src` fallback) blocks from framing, so
+the embed rendered blank whenever `R2_ACCOUNT_ID/…/R2_BUCKET` were set. This was
+inherited 1:1 from the fork PR, which never touched `test-artifact-actions.ts`;
+it's latent because local dev + the managed platform use the worker-proxy path
+(direct-R2 off → `signedTraceViewerUrl`, self-hosted).
+
+Fix: `signArtifactRows` now **always** projects a trace's `traceViewerUrl` to the
+self-hosted `signedTraceViewerUrl(origin, id, token)`, dropping the direct-R2
+`traceViewerUrlFor(presigned)` branch. `trace.playwright.dev` remains only as the
+dialog's "Public viewer" **link** (a new tab, never framed). The Playwright trace
+viewer is a standalone SPA + service worker (no mountable component API), so the
+iframe is the correct integration — the bug was the URL, not the iframe.
+
+- Bonus: the raw `r2Key` no longer surfaces in SSR HTML (it only did via the
+  direct-R2 presigned URL); `SignedArtifact`'s origin-safety note updated.
+- Deployment caveat (direct-R2 only): the self-hosted viewer fetches the
+  same-origin worker download URL, which 302s to R2 — so the R2 bucket's CORS
+  must allow the **dashboard** origin (was `trace.playwright.dev`). The default
+  worker-proxy config streams bytes through the worker (no CORS needed).
+- `test-artifact-actions-signing.test.ts` rewritten: the ON/OFF direct-R2 fork is
+  gone; it now pins the unconditional self-hosted invariant (`not trace.playwright.dev`).
+
 ## Follow-ups (not in this change)
 
 - Run headless verification of the in-browser DOM-snapshot scrub on a real trace.
