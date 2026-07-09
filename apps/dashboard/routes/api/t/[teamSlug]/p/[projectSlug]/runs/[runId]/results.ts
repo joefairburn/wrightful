@@ -6,6 +6,7 @@ import {
   loadRunResultsPage,
 } from "@/lib/run-results-page";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
+import { attachHasTrace } from "@/lib/trace-presence";
 
 const STATUS_VALUES = [
   "queued",
@@ -39,7 +40,9 @@ const QuerySchema = z.object({
  * initial-load source for the run-detail tests list and as the client-side
  * back-paginator for runs that exceed the visible window. The query/paging
  * contract lives in `loadRunResultsPage` (`@/lib/run-results-page`); this
- * handler is auth + query translation only.
+ * handler is auth + query translation, plus the UI-only `hasTrace` enrichment
+ * (`attachHasTrace`) that gates the list's per-row "Replay" button — kept out of
+ * the shared loader so it never leaks into the public v1 / export / MCP surfaces.
  */
 export const GET = defineHandler.withValidator({
   query: QuerySchema,
@@ -64,5 +67,9 @@ export const GET = defineHandler.withValidator({
     search: query.search ?? null,
   });
   if (!result) return c.json({ error: "Not found" }, 404);
-  return result;
+
+  return {
+    results: await attachHasTrace(scope, result.results),
+    nextCursor: result.nextCursor,
+  };
 });

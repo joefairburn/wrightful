@@ -196,8 +196,11 @@ export default function TestDetailPage(props: Props) {
   );
 
   return (
-    <div className="flex flex-col">
-      <DetailHeaderBar className="justify-between gap-4 border-b border-line-1">
+    /* Single page-level scroller — the AppLayout <main> is overflow-hidden, so
+     * without this the page clips at the viewport with no scrollbar. Matches
+     * the runs/[runId] pattern: only the H1 bar stays pinned. */
+    <div className="flex flex-1 min-h-0 flex-col overflow-y-auto">
+      <DetailHeaderBar className="sticky top-0 z-30 justify-between gap-4 border-b border-line-1 bg-bg-0">
         <div className="flex min-w-0 items-center gap-3">
           <HeaderCrumbs
             items={[
@@ -294,7 +297,7 @@ export default function TestDetailPage(props: Props) {
         </DeferredSection>
       </div>
 
-      <div className="flex flex-row gap-0">
+      <div className="flex flex-1 flex-row gap-0">
         <section className="flex-[3] min-w-0 flex flex-col border-r border-line-1 bg-bg-0">
           {totalAttempts > 1 ? (
             <div className="shrink-0 border-b border-line-1 px-3 pt-2">

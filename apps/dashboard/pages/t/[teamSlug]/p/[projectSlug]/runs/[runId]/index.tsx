@@ -305,15 +305,14 @@ function RunHistoryChartRegion({
     status: h.status,
     current: h.id === runId,
     href: h.id === runId ? undefined : `${base}/runs/${h.id}${hrefQuery}`,
-    hover:
-      h.id === runId
-        ? undefined
-        : {
-            kind: "run" as const,
-            teamSlug,
-            projectSlug,
-            runId: h.id,
-          },
+    // Every bar — including the current run — shows its summary on hover; only
+    // the self-navigating `href` is dropped for the current run.
+    hover: {
+      kind: "run" as const,
+      teamSlug,
+      projectSlug,
+      runId: h.id,
+    },
     label: [
       h.status,
       formatDuration(h.durationMs),

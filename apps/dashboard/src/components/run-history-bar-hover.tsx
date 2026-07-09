@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, GitCommit, Repeat, TriangleAlert, User, X } from "lucide-react";
 import type React from "react";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { fetch } from "void/client";
 import { Link } from "@void/react";
+import { ChartColumnTooltip } from "@/components/analytics/chart-tooltip";
 import { StatusPill } from "@/components/status-pill";
-import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/cn";
 import type { RunSummaryResponse } from "@/lib/api-response-types";
 import type { TestResultSummaryResponse } from "@/lib/api-response-types";
 import { firstLine } from "@/lib/text";
@@ -25,10 +26,14 @@ type HoverTarget =
 type Props = HoverTarget & {
   href?: string;
   /** Applied to the trigger `<a>` so it fills the hitbox slot. Without this
-   * the anchor collapses to zero size and the popover anchors to the slot's
+   * the anchor collapses to zero size and the tooltip anchors to the slot's
    * top-left corner. */
   className?: string;
   "aria-label"?: string;
+  /** Adjacent bars' targets, warmed alongside this one on hover so sweeping to
+   * a neighbour opens with data already resolved (`undefined` entries — e.g. the
+   * strip's ends — are skipped). */
+  neighbors?: (HoverTarget | undefined)[];
 };
 
 type SummaryResult =
@@ -63,97 +68,201 @@ async function fetchSummary(target: HoverTarget): Promise<SummaryResult> {
   return { kind: "testResult", data };
 }
 
-/**
- * Wraps a bar-shaped trigger in a hover-activated Popover that fetches the
- * summary on first hover via TanStack Query. Prefetches on `pointerenter`
- * so the popup usually opens with data already resolved.
- */
-export function RunHistoryBarHoverCard(props: Props): React.ReactElement {
-  const { href, className, "aria-label": ariaLabel, ...target } = props;
-  const queryClient = useQueryClient();
-  const [isOpen, setIsOpen] = useState(false);
-  const queryKey =
-    target.kind === "run"
-      ? ([
-          "run-summary",
-          target.teamSlug,
-          target.projectSlug,
-          target.runId,
-        ] as const)
-      : ([
-          "test-result-summary",
-          target.teamSlug,
-          target.projectSlug,
-          target.runId,
-          target.testResultId,
-        ] as const);
-  const prefetch = useCallback(() => {
-    void queryClient.prefetchQuery({
-      queryKey,
-      queryFn: () => fetchSummary(target),
-      staleTime: 60_000,
-    });
-  }, [queryClient, queryKey, target]);
+function summaryQueryKey(target: HoverTarget) {
+  return target.kind === "run"
+    ? ([
+        "run-summary",
+        target.teamSlug,
+        target.projectSlug,
+        target.runId,
+      ] as const)
+    : ([
+        "test-result-summary",
+        target.teamSlug,
+        target.projectSlug,
+        target.runId,
+        target.testResultId,
+      ] as const);
+}
 
-  const { data, isError, refetch } = useQuery({
-    queryKey,
+/**
+ * Single source of truth for a bar's summary query, shared by the hover
+ * prefetch and the payload's `useQuery`. Prefetch only warms the entry the
+ * popup then reads if the two agree on key/fn/staleTime — one factory keeps
+ * them from drifting apart.
+ */
+function summaryQuery(target: HoverTarget) {
+  return {
+    queryKey: summaryQueryKey(target),
     queryFn: () => fetchSummary(target),
-    enabled: isOpen,
     staleTime: 60_000,
-  });
+  };
+}
+
+/**
+ * A run-history bar's hover trigger, wired to the chart's shared, gliding
+ * {@link ChartColumnTooltip} — same tooltip chrome and sweep behaviour as the
+ * analytics charts, just with rich async content ({@link RunHistoryBarSummary})
+ * as the payload. With an `href` the trigger is a `<Link>` (the bar navigates on
+ * click); without one — the currently-viewed run/test bar — it's a focusable
+ * `<span>` that still shows its summary on hover/focus but doesn't self-link.
+ * Prefetches this bar AND its `neighbors` on `pointerenter`/`focus`, so the
+ * popup usually opens with data resolved and sweeping to an adjacent bar stays
+ * instant; if a fetch is still in flight, the payload shows its own skeleton.
+ * Must be rendered inside a `ChartTooltipProvider`.
+ */
+export function RunHistoryBarTrigger(props: Props): React.ReactElement {
+  const {
+    href,
+    className,
+    "aria-label": ariaLabel,
+    neighbors,
+    ...target
+  } = props;
+  const queryClient = useQueryClient();
+  const prefetch = useCallback(() => {
+    for (const t of [target, ...(neighbors ?? [])]) {
+      if (!t) continue;
+      void queryClient.prefetchQuery(summaryQuery(t));
+    }
+  }, [queryClient, target, neighbors]);
 
   return (
-    <Popover onOpenChange={setIsOpen}>
-      <PopoverTrigger
-        render={
+    <ChartColumnTooltip
+      tooltip={<RunHistoryBarSummary {...target} />}
+      render={
+        href ? (
           <Link
-            href={href ?? "#"}
+            href={href}
             aria-label={ariaLabel}
             className={className}
-            onPointerEnter={prefetch}
             onFocus={prefetch}
+            onPointerEnter={prefetch}
           />
-        }
-        openOnHover
-        delay={0}
-      />
-      <PopoverPopup
-        align="center"
-        side="bottom"
-        className="w-80 p-0 transition-none data-starting-style:scale-100 data-starting-style:opacity-100 data-ending-style:scale-100 data-ending-style:opacity-100"
-      >
-        <div className="flex flex-col gap-3 px-4 py-3">
-          {isError ? (
-            <div className="py-2 text-center text-sm text-fg-3">
-              <p>Couldn't load summary.</p>
-              <button
-                type="button"
-                className="mt-1 font-mono text-11 underline hover:text-fg-1"
-                onClick={() => void refetch()}
-              >
-                Retry
-              </button>
-            </div>
-          ) : !data ? (
-            <SummarySkeleton />
-          ) : data.kind === "run" ? (
-            <RunSummaryBody summary={data.data} />
-          ) : (
-            <TestResultSummaryBody summary={data.data} />
-          )}
-        </div>
-      </PopoverPopup>
-    </Popover>
+        ) : (
+          <span
+            aria-label={ariaLabel}
+            className={className}
+            onFocus={prefetch}
+            onPointerEnter={prefetch}
+            tabIndex={0}
+          />
+        )
+      }
+    />
   );
 }
 
-function SummarySkeleton() {
+/**
+ * Tooltip payload for a single bar. Only mounts when its column is the active
+ * trigger (the shared popup renders one payload at a time), so the query fires
+ * on hover; TanStack caches by key, so re-hovering is instant.
+ */
+function RunHistoryBarSummary(target: HoverTarget): React.ReactElement {
+  const { data, isError, refetch } = useQuery(summaryQuery(target));
+
   return (
-    <div className="space-y-2">
-      <div className="h-4 w-1/2 animate-pulse rounded-sm bg-muted" />
-      <div className="h-3 w-3/4 animate-pulse rounded-sm bg-muted/60" />
-      <div className="h-3 w-2/3 animate-pulse rounded-sm bg-muted/60" />
+    <div className="flex flex-col gap-3">
+      {isError ? (
+        <div className="py-2 text-center text-sm text-fg-3">
+          <p>Couldn't load summary.</p>
+          <button
+            type="button"
+            className="mt-1 font-mono text-11 underline hover:text-fg-1"
+            onClick={() => void refetch()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : !data ? (
+        // Kind-specific skeleton mirrors the real body's row structure/heights
+        // so the shared, gliding popup doesn't resize when data swaps in. The
+        // chart is single-kind, so the skeleton always matches the body it
+        // precedes.
+        target.kind === "run" ? (
+          <RunSummarySkeleton />
+        ) : (
+          <TestResultSummarySkeleton />
+        )
+      ) : data.kind === "run" ? (
+        <RunSummaryBody summary={data.data} />
+      ) : (
+        <TestResultSummaryBody summary={data.data} />
+      )}
     </div>
+  );
+}
+
+/**
+ * A shimmer bar that occupies exactly one text line box. The `--text-*` tokens
+ * carry no paired line-height, so a fixed-px bar drifts a pixel or two from the
+ * real text; instead the bar takes the SAME font-size/leading class as the text
+ * it stands in for (`text`) plus a zero-width space to force a line box, so its
+ * height is derived from identical CSS and matches to the pixel — no shift when
+ * the summary swaps in. `w` sets the bar width.
+ *
+ * Tinted `bg-fg-4/…` (not `bg-muted`): in dark mode `--muted` resolves to the
+ * same `--bg-2` as the tooltip surface, so a muted shimmer is invisible against
+ * the popup. A foreground tint contrasts on the popup in both themes.
+ */
+function SkelLine({ w, text }: { w: string; text?: string }) {
+  return (
+    <div className={cn("animate-pulse rounded-sm bg-fg-4/20", w, text)}>
+      {"\u200B"}
+    </div>
+  );
+}
+
+/** Shimmer sized like a `StatusPill` (sm): `text-11` + `px-1.5 py-0.5`. */
+function SkelPill({ w }: { w: string }) {
+  return (
+    <div
+      className={cn(
+        "animate-pulse rounded-sm bg-fg-4/20 px-1.5 py-0.5 text-11",
+        w,
+      )}
+    >
+      {"\u200B"}
+    </div>
+  );
+}
+
+/** Mirrors {@link RunSummaryBody}: status/counts row, title + meta, commit footer. */
+function RunSummarySkeleton() {
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <SkelPill w="w-16" />
+        <SkelLine text="text-11" w="w-20" />
+      </div>
+      <div>
+        <SkelLine text="text-sm leading-snug" w="w-3/4" />
+        <SkelLine text="mt-1 text-11" w="w-1/2" />
+      </div>
+      <div className="border-t border-line-1 pt-2">
+        <SkelLine text="text-11" w="w-2/3" />
+      </div>
+    </>
+  );
+}
+
+/** Mirrors {@link TestResultSummaryBody}: status row, title + file + duration, commit footer. */
+function TestResultSummarySkeleton() {
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <SkelPill w="w-16" />
+      </div>
+      <div>
+        <SkelLine text="text-sm leading-snug" w="w-3/4" />
+        <SkelLine text="mt-1 text-11" w="w-2/3" />
+        <SkelLine text="mt-1 text-11" w="w-1/2" />
+      </div>
+      <div className="flex flex-col gap-1 border-t border-line-1 pt-2">
+        <SkelLine text="text-11" w="w-3/4" />
+        <SkelLine text="text-11" w="w-1/2" />
+      </div>
+    </>
   );
 }
 
@@ -214,7 +323,7 @@ function TestResultSummaryBody({
         )}
       </div>
       <div>
-        <div className="line-clamp-2 text-sm font-medium leading-snug">
+        <div className="truncate text-sm font-medium leading-snug">
           {summary.title}
         </div>
         <div className="mt-1 font-mono text-11 text-fg-3 truncate">
@@ -273,9 +382,7 @@ function TitleAndMeta({
 }) {
   return (
     <div>
-      <div className="line-clamp-2 text-sm font-medium leading-snug">
-        {title}
-      </div>
+      <div className="truncate text-sm font-medium leading-snug">{title}</div>
       <div className="mt-1 flex items-center gap-2 font-mono text-11 text-fg-3">
         {actor && (
           <span className="inline-flex items-center gap-1">
