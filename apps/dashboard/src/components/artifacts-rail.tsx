@@ -312,7 +312,11 @@ function TerminalBlock({ command }: { command: string }): React.ReactElement {
           className="text-fg-3 hover:text-fg-1 transition-colors"
           aria-label={copied ? "Copied" : "Copy command"}
         >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? (
+            <Check size={14} className="animate-copy-pop" />
+          ) : (
+            <Copy size={14} />
+          )}
         </button>
       </div>
       <pre className="px-3 py-2.5 font-mono text-xs text-fg-1/80 whitespace-pre-wrap break-all leading-relaxed">
@@ -355,7 +359,7 @@ function CopyArtifactButton({
       loading={loading}
     >
       <RailIconLabel
-        icon={copied ? <Check /> : <Copy />}
+        icon={copied ? <Check className="animate-copy-pop" /> : <Copy />}
         label={copied ? "Copied" : "Copy prompt"}
       />
       <ArrowRight className="opacity-50" aria-hidden />

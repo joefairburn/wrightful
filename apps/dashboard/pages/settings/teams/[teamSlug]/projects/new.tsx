@@ -1,7 +1,7 @@
 import { ArrowLeft, FolderPlus } from "lucide-react";
 import { Link } from "@/components/ui/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { Props } from "./new.server";
@@ -58,7 +58,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
             </FieldDescription>
           </Field>
           <div className="flex items-center gap-3 pt-1">
-            <Button type="submit">Create project</Button>
+            <SubmitButton>Create project</SubmitButton>
             <Link
               href={`/settings/teams/${team.slug}`}
               className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"

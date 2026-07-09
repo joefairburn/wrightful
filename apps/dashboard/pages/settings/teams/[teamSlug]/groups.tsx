@@ -2,6 +2,7 @@ import { Pencil, Trash2, Users } from "lucide-react";
 import { Link } from "@/components/ui/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import {
   SettingsCard,
@@ -82,9 +83,7 @@ export default function SettingsTeamGroupsPage({
             </div>
             <MemberChecklist members={members} selected={new Set()} />
             <div className="mt-4">
-              <Button size="sm" type="submit">
-                Create group
-              </Button>
+              <SubmitButton size="sm">Create group</SubmitButton>
             </div>
           </form>
         </SettingsCard>
@@ -128,9 +127,7 @@ export default function SettingsTeamGroupsPage({
                     selected={new Set(group.memberIds)}
                   />
                   <div className="mt-4 flex items-center gap-2">
-                    <Button size="sm" type="submit">
-                      Save
-                    </Button>
+                    <SubmitButton size="sm">Save</SubmitButton>
                     <Button
                       render={<Link href={here} />}
                       size="sm"

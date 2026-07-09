@@ -14,7 +14,7 @@ interface UserAvatarProps {
  * A person's avatar: their profile photo when available, falling back to
  * monospace initials on a neutral tile. Shared by the sidebar user menu,
  * the members list, and the audit log so the treatment (shape, border,
- * tokens) stays consistent. Built on the Base UI {@link Avatar} primitive,
+ * tokens) stays consistent. Built on the shared {@link Avatar} component,
  * so it inherits the app-wide `rounded-md` avatar shape.
  */
 export function UserAvatar({
@@ -29,7 +29,13 @@ export function UserAvatar({
       style={{ width: size, height: size }}
     >
       {image ? (
-        <AvatarImage loading="lazy" referrerPolicy="no-referrer" src={image} />
+        <AvatarImage
+          height={size}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          src={image}
+          width={size}
+        />
       ) : null}
       <AvatarFallback
         className="bg-bg-3 font-mono font-semibold text-fg-3"

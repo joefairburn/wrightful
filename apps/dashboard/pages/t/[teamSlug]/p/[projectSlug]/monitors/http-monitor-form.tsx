@@ -4,6 +4,7 @@ import { Plus, X } from "lucide-react";
 import { Link } from "@/components/ui/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -342,9 +343,9 @@ export function HttpMonitorForm({
               Cancel
             </Button>
           )}
-          <Button disabled={limitReached} size="sm" type="submit">
+          <SubmitButton disabled={limitReached} size="sm">
             {submitLabel}
-          </Button>
+          </SubmitButton>
         </div>
       </div>
     </form>

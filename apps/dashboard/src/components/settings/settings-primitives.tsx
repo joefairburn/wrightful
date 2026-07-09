@@ -32,7 +32,7 @@ export function SettingsHeader({
       <div className="text-12 font-medium tracking-[0.1px] text-fg-3">
         Settings
       </div>
-      <h1 className="mt-1 font-semibold text-22 tracking-tight">{title}</h1>
+      <h1 className="mt-1 font-semibold text-22">{title}</h1>
       {subtitle && (
         <p className="mt-1.5 max-w-[600px] text-13 text-fg-3">{subtitle}</p>
       )}

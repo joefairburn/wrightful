@@ -63,7 +63,7 @@ function InviteLinkField({ url }: { url: string }) {
         type="button"
         variant="outline"
       >
-        {copied ? <Check /> : <Copy />}
+        {copied ? <Check className="animate-copy-pop" /> : <Copy />}
         {copied ? "Copied" : "Copy"}
       </Button>
     </div>

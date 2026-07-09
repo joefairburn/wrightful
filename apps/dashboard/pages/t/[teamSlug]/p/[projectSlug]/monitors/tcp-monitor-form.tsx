@@ -4,6 +4,7 @@ import { ChevronDown, X } from "lucide-react";
 import { Link } from "@/components/ui/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -204,9 +205,9 @@ export function TcpMonitorForm({
               Cancel
             </Button>
           )}
-          <Button disabled={limitReached} size="sm" type="submit">
+          <SubmitButton disabled={limitReached} size="sm">
             {submitLabel}
-          </Button>
+          </SubmitButton>
         </div>
       </div>
     </form>
