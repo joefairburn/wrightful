@@ -311,7 +311,7 @@ Container provisioning on the Cloudflare path (browser monitors only): build `ap
 
 ### Direct-R2 artifact serving (optional)
 
-By default the Worker is on the artifact byte path in both directions — uploads stream through the Worker into R2, and downloads stream back out. For a high-traffic instance you can take the Worker off the byte path: set the four R2 S3-API credentials below and artifact bytes go **direct to R2** via SigV4 presigned URLs (downloads `302` to a presigned GET / the trace viewer embeds one directly; uploads `PUT` to a presigned URL). Unset (the default), bytes stream through the Worker as before — no behaviour change until all four are present. Design rationale: [`docs/adr/0003-direct-r2-artifact-byte-path.md`](./docs/adr/0003-direct-r2-artifact-byte-path.md).
+By default the Worker is on the artifact byte path in both directions — uploads stream through the Worker into R2, and downloads stream back out. For a high-traffic instance you can take the Worker off the byte path: set the four R2 S3-API credentials below and artifact bytes go **direct to R2** via SigV4 presigned URLs (downloads `302` to a presigned GET; uploads `PUT` to a presigned URL). Unset (the default), bytes stream through the Worker as before — no behaviour change until all four are present. The in-app **trace viewer stays self-hosted either way** — it always wraps the same-origin worker download URL (never a `trace.playwright.dev` URL, which the page CSP would refuse to iframe); under direct-R2 that download `302`s the viewer's own `fetch` on to R2, so the **bucket CORS must allow your dashboard origin** (see below). Design rationale: [`docs/adr/0003-direct-r2-artifact-byte-path.md`](./docs/adr/0003-direct-r2-artifact-byte-path.md).
 
 This is an **own-account `deploy:cf`** capability (you need control of the R2 bucket and an S3 API token). Mint a token in the Cloudflare dashboard under **R2 → Manage R2 API Tokens** (Object Read & Write), then set them on the Worker — the two credentials (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`) as secrets via `wrangler secret put`; `R2_ACCOUNT_ID` and `R2_BUCKET` aren't sensitive and can be plain vars (running them through `secret put` works too):
 
@@ -324,7 +324,7 @@ This is an **own-account `deploy:cf`** capability (you need control of the R2 bu
 
 Two pieces of out-of-band setup:
 
-1. **Bucket CORS** — presigned downloads are fetched cross-origin by the browser and the Playwright trace viewer, so the bucket needs a CORS policy. Save the following as `cors.json` and apply with `wrangler r2 bucket cors set <BUCKET> --file cors.json` (replace `<your-dashboard-origin>`):
+1. **Bucket CORS** — under direct-R2, presigned reads are fetched cross-origin: by the browser (a direct download), and by the self-hosted trace viewer whose `fetch` follows the download `302` on to R2 — both from your **dashboard origin**. The public `trace.playwright.dev` origin is needed **only** if you keep the replay dialog's optional "Public viewer" link (which sends the trace to that third party); drop it from `AllowedOrigins` otherwise. Save the following as `cors.json` and apply with `wrangler r2 bucket cors set <BUCKET> --file cors.json` (replace `<your-dashboard-origin>`):
 
    ```json
    [

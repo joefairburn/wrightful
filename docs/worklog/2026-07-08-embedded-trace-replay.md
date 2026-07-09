@@ -181,10 +181,33 @@ Two more reviewer findings, both legit:
   space (testResultId vs artifactId across the two pages) is already documented
   on the `REPLAY_PARAM` constant.
 
+## Follow-up (same day): own-account parity + CORS doc + cross-frame Escape
+
+Cleared three of the deferred items:
+
+- **Own-account header parity.** Mirrored the `/trace-viewer/*` block into
+  `apps/dashboard/public/_headers` (X-Frame-Options SAMEORIGIN,
+  Service-Worker-Allowed, the relaxed CSP), so the embed's framing/SW/CSP headers
+  apply on the `deploy:cf` path too — `void.json` `routing.headers` only take
+  effect on the managed `void deploy`. Marked KEEP-IN-SYNC with void.json.
+- **Direct-R2 CORS doc.** `SELF-HOSTING.md` now states the embed stays
+  self-hosted under direct-R2 (wraps the worker download URL, never
+  `trace.playwright.dev`), so the bucket CORS must allow the **dashboard** origin
+  (`trace.playwright.dev` in `AllowedOrigins` is now needed only for the optional
+  "Public viewer" link). Corrected the stale "trace viewer embeds [a presigned
+  URL] directly" line left over from the pre-CSP-fix behaviour.
+- **Cross-frame Escape.** `bindEscapeAcrossFrames` now binds Escape on the viewer
+  window AND every reachable same-origin descendant frame (re-binding on frame
+  `load` + a `MutationObserver` per document), so Escape closes the modal even
+  when focus is inside the nested DOM-snapshot frame. Fully guarded/torn down;
+  degrades to the Dialog's own handling on any failure.
+
 ## Follow-ups (not in this change)
 
-- Run headless verification of the in-browser DOM-snapshot scrub on a real trace.
-- Optionally mirror `/trace-viewer/*` headers into `public/_headers` for
-  own-account deploy parity.
-- Escape-from-inside-nested-snapshot-iframe isn't covered (the handler binds the
-  top viewer window only); the header/backdrop still close it.
+- Run headless verification of the in-browser DOM-snapshot scrub on a real trace
+  (and confirm the cross-frame Escape binder fires from inside the snapshot frame
+  — added but not yet driven in a real browser).
+- **Lightweight step/command timeline** outside the full viewer — a real feature,
+  not a quick follow-up: needs a step-data source (parse the `trace.zip`
+  server/client-side, or emit `TestResult.steps` from the reporter → new wire
+  field + ingest + schema). Scope separately before building.

@@ -24,6 +24,76 @@ import { useSearchParam } from "@/lib/use-search-param";
 const REPLAY_PARAM = "replay";
 
 /**
+ * Close-on-Escape across ALL of the trace viewer's same-origin frames. The
+ * viewer is self-hosted (same-origin) and renders DOM snapshots in a NESTED
+ * iframe; a keydown while focus is inside that snapshot frame reaches neither
+ * the parent Dialog nor the top viewer window, so Escape would be swallowed
+ * there. Bind the handler on the viewer window AND every reachable same-origin
+ * descendant frame, re-binding as frames are added or re-navigated during a
+ * scrub (each frame's `load` + a `MutationObserver` per document). Every access
+ * is guarded — a cross-origin frame throws and is skipped, and any failure
+ * degrades to the Dialog's own Escape/backdrop handling. Idempotent (WeakSets
+ * guard re-binding); the returned cleanup tears everything down.
+ */
+function bindEscapeAcrossFrames(
+  topWin: Window,
+  onEscape: () => void,
+): () => void {
+  const cleanups: Array<() => void> = [];
+  const boundWindows = new WeakSet<Window>();
+  const boundFrames = new WeakSet<HTMLIFrameElement>();
+  const observedDocs = new WeakSet<Document>();
+
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") onEscape();
+  };
+
+  function bindWindow(win: Window): void {
+    if (boundWindows.has(win)) return;
+    boundWindows.add(win);
+    let doc: Document;
+    try {
+      win.addEventListener("keydown", onKey);
+      doc = win.document;
+    } catch {
+      return; // cross-origin frame — unreachable, skip
+    }
+    cleanups.push(() => {
+      try {
+        win.removeEventListener("keydown", onKey);
+      } catch {
+        /* window already torn down */
+      }
+    });
+    scanDoc(doc);
+  }
+
+  function scanDoc(doc: Document): void {
+    for (const frame of Array.from(doc.querySelectorAll("iframe"))) {
+      if (boundFrames.has(frame)) continue;
+      boundFrames.add(frame);
+      const onFrameLoad = (): void => {
+        const cw = frame.contentWindow;
+        if (cw) bindWindow(cw);
+      };
+      frame.addEventListener("load", onFrameLoad);
+      cleanups.push(() => frame.removeEventListener("load", onFrameLoad));
+      onFrameLoad(); // bind whatever's currently loaded
+    }
+    if (observedDocs.has(doc)) return;
+    observedDocs.add(doc);
+    const observer = new MutationObserver(() => scanDoc(doc));
+    observer.observe(doc.documentElement, { childList: true, subtree: true });
+    cleanups.push(() => observer.disconnect());
+  }
+
+  bindWindow(topWin);
+  return () => {
+    for (const c of cleanups) c();
+  };
+}
+
+/**
  * Shared body of the Replay dialog: a near-full-viewport panel whose iframe
  * hosts the self-hosted Playwright trace viewer
  * (`/trace-viewer/index.html?trace=…`, vendored into `public/` — see
@@ -111,29 +181,16 @@ function TestReplayContent({
           title={`Replay: ${title}`}
           src={viewerUrl}
           className="min-h-0 w-full flex-1 border-0 bg-bg-0"
-          // The viewer is self-hosted (same-origin), so a keydown inside the
-          // iframe never bubbles to the parent Dialog — Escape would otherwise
-          // be swallowed while focus is in the viewer. Bind Escape on the
-          // iframe's own window so it still closes the modal (the Dialog's own
-          // handler covers the case where focus is on the header controls).
-          // Drop any prior binding first so a re-load can't stack listeners; the
-          // unmount effect above clears the last one.
+          // Bind Escape-to-close across the viewer's frames (see
+          // `bindEscapeAcrossFrames`) — a same-origin iframe swallows the key
+          // otherwise. Drop any prior binding first so a re-load can't stack
+          // listeners; the unmount effect above clears the last one.
           onLoad={() => {
             escapeCleanup.current?.();
-            escapeCleanup.current = null;
             const win = iframeRef.current?.contentWindow;
-            if (!win) return;
-            const onKey = (e: KeyboardEvent) => {
-              if (e.key === "Escape") onClose();
-            };
-            try {
-              win.addEventListener("keydown", onKey);
-              escapeCleanup.current = () =>
-                win.removeEventListener("keydown", onKey);
-            } catch {
-              // Cross-origin content window (shouldn't happen for the vendored
-              // viewer) — nothing to bind; the header + backdrop still close it.
-            }
+            escapeCleanup.current = win
+              ? bindEscapeAcrossFrames(win, onClose)
+              : null;
           }}
         />
       ) : null}
