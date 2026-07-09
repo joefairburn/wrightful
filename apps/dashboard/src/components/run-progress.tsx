@@ -321,7 +321,12 @@ export function RunProgress({
               : "No tests match the current filters."}
         </div>
       ) : (
-        <div className={cn("transition-opacity", isRefetching && "opacity-60")}>
+        <div
+          className={cn(
+            "transition-[opacity,filter] duration-150",
+            isRefetching && "opacity-60 blur-[1px]",
+          )}
+        >
           {groups.map((header) => {
             const id = groupKeyId(header.key);
             return (

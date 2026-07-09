@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardPanel } from "@/components/ui/card";
 import { CodeEditor } from "@/components/ui/code-editor";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Disclosure } from "@/components/disclosure";
 import { cn } from "@/lib/cn";
 import {
   parseHttpResultDetail,
@@ -957,9 +958,10 @@ function statusCodeClass(code: number): string {
 }
 
 /**
- * One http execution row — an expandable `<details>` (no-JS) whose summary shows
- * status code + duration + the result line, and whose body shows the assertion
- * results, timing phases, and the redirect chain from `resultDetail`.
+ * One http execution row — an expandable `<Disclosure>` (Base UI Collapsible,
+ * so toggling needs JS) whose summary shows status code + duration + the result
+ * line, and whose body shows the assertion results, timing phases, and the
+ * redirect chain from `resultDetail`.
  */
 function HttpExecRow({
   exec,
@@ -1022,7 +1024,7 @@ function HttpExecRow({
       </span>
       <span className="flex w-[18px] justify-end">
         {expandable && (
-          <ChevronDown className="size-3.5 text-fg-3 transition-transform group-open:rotate-180" />
+          <ChevronDown className="size-3.5 text-fg-3 transition-transform group-data-[panel-open]/disclosure:rotate-180" />
         )}
       </span>
     </div>
@@ -1043,12 +1045,9 @@ function HttpExecRow({
   }
 
   return (
-    <details className={cn("group", rail)}>
-      <summary className="list-none [&::-webkit-details-marker]:hidden">
-        {summary}
-      </summary>
+    <Disclosure className={rail} summary={summary}>
       {detail && <HttpExecDetail detail={detail} />}
-    </details>
+    </Disclosure>
   );
 }
 
@@ -1152,9 +1151,10 @@ function TcpConfigSummary({ config }: { config: DetailProps["tcpConfig"] }) {
 }
 
 /**
- * One tcp execution row — an expandable `<details>` (no-JS) whose summary shows
- * the result line + connect duration, and whose body shows the host:port dialed
- * and the connect/total timing phases from `resultDetail`.
+ * One tcp execution row — an expandable `<Disclosure>` (Base UI Collapsible,
+ * so toggling needs JS) whose summary shows the result line + connect duration,
+ * and whose body shows the host:port dialed and the connect/total timing phases
+ * from `resultDetail`.
  */
 function TcpExecRow({ exec, last }: { exec: MonitorExecution; last: boolean }) {
   const isRunning = exec.state === "running";
@@ -1205,7 +1205,7 @@ function TcpExecRow({ exec, last }: { exec: MonitorExecution; last: boolean }) {
       </span>
       <span className="flex w-[18px] justify-end">
         {expandable && (
-          <ChevronDown className="size-3.5 text-fg-3 transition-transform group-open:rotate-180" />
+          <ChevronDown className="size-3.5 text-fg-3 transition-transform group-data-[panel-open]/disclosure:rotate-180" />
         )}
       </span>
     </div>
@@ -1226,12 +1226,9 @@ function TcpExecRow({ exec, last }: { exec: MonitorExecution; last: boolean }) {
   }
 
   return (
-    <details className={cn("group", rail)}>
-      <summary className="list-none [&::-webkit-details-marker]:hidden">
-        {summary}
-      </summary>
+    <Disclosure className={rail} summary={summary}>
       {detail && <TcpExecDetail detail={detail} />}
-    </details>
+    </Disclosure>
   );
 }
 

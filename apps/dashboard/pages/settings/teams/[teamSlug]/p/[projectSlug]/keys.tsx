@@ -6,6 +6,7 @@ import { useRouter } from "@void/react";
 import { Link } from "@/components/ui/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RevealOnceDialog } from "@/components/settings/reveal-once-dialog";
@@ -153,9 +154,7 @@ export default function SettingsProjectKeysPage({
             />
           </SettingsField>
           <div className="mt-2">
-            <Button size="sm" type="submit">
-              Save changes
-            </Button>
+            <SubmitButton size="sm">Save changes</SubmitButton>
           </div>
         </form>
       </SettingsCard>
@@ -349,9 +348,7 @@ export default function SettingsProjectKeysPage({
             />
           </SettingsField>
           <div className="mt-2">
-            <Button size="sm" type="submit">
-              Save CODEOWNERS
-            </Button>
+            <SubmitButton size="sm">Save CODEOWNERS</SubmitButton>
           </div>
         </form>
       </SettingsCard>

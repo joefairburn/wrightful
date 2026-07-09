@@ -2,6 +2,7 @@ import { Link } from "@/components/ui/link";
 import { DANGER_TRIGGER_CLASSES } from "@/components/danger-trigger";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import {
   SettingsCard,
@@ -75,9 +76,7 @@ export default function SettingsTeamGeneralPage({
           </SettingsField>
           {isOwner && (
             <div className="mt-2 flex items-center gap-3">
-              <Button size="sm" type="submit">
-                Save changes
-              </Button>
+              <SubmitButton size="sm">Save changes</SubmitButton>
               <Link
                 className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
                 href={here}
@@ -134,9 +133,7 @@ export default function SettingsTeamGeneralPage({
           </SettingsField>
           {isOwner && (
             <div className="mt-2">
-              <Button size="sm" type="submit">
-                Save retention
-              </Button>
+              <SubmitButton size="sm">Save retention</SubmitButton>
             </div>
           )}
         </form>

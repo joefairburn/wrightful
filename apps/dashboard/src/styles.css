@@ -14,9 +14,23 @@
   --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-toast-error-even: toast-error-even 0.28s
     cubic-bezier(0.5, 1, 0.89, 1);
-  --animate-pulse-soft: pulse-soft 1.4s cubic-bezier(0.5, 0, 0.2, 1) infinite;
-  --animate-progress-stripe: progress-stripe 1.8s cubic-bezier(0.5, 0, 0.2, 1)
-    infinite;
+  /* Override Tailwind's default spin (1s) app-wide: a live-run dashboard reads
+   * "faster feels faster", and there are no other `animate-spin` consumers that
+   * want the conventional speed. Unlike the shadow scale below, nothing relies
+   * on the framework default here, so overriding it is safe and removes the
+   * chance of accidentally shipping a slow spinner. */
+  --animate-spin: spin 0.6s linear infinite;
+
+  /* Shared UI ease-out curve — one source of truth so easing can't drift
+   * across components. Reference via the generated `ease-out-strong` utility. */
+  --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* One-shot "it landed" pop for copy-to-clipboard confirmation icons — plays
+   * when the Check icon mounts. Crisp ease-out (reuses --ease-out-strong so the
+   * curve stays single-sourced), no overshoot, to match the product's
+   * non-playful personality; damped by the reduced-motion layer. */
+  --animate-copy-pop: copy-pop 150ms var(--ease-out-strong);
+
   --font-sans: "Geist Variable", "Geist", -apple-system, system-ui, sans-serif;
   --font-heading: var(--font-sans);
   --font-mono:
@@ -30,11 +44,21 @@
    * steps). Whole-pixel values; token name equals its rendered px. */
   --text-11: 11px; /* micro: badges, timestamps, uppercase meta labels */
   --text-12: 12px; /* small: dense table cells, secondary text */
-  --text-13: 13px; /* base: body text, most rows */
-  --text-14: 14px; /* medium: emphasized body, row titles */
+  /* Body/interactive steps in rem so the user's browser base-font-size (the
+   * web analog of Dynamic Type) is honored. 0.8125rem/0.875rem == 13/14px at
+   * the 16px default, so there is no visual change at the default size. Dense
+   * chrome (11/12) and headings (18/22/26) stay px for predictable density. */
+  --text-13: 0.8125rem; /* base: body text, most rows */
+  --text-14: 0.875rem; /* medium: emphasized body, row titles */
+  /* Size-specific tracking baked into the ramp: large text reads too loose as
+   * it grows, so tighten it automatically. A bare `text-18/22/26` now carries
+   * the right tracking — no per-heading `tracking-[…]` needed. */
   --text-18: 18px; /* heading: section + card headings */
+  --text-18--letter-spacing: -0.2px;
   --text-22: 22px; /* title: page titles */
+  --text-22--letter-spacing: -0.3px;
   --text-26: 26px; /* display: KPI / big numbers */
+  --text-26--letter-spacing: -0.4px;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -141,11 +165,8 @@
     0% {
       scale: 1;
     }
-    30% {
-      scale: 1.025;
-    }
-    60% {
-      scale: 0.99;
+    40% {
+      scale: 1.015;
     }
     100% {
       scale: 1;
@@ -172,11 +193,8 @@
     0% {
       scale: 1;
     }
-    30% {
-      scale: 1.025;
-    }
-    60% {
-      scale: 0.99;
+    40% {
+      scale: 1.015;
     }
     100% {
       scale: 1;
@@ -199,21 +217,14 @@
       translate: 0 0;
     }
   }
-  @keyframes pulse-soft {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 var(--running-soft);
+  @keyframes copy-pop {
+    from {
+      opacity: 0;
+      scale: 0.6;
     }
-    50% {
-      box-shadow: 0 0 0 4px transparent;
-    }
-  }
-  @keyframes progress-stripe {
-    0% {
-      transform: translateX(-100%);
-    }
-    100% {
-      transform: translateX(100%);
+    to {
+      opacity: 1;
+      scale: 1;
     }
   }
 }
@@ -433,6 +444,44 @@
   --sidebar-primary: oklch(0.975 0.003 260);
   --sidebar-primary-foreground: oklch(0.135 0.004 260);
   --sidebar-ring: oklch(0.74 0.1 268 / 0.4);
+}
+
+/* Accessibility — respond to the three OS "reduce" signals. Kept as one global
+ * layer so it covers the vendored ui/ registry and app code in a single place
+ * (the app otherwise had a single `motion-reduce` utility in outcome-bar). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Functional spinners stay a liveness cue — slow them, don't freeze them
+   * (a stopped spinner reads as "hung"). */
+  .animate-spin {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  *,
+  *::before,
+  *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  /* Promote hairline borders (which read from --border → --line-1) to the
+   * stronger step so they don't vanish for low-vision / high-contrast users. */
+  :root,
+  .dark {
+    --line-1: var(--line-2);
+  }
 }
 
 @layer base {

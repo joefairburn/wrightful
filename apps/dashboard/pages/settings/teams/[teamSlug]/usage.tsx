@@ -31,7 +31,7 @@ function UsageMeter({ row }: { row: UsageRow }) {
         {row.pct !== null && (
           <div
             className={cn(
-              "h-full rounded-full transition-all",
+              "h-full rounded-full transition-[width] duration-300 ease-out-strong",
               TONE_BAR[row.tone],
             )}
             style={{ width: `${row.pct}%` }}

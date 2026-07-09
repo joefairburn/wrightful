@@ -98,7 +98,10 @@ export function TableRow({
   return (
     <tr
       className={cn(
-        "relative border-b border-border/50 not-in-data-[variant=card]:hover:bg-[color-mix(in_srgb,var(--background),var(--color-black)_2%)] not-in-data-[variant=card]:data-[state=selected]:bg-[color-mix(in_srgb,var(--background),var(--color-black)_4%)] dark:not-in-data-[variant=card]:data-[state=selected]:bg-[color-mix(in_srgb,var(--background),var(--color-white)_4%)] dark:not-in-data-[variant=card]:hover:bg-[color-mix(in_srgb,var(--background),var(--color-white)_2%)]",
+        // `:active` matches the row while its stretched RowLink is pressed
+        // (a row is an ancestor of the activated link), giving an instant
+        // press-down tint — Apple's "respond on pointer-down" for row nav.
+        "relative border-b border-border/50 not-in-data-[variant=card]:hover:bg-[color-mix(in_srgb,var(--background),var(--color-black)_2%)] not-in-data-[variant=card]:active:bg-[color-mix(in_srgb,var(--background),var(--color-black)_4%)] not-in-data-[variant=card]:data-[state=selected]:bg-[color-mix(in_srgb,var(--background),var(--color-black)_4%)] dark:not-in-data-[variant=card]:data-[state=selected]:bg-[color-mix(in_srgb,var(--background),var(--color-white)_4%)] dark:not-in-data-[variant=card]:hover:bg-[color-mix(in_srgb,var(--background),var(--color-white)_2%)] dark:not-in-data-[variant=card]:active:bg-[color-mix(in_srgb,var(--background),var(--color-white)_4%)]",
         className,
       )}
       data-slot="table-row"
