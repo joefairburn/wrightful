@@ -1,14 +1,12 @@
 import { defineHandler } from "void";
-import { and, db, eq, inArray } from "void/db";
 import { z } from "zod";
-import { artifacts } from "@schema";
 import { GROUP_BY_AXES, STATUS_FILTER_VALUES } from "@/lib/run-groups-page";
 import {
   DEFAULT_RUN_RESULTS_LIMIT,
   loadRunResultsPage,
 } from "@/lib/run-results-page";
-import { childProjectScopeWhere } from "@/lib/scope";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
+import { attachHasTrace } from "@/lib/trace-presence";
 
 const STATUS_VALUES = [
   "queued",
@@ -42,7 +40,9 @@ const QuerySchema = z.object({
  * initial-load source for the run-detail tests list and as the client-side
  * back-paginator for runs that exceed the visible window. The query/paging
  * contract lives in `loadRunResultsPage` (`@/lib/run-results-page`); this
- * handler is auth + query translation only.
+ * handler is auth + query translation, plus the UI-only `hasTrace` enrichment
+ * (`attachHasTrace`) that gates the list's per-row "Replay" button — kept out of
+ * the shared loader so it never leaks into the public v1 / export / MCP surfaces.
  */
 export const GET = defineHandler.withValidator({
   query: QuerySchema,
@@ -68,31 +68,8 @@ export const GET = defineHandler.withValidator({
   });
   if (!result) return c.json({ error: "Not found" }, 404);
 
-  // Attach `hasTrace` per row so the Tests-tab list can gate its per-row "Test
-  // Replay" button (opens the embedded trace viewer). One batched distinct-id
-  // query over just this page's test ids: artifacts register in a flush AFTER
-  // results post, so trace-presence can't ride the realtime event — it's minted
-  // on the paginated read instead (see `RunProgressTest.hasTrace`).
-  const ids = result.results.map((r) => r.id);
-  const traced = ids.length
-    ? new Set(
-        (
-          await db
-            .selectDistinct({ testResultId: artifacts.testResultId })
-            .from(artifacts)
-            .where(
-              and(
-                childProjectScopeWhere(artifacts.projectId, scope),
-                eq(artifacts.type, "trace"),
-                inArray(artifacts.testResultId, ids),
-              ),
-            )
-        ).map((r) => r.testResultId),
-      )
-    : new Set<string>();
-
   return {
-    results: result.results.map((r) => ({ ...r, hasTrace: traced.has(r.id) })),
+    results: await attachHasTrace(scope, result.results),
     nextCursor: result.nextCursor,
   };
 });

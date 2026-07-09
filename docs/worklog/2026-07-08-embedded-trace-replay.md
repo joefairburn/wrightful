@@ -162,6 +162,25 @@ iframe is the correct integration — the bug was the URL, not the iframe.
 - `test-artifact-actions-signing.test.ts` rewritten: the ON/OFF direct-R2 fork is
   gone; it now pins the unconditional self-hosted invariant (`not trace.playwright.dev`).
 
+## Follow-up (same day): review nits — layering + magic-string
+
+Two more reviewer findings, both legit:
+
+- **`hasTrace` enrichment layering.** The batched artifacts query lived inline in
+  the `…/results` route, contradicting its "auth + query translation only"
+  docstring. Extracted to `src/lib/trace-presence.ts#attachHasTrace(scope, rows)`
+  — a dedicated helper the route calls, kept OUT of the shared
+  `loadRunResultsPage` (so it never leaks into the public v1 / export / MCP
+  contracts). Route is thin again.
+- **Magic-string parse.** `TestReplayContent` reconstructed the public-viewer
+  URL by `viewerUrl.split("?trace=")`, coupling to `signedTraceViewerUrl`'s query
+  layout. Now derived from the explicit `downloadHref` prop + `window.location.origin`
+  (client-only, `useMemo`), with the split deleted.
+- Minor: hardened the iframe Escape listener (remove-before-rebind + unmount
+  cleanup, so re-loads can't stack listeners). The overloaded `?replay=` value
+  space (testResultId vs artifactId across the two pages) is already documented
+  on the `REPLAY_PARAM` constant.
+
 ## Follow-ups (not in this change)
 
 - Run headless verification of the in-browser DOM-snapshot scrub on a real trace.

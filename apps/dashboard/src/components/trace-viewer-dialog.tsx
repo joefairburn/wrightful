@@ -1,7 +1,7 @@
 "use client";
 
 import { Download, ExternalLink, PlayCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetch } from "void/client";
 import type { ArtifactAction } from "@/components/artifact-actions";
 import { Button } from "@/components/ui/button";
@@ -51,14 +51,21 @@ function TestReplayContent({
   onClose: () => void;
 }): React.ReactElement {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Removes the iframe's Escape listener; set on each load, called on unmount.
+  const escapeCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => escapeCleanup.current?.(), []);
 
-  // The viewer URL embeds the absolute signed download URL after `?trace=`.
-  // Reuse it verbatim for the public-viewer fallback so both point at the exact
-  // same artifact (the download endpoint already CORS-allows that origin).
-  const encodedTrace = viewerUrl.split("?trace=")[1] ?? "";
-  const publicViewerUrl = encodedTrace
-    ? `https://trace.playwright.dev/?trace=${encodedTrace}`
-    : null;
+  // Public-viewer fallback — opens the trace on the public trace.playwright.dev
+  // in a NEW TAB (never framed, so the page CSP doesn't apply). Built from the
+  // explicit `downloadHref` prop + the current origin, NOT by parsing
+  // `signedTraceViewerUrl`'s `?trace=` layout (which this component doesn't own).
+  // Client-only (needs `window.location.origin`): null on SSR, set on hydrate.
+  const publicViewerUrl = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const absoluteDownloadUrl = new URL(downloadHref, window.location.origin)
+      .href;
+    return `https://trace.playwright.dev/?trace=${encodeURIComponent(absoluteDownloadUrl)}`;
+  }, [downloadHref]);
 
   return (
     <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden p-0">
@@ -109,14 +116,20 @@ function TestReplayContent({
           // be swallowed while focus is in the viewer. Bind Escape on the
           // iframe's own window so it still closes the modal (the Dialog's own
           // handler covers the case where focus is on the header controls).
+          // Drop any prior binding first so a re-load can't stack listeners; the
+          // unmount effect above clears the last one.
           onLoad={() => {
+            escapeCleanup.current?.();
+            escapeCleanup.current = null;
+            const win = iframeRef.current?.contentWindow;
+            if (!win) return;
+            const onKey = (e: KeyboardEvent) => {
+              if (e.key === "Escape") onClose();
+            };
             try {
-              iframeRef.current?.contentWindow?.addEventListener(
-                "keydown",
-                (e) => {
-                  if (e.key === "Escape") onClose();
-                },
-              );
+              win.addEventListener("keydown", onKey);
+              escapeCleanup.current = () =>
+                win.removeEventListener("keydown", onKey);
             } catch {
               // Cross-origin content window (shouldn't happen for the vendored
               // viewer) — nothing to bind; the header + backdrop still close it.
