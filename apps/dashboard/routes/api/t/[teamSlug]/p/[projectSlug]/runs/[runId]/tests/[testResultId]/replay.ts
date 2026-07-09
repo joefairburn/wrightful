@@ -1,11 +1,13 @@
 import { defineHandler } from "void";
 import { and, db, desc, eq } from "void/db";
+import { env } from "void/env";
 import { artifacts, testResults } from "@schema";
 import {
   signArtifactToken,
   signedDownloadHref,
   signedTraceViewerUrl,
 } from "@/lib/artifact-tokens";
+import { resolvePublicOrigin } from "@/lib/config";
 import { childByTestResultWhere, childProjectScopeWhere } from "@/lib/scope";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 
@@ -73,7 +75,9 @@ export const GET = defineHandler(async (c) => {
     r2Key: row.r2Key,
     contentType: row.contentType,
   });
-  const origin = new URL(c.req.url).origin;
+  // Canonical https origin: the self-hosted viewer (an https page) fetches this
+  // absolute trace URL, so an http one behind Cloudflare trips `connect-src 'self'`.
+  const origin = resolvePublicOrigin(env, new URL(c.req.url).origin);
   c.header("Cache-Control", "private, no-store");
   return {
     traceViewerUrl: signedTraceViewerUrl(origin, row.id, token),

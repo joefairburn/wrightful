@@ -1,7 +1,9 @@
 import { defer, defineHandler, type InferProps } from "void";
 import { and, db, desc, eq } from "void/db";
+import { env } from "void/env";
 import { runs, testResults } from "@schema";
 import { listTeamMembers } from "@/lib/auth-users";
+import { resolvePublicOrigin } from "@/lib/config";
 import { resolveTestOwners } from "@/lib/owners-repo";
 import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
 import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
@@ -35,7 +37,11 @@ export const loader = defineHandler(async (c) => {
   }
 
   const url = new URL(c.req.url);
-  const origin = url.origin;
+  // Canonical https origin for the self-hosted trace-viewer embed. Behind
+  // Cloudflare `url.origin` can be `http://` even on an https deploy, and the
+  // https viewer can't fetch an http trace (mixed content / `connect-src 'self'`)
+  // — so prefer WRIGHTFUL_PUBLIC_URL.
+  const origin = resolvePublicOrigin(env, url.origin);
 
   const { project, scope } = requireTenantContext(c);
 

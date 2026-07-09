@@ -6,6 +6,7 @@ import {
   r2DirectConfig,
   r2DirectEnabled,
   resolveArtifactTokenSecret,
+  resolvePublicOrigin,
 } from "@/lib/config";
 
 /**
@@ -224,6 +225,46 @@ describe("config flag resolvers", () => {
     it("returns null when disabled (single null check at call sites)", () => {
       expect(r2DirectConfig({})).toBeNull();
       expect(r2DirectConfig({ ...fullR2, R2_BUCKET: undefined })).toBeNull();
+    });
+  });
+
+  /**
+   * The canonical-public-origin resolver for absolute cross-origin URLs (the
+   * trace.playwright.dev embed). The non-obvious part: prefer the declared
+   * WRIGHTFUL_PUBLIC_URL over the request origin so an https deploy behind
+   * Cloudflare — where `new URL(c.req.url).origin` can surface `http://` — still
+   * hands the trace viewer an https URL it will actually fetch (an http one is
+   * blocked as mixed content).
+   */
+  describe("resolvePublicOrigin", () => {
+    it("prefers WRIGHTFUL_PUBLIC_URL's origin over the request origin", () => {
+      expect(
+        resolvePublicOrigin(
+          { WRIGHTFUL_PUBLIC_URL: "https://dash.wrightful.dev" },
+          "http://dash.wrightful.dev",
+        ),
+      ).toBe("https://dash.wrightful.dev");
+    });
+
+    it("reduces a full URL (path/trailing slash) to just the origin", () => {
+      expect(
+        resolvePublicOrigin(
+          { WRIGHTFUL_PUBLIC_URL: "https://dash.wrightful.dev/" },
+          "http://req",
+        ),
+      ).toBe("https://dash.wrightful.dev");
+    });
+
+    it("falls back to the request origin when the env var is unset", () => {
+      expect(resolvePublicOrigin({}, "http://localhost:5173")).toBe(
+        "http://localhost:5173",
+      );
+      expect(
+        resolvePublicOrigin(
+          { WRIGHTFUL_PUBLIC_URL: "" },
+          "http://localhost:5173",
+        ),
+      ).toBe("http://localhost:5173");
     });
   });
 });
