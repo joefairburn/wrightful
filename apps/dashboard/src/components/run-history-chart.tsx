@@ -2,7 +2,8 @@ import type React from "react";
 import { scaleLinear } from "@visx/scale";
 import { Line } from "@visx/shape";
 import { Link } from "@void/react";
-import { RunHistoryBarHoverCard } from "@/components/run-history-bar-hover";
+import { ChartTooltipProvider } from "@/components/analytics/chart-tooltip";
+import { RunHistoryBarTrigger } from "@/components/run-history-bar-hover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/cn";
 import { statusToken } from "@/lib/status";
@@ -17,10 +18,10 @@ export interface RunHistoryPoint {
   current?: boolean;
   /**
    * When present, the bar opens a hovercard with the point's details
-   * (fetched lazily on hover). Omit for the current bar or when we don't
-   * have the tenant slugs — the bar then renders as a plain link (or
-   * non-interactive). `kind` switches between run-level and test-result-
-   * level summaries.
+   * (fetched lazily on hover) — including the current bar, which hovers but
+   * doesn't self-link (omit `href`). Omit `hover` only when we don't have the
+   * tenant slugs; the bar then renders as a plain link (or non-interactive).
+   * `kind` switches between run-level and test-result-level summaries.
    */
   hover?:
     | { kind: "run"; teamSlug: string; projectSlug: string; runId: string }
@@ -295,42 +296,54 @@ export function RunHistoryChart({
           </svg>
 
           {/* Bar hit/hover layer — one slot per reserved column. Sits above
-           * the SVG and owns click + hover. Lets us attach Popover triggers
-           * (HTML-only) without compromising the SVG's `preserveAspectRatio`
-           * scaling. Pointer events only apply to the per-point wrappers so
-           * the surrounding SVG strokes/labels stay interactive-free. */}
-          <div
-            className="pointer-events-none absolute inset-x-0 top-0 flex"
-            style={{ height: plotH }}
-          >
-            {slotKeys.map((key, i) => {
-              const p =
-                i >= slotOffset ? effectivePoints[i - slotOffset] : undefined;
-              const heightPct = p
-                ? Math.max((p.durationMs / (max || 1)) * 100, 1.5)
-                : 0;
-              return (
-                <div
-                  key={`hit-${key}`}
-                  className="group relative flex-1 px-[1.5px]"
-                >
-                  {p && (
-                    <div
-                      className={cn(
-                        "absolute inset-x-[1.5px] bottom-0 rounded-sm opacity-70 transition-opacity group-hover:opacity-100",
-                        p.current && "opacity-100",
-                      )}
-                      style={{
-                        height: `${heightPct}%`,
-                        background: statusToken(p.status),
-                      }}
-                    />
-                  )}
-                  {p && <BarHitbox point={p} />}
-                </div>
-              );
-            })}
-          </div>
+           * the SVG and owns click + hover. Bars are triggers on a single
+           * shared, gliding tooltip (`ChartTooltipProvider`, same as the
+           * analytics charts) — HTML-only, so the SVG's `preserveAspectRatio`
+           * scaling is untouched. Pointer events only apply to the per-point
+           * wrappers so the surrounding SVG strokes/labels stay interactive-
+           * free. `w-80` keeps the summary-card width the popup uses. */}
+          <ChartTooltipProvider widthClass="w-80">
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 flex"
+              style={{ height: plotH }}
+            >
+              {slotKeys.map((key, i) => {
+                const p =
+                  i >= slotOffset ? effectivePoints[i - slotOffset] : undefined;
+                const heightPct = p
+                  ? Math.max((p.durationMs / (max || 1)) * 100, 1.5)
+                  : 0;
+                return (
+                  <div
+                    key={`hit-${key}`}
+                    className="group relative flex-1 px-[1.5px]"
+                  >
+                    {p && (
+                      <div
+                        className={cn(
+                          "absolute inset-x-[1.5px] bottom-0 rounded-sm opacity-70 transition-opacity group-hover:opacity-100",
+                          p.current && "opacity-100",
+                        )}
+                        style={{
+                          height: `${heightPct}%`,
+                          background: statusToken(p.status),
+                        }}
+                      />
+                    )}
+                    {p && (
+                      <BarHitbox
+                        neighbors={[
+                          effectivePoints[i - slotOffset - 1]?.hover,
+                          effectivePoints[i - slotOffset + 1]?.hover,
+                        ]}
+                        point={p}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </ChartTooltipProvider>
 
           {/* X-axis dot row — HTML, one slot per reserved position. Dots
            * only render for slots that have a point, so empty leading slots
@@ -367,28 +380,46 @@ export function RunHistoryChart({
   );
 }
 
-function BarHitbox({ point }: { point: RunHistoryPoint }) {
-  const interactive = !!point.href;
-  const className =
-    "pointer-events-auto absolute inset-0 block cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm";
+function BarHitbox({
+  point,
+  neighbors,
+}: {
+  point: RunHistoryPoint;
+  /** Adjacent bars' hover targets, prefetched alongside this one on hover so a
+   * sweep to a neighbour opens with data already resolved. */
+  neighbors?: RunHistoryPoint["hover"][];
+}) {
+  const baseClass =
+    "pointer-events-auto absolute inset-0 block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm";
   const contents = point.label ? (
     <span className="sr-only">{point.label}</span>
   ) : null;
 
-  if (point.hover && interactive) {
+  // A point with a hovercard is a tooltip trigger whether or not it links: the
+  // current run/test bar keeps its summary on hover but doesn't self-navigate
+  // (no `href`), so the cursor reflects clickability.
+  if (point.hover) {
     return (
-      <RunHistoryBarHoverCard
+      <RunHistoryBarTrigger
         {...point.hover}
-        href={point.href}
-        className={className}
         aria-label={point.label}
+        className={cn(
+          baseClass,
+          point.href ? "cursor-pointer" : "cursor-default",
+        )}
+        href={point.href}
+        neighbors={neighbors}
       />
     );
   }
 
   if (point.href) {
     return (
-      <Link href={point.href} aria-label={point.label} className={className}>
+      <Link
+        href={point.href}
+        aria-label={point.label}
+        className={cn(baseClass, "cursor-pointer")}
+      >
         {contents}
       </Link>
     );

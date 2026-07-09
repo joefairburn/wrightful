@@ -6,7 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { fetch } from "void/client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TestGroup } from "@/components/run-progress-group";
 import {
   GroupHeaderSkeleton,
@@ -67,6 +67,69 @@ function defaultExpandedIds(headers: readonly RunGroupHeader[]): Set<string> {
 }
 
 /**
+ * Owns the set of open group ids for the Tests accordion, seeding the
+ * server-flagged default-open groups ONCE per group-by axis.
+ *
+ * The seed is a render-phase state update (not an effect) on purpose, and it's
+ * genuinely required — both flash-free first paint AND freeze-once semantics
+ * can't be met any other way:
+ *   - An **effect** runs after the browser paints, so it commits one collapsed
+ *     frame and then pops the defaults open — the flash we're removing.
+ *   - **Pure derivation** (`expanded = override ?? computeDefaults(...)`) has no
+ *     flash but no freeze: a live run's background refetch would re-expand every
+ *     newly-failing group and could reopen groups the user just collapsed.
+ * Writing state during the first render that has real data gives both: React
+ * discards the in-progress (collapsed) render and re-renders before committing,
+ * so the collapsed tree never reaches the DOM, and the latch stops it repeating.
+ * The latch is state (not a ref) so it's safe under StrictMode / concurrent
+ * re-render — a replayed `ref.current = true` could consume the one-shot without
+ * committing the paired `setExpanded`.
+ *
+ * A live run watched from empty defers the seed until a real failing group
+ * appears (`hasFailingGroup`), so it doesn't burn the latch on an all-passing
+ * fallback page. `resetForAxis()` (called on group-by change) re-arms it and
+ * drops manual toggles, since the new axis's keys differ.
+ */
+function useAutoExpandedGroups(seed: {
+  firstPage: RunGroupSkeleton | undefined;
+  isPlaceholder: boolean;
+  isRunning: boolean;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [seeded, setSeeded] = useState(false);
+
+  // Skip the `keepPreviousData` placeholder (the prior axis/filter's data shown
+  // during a swap) — seeding on it would consume the one-shot latch on stale
+  // groups and the new axis would never auto-expand.
+  if (!seeded && !seed.isPlaceholder && seed.firstPage) {
+    const { firstPage, isRunning } = seed;
+    if (!(isRunning && !firstPage.hasFailingGroup)) {
+      const def = defaultExpandedIds(firstPage.groups);
+      if (def.size > 0) {
+        setExpanded(def);
+        setSeeded(true);
+      }
+    }
+  }
+
+  const toggle = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const resetForAxis = useCallback(() => {
+    setSeeded(false);
+    setExpanded(new Set());
+  }, []);
+
+  return { expanded, toggle, resetForAxis };
+}
+
+/**
  * Run-detail Tests tab. Two-level, paginated-by-group and loaded on demand:
  *
  *   - Filter chips (All/Failed/Flaky/Passed/Skipped) read the **whole-run**
@@ -115,8 +178,6 @@ export function RunProgress({
     initialSummary.failed + initialSummary.flaky > 0 ? "recommended" : "all",
   );
   const [groupBy, setGroupBy] = useState<GroupByAxis>(DEFAULT_GROUP_BY);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const didAutoExpand = useRef(false);
 
   const queryClient = useQueryClient();
 
@@ -202,25 +263,12 @@ export function RunProgress({
   }, [initialSummary, runId, queryClient]);
 
   // One-shot auto-expand of the worst groups (server-flagged `expandedByDefault`
-  // on the first page). A terminal run latches on first paint (incl. the passing
-  // fallback so the list is never fully collapsed); a run watched live from empty
-  // must NOT consume the latch on a passing fallback — wait for a real
-  // failed/flaky group (the server's page-level `hasFailingGroup`), or later
-  // failing groups would never auto-expand. Re-runs per axis (onGroupBy resets).
-  useEffect(() => {
-    if (didAutoExpand.current) return;
-    // Don't latch on `keepPreviousData` placeholder (the prior axis/filter's
-    // data shown during a swap) — that would consume the one-shot latch on
-    // stale groups and the new axis would never auto-expand.
-    if (skeletonQuery.isPlaceholderData) return;
-    const firstPage = skeletonQuery.data?.pages[0];
-    if (!firstPage) return;
-    const def = defaultExpandedIds(firstPage.groups);
-    if (def.size === 0) return;
-    if (isRunning && !firstPage.hasFailingGroup) return;
-    setExpanded(def);
-    didAutoExpand.current = true;
-  }, [skeletonQuery.data, skeletonQuery.isPlaceholderData, isRunning, groupBy]);
+  // on the first page), seeded flash-free during render — see the hook.
+  const { expanded, toggle, resetForAxis } = useAutoExpandedGroups({
+    firstPage: skeletonQuery.data?.pages[0],
+    isPlaceholder: skeletonQuery.isPlaceholderData,
+    isRunning,
+  });
 
   // Group the live overlay once per event (O(byId)), so each group reads its
   // own slice instead of re-scanning all of `byId`.
@@ -242,17 +290,7 @@ export function RunProgress({
     if (next === groupBy) return;
     setGroupBy(next);
     // Re-auto-expand for the new axis: its keys differ, so drop manual state.
-    didAutoExpand.current = false;
-    setExpanded(new Set());
-  }
-
-  function toggleGroup(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    resetForAxis();
   }
 
   const statusOptions: SegmentedOption<StatusFilter>[] = [
@@ -332,7 +370,7 @@ export function RunProgress({
                 isRunning={isRunning}
                 key={id}
                 liveRows={liveByGroup.get(id) ?? EMPTY_ROWS}
-                onToggle={() => toggleGroup(id)}
+                onToggle={() => toggle(id)}
                 open={expanded.has(id)}
                 projectSlug={projectSlug}
                 runId={runId}

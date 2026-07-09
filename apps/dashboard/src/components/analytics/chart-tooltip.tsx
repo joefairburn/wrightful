@@ -3,6 +3,7 @@ import {
   Tooltip,
   TooltipCreateHandle,
   TooltipPopup,
+  TooltipPrimitive,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
@@ -35,7 +36,17 @@ export function ChartTooltipProvider({
   return (
     <ChartTooltipContext.Provider value={handle}>
       {children}
-      <Tooltip handle={handle}>
+      <Tooltip
+        handle={handle}
+        onOpenChange={(open, details) => {
+          // Keep the tooltip open when a chart mark is clicked — Base UI
+          // dismisses on press by default, which is jarring for chart columns
+          // (and for the run-history bars, which navigate on click). Only the
+          // `trigger-press` close is cancelled; hover-out / outside-press /
+          // escape still close normally.
+          if (!open && details.reason === "trigger-press") details.cancel();
+        }}
+      >
         {({ payload }) => (
           // `glide`: the popup stays mounted and eases between column anchors,
           // swapping content instantly. A crossfade while sweeping bars keeps
@@ -55,8 +66,19 @@ export function ChartTooltipProvider({
  * charts' `pointer-events-none` hover row it re-enables pointer events, so
  * hover works even where the mark itself is very thin. The shared popup
  * portals to the body, so ancestor `overflow-hidden` cards never clip it.
+ *
+ * `render` overrides the default inert hitbox — pass e.g. a `<Link>` when the
+ * column should also navigate on click (the run-history strip does this so a
+ * bar is both a hover trigger and a link). The override must still fill the
+ * slot and re-enable pointer events (`pointer-events-auto absolute inset-0`).
  */
-export function ChartColumnTooltip({ tooltip }: { tooltip: React.ReactNode }) {
+export function ChartColumnTooltip({
+  tooltip,
+  render,
+}: {
+  tooltip: React.ReactNode;
+  render?: TooltipPrimitive.Trigger.Props["render"];
+}) {
   const handle = React.useContext(ChartTooltipContext);
   if (!handle) throw new Error("ChartColumnTooltip needs ChartTooltipProvider");
   return (
@@ -65,7 +87,9 @@ export function ChartColumnTooltip({ tooltip }: { tooltip: React.ReactNode }) {
       delay={0}
       handle={handle}
       payload={tooltip}
-      render={<div className="pointer-events-auto absolute inset-0" />}
+      render={
+        render ?? <div className="pointer-events-auto absolute inset-0" />
+      }
     />
   );
 }
