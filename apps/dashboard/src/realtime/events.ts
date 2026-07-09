@@ -33,6 +33,16 @@ export interface RunProgressTest {
    * group rows by shard alongside file / project.
    */
   shardIndex: number | null;
+  /**
+   * Whether this test recorded a `trace` artifact → gates the per-row "Test
+   * Replay" button in the Tests tab. Populated ONLY on the paginated
+   * `GET …/results` read (a batch artifacts lookup over the page's ids); the
+   * live broadcast path leaves it `undefined` (artifacts register in a flush
+   * AFTER the result posts, so the realtime event genuinely can't carry it — a
+   * test streamed in live gets the button only after the group re-fetches on a
+   * reload, which is fine: replay is a finished-run action).
+   */
+  hasTrace?: boolean;
 }
 
 /**

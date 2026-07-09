@@ -325,14 +325,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test-reporter, test-dashboard]
     # Throwaway Postgres for bootDashboard's `void db reset` + `vp dev` (see the
-    # note on test-e2e). Reachable only inside the runner; never a real DB.
+    # note on test-e2e). Dedicated `wrightful_e2e` DB — the guarded
+    # `test:dashboard` wrapper only ever resets a `_e2e`/`_test` throwaway, never
+    # a dev DB. Reachable only inside the runner; never a real DB.
     services:
       postgres:
         image: postgres:16
         env:
           POSTGRES_USER: wrightful
           POSTGRES_PASSWORD: wrightful
-          POSTGRES_DB: wrightful_test
+          POSTGRES_DB: wrightful_e2e
         ports:
           - 5432:5432
         options: >-
@@ -377,7 +379,7 @@ jobs:
         # the stream target.
         env:
           WRIGHTFUL_VISUAL_BASELINE_OK: ${{ vars.VISUAL_BASELINE_OK }}
-          DATABASE_URL: postgres://wrightful:wrightful@localhost:5432/wrightful_test
+          DATABASE_URL: postgres://wrightful:wrightful@localhost:5432/wrightful_e2e
           WRIGHTFUL_URL: ${{ secrets.WRIGHTFUL_URL }}
           WRIGHTFUL_TOKEN: ${{ secrets.WRIGHTFUL_TOKEN }}
         run: pnpm --filter @wrightful/e2e test:dashboard

@@ -56,14 +56,23 @@ function useUrlSearch(): string {
   return useSyncExternalStore(subscribe, getSnapshot, () => serverSearch);
 }
 
-function buildUrl(key: string, next: string): string {
+function buildUrl(key: string, next: string | null): string {
   const params = new URLSearchParams(window.location.search);
-  params.set(key, next);
+  // A `null` next (or a write back to the default, handled by the callers)
+  // removes the key entirely, so idle/closed state doesn't leave a bare
+  // `?key=` dangling in the URL.
+  if (next === null) params.delete(key);
+  else params.set(key, next);
   const qs = params.toString();
   return (
     (qs ? `${window.location.pathname}?${qs}` : window.location.pathname) +
     window.location.hash
   );
+}
+
+/** Drop the key when the value returns to its default; otherwise set it. */
+function normalizeNext(next: string, defaultValue: string): string | null {
+  return next === defaultValue ? null : next;
 }
 
 export function useSearchParam(
@@ -74,7 +83,11 @@ export function useSearchParam(
   const value = new URLSearchParams(search).get(key) ?? defaultValue;
   const set = (next: string): void => {
     if (typeof window === "undefined") return;
-    window.history.replaceState(window.history.state, "", buildUrl(key, next));
+    window.history.replaceState(
+      window.history.state,
+      "",
+      buildUrl(key, normalizeNext(next, defaultValue)),
+    );
     notify();
   };
   return [value, set];
@@ -89,7 +102,9 @@ export function useNavigatingSearchParam(
   const value = new URLSearchParams(search).get(key) ?? defaultValue;
   const set = (next: string): void => {
     if (typeof window === "undefined") return;
-    navigate(buildUrl(key, next), { history: "replace" });
+    navigate(buildUrl(key, normalizeNext(next, defaultValue)), {
+      history: "replace",
+    });
   };
   return [value, set];
 }

@@ -12,6 +12,7 @@ import {
   GroupHeaderSkeleton,
   TestsListSkeleton,
 } from "@/components/run-progress-skeletons";
+import { ReplayModalHost } from "@/components/trace-viewer-dialog";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import {
   SegmentedControl,
@@ -318,6 +319,14 @@ export function RunProgress({
 
   return (
     <div className="flex flex-col">
+      {/* Deep-linkable Replay modal, driven by `?replay=<testResultId>`. Hosted
+          once here (not per row) so a link resolves even when the target test's
+          group is collapsed. Renders nothing until the param is set. */}
+      <ReplayModalHost
+        projectSlug={projectSlug}
+        runId={runId}
+        teamSlug={teamSlug}
+      />
       <div className="sticky top-[84px] z-10 flex flex-wrap items-center gap-2 border-b border-line-1 bg-bg-0 px-6 py-2.5">
         <SearchFilterInput
           aria-label="Filter tests"
