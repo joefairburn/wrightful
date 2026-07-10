@@ -43,7 +43,7 @@ const TOTAL_HEIGHT = AXIS_HEIGHT + BARS_HEIGHT + STRIP_HEIGHT;
 const MAX_THUMBS = 60;
 
 /** Size of the hover thumbnail preview card (width follows the frame's aspect). */
-const PREVIEW_HEIGHT = 140;
+const PREVIEW_HEIGHT = 220;
 
 /**
  * Vertical room the hover preview card needs when rendered above the strip:
@@ -51,7 +51,7 @@ const PREVIEW_HEIGHT = 140;
  * viewport space above the strip is smaller than this (e.g. the Timeline sits
  * at the very top of an overflow-hidden dialog), the card flips below instead.
  */
-const PREVIEW_CLEARANCE = 175;
+const PREVIEW_CLEARANCE = PREVIEW_HEIGHT + 40;
 
 /** Playback speed presets, matching the official viewer's [.5, 1, 2]. */
 const SPEEDS = [0.5, 1, 2] as const;
@@ -587,7 +587,10 @@ function HoverPreview({
   return (
     <div
       className={cn(
-        "pointer-events-none absolute rounded border border-line-1 bg-bg-0 p-1 shadow-md",
+        // z-50: when flipped below, the card overlays the workbench panes
+        // (snapshot iframes, detail tabs), which come later in DOM order and
+        // would otherwise paint on top of it.
+        "pointer-events-none absolute z-50 rounded border border-line-1 bg-bg-0 p-1 shadow-md",
         below ? "top-full mt-2" : "bottom-full mb-2",
       )}
       style={{ left }}

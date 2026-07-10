@@ -53,8 +53,15 @@ The preview card was `bottom-full` (above the strip), but the Timeline is the
 topmost element inside the replay dialog's `overflow-hidden` `DialogContent` — so
 it always clipped. `onPointerMove` now measures
 `containerRef.getBoundingClientRect().top`; with less than `PREVIEW_CLEARANCE`
-(175px ≈ card height + padding + label + margin) of viewport above, the card flips
-below the strip (`top-full mt-2`). Horizontal clamping unchanged.
+(`PREVIEW_HEIGHT + 40` ≈ card height + padding + label + margin) of viewport
+above, the card flips below the strip (`top-full mt-2`). Horizontal clamping
+unchanged.
+
+Follow-up (same day, user feedback): `PREVIEW_HEIGHT` 140 → 220 (the card was too
+small to read), and the card gains `z-50` — when flipped below it overlays the
+workbench panes, which come later in DOM order and painted on top of the
+un-z-indexed card (the tabs row and snapshot iframe covered it). Verified with a
+live drive: 401×251 card rendering above both.
 
 ### Source tab syntax highlighting (`source-tab.tsx`, `styles.css`)
 
