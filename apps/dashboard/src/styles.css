@@ -528,3 +528,54 @@
     text-decoration: underline;
   }
 }
+
+/* Trace-viewer Source tab — lezer `classHighlighter` (`tok-*`) hooks, scoped
+ * under `.trace-source` (the source `<pre>`) so they can't leak into other
+ * code blocks. Muted palette in the theme's oklch hue family: comments are
+ * dimmest (fg-4), operators/punctuation recede to fg-3, and the handful of
+ * chromatic tokens borrow the theme's existing hue anchors (268 blue,
+ * 152 green, 70/80 amber) at low chroma. Values flip with `.dark`. */
+@layer components {
+  .trace-source {
+    --tok-keyword: oklch(0.45 0.13 300);
+    --tok-string: oklch(0.47 0.1 152);
+    --tok-literal: oklch(0.52 0.12 70);
+    --tok-type: oklch(0.46 0.09 220);
+    --tok-property: oklch(0.44 0.1 268);
+  }
+  .dark .trace-source {
+    --tok-keyword: oklch(0.76 0.09 300);
+    --tok-string: oklch(0.78 0.09 152);
+    --tok-literal: oklch(0.8 0.1 80);
+    --tok-type: oklch(0.78 0.08 220);
+    --tok-property: oklch(0.75 0.08 268);
+  }
+  .trace-source .tok-comment {
+    color: var(--fg-4);
+    font-style: italic;
+  }
+  .trace-source .tok-keyword {
+    color: var(--tok-keyword);
+  }
+  .trace-source .tok-string,
+  .trace-source .tok-string2 {
+    color: var(--tok-string);
+  }
+  .trace-source .tok-number,
+  .trace-source .tok-bool,
+  .trace-source .tok-literal {
+    color: var(--tok-literal);
+  }
+  .trace-source .tok-typeName,
+  .trace-source .tok-className,
+  .trace-source .tok-namespace {
+    color: var(--tok-type);
+  }
+  .trace-source .tok-propertyName {
+    color: var(--tok-property);
+  }
+  .trace-source .tok-operator,
+  .trace-source .tok-punctuation {
+    color: var(--fg-3);
+  }
+}

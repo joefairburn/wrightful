@@ -6,7 +6,13 @@ import {
   it,
   vi,
 } from "vite-plus/test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ActionList } from "@/trace-viewer/components/action-list";
 import { makeAction, makeModel } from "./trace-viewer-fixture";
@@ -21,7 +27,9 @@ const SHOWN_GROUPS_KEY = "wrightful:trace-viewer:shown-action-groups";
 
 /** A nested tree — `call@1` (a step) parenting `call@2` (click, `#checkout`)
  * and `call@4` (a failing expect) — for the ancestor-visibility and
- * collapse-chevron cases the flat fixture can't exercise. */
+ * collapse-chevron cases the flat fixture can't exercise. Its subtree
+ * contains an error (`call@4`), so `call@1` is expanded by default under
+ * the new "collapsed unless it hides an error" semantics. */
 function nestedModel() {
   return makeModel({
     actions: [
@@ -50,6 +58,127 @@ function nestedModel() {
         startTime: 3000,
         endTime: 4000,
         error: { name: "Error", message: "expect failed: total mismatch" },
+      }),
+    ],
+  });
+}
+
+/**
+ * A nested tree with NO error anywhere — `call@1` (a step) parenting
+ * `call@2` (click). Used to assert the plain "collapsed by default" case
+ * without an error branch forcing anything open.
+ */
+function nestedModelNoError() {
+  return makeModel({
+    actions: [
+      makeAction({
+        callId: "call@1",
+        method: "step",
+        title: "Checkout flow",
+        startTime: 1000,
+        endTime: 5000,
+      }),
+      makeAction({
+        callId: "call@2",
+        method: "click",
+        title: "Click checkout",
+        params: { selector: "#checkout" },
+        parentId: "call@1",
+        startTime: 2000,
+        endTime: 2600,
+      }),
+    ],
+  });
+}
+
+/**
+ * Two sibling step groups under the root: `call@1` ("Checkout flow", no
+ * error) containing `call@2`, and `call@5` ("Payment flow") containing a
+ * nested `call@6` ("Charge card" — no error) which itself contains the
+ * failing `call@4`. Exercises "the whole ancestor chain down to the error
+ * must be expanded" across more than one level, while an unrelated
+ * error-free sibling group stays collapsed.
+ */
+function deeplyNestedModelWithError() {
+  return makeModel({
+    actions: [
+      makeAction({
+        callId: "call@1",
+        method: "step",
+        title: "Checkout flow",
+        startTime: 1000,
+        endTime: 1900,
+      }),
+      makeAction({
+        callId: "call@2",
+        method: "click",
+        title: "Click checkout",
+        params: { selector: "#checkout" },
+        parentId: "call@1",
+        startTime: 1000,
+        endTime: 1500,
+      }),
+      makeAction({
+        callId: "call@5",
+        method: "step",
+        title: "Payment flow",
+        startTime: 2000,
+        endTime: 5000,
+      }),
+      makeAction({
+        callId: "call@6",
+        method: "step",
+        title: "Charge card",
+        parentId: "call@5",
+        startTime: 2000,
+        endTime: 5000,
+      }),
+      makeAction({
+        callId: "call@4",
+        method: "expect",
+        title: 'Expect "toHaveText"',
+        params: { selector: "#total" },
+        parentId: "call@6",
+        startTime: 3000,
+        endTime: 4000,
+        error: { name: "Error", message: "expect failed: total mismatch" },
+      }),
+    ],
+  });
+}
+
+/**
+ * `nestedModelNoError` plus a route-grouped action, so a test can toggle the
+ * `route` chip (which rebuilds the tree) and assert manual expand/collapse
+ * choices survive the rebuild.
+ */
+function nestedModelNoErrorWithRoute() {
+  return makeModel({
+    actions: [
+      makeAction({
+        callId: "call@1",
+        method: "step",
+        title: "Checkout flow",
+        startTime: 1000,
+        endTime: 5000,
+      }),
+      makeAction({
+        callId: "call@2",
+        method: "click",
+        title: "Click checkout",
+        params: { selector: "#checkout" },
+        parentId: "call@1",
+        startTime: 2000,
+        endTime: 2600,
+      }),
+      makeAction({
+        callId: "call@3",
+        class: "Route",
+        method: "continue",
+        title: "Route.continue",
+        group: "route",
+        startTime: 2050,
+        endTime: 2060,
       }),
     ],
   });
@@ -255,7 +384,7 @@ describe("ActionList — collapse", () => {
     const user = userEvent.setup();
     render(
       <ActionList
-        model={nestedModel()}
+        model={nestedModel()} // error subtree → expanded by default
         selectedCallId={undefined}
         onSelect={noop}
       />,
@@ -268,6 +397,160 @@ describe("ActionList — collapse", () => {
 
     await user.click(screen.getByRole("button", { name: "Expand" }));
     expect(screen.getByText("Click checkout")).toBeTruthy();
+  });
+});
+
+describe("ActionList — default collapse state", () => {
+  it("an error-free group starts collapsed (children hidden, chevron says Expand)", () => {
+    render(
+      <ActionList
+        model={nestedModelNoError()}
+        selectedCallId={undefined}
+        onSelect={noop}
+      />,
+    );
+    expect(screen.getByText("Checkout flow")).toBeTruthy();
+    expect(screen.queryByText("Click checkout")).toBeNull();
+    expect(screen.getByRole("button", { name: "Expand" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Collapse" })).toBeNull();
+  });
+
+  it("a group whose subtree contains a failing action starts expanded down to the error", () => {
+    render(
+      <ActionList
+        model={deeplyNestedModelWithError()}
+        selectedCallId={undefined}
+        onSelect={noop}
+      />,
+    );
+    // The whole ancestor chain above the error is open…
+    expect(screen.getByText("Payment flow")).toBeTruthy();
+    expect(screen.getByText("Charge card")).toBeTruthy();
+    expect(screen.getByText('Expect "toHaveText"')).toBeTruthy();
+    // …while the error-free sibling group stays collapsed.
+    expect(screen.getByText("Checkout flow")).toBeTruthy();
+    expect(screen.queryByText("Click checkout")).toBeNull();
+  });
+});
+
+describe("ActionList — auto-reveal on external selection", () => {
+  it("rerendering with a selectedCallId inside a collapsed group expands its ancestors", () => {
+    const model = nestedModelNoError();
+    const { rerender } = render(
+      <ActionList model={model} selectedCallId={undefined} onSelect={noop} />,
+    );
+    expect(screen.queryByText("Click checkout")).toBeNull();
+
+    rerender(
+      <ActionList model={model} selectedCallId="call@2" onSelect={noop} />,
+    );
+
+    const row = optionRow("Click checkout");
+    expect(row.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("reveals through multiple collapsed levels and leaves unrelated groups collapsed", async () => {
+    const user = userEvent.setup();
+    const model = deeplyNestedModelWithError();
+    const { rerender } = render(
+      <ActionList model={model} selectedCallId={undefined} onSelect={noop} />,
+    );
+    // Manually collapse the (default-expanded) error chain, innermost first,
+    // so call@4 ends up hidden under TWO collapsed ancestors.
+    await user.click(
+      within(optionRow("Charge card")).getByRole("button", {
+        name: "Collapse",
+      }),
+    );
+    await user.click(
+      within(optionRow("Payment flow")).getByRole("button", {
+        name: "Collapse",
+      }),
+    );
+    expect(screen.queryByText('Expect "toHaveText"')).toBeNull();
+
+    rerender(
+      <ActionList model={model} selectedCallId="call@4" onSelect={noop} />,
+    );
+
+    expect(screen.getByText("Charge card")).toBeTruthy();
+    expect(screen.getByText('Expect "toHaveText"')).toBeTruthy();
+    // Unrelated error-free group is untouched (still collapsed).
+    expect(screen.queryByText("Click checkout")).toBeNull();
+  });
+});
+
+describe("ActionList — manual toggles survive group-chip changes", () => {
+  it("a manually expanded group stays expanded after toggling the route chip", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActionList
+        model={nestedModelNoErrorWithRoute()}
+        selectedCallId={undefined}
+        onSelect={noop}
+      />,
+    );
+    expect(screen.queryByText("Click checkout")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByText("Click checkout")).toBeTruthy();
+
+    // Toggling the chip rebuilds the tree; the manual expand must survive.
+    await user.click(screen.getByRole("button", { name: /route 1/i }));
+    expect(screen.getByText("Route.continue")).toBeTruthy();
+    expect(screen.getByText("Click checkout")).toBeTruthy();
+
+    // And back off again.
+    await user.click(screen.getByRole("button", { name: /route 1/i }));
+    expect(screen.queryByText("Route.continue")).toBeNull();
+    expect(screen.getByText("Click checkout")).toBeTruthy();
+  });
+
+  it("a manual collapse of a default-expanded error group survives a chip toggle", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActionList
+        model={makeModel({
+          actions: [
+            makeAction({
+              callId: "call@1",
+              method: "step",
+              title: "Checkout flow",
+              startTime: 1000,
+              endTime: 5000,
+            }),
+            makeAction({
+              callId: "call@4",
+              method: "expect",
+              title: 'Expect "toHaveText"',
+              parentId: "call@1",
+              startTime: 3000,
+              endTime: 4000,
+              error: { name: "Error", message: "expect failed" },
+            }),
+            makeAction({
+              callId: "call@3",
+              class: "Route",
+              method: "continue",
+              title: "Route.continue",
+              group: "route",
+              startTime: 2050,
+              endTime: 2060,
+            }),
+          ],
+        })}
+        selectedCallId={undefined}
+        onSelect={noop}
+      />,
+    );
+    // Error subtree → expanded by default; collapse it manually.
+    expect(screen.getByText('Expect "toHaveText"')).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Collapse" }));
+    expect(screen.queryByText('Expect "toHaveText"')).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /route 1/i }));
+    expect(screen.getByText("Route.continue")).toBeTruthy();
+    expect(screen.queryByText('Expect "toHaveText"')).toBeNull();
   });
 });
 

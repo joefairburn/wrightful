@@ -68,6 +68,12 @@ importers:
       '@hono/mcp':
         specifier: ^0.3.0
         version: 0.3.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(hono-rate-limiter@0.5.3(hono@4.12.27))(hono@4.12.27)(zod@4.4.3)
+      '@lezer/highlight':
+        specifier: ^1.2.3
+        version: 1.2.3
+      '@lezer/javascript':
+        specifier: ^1.5.4
+        version: 1.5.4
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)

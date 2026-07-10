@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight, CircleAlert, TriangleAlert } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/time-format";
@@ -40,6 +40,43 @@ function readShownGroups(): ReadonlySet<ActionGroup> {
   }
 }
 
+/** True if this action, or any action nested under it, failed. */
+function hasErrorInSubtree(item: ActionTreeItem): boolean {
+  if (item.action.error?.message) return true;
+  return item.children.some((child) => hasErrorInSubtree(child));
+}
+
+/**
+ * Action-tree groups start collapsed, except a group whose subtree contains
+ * a failing action — that group (and every ancestor down to the failure)
+ * stays expanded so the error is visible without the user having to dig
+ * for it.
+ */
+function computeDefaultCollapsed(
+  rootItem: ActionTreeItem,
+): ReadonlySet<string> {
+  const collapsed = new Set<string>();
+  const walk = (item: ActionTreeItem): void => {
+    for (const child of item.children) {
+      if (child.children.length > 0 && !hasErrorInSubtree(child)) {
+        collapsed.add(child.id);
+      }
+      walk(child);
+    }
+  };
+  walk(rootItem);
+  return collapsed;
+}
+
+/** Ancestor chain from `item`'s parent up to (excluding) the synthetic root. */
+function ancestorChain(item: ActionTreeItem): ActionTreeItem[] {
+  const chain: ActionTreeItem[] = [];
+  for (let cur = item.parent; cur && cur.id !== ""; cur = cur.parent) {
+    chain.push(cur);
+  }
+  return chain;
+}
+
 /**
  * Left pane of the workbench: the merged test-runner/library action tree.
  * Selection is controlled by the workbench (snapshot pane + detail tabs key
@@ -56,14 +93,52 @@ export function ActionList({
 }): React.ReactElement {
   const [shownGroups, setShownGroups] =
     useState<ReadonlySet<ActionGroup>>(readShownGroups);
-  const rootItem = useMemo(
-    () => buildActionTree(model.filteredActions([...shownGroups])).rootItem,
+  const { rootItem, itemMap } = useMemo(
+    () => buildActionTree(model.filteredActions([...shownGroups])),
     [model, shownGroups],
   );
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+  // Groups start collapsed by default, except a subtree containing an error
+  // (recomputed whenever the tree is rebuilt — new trace, new group filter).
+  const defaultCollapsed = useMemo(
+    () => computeDefaultCollapsed(rootItem),
+    [rootItem],
+  );
+  // Manual toggles, keyed by item id, applied on top of the computed
+  // default via XOR — this is what lets a group chip toggle (which rebuilds
+  // `rootItem`/`defaultCollapsed`) preserve a user's manual expand/collapse
+  // instead of snapping every group back to its default state.
+  const [overrides, setOverrides] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
   const [query, setQuery] = useState("");
+
+  const isCollapsed = (id: string): boolean =>
+    defaultCollapsed.has(id) !== overrides.has(id);
+
+  // Auto-reveal: if selection moves (from outside — timeline seek, playback
+  // stepping) to an action hidden under a collapsed ancestor, expand just
+  // that ancestor chain so the row becomes visible. Never collapses
+  // anything, and leaves unrelated manual collapses untouched.
+  useEffect(() => {
+    if (!selectedCallId) return;
+    const item = itemMap.get(selectedCallId);
+    if (!item) return;
+    const ancestors = ancestorChain(item);
+    if (ancestors.length === 0) return;
+    setOverrides((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const ancestor of ancestors) {
+        const effectivelyCollapsed =
+          defaultCollapsed.has(ancestor.id) !== next.has(ancestor.id);
+        if (!effectivelyCollapsed) continue;
+        if (next.has(ancestor.id)) next.delete(ancestor.id);
+        else next.add(ancestor.id);
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [selectedCallId, itemMap, defaultCollapsed]);
 
   const toggleGroup = (group: ActionGroup): void => {
     setShownGroups((prev) => {
@@ -88,7 +163,7 @@ export function ActionList({
   })).filter(({ count }) => count > 0);
 
   const toggle = (id: string): void => {
-    setCollapsed((prev) => {
+    setOverrides((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -104,7 +179,7 @@ export function ActionList({
       const walk = (item: ActionTreeItem, depth: number): void => {
         for (const child of item.children) {
           rows.push({ item: child, depth });
-          if (!collapsed.has(child.id)) walk(child, depth + 1);
+          if (!isCollapsed(child.id)) walk(child, depth + 1);
         }
       };
       walk(rootItem, 0);
@@ -134,7 +209,7 @@ export function ActionList({
     };
     walk(rootItem, 0);
     return rows;
-  }, [rootItem, collapsed, query]);
+  }, [rootItem, defaultCollapsed, overrides, query]);
 
   const moveSelection = (delta: number): void => {
     const index = visible.findIndex(
@@ -204,7 +279,7 @@ export function ActionList({
             depth={depth}
             startTime={model.startTime}
             selected={item.action.callId === selectedCallId}
-            isCollapsed={collapsed.has(item.id)}
+            isCollapsed={isCollapsed(item.id)}
             onToggle={toggle}
             onSelect={onSelect}
           />

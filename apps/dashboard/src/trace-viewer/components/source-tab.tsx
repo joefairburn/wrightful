@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { classHighlighter, highlightCode } from "@lezer/highlight";
+import { parser as jsParser } from "@lezer/javascript";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import type { TraceTabProps } from "../model";
@@ -150,6 +152,7 @@ export function SourceTab(props: TraceTabProps): React.ReactElement {
             <SourceLines
               content={content}
               errors={errors}
+              file={file}
               targetLine={targetLine}
             />
           )}
@@ -233,24 +236,99 @@ function FrameList({
   );
 }
 
+type TokenSegment = { text: string; className: string | undefined };
+
+/** File extensions `@lezer/javascript` can parse, and the dialect flags each
+ * one needs (mirrors `@codemirror/lang-javascript`'s own `configure` calls —
+ * see node_modules/@codemirror/lang-javascript/dist/index.js). Anything else
+ * (`.py`, `.json`, `.css`, …) falls back to unhighlighted text rather than
+ * risk running the JS/TS grammar over the wrong language. */
+const JS_TS_DIALECTS: Record<string, string | undefined> = {
+  js: undefined,
+  mjs: undefined,
+  cjs: undefined,
+  jsx: "jsx",
+  ts: "ts",
+  mts: "ts",
+  cts: "ts",
+  tsx: "ts jsx",
+};
+
+function fileExtension(file: string): string | undefined {
+  const base = basename(file);
+  const dot = base.lastIndexOf(".");
+  return dot === -1 ? undefined : base.slice(dot + 1).toLowerCase();
+}
+
+/**
+ * Tokenize `content` into `tok-*`-classed segments, one array per line
+ * (mirroring `content.split("\n")`'s line count exactly, since
+ * `highlightCode`'s `putBreak` fires once per `\n` and never bundles a
+ * break into a text chunk). Returns `undefined` for extensions outside the
+ * JS/TS family — callers should render plain text in that case rather than
+ * run the wrong grammar over it.
+ */
+function tokenizeSource(
+  content: string,
+  file: string,
+): TokenSegment[][] | undefined {
+  const ext = fileExtension(file);
+  if (ext === undefined || !(ext in JS_TS_DIALECTS)) return undefined;
+  const dialect = JS_TS_DIALECTS[ext];
+  try {
+    const langParser = dialect ? jsParser.configure({ dialect }) : jsParser;
+    const tree = langParser.parse(content);
+    const lines: TokenSegment[][] = [[]];
+    highlightCode(
+      content,
+      tree,
+      classHighlighter,
+      (text, classes) => {
+        lines[lines.length - 1]?.push({
+          text,
+          className: classes || undefined,
+        });
+      },
+      () => {
+        lines.push([]);
+      },
+    );
+    return lines;
+  } catch {
+    // Malformed/unexpected content — fall back to plain text rather than
+    // surface a parser error in a read-only source view.
+    return undefined;
+  }
+}
+
 /**
  * Line-numbered `<pre>` renderer: target line highlighted + scrolled into
- * view, error lines tinted with their message inline beneath. A CodeMirror
- * (syntax-highlighted) variant was attempted and REVERTED: custom
+ * view, error lines tinted with their message inline beneath. Line text is
+ * tokenized with pure `@lezer/javascript` + `@lezer/highlight`
+ * (`tokenizeSource` above) rather than CodeMirror — a CodeMirror
+ * (`@uiw/react-codemirror`) variant was attempted and REVERTED: custom
  * decoration extensions built outside the wrapper hit "multiple instances
  * of @codemirror/state" under Vite dev pre-bundling (instanceof breakage),
- * silently falling back anyway. Revisit only with a vite dedupe fix.
+ * silently falling back anyway. The lezer parser/highlighter packages used
+ * here never touch `@codemirror/state`, so that dedupe failure mode doesn't
+ * apply — no `<CodeMirror>` element is ever mounted for this tab.
  */
 function SourceLines({
   content,
   errors,
+  file,
   targetLine,
 }: {
   content: string;
   errors: { line: number; message: string }[];
+  file: string;
   targetLine: number | undefined;
 }): React.ReactElement {
   const lines = content.split("\n");
+  const tokenLines = useMemo(
+    () => tokenizeSource(content, file),
+    [content, file],
+  );
   const errorsByLine = new Map<number, string>();
   for (const error of errors) errorsByLine.set(error.line, error.message);
   const targetRef = useRef<HTMLDivElement | null>(null);
@@ -260,11 +338,12 @@ function SourceLines({
   }, [targetLine, content]);
 
   return (
-    <pre className="min-w-max py-1 font-mono text-13 leading-5">
+    <pre className="trace-source min-w-max py-1 font-mono text-13 leading-5">
       {lines.map((line, i) => {
         const lineNumber = i + 1;
         const isTarget = lineNumber === targetLine;
         const errorMessage = errorsByLine.get(lineNumber);
+        const tokenLine = tokenLines?.[i];
         return (
           <div key={lineNumber}>
             <div
@@ -278,7 +357,17 @@ function SourceLines({
               <span className="w-8 shrink-0 select-none text-right tabular-nums text-fg-4">
                 {lineNumber}
               </span>
-              <span className="whitespace-pre">{line || " "}</span>
+              <span className="whitespace-pre">
+                {tokenLine
+                  ? tokenLine.length > 0
+                    ? tokenLine.map((segment, segmentIndex) => (
+                        <span className={segment.className} key={segmentIndex}>
+                          {segment.text}
+                        </span>
+                      ))
+                    : " "
+                  : line || " "}
+              </span>
             </div>
             {errorMessage ? (
               <div className="ml-11 whitespace-pre-wrap break-words px-3 py-1 text-12 text-fail">
