@@ -1,7 +1,7 @@
 "use client";
 
 import { Download, ExternalLink, PlayCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetch } from "void/client";
 import type { ArtifactAction } from "@/components/artifact-actions";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useSearchParam } from "@/lib/use-search-param";
+import { TraceViewer } from "@/trace-viewer/components/trace-viewer";
 
 /**
  * URL param that drives the Replay modal so it's deep-linkable / shareable.
@@ -24,87 +25,17 @@ import { useSearchParam } from "@/lib/use-search-param";
 const REPLAY_PARAM = "replay";
 
 /**
- * Close-on-Escape across ALL of the trace viewer's same-origin frames. The
- * viewer is self-hosted (same-origin) and renders DOM snapshots in a NESTED
- * iframe; a keydown while focus is inside that snapshot frame reaches neither
- * the parent Dialog nor the top viewer window, so Escape would be swallowed
- * there. Bind the handler on the viewer window AND every reachable same-origin
- * descendant frame, re-binding as frames are added or re-navigated during a
- * scrub (each frame's `load` + a `MutationObserver` per document). Every access
- * is guarded — a cross-origin frame throws and is skipped, and any failure
- * degrades to the Dialog's own Escape/backdrop handling. Idempotent (WeakSets
- * guard re-binding); the returned cleanup tears everything down.
- */
-function bindEscapeAcrossFrames(
-  topWin: Window,
-  onEscape: () => void,
-): () => void {
-  const cleanups: Array<() => void> = [];
-  const boundWindows = new WeakSet<Window>();
-  const boundFrames = new WeakSet<HTMLIFrameElement>();
-  const observedDocs = new WeakSet<Document>();
-
-  const onKey = (e: KeyboardEvent): void => {
-    if (e.key === "Escape") onEscape();
-  };
-
-  function bindWindow(win: Window): void {
-    if (boundWindows.has(win)) return;
-    boundWindows.add(win);
-    let doc: Document;
-    try {
-      win.addEventListener("keydown", onKey);
-      doc = win.document;
-    } catch {
-      return; // cross-origin frame — unreachable, skip
-    }
-    cleanups.push(() => {
-      try {
-        win.removeEventListener("keydown", onKey);
-      } catch {
-        /* window already torn down */
-      }
-    });
-    scanDoc(doc);
-  }
-
-  function scanDoc(doc: Document): void {
-    for (const frame of Array.from(doc.querySelectorAll("iframe"))) {
-      if (boundFrames.has(frame)) continue;
-      boundFrames.add(frame);
-      const onFrameLoad = (): void => {
-        const cw = frame.contentWindow;
-        if (cw) bindWindow(cw);
-      };
-      frame.addEventListener("load", onFrameLoad);
-      cleanups.push(() => frame.removeEventListener("load", onFrameLoad));
-      onFrameLoad(); // bind whatever's currently loaded
-    }
-    if (observedDocs.has(doc)) return;
-    observedDocs.add(doc);
-    const observer = new MutationObserver(() => scanDoc(doc));
-    observer.observe(doc.documentElement, { childList: true, subtree: true });
-    cleanups.push(() => observer.disconnect());
-  }
-
-  bindWindow(topWin);
-  return () => {
-    for (const c of cleanups) c();
-  };
-}
-
-/**
- * Shared body of the Replay dialog: a near-full-viewport panel whose iframe
- * hosts the self-hosted Playwright trace viewer
- * (`/trace-viewer/index.html?trace=…`, vendored into `public/` — see
- * `scripts/vendor-trace-viewer.mjs`). This gives Cypress-style time-travel (DOM
- * snapshot scrubber + command log + network + console) without leaving the
- * dashboard, and without the trace bytes ever reaching the public
- * trace.playwright.dev.
+ * Shared body of the Replay dialog: a near-full-viewport panel hosting OUR
+ * trace viewer (`src/trace-viewer/` — native dashboard components on top of
+ * the vendored Playwright service worker; see that folder's bridge.html for
+ * the architecture). Gives Cypress-style time-travel (DOM snapshot scrubber +
+ * action tree + network/console) without leaving the dashboard and without
+ * the trace bytes ever reaching the public trace.playwright.dev.
  *
- * The iframe mounts only while `open` so the ~1.6 MB bundle + service-worker
- * registration defer to first use and a reopened dialog reloads fresh (no stale
- * snapshot from a prior trace).
+ * The viewer mounts only while `open`, so the SW registration + trace
+ * download defer to first use and a reopened dialog loads fresh. `viewerUrl`
+ * (the vendored OFFICIAL viewer at `/trace-viewer/index.html?trace=…`) is
+ * kept as a new-tab fallback while our viewer matures.
  */
 function TestReplayContent({
   viewerUrl,
@@ -120,22 +51,19 @@ function TestReplayContent({
   /** Close the modal (clears the `?replay=` URL param). */
   onClose: () => void;
 }): React.ReactElement {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  // Removes the iframe's Escape listener; set on each load, called on unmount.
-  const escapeCleanup = useRef<(() => void) | null>(null);
-  useEffect(() => () => escapeCleanup.current?.(), []);
+  // The SW resolves + range-reads the trace zip itself, so it needs the
+  // ABSOLUTE signed download URL. Client-only (needs `window.location`):
+  // null on SSR, set on hydrate — the dialog body is client-side anyway.
+  const absoluteTraceUrl = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return new URL(downloadHref, window.location.origin).href;
+  }, [downloadHref]);
 
   // Public-viewer fallback — opens the trace on the public trace.playwright.dev
-  // in a NEW TAB (never framed, so the page CSP doesn't apply). Built from the
-  // explicit `downloadHref` prop + the current origin, NOT by parsing
-  // `signedTraceViewerUrl`'s `?trace=` layout (which this component doesn't own).
-  // Client-only (needs `window.location.origin`): null on SSR, set on hydrate.
-  const publicViewerUrl = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    const absoluteDownloadUrl = new URL(downloadHref, window.location.origin)
-      .href;
-    return `https://trace.playwright.dev/?trace=${encodeURIComponent(absoluteDownloadUrl)}`;
-  }, [downloadHref]);
+  // in a NEW TAB (never framed, so the page CSP doesn't apply).
+  const publicViewerUrl = absoluteTraceUrl
+    ? `https://trace.playwright.dev/?trace=${encodeURIComponent(absoluteTraceUrl)}`
+    : null;
 
   return (
     <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden p-0">
@@ -147,10 +75,11 @@ function TestReplayContent({
           <Button
             size="sm"
             variant="ghost"
+            title="Opens this trace in the official Playwright viewer (self-hosted)"
             render={<a href={viewerUrl} target="_blank" rel="noreferrer" />}
           >
             <ExternalLink />
-            New tab
+            Official viewer
           </Button>
           <Button
             size="sm"
@@ -175,25 +104,11 @@ function TestReplayContent({
           ) : null}
         </div>
       </div>
-      {open ? (
-        <iframe
-          ref={iframeRef}
-          title={`Replay: ${title}`}
-          src={viewerUrl}
-          className="min-h-0 w-full flex-1 border-0 bg-bg-0"
-          // Bind Escape-to-close across the viewer's frames (see
-          // `bindEscapeAcrossFrames`) — a same-origin iframe swallows the key
-          // otherwise. Drop any prior binding first so a re-load can't stack
-          // listeners; the unmount effect above clears the last one.
-          onLoad={() => {
-            escapeCleanup.current?.();
-            const win = iframeRef.current?.contentWindow;
-            escapeCleanup.current = win
-              ? bindEscapeAcrossFrames(win, onClose)
-              : null;
-          }}
-        />
-      ) : null}
+      <div className="min-h-0 flex-1 bg-bg-0">
+        {open && absoluteTraceUrl ? (
+          <TraceViewer traceUrl={absoluteTraceUrl} onEscape={onClose} />
+        ) : null}
+      </div>
     </DialogContent>
   );
 }

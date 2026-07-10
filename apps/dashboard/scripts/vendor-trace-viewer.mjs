@@ -80,9 +80,23 @@ for (const f of REQUIRED) {
   }
 }
 
-// Idempotent: skip the copy when the vendored bundle already matches the
-// installed version (keeps `predev` snappy on every boot).
+// Our custom viewer's SW bridge (see src/trace-viewer/bridge.html) must live
+// INSIDE the /trace-viewer/ service-worker scope, i.e. inside this generated
+// dir — so it's copied here on every run (cheap, and unlike the playwright
+// bundle it changes with OUR source, not with the pinned version).
+const BRIDGE_SRC = at("src/trace-viewer/bridge.html");
+
+function copyBridge() {
+  if (!existsSync(BRIDGE_SRC)) {
+    fail(`bridge source not found at ${BRIDGE_SRC}.`);
+  }
+  cpSync(BRIDGE_SRC, `${TARGET}/bridge.html`);
+}
+
+// Idempotent: skip the playwright copy when the vendored bundle already
+// matches the installed version (keeps `predev` snappy on every boot).
 if (existsSync(STAMP) && readFileSync(STAMP, "utf8").trim() === version) {
+  copyBridge();
   console.log(
     pc.dim(`[vendor-trace-viewer] up to date (playwright-core ${version})`),
   );
@@ -92,6 +106,7 @@ if (existsSync(STAMP) && readFileSync(STAMP, "utf8").trim() === version) {
 rmSync(TARGET, { recursive: true, force: true });
 mkdirSync(TARGET, { recursive: true });
 cpSync(src, TARGET, { recursive: true });
+copyBridge();
 writeFileSync(STAMP, `${version}\n`);
 console.log(
   pc.green(

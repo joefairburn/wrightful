@@ -1,0 +1,96 @@
+<!doctype html>
+<!--
+  Wrightful trace bridge — the ONLY page of our custom trace viewer that runs
+  under the Playwright service worker's control.
+
+  The custom viewer UI lives natively in the dashboard React tree (outside the
+  /trace-viewer/ SW scope), but the SW only serves its endpoints (`contexts`,
+  `snapshot/*`, `sha1/*`, `ping`) to CONTROLLED clients — and for a controlled
+  client it resolves any out-of-scope subresource against the trace archive
+  instead of the network. So the dashboard page itself must never be
+  controlled; instead the viewer mounts this document in a hidden same-origin
+  iframe. It registers sw.bundle.js (scope /trace-viewer/), keeps the SW alive
+  (`ping` every 10s — this iframe staying mounted is also what keeps the SW's
+  per-client trace cache from being GC'd), fetches the parsed trace model from
+  `contexts?trace=…`, and relays progress/model/errors to the parent via
+  postMessage. Mirrors the official viewer's bootstrap (index.*.js) including
+  its Local-Network-Access retry (HEAD with `x-pw-serviceworker: skip`).
+
+  Everything is inline on purpose: once controlled, this document must not
+  load any subresources.
+
+  This file is copied into public/trace-viewer/ by scripts/vendor-trace-viewer.mjs
+  (the directory is generated + gitignored) — edit it HERE, not there.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <title>Wrightful trace bridge</title>
+  </head>
+  <body>
+    <script>
+      (async () => {
+        const send = (method, params) =>
+          parent.postMessage(
+            { source: "wrightful-trace-bridge", method, params },
+            location.origin,
+          );
+        try {
+          const trace = new URLSearchParams(location.search).get("trace");
+          if (!trace) throw new Error("Missing ?trace= parameter.");
+          if (!navigator.serviceWorker)
+            throw new Error(
+              "Service workers are unavailable, so the trace cannot be replayed here. Serve the dashboard over HTTPS or localhost.",
+            );
+
+          await navigator.serviceWorker.register("sw.bundle.js");
+          if (!navigator.serviceWorker.controller) {
+            await new Promise((resolve) => {
+              navigator.serviceWorker.oncontrollerchange = () => resolve();
+            });
+          }
+          // Keep the SW (and its trace cache entry for this client) alive for
+          // as long as the viewer stays open.
+          setInterval(() => {
+            fetch("ping").catch(() => {});
+          }, 10000);
+
+          navigator.serviceWorker.addEventListener("message", (event) => {
+            const data = event.data;
+            if (data && data.method === "progress")
+              send("progress", data.params);
+          });
+
+          const load = async () => {
+            const query = new URLSearchParams();
+            query.set("trace", trace);
+            const res = await fetch("contexts?" + query.toString());
+            if (!res.ok) {
+              const body = await res.json().catch(() => null);
+              return (body && body.error) || "Failed to load the trace.";
+            }
+            send("model", { contextEntries: await res.json() });
+            return null;
+          };
+
+          let error = await load();
+          if (error && error.includes("Local Network Access")) {
+            // Same dance as the official viewer: a direct HEAD (bypassing the
+            // SW) prompts the browser's permission flow, then retry.
+            await fetch(trace, {
+              method: "HEAD",
+              headers: { "x-pw-serviceworker": "skip" },
+            }).catch(() => {});
+            error = await load();
+          }
+          if (error) send("error", { error });
+        } catch (err) {
+          send("error", {
+            error: err && err.message ? err.message : String(err),
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

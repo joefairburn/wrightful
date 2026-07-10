@@ -2,35 +2,50 @@ import { expect, test } from "./fixtures";
 import { FAILURES_BRANCH } from "./global-setup";
 
 /**
- * Embedded Test Replay (self-hosted Playwright Trace Viewer).
+ * Embedded Test Replay — Wrightful's OWN trace viewer.
  *
- * The reporter uploads `trace.zip` per failed/flaky attempt; the dashboard now
- * serves the official trace viewer from its OWN origin (`/trace-viewer/…`,
- * vendored into `public/`) and embeds it in a dialog, instead of linking out to
- * the public trace.playwright.dev. These specs prove: (1) the bundle is served
- * with the framing/CSP headers that make same-origin embedding possible while
- * the rest of the app stays strict; (2) the per-row "Replay" button in a
- * run's test list mints a self-hosted viewer URL (via `?replay=` deep-link) and
- * opens it; (3) the test-detail rail's "Replay" button does the same, alongside the
- * standalone Video/Screenshot buttons (kept so a single asset can be grabbed
- * without downloading the whole trace.zip).
+ * The reporter uploads `trace.zip` per failed/flaky attempt. The dashboard
+ * renders replays with its own React workbench (`src/trace-viewer/`) built on
+ * the vendored Playwright service worker: a hidden bridge iframe under
+ * `/trace-viewer/` loads the parsed model (`contexts?trace=…`), and DOM
+ * snapshots render in iframes served by the SW
+ * (`/trace-viewer/snapshot/<pageId>?trace=…`). The official viewer bundle
+ * stays vendored as the engine + an "Official viewer" new-tab fallback.
+ *
+ * These specs prove: (1) the SW scope is served with the headers that make
+ * registration + same-origin snapshot framing possible while the rest of the
+ * app stays strict; (2) the per-row "Replay" button deep-links `?replay=` and
+ * opens the native workbench with a REAL trace driven through the real SW —
+ * action list populated, snapshot document served; (3) the test-detail rail
+ * does the same. This doubles as the vendored-engine contract test: a
+ * playwright-core bump that breaks the SW's `contexts`/`snapshot` endpoints
+ * or the model shape fails here, not in production.
  *
  * The seed (`upload-fixtures.mjs`, reporter `artifacts: "all"` +
  * `trace: "retain-on-failure"`) gives the `FAILURES_BRANCH` run tests that
  * failed and therefore carry a trace — so the replay affordances render.
  */
 test.describe("Test Replay (embedded trace viewer)", () => {
-  test("serves the self-hosted bundle with same-origin framing; global routes stay strict", async ({
+  test("serves the SW scope with same-origin framing; global routes stay strict", async ({
     page,
   }) => {
-    const viewer = await page.request.get("/trace-viewer/index.html");
-    expect(viewer.status()).toBe(200);
-    const h = viewer.headers();
-    // Relaxed only for /trace-viewer/* so the dashboard can iframe it.
-    expect(h["x-frame-options"]?.toLowerCase()).toBe("sameorigin");
-    expect(h["content-security-policy"]).toContain("frame-ancestors 'self'");
-    // The service worker that serves DOM snapshots must be in scope.
-    expect(h["service-worker-allowed"]).toBe("/trace-viewer/");
+    // The vendored engine files our viewer depends on.
+    for (const path of [
+      "/trace-viewer/sw.bundle.js",
+      "/trace-viewer/bridge.html",
+      "/trace-viewer/index.html", // official-viewer fallback, still vendored
+    ]) {
+      const res = await page.request.get(path);
+      expect(res.status(), path).toBe(200);
+      const h = res.headers();
+      // Relaxed only for /trace-viewer/* so snapshots can be framed and the
+      // SW can register at the directory scope.
+      expect(h["x-frame-options"]?.toLowerCase(), path).toBe("sameorigin");
+      expect(h["content-security-policy"], path).toContain(
+        "frame-ancestors 'self'",
+      );
+      expect(h["service-worker-allowed"], path).toBe("/trace-viewer/");
+    }
 
     // Every other route keeps the strict global policy — the relaxation must
     // not leak. A normal page response still denies framing entirely.
@@ -40,7 +55,7 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     expect(nh["content-security-policy"]).toContain("frame-ancestors 'none'");
   });
 
-  test("run test-list Replay button mints a self-hosted viewer URL, deep-links, and closes on Escape", async ({
+  test("run test-list Replay button opens the native workbench, deep-links, and closes on Escape", async ({
     page,
     runsListPage,
     runDetailPage,
@@ -55,8 +70,9 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     await expect(replay).toBeVisible({ timeout: 10_000 });
 
     // Clicking sets `?replay=<testResultId>`; the page-level host then fetches
-    // the replay endpoint and opens the dialog. Assert the endpoint hands back a
-    // SELF-HOSTED viewer URL.
+    // the replay endpoint. The endpoint still hands back the SELF-HOSTED
+    // official viewer URL (the "Official viewer" fallback link) plus the
+    // downloadHref the native viewer feeds to the service worker.
     const [resp] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes("/replay") && r.request().method() === "GET",
@@ -73,14 +89,21 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     expect(traceViewerUrl).toContain("/trace-viewer/index.html?trace=");
     expect(traceViewerUrl).not.toContain("trace.playwright.dev");
 
-    // The dialog mounts an iframe pointed at that same-origin viewer URL.
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: 10_000 });
-    const frame = dialog.locator("iframe");
-    await expect(frame).toHaveAttribute(
-      "src",
-      /\/trace-viewer\/index\.html\?trace=/,
-    );
+
+    // The NATIVE workbench loads the real trace through the real service
+    // worker: the action list populates from the parsed model…
+    const actionList = dialog.getByRole("listbox", { name: "Actions" });
+    await expect(actionList).toBeVisible({ timeout: 30_000 });
+    expect(await actionList.getByRole("option").count()).toBeGreaterThan(0);
+
+    // …and the DOM snapshot iframe is served by the SW from the trace.
+    await expect(
+      dialog.locator('iframe[title="DOM snapshot"]'),
+    ).toHaveAttribute("src", /\/trace-viewer\/snapshot\/.+\?.*trace=/, {
+      timeout: 30_000,
+    });
 
     // Opening the modal is reflected in the URL (deep-linkable / shareable).
     await expect(page).toHaveURL(/[?&]replay=/);
@@ -91,18 +114,18 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     await expect(dialog).toBeHidden({ timeout: 10_000 });
     await expect(page).not.toHaveURL(/[?&]replay=/);
 
-    // A cold load of the shared link re-opens the same modal (the host reads the
-    // param and re-mints the viewer URL), independent of any row being expanded.
+    // A cold load of the shared link re-opens the same modal (the host reads
+    // the param and re-mints the trace URL), independent of any row being
+    // expanded.
     await page.goto(deepLink);
     const relinked = page.getByRole("dialog");
     await expect(relinked).toBeVisible({ timeout: 10_000 });
-    await expect(relinked.locator("iframe")).toHaveAttribute(
-      "src",
-      /\/trace-viewer\/index\.html\?trace=/,
-    );
+    await expect(
+      relinked.getByRole("listbox", { name: "Actions" }),
+    ).toBeVisible({ timeout: 30_000 });
   });
 
-  test("test-detail rail shows Replay (self-hosted) alongside the standalone video/screenshot buttons", async ({
+  test("test-detail rail shows Replay (native viewer) alongside the standalone video/screenshot buttons", async ({
     page,
     runsListPage,
     runDetailPage,
@@ -137,13 +160,12 @@ test.describe("Test Replay (embedded trace viewer)", () => {
       page.getByRole("button", { name: /^screenshot$/i }).first(),
     ).toBeVisible();
 
-    // Opening it embeds the self-hosted viewer (not trace.playwright.dev).
+    // Opening it renders the native workbench off the real trace.
     await railReplay.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: 10_000 });
-    await expect(dialog.locator("iframe")).toHaveAttribute(
-      "src",
-      /\/trace-viewer\/index\.html\?trace=/,
-    );
+    await expect(dialog.getByRole("listbox", { name: "Actions" })).toBeVisible({
+      timeout: 30_000,
+    });
   });
 });
