@@ -21,6 +21,7 @@ import { VisualDiffRailButton } from "@/components/visual-diff-dialog";
 import { ansiToHtml } from "@/lib/ansi";
 import { cn } from "@/lib/cn";
 import { useCopiedFlag } from "@/lib/use-copied-flag";
+import { warmTraceViewer } from "@/trace-viewer/warm";
 
 /**
  * Sticky right rail on the test detail page. Three optional sections:
@@ -219,7 +220,18 @@ function RailTraceButton({
 }): React.ReactElement {
   if (!artifact.traceViewerUrl) return <></>;
   return (
-    <TraceViewerDialog artifact={artifact}>
+    <TraceViewerDialog
+      artifact={artifact}
+      onTriggerPointerEnter={() => {
+        // Full prefetch (unlike the Tests-tab row, we already know the trace's
+        // download URL here) — the SW loads + parses it into cache so the
+        // modal opens near-instant.
+        if (typeof window === "undefined") return;
+        warmTraceViewer(
+          new URL(artifact.downloadHref, window.location.origin).href,
+        );
+      }}
+    >
       <RailIconLabel icon={<History />} label="Replay" />
       <ArrowRight className="opacity-50" aria-hidden />
     </TraceViewerDialog>

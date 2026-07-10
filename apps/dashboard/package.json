@@ -6,6 +6,7 @@
   "scripts": {
     "cf:prepare": "node scripts/gen-wrangler.mjs",
     "vendor:trace-viewer": "node scripts/vendor-trace-viewer.mjs",
+    "sync:trace-vendor": "node scripts/sync-trace-vendor.mjs",
     "prebuild": "pnpm run cf:prepare && pnpm run vendor:trace-viewer",
     "build": "vp build",
     "postbuild": "node scripts/void-patches/strip-d1-binding.mjs && node scripts/void-patches/add-ws-do-migration.mjs",

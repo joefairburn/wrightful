@@ -98,9 +98,10 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     await expect(actionList).toBeVisible({ timeout: 30_000 });
     expect(await actionList.getByRole("option").count()).toBeGreaterThan(0);
 
-    // …and the DOM snapshot iframe is served by the SW from the trace.
+    // …and the DOM snapshot iframes are served by the SW from the trace
+    // (up to three stacked, one per Before/Action/After — see snapshot-pane).
     await expect(
-      dialog.locator('iframe[title="DOM snapshot"]'),
+      dialog.locator('iframe[title^="DOM snapshot"]').first(),
     ).toHaveAttribute("src", /\/trace-viewer\/snapshot\/.+\?.*trace=/, {
       timeout: 30_000,
     });

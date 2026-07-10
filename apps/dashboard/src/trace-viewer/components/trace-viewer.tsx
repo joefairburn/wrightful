@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
 import { defaultSelectedActionId, describeTraceLoadError } from "../model";
+import type { TraceBridge } from "../use-trace-model";
 import { useTraceModel } from "../use-trace-model";
 import type { ContextEntry } from "../vendor/entries";
 import { MultiTraceModel } from "../vendor/model-util";
@@ -11,6 +12,7 @@ import { ActionList } from "./action-list";
 import { DetailTabs } from "./detail-tabs";
 import { SnapshotPane } from "./snapshot-pane";
 import { SplitPane } from "./split-pane";
+import { Timeline } from "./timeline";
 
 /**
  * Wrightful's own Playwright trace viewer ("Replay"). Loads the trace model
@@ -27,7 +29,7 @@ export function TraceViewer({
   traceUrl: string;
   onEscape?: () => void;
 }): React.ReactElement {
-  const state = useTraceModel(traceUrl);
+  const { state, bridge } = useTraceModel(traceUrl);
 
   if (state.status === "loading") {
     const { progress } = state;
@@ -65,6 +67,7 @@ export function TraceViewer({
       key={traceUrl}
       traceUrl={traceUrl}
       contextEntries={state.contextEntries}
+      bridge={bridge}
       onEscape={onEscape}
     />
   );
@@ -73,10 +76,12 @@ export function TraceViewer({
 function Workbench({
   traceUrl,
   contextEntries,
+  bridge,
   onEscape,
 }: {
   traceUrl: string;
   contextEntries: ContextEntry[];
+  bridge: TraceBridge;
   onEscape?: () => void;
 }): React.ReactElement {
   const model = useMemo(
@@ -92,37 +97,48 @@ function Workbench({
   );
 
   return (
-    <SplitPane
-      direction="horizontal"
-      initial={0.32}
-      min={0.18}
-      max={0.55}
-      className="h-full"
-    >
-      <ActionList
+    <div className="flex h-full min-h-0 flex-col">
+      <Timeline
         model={model}
+        bridge={bridge}
         selectedCallId={selectedCallId}
         onSelect={setSelectedCallId}
+        className="shrink-0 border-b border-line-1"
       />
       <SplitPane
-        direction="vertical"
-        initial={0.62}
-        min={0.3}
-        max={0.85}
-        className="h-full"
+        direction="horizontal"
+        initial={0.32}
+        min={0.18}
+        max={0.55}
+        className="min-h-0 flex-1"
       >
-        <SnapshotPane
-          action={selectedAction}
-          traceUrl={traceUrl}
-          onEscape={onEscape}
-        />
-        <DetailTabs
+        <ActionList
           model={model}
-          selectedAction={selectedAction}
-          onSelectAction={setSelectedCallId}
-          traceUrl={traceUrl}
+          selectedCallId={selectedCallId}
+          onSelect={setSelectedCallId}
         />
+        <SplitPane
+          direction="vertical"
+          initial={0.62}
+          min={0.3}
+          max={0.85}
+          className="h-full"
+        >
+          <SnapshotPane
+            action={selectedAction}
+            traceUrl={traceUrl}
+            bridge={bridge}
+            onEscape={onEscape}
+          />
+          <DetailTabs
+            model={model}
+            selectedAction={selectedAction}
+            onSelectAction={setSelectedCallId}
+            traceUrl={traceUrl}
+            bridge={bridge}
+          />
+        </SplitPane>
       </SplitPane>
-    </SplitPane>
+    </div>
   );
 }

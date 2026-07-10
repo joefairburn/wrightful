@@ -4,6 +4,7 @@ import { Download, ExternalLink, PlayCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { fetch } from "void/client";
 import type { ArtifactAction } from "@/components/artifact-actions";
+import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { useSearchParam } from "@/lib/use-search-param";
 import { TraceViewer } from "@/trace-viewer/components/trace-viewer";
+import { warmTraceViewer } from "@/trace-viewer/warm";
 
 /**
  * URL param that drives the Replay modal so it's deep-linkable / shareable.
@@ -23,6 +25,14 @@ import { TraceViewer } from "@/trace-viewer/components/trace-viewer";
  * out of the URL entirely — see `useSearchParam`).
  */
 const REPLAY_PARAM = "replay";
+
+/** One attempt's replay links, as consumed by the switcher below. */
+export interface TestReplayAttempt {
+  /** 0-based, as stored — displayed as `attempt + 1`. */
+  attempt: number;
+  viewerUrl: string;
+  downloadHref: string;
+}
 
 /**
  * Shared body of the Replay dialog: a near-full-viewport panel hosting OUR
@@ -35,29 +45,50 @@ const REPLAY_PARAM = "replay";
  * The viewer mounts only while `open`, so the SW registration + trace
  * download defer to first use and a reopened dialog loads fresh. `viewerUrl`
  * (the vendored OFFICIAL viewer at `/trace-viewer/index.html?trace=…`) is
- * kept as a new-tab fallback while our viewer matures.
+ * kept as a new-tab fallback while our viewer matures. When 2+ `attempts` are
+ * given, a compact switcher in the header lets the retries be replayed
+ * individually — defaulting to the LAST one (same attempt the top-level
+ * `viewerUrl`/`downloadHref` describe).
  */
 function TestReplayContent({
   viewerUrl,
   downloadHref,
   title,
+  attempts,
   open,
   onClose,
 }: {
   viewerUrl: string;
   downloadHref: string;
   title: string;
+  /**
+   * Every attempt with a recorded trace, ascending. Only rendered as a
+   * switcher when 2+ are present — a single-attempt test (the common case)
+   * has nothing to switch between. Omitted entirely by the artifacts-rail
+   * entry point, which only ever knows about the one artifact resolved at SSR.
+   */
+  attempts?: TestReplayAttempt[];
   open: boolean;
   /** Close the modal (clears the `?replay=` URL param). */
   onClose: () => void;
 }): React.ReactElement {
+  // Selected attempt defaults to the LAST one — same as the top-level
+  // `viewerUrl`/`downloadHref` props describe when there's no switcher.
+  const lastAttempt = attempts?.at(-1)?.attempt;
+  const [selectedAttempt, setSelectedAttempt] = useState(lastAttempt);
+
+  const active =
+    attempts?.find((a) => a.attempt === selectedAttempt) ?? attempts?.at(-1);
+  const activeViewerUrl = active?.viewerUrl ?? viewerUrl;
+  const activeDownloadHref = active?.downloadHref ?? downloadHref;
+
   // The SW resolves + range-reads the trace zip itself, so it needs the
   // ABSOLUTE signed download URL. Client-only (needs `window.location`):
   // null on SSR, set on hydrate — the dialog body is client-side anyway.
   const absoluteTraceUrl = useMemo(() => {
     if (typeof window === "undefined") return null;
-    return new URL(downloadHref, window.location.origin).href;
-  }, [downloadHref]);
+    return new URL(activeDownloadHref, window.location.origin).href;
+  }, [activeDownloadHref]);
 
   // Public-viewer fallback — opens the trace on the public trace.playwright.dev
   // in a NEW TAB (never framed, so the page CSP doesn't apply).
@@ -72,11 +103,24 @@ function TestReplayContent({
           {title}
         </DialogTitle>
         <div className="flex shrink-0 items-center gap-1">
+          {attempts && attempts.length > 1 ? (
+            <SegmentedControl
+              compact
+              value={String(selectedAttempt ?? lastAttempt)}
+              onChange={(next) => setSelectedAttempt(Number(next))}
+              options={attempts.map((a) => ({
+                value: String(a.attempt),
+                label: `Attempt ${a.attempt + 1}`,
+              }))}
+            />
+          ) : null}
           <Button
             size="sm"
             variant="ghost"
             title="Opens this trace in the official Playwright viewer (self-hosted)"
-            render={<a href={viewerUrl} target="_blank" rel="noreferrer" />}
+            render={
+              <a href={activeViewerUrl} target="_blank" rel="noreferrer" />
+            }
           >
             <ExternalLink />
             Official viewer
@@ -84,7 +128,7 @@ function TestReplayContent({
           <Button
             size="sm"
             variant="ghost"
-            render={<a href={downloadHref} download />}
+            render={<a href={activeDownloadHref} download />}
           >
             <Download />
             Download
@@ -106,7 +150,14 @@ function TestReplayContent({
       </div>
       <div className="min-h-0 flex-1 bg-bg-0">
         {open && absoluteTraceUrl ? (
-          <TraceViewer traceUrl={absoluteTraceUrl} onEscape={onClose} />
+          // Keyed on the download href so switching attempts remounts the
+          // viewer (a fresh SW load for the newly-selected trace) rather than
+          // reusing the previous attempt's model.
+          <TraceViewer
+            key={activeDownloadHref}
+            traceUrl={absoluteTraceUrl}
+            onEscape={onClose}
+          />
         ) : null}
       </div>
     </DialogContent>
@@ -123,9 +174,14 @@ function TestReplayContent({
 export function TraceViewerDialog({
   artifact,
   children,
+  onTriggerPointerEnter,
 }: {
   artifact: ArtifactAction;
   children: React.ReactNode;
+  /** Fired on hover/touch-start of the trigger — lets the rail warm the SW +
+   * prefetch this artifact's trace ahead of the click (see `RailTraceButton`
+   * in `artifacts-rail.tsx`). */
+  onTriggerPointerEnter?: () => void;
 }): React.ReactElement {
   const [replay, setReplay] = useSearchParam(REPLAY_PARAM, "");
   const viewerUrl = artifact.traceViewerUrl;
@@ -145,6 +201,7 @@ export function TraceViewerDialog({
             size="sm"
             variant="outline"
             className="w-full justify-between"
+            onPointerEnter={onTriggerPointerEnter}
           />
         }
       >
@@ -185,6 +242,10 @@ export function ReplayRowButton({
         e.stopPropagation();
         setReplay(testResultId);
       }}
+      // Register-only warm: this row doesn't know its trace URL (only the
+      // replay endpoint, fetched lazily by `ReplayModalHost`, does), but the
+      // SW registration alone shaves the modal's first-ever load.
+      onPointerEnter={() => warmTraceViewer()}
     >
       <PlayCircle className="size-3.5" strokeWidth={2} />
       Replay
@@ -216,6 +277,7 @@ export function ReplayModalHost({
     viewerUrl: string;
     downloadHref: string;
     title: string;
+    attempts: TestReplayAttempt[];
   } | null>(null);
 
   useEffect(() => {
@@ -239,6 +301,11 @@ export function ReplayModalHost({
             viewerUrl: body.traceViewerUrl,
             downloadHref: body.downloadHref,
             title: body.title,
+            attempts: body.attempts.map((a) => ({
+              attempt: a.attempt,
+              viewerUrl: a.traceViewerUrl,
+              downloadHref: a.downloadHref,
+            })),
           });
         }
       } catch {
@@ -267,6 +334,7 @@ export function ReplayModalHost({
           viewerUrl={resolved.viewerUrl}
           downloadHref={resolved.downloadHref}
           title={resolved.title}
+          attempts={resolved.attempts}
           open={open}
           onClose={close}
         />

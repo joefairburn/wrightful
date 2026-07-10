@@ -31,10 +31,30 @@ function shortUrl(url: string): string {
 export function NetworkTab({
   model,
   selectedAction,
+  scopeToSelected,
 }: TraceTabProps): React.ReactElement {
-  const entries = model.resources;
+  const scoped = scopeToSelected && selectedAction != null;
+  // Scoped: filter to the selected action's window. Unscoped: keep every
+  // entry and merely highlight the ones in that window (today's behavior).
+  const isWithinSelectedAction = (monotonicTime: number | undefined): boolean =>
+    selectedAction != null &&
+    monotonicTime != null &&
+    monotonicTime >= selectedAction.startTime &&
+    monotonicTime <= selectedAction.endTime;
+  const entries = scoped
+    ? model.resources.filter((entry) =>
+        isWithinSelectedAction(entry._monotonicTime),
+      )
+    : model.resources;
 
   if (entries.length === 0) {
+    if (scoped) {
+      return (
+        <div className="px-3 py-4 text-12 text-fg-4">
+          No requests during this action.
+        </div>
+      );
+    }
     return (
       <Empty className="h-full py-8">
         <EmptyTitle>No network activity</EmptyTitle>
@@ -65,10 +85,7 @@ export function NetworkTab({
             // direct member access.
             const { _monotonicTime: monotonicTime } = entry;
             const isHighlighted =
-              selectedAction != null &&
-              monotonicTime != null &&
-              monotonicTime >= selectedAction.startTime &&
-              monotonicTime <= selectedAction.endTime;
+              !scoped && isWithinSelectedAction(monotonicTime);
             const size =
               entry.response.content.size >= 0
                 ? entry.response.content.size

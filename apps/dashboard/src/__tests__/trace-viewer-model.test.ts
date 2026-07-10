@@ -4,7 +4,9 @@ import {
   defaultSelectedActionId,
   describeTraceLoadError,
   sha1DownloadUrl,
+  sha1Path,
   snapshotIframeUrl,
+  snapshotInfoPath,
   snapshotViewport,
 } from "@/trace-viewer/model";
 import type { ContextEntry } from "@/trace-viewer/vendor/entries";
@@ -144,6 +146,22 @@ describe("trace-viewer model adapter", () => {
     expect(url.searchParams.get("dn")).toBe("screenshot.png");
     expect(url.searchParams.get("dct")).toBe("image/png");
     expect(url.searchParams.get("trace")).toBe(TRACE_URL);
+  });
+
+  it("bridge-proxy paths are scope-relative and carry the trace param", () => {
+    // Bridge fetches resolve against /trace-viewer/bridge.html, so these
+    // must be RELATIVE paths (no leading slash) with ?trace= for the SW.
+    const info = snapshotInfoPath(
+      TRACE_URL,
+      collectSnapshots(model.actions[1]).action!,
+    );
+    expect(info.startsWith("snapshotInfo/page@1?")).toBe(true);
+    expect(info).toContain(`trace=${encodeURIComponent(TRACE_URL)}`);
+    expect(info).toContain("name=input%40call%402");
+
+    const sha1 = sha1Path(TRACE_URL, "src@abc.txt");
+    expect(sha1.startsWith("sha1/src@abc.txt?")).toBe(true);
+    expect(sha1).toContain(`trace=${encodeURIComponent(TRACE_URL)}`);
   });
 
   it("snapshotViewport reads the recorded context viewport", () => {

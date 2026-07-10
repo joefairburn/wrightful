@@ -30,6 +30,7 @@ vi.mock("@/lib/scope", () => ({ childByTestResultWhere: () => ({}) }));
 
 vi.mock("@/lib/artifact-tokens", () => ({
   signArtifactToken: vi.fn(async () => "TOKEN"),
+  TRACE_TOKEN_TTL_SECONDS: 8 * 60 * 60,
   signedDownloadHref: (id: string, t: string) =>
     `/api/artifacts/${id}/download?t=${t}`,
   signedTraceViewerUrl: (o: string, id: string, t: string) =>

@@ -5,16 +5,27 @@
 
   The custom viewer UI lives natively in the dashboard React tree (outside the
   /trace-viewer/ SW scope), but the SW only serves its endpoints (`contexts`,
-  `snapshot/*`, `sha1/*`, `ping`) to CONTROLLED clients — and for a controlled
-  client it resolves any out-of-scope subresource against the trace archive
-  instead of the network. So the dashboard page itself must never be
-  controlled; instead the viewer mounts this document in a hidden same-origin
-  iframe. It registers sw.bundle.js (scope /trace-viewer/), keeps the SW alive
-  (`ping` every 10s — this iframe staying mounted is also what keeps the SW's
-  per-client trace cache from being GC'd), fetches the parsed trace model from
-  `contexts?trace=…`, and relays progress/model/errors to the parent via
-  postMessage. Mirrors the official viewer's bootstrap (index.*.js) including
-  its Local-Network-Access retry (HEAD with `x-pw-serviceworker: skip`).
+  `snapshot/*`, `snapshotInfo/*`, `sha1/*`, `ping`) to CONTROLLED clients —
+  and for a controlled client it resolves any out-of-scope subresource against
+  the trace archive instead of the network. So the dashboard page itself must
+  never be controlled; instead the viewer mounts this document in a hidden
+  same-origin iframe. It registers sw.bundle.js (scope /trace-viewer/), keeps
+  the SW alive (`ping` every 10s — this iframe staying mounted is also what
+  keeps the SW's per-client trace cache from being GC'd), fetches the parsed
+  trace model from `contexts?trace=…`, and relays progress/model/errors to the
+  parent via postMessage. Mirrors the official viewer's bootstrap (index.*.js)
+  including its Local-Network-Access retry (HEAD, `x-pw-serviceworker: skip`).
+
+  It also exposes a FETCH PROXY to the parent: `{method:"fetch", id, path,
+  as}` requests are fetched from inside this controlled client (so the SW
+  answers them) and returned as `fetchResult` messages — this is how the
+  dashboard reads `snapshotInfo/*` JSON, `sha1/*` bytes (source files,
+  attachment previews, screencast frames), which it cannot fetch itself.
+  Paths are validated to stay inside the SW scope.
+
+  WARM MODE: loaded without `?trace=`, the bridge only registers the service
+  worker, reports `warm`, and idles — used to pre-warm the SW on hover of a
+  Replay button (see src/trace-viewer/warm.ts).
 
   Everything is inline on purpose: once controlled, this document must not
   load any subresources.
@@ -36,9 +47,48 @@
             { source: "wrightful-trace-bridge", method, params },
             location.origin,
           );
+
+        // Fetch proxy: answer parent requests from inside this controlled
+        // client. Installed before the (slow) model load so snapshotInfo /
+        // sha1 requests work as soon as the parent has the model.
+        window.addEventListener("message", (event) => {
+          const data = event.data;
+          if (event.origin !== location.origin) return;
+          if (event.source !== parent) return;
+          if (!data || data.source !== "wrightful-trace-host") return;
+          if (data.method !== "fetch") return;
+          const { id, path, as } = data;
+          const reply = (params) =>
+            send("fetchResult", Object.assign({ id }, params));
+          Promise.resolve()
+            .then(async () => {
+              const url = new URL(path, location.href);
+              if (
+                url.origin !== location.origin ||
+                !url.pathname.startsWith("/trace-viewer/")
+              ) {
+                throw new Error("Path outside the trace-viewer scope.");
+              }
+              const res = await fetch(url.toString());
+              if (!res.ok) {
+                reply({ ok: false, status: res.status });
+                return;
+              }
+              const body =
+                as === "blob" ? await res.blob() : await res.json();
+              reply({ ok: true, status: res.status, body });
+            })
+            .catch((err) => {
+              reply({
+                ok: false,
+                status: 0,
+                error: err && err.message ? err.message : String(err),
+              });
+            });
+        });
+
         try {
           const trace = new URLSearchParams(location.search).get("trace");
-          if (!trace) throw new Error("Missing ?trace= parameter.");
           if (!navigator.serviceWorker)
             throw new Error(
               "Service workers are unavailable, so the trace cannot be replayed here. Serve the dashboard over HTTPS or localhost.",
@@ -50,6 +100,13 @@
               navigator.serviceWorker.oncontrollerchange = () => resolve();
             });
           }
+
+          if (!trace) {
+            // Warm mode: SW registered + active; nothing to load.
+            send("warm", {});
+            return;
+          }
+
           // Keep the SW (and its trace cache entry for this client) alive for
           // as long as the viewer stays open.
           setInterval(() => {

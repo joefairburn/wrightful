@@ -1,3 +1,4 @@
+import type { TraceBridge } from "./use-trace-model";
 import type {
   ActionTraceEventInContext,
   MultiTraceModel,
@@ -44,6 +45,13 @@ export type TraceTabProps = {
   onSelectAction: (callId: string) => void;
   /** The absolute trace URL (drives SW-served attachment/resource links). */
   traceUrl: string;
+  /** Fetch proxy into the SW-controlled bridge (sha1 bytes, snapshotInfo…). */
+  bridge: TraceBridge;
+  /**
+   * When set, time-windowed tabs (Console/Network) FILTER to the selected
+   * action's window instead of merely highlighting it.
+   */
+  scopeToSelected: boolean;
 };
 
 function createSnapshot(
@@ -132,6 +140,39 @@ export function snapshotIframeUrl(
     params.set("pointY", String(snapshot.point.y));
   }
   return `${TRACE_VIEWER_SCOPE}snapshot/${snapshot.pageId}?${params.toString()}`;
+}
+
+/**
+ * Sidecar metadata for a snapshot (`snapshotInfo/<pageId>?…`): the page URL
+ * at capture time and the EXACT viewport (correct even when a test resizes
+ * mid-run). Fetch through the bridge proxy — the SW only answers controlled
+ * clients.
+ */
+export type SnapshotInfo = {
+  error?: string;
+  url: string;
+  viewport: { width: number; height: number };
+  timestamp?: number;
+  wallTime?: number;
+};
+
+/** Bridge-proxy path for a snapshot's `snapshotInfo/` sidecar JSON. */
+export function snapshotInfoPath(traceUrl: string, snapshot: Snapshot): string {
+  const params = new URLSearchParams();
+  params.set("trace", traceUrl);
+  params.set("name", snapshot.snapshotName);
+  return `snapshotInfo/${snapshot.pageId}?${params.toString()}`;
+}
+
+/**
+ * Bridge-proxy path for trace bytes by sha1 — source files
+ * (`src@<hash>.txt`), attachment bodies, and screencast frames (whose "sha1"
+ * is really the archive filename `page@<id>-<ts>.jpeg`; same SW route).
+ */
+export function sha1Path(traceUrl: string, sha1: string): string {
+  const params = new URLSearchParams();
+  params.set("trace", traceUrl);
+  return `sha1/${sha1}?${params.toString()}`;
 }
 
 /**

@@ -5,8 +5,30 @@ import { useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/time-format";
 import { actionTitle } from "../model";
+import type { ActionGroup } from "../vendor/protocol-formatter";
 import type { ActionTreeItem, MultiTraceModel } from "../vendor/model-util";
 import { buildActionTree, stats } from "../vendor/model-util";
+
+/**
+ * Low-signal action groups (`route` handlers, `getter` reads, context
+ * `configuration` calls) are HIDDEN by default, matching the official
+ * viewer's `filteredActions([])` semantics — chips per group (with counts)
+ * toggle them back in. The choice persists across traces.
+ */
+const GROUPS: ActionGroup[] = ["route", "getter", "configuration"];
+const SHOWN_GROUPS_KEY = "wrightful:trace-viewer:shown-action-groups";
+
+function readShownGroups(): ReadonlySet<ActionGroup> {
+  try {
+    const raw = window.localStorage.getItem(SHOWN_GROUPS_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(GROUPS.filter((g) => (parsed as unknown[]).includes(g)));
+  } catch {
+    return new Set();
+  }
+}
 
 /**
  * Left pane of the workbench: the merged test-runner/library action tree.
@@ -22,13 +44,37 @@ export function ActionList({
   selectedCallId: string | undefined;
   onSelect: (callId: string) => void;
 }): React.ReactElement {
+  const [shownGroups, setShownGroups] =
+    useState<ReadonlySet<ActionGroup>>(readShownGroups);
   const rootItem = useMemo(
-    () => buildActionTree(model.actions).rootItem,
-    [model],
+    () => buildActionTree(model.filteredActions([...shownGroups])).rootItem,
+    [model, shownGroups],
   );
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+
+  const toggleGroup = (group: ActionGroup): void => {
+    setShownGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      try {
+        window.localStorage.setItem(
+          SHOWN_GROUPS_KEY,
+          JSON.stringify([...next]),
+        );
+      } catch {
+        /* persistence is best-effort */
+      }
+      return next;
+    });
+  };
+
+  const groupChips = GROUPS.map((group) => ({
+    group,
+    count: model.actionCounters.get(group) ?? 0,
+  })).filter(({ count }) => count > 0);
 
   const toggle = (id: string): void => {
     setCollapsed((prev) => {
@@ -60,38 +106,68 @@ export function ActionList({
   };
 
   return (
-    <div
-      role="listbox"
-      aria-label="Actions"
-      tabIndex={0}
-      className="h-full overflow-y-auto overscroll-contain py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-      onKeyDown={(e) => {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          moveSelection(1);
-        } else if (e.key === "ArrowUp") {
-          e.preventDefault();
-          moveSelection(-1);
-        }
-      }}
-    >
-      {visible.map(({ item, depth }) => (
-        <ActionRow
-          key={item.id}
-          item={item}
-          depth={depth}
-          startTime={model.startTime}
-          selected={item.action.callId === selectedCallId}
-          isCollapsed={collapsed.has(item.id)}
-          onToggle={toggle}
-          onSelect={onSelect}
-        />
-      ))}
-      {visible.length === 0 ? (
-        <div className="px-3 py-6 text-center text-12 text-fg-4">
-          No actions recorded in this trace.
+    <div className="flex h-full min-h-0 flex-col">
+      {groupChips.length > 0 ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line-1 px-2 py-1.5">
+          {groupChips.map(({ group, count }) => {
+            const shown = shownGroups.has(group);
+            return (
+              <button
+                key={group}
+                type="button"
+                aria-pressed={shown}
+                title={
+                  shown
+                    ? `Hide ${count} ${group} action${count === 1 ? "" : "s"}`
+                    : `Show ${count} ${group} action${count === 1 ? "" : "s"}`
+                }
+                onClick={() => toggleGroup(group)}
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-11 tabular-nums",
+                  shown
+                    ? "border-ring/40 bg-bg-3 text-fg-2"
+                    : "border-line-1 text-fg-4 hover:text-fg-2",
+                )}
+              >
+                {group} {count}
+              </button>
+            );
+          })}
         </div>
       ) : null}
+      <div
+        role="listbox"
+        aria-label="Actions"
+        tabIndex={0}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            moveSelection(1);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            moveSelection(-1);
+          }
+        }}
+      >
+        {visible.map(({ item, depth }) => (
+          <ActionRow
+            key={item.id}
+            item={item}
+            depth={depth}
+            startTime={model.startTime}
+            selected={item.action.callId === selectedCallId}
+            isCollapsed={collapsed.has(item.id)}
+            onToggle={toggle}
+            onSelect={onSelect}
+          />
+        ))}
+        {visible.length === 0 ? (
+          <div className="px-3 py-6 text-center text-12 text-fg-4">
+            No actions recorded in this trace.
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

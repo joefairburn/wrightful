@@ -1,0 +1,72 @@
+# 2026-07-10 — Trace viewer phase 2: bridge fetch-proxy + filmstrip, Source, previews, attempts, and the polish list
+
+## What changed
+
+Second pass on the custom trace viewer (same day as
+`2026-07-10-custom-trace-viewer.md`). The headline is the **bridge
+fetch-proxy** — the one architectural addition that unblocked four features
+at once — plus the full follow-up list from review.
+
+**The proxy.** The trace SW only answers `snapshotInfo/*` / `sha1/*` fetches
+from a client it controls, and the dashboard page must never be controlled
+(it would lose its own assets/API to trace-archive resolution). `bridge.html`
+now exposes a postMessage RPC: the parent sends
+`{source:"wrightful-trace-host", method:"fetch", id, path, as:"json"|"blob"}`,
+the bridge fetches from inside the controlled client (path validated to stay
+under `/trace-viewer/`) and replies with a structured-cloneable body (Blobs
+clone fine). `use-trace-model.ts` returns a stable `TraceBridge`
+(`fetchJson`/`fetchBlob`, per-request timeout, pending-map rejected on
+unmount); `use-object-url.ts` wraps it into a blob→objectURL hook with
+lifecycle handling.
+
+## Features
+
+| Feature                                                                                                                 | How                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Filmstrip/timeline** (`components/timeline.tsx`)                                                                      | Strip above the workbench spanning `[startTime, endTime]`: screencast JPEGs sampled to container width (binary-search nearest frame per slot, ≤60 thumbs), each fetched via the proxy (an `<img>` at the SW path would 404 — this feature is impossible without the proxy). Selected-action window overlay, hover time cursor (`+1.2s`), click/drag seeks to the action active at that time. Renders as click-to-seek axis even with no frames.                                                                                                                                                                                                                                                                                                                                 |
+| **Source tab** (`components/source-tab.tsx`)                                                                            | The official mechanism was researched at tag v1.61.1 and verified empirically: source content lives at `sha1/src@<SHA-1 of the raw stack-frame file path>.txt` (confirmed: sha1 of the fixture spec path == the `src@…` resource name in the real trace). Defaults to the selected action's top stack frame, file-tab picker for multiple files, fetched content cached back onto `SourceModel.content` (mirroring upstream), target line highlighted + scrolled into view, error lines get `bg-fail-soft` + inline message. Renders a line-numbered `<pre>` — both `ui/code-editor*` wrappers were evaluated and neither supports read-only line highlighting (the `CodeEditor` readOnly path deliberately doesn't mount CodeMirror). Tab appears only when `model.hasSource`. |
+| **Inline attachment previews** (attachments-tab)                                                                        | `image/*` attachments render a thumbnail via the proxy (sha1) or data-URL (base64), clicking opens the full asset; non-images unchanged.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Snapshot URL bar + exact viewport** (snapshot-pane)                                                                   | `snapshotInfo/<pageId>` fetched via the proxy per active snapshot (cached, stale-guarded): a slim chrome bar shows the page URL at capture time, and `info.viewport` drives scaling (fixes mid-run `setViewportSize`; falls back to the context viewport without a bridge).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **No-flash snapshot tabs** (snapshot-pane)                                                                              | Up to three iframes (Before/Action/After) stay mounted, absolutely stacked, visibility-toggled (`aria-hidden`/`inert` on inactive) — tab switches are instant; changing the selected action still reloads (expected). Escape bindings tracked per-iframe in a Map. NOTE: iframe titles are now `DOM snapshot (<Tab>)` — the e2e locator moved to `iframe[title^="DOM snapshot"]`.                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Action-group filter chips** (action-list)                                                                             | `route`/`getter`/`configuration` actions hidden by default via the vendored `model.filteredActions([])` (official semantics); chips with counts (from `actionCounters`) toggle groups back in, persisted in localStorage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **Attempt switcher** (replay route + dialog)                                                                            | The `/replay` endpoint now returns `attempts: [{attempt, traceViewerUrl, downloadHref}]` (ascending, per-attempt tokens) alongside the existing last-attempt top-level fields. `TestReplayContent` shows a `SegmentedControl` (`Attempt N`, default last) when 2+ attempts exist; switching swaps the trace URL (clean viewer remount). Rail entry point (one artifact known at SSR) unaffected.                                                                                                                                                                                                                                                                                                                                                                                |
+| **Console/Network scope toggle** (detail-tabs + tabs)                                                                   | A crosshair toggle right of the tab bar switches Console/Network from highlight-the-window to FILTER-to-the-window (`eventsForAction` / `_monotonicTime` range), with compact per-action empty notes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **Trace token TTL** (artifact-tokens)                                                                                   | New `TRACE_TOKEN_TTL_SECONDS` (8h vs the 1h default): the SW range-reads the zip LAZILY, so a long debugging session would quietly start failing mid-scrub on a 1h token. Used by the replay endpoint (all attempts) and `signArtifactRows` (rail path) for `type === "trace"` only; traces never take the direct-R2 presign path so the longer life covers exactly one worker-proxied object. Chosen over "refresh mid-session" because a refreshed URL is a different SW cache key — swapping it would reload the whole trace.                                                                                                                                                                                                                                                |
+| **SW pre-warm on hover** (`warm.ts`)                                                                                    | `warmTraceViewer(traceUrl?)`: hidden bridge iframe; no-arg registers the SW (bridge "warm mode" — new `?trace=`-less branch), with-URL fully prefetches the model into the SW cache and stays mounted to pin it. Wired to `ReplayRowButton` pointer-enter (register-only; the row doesn't know its URL) and the rail's Replay trigger (full prefetch — URL known at SSR).                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **Vendor re-sync automation** (`scripts/sync-trace-vendor.mjs`, `pnpm --filter @wrightful/dashboard sync:trace-vendor`) | Downloads the 7 fully-verbatim vendor files from the tag matching the installed playwright-core, re-applies the per-file import-rewrite table + preserved local headers (+ documented `bodyPatches` for upstream lint quirks), bumps `vendor/version.ts`, flags the 2 hand-extracted files for manual review, prints the test checklist. `--dry-run` (fetch+diff only) and `--pr` (branch + commit + `gh pr create`, degrades to printed manual commands when unauthenticated). Faithfulness proof: dry-run at the current pin reports every file byte-identical after the round-trip.                                                                                                                                                                                          |
+
+Deliberately split out: **server-side step extraction at ingest** — scoped in
+`docs/step-extraction-plan.md` (queue-based `test.trace` parsing into a new
+`testSteps` table + test-detail timeline + MCP surface). It touches the
+ingest path and schema, so it ships as its own change.
+
+## Verification
+
+- **Static:** repo-root `pnpm check` → 0 errors, 133 warnings (pre-existing
+  baseline; the new files add none).
+- **Unit:** node lane 291 passed / 4 skipped (model tests extended for the
+  new bridge-path helpers; the signing test's module mock gained the new TTL
+  export); workers lane 1222 passed.
+- **Real browser, real traces** (dev server + seeded fixtures, Chromium):
+  attempt switcher rendered `Attempt 1/2/3` on a retried failing test and
+  switching reloaded the viewer; filmstrip showed 16 proxy-fetched blob
+  thumbnails; snapshot URL bar showed `about:blank` (correct — the fixture
+  uses `setContent`); `configuration 2` chip present; Source tab rendered
+  the real spec with the failing line highlighted + scrolled; attachments
+  tab showed inline blob previews; scope toggle filtered Console; Escape
+  still closes. Screenshotted throughout.
+- **Isolated dashboard e2e:** `test-replay.spec.ts` → 3/3 (spec updated for
+  the stacked-iframe titles).
+- **Sync script:** `--dry-run` re-verified by hand — all 7 verbatim files
+  unchanged after fetch+rewrite+format round-trip; manual-review warnings
+  and checklist print as designed.
+
+## Notes / follow-ups
+
+- The filmstrip of a mostly-white page renders as a near-white band —
+  correct but visually subtle; could add per-thumb separators later.
+- `snapshotInfo` is fetched only for the ACTIVE snapshot tab; inactive
+  stacked iframes size to the active viewport until selected (no reload on
+  resize since viewport isn't in the iframe key).
+- The `?replay=` param could later carry the attempt + selected action for
+  deeper deep-links.

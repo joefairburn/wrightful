@@ -18,6 +18,18 @@ import {
 export const ARTIFACT_TOKEN_TTL_SECONDS = 60 * 60;
 
 /**
+ * Lifetime of a TRACE download token (8 hours, vs 1 hour for other
+ * artifacts). The Replay viewer's service worker range-reads the trace zip
+ * LAZILY — scrubbing to a not-yet-cached snapshot re-reads bytes with the
+ * token minted when the modal opened — so a debugging session longer than
+ * the token would start failing quietly mid-scrub. Traces never take the
+ * direct-R2 presign path (the embed is always self-hosted, see
+ * `signArtifactRows`), so the longer life applies only to the worker-proxied
+ * download of one object.
+ */
+export const TRACE_TOKEN_TTL_SECONDS = 8 * 60 * 60;
+
+/**
  * Signed artifact-download token. Carries the R2 object key + content type
  * directly, so the download handler can stream the response without touching
  * the DB. A leaked token grants short-lived read on exactly one R2 object.

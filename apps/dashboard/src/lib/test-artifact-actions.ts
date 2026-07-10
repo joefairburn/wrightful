@@ -3,6 +3,7 @@ import { artifacts } from "@schema";
 import type { ArtifactAction } from "@/components/artifact-actions";
 import {
   signArtifactToken,
+  TRACE_TOKEN_TTL_SECONDS,
   signedDownloadHref,
   signedTraceViewerUrl,
 } from "@/lib/artifact-tokens";
@@ -187,10 +188,15 @@ async function signArtifactRows(
 ): Promise<SignedArtifact[]> {
   return Promise.all(
     rows.map(async (a) => {
-      const token = await signArtifactToken({
-        r2Key: a.r2Key,
-        contentType: a.contentType,
-      });
+      // Trace tokens live longer: the Replay viewer's SW range-reads the zip
+      // lazily for the whole modal session (see TRACE_TOKEN_TTL_SECONDS).
+      const token = await signArtifactToken(
+        {
+          r2Key: a.r2Key,
+          contentType: a.contentType,
+        },
+        a.type === "trace" ? TRACE_TOKEN_TTL_SECONDS : undefined,
+      );
       return {
         id: a.id,
         type: a.type,

@@ -49,13 +49,28 @@ function rowSeverity(event: ConsoleRow): "error" | "warning" | undefined {
 export function ConsoleTab({
   model,
   selectedAction,
+  scopeToSelected,
 }: TraceTabProps): React.ReactElement {
-  const rows = model.events.filter(isConsoleRow);
-  const highlighted = selectedAction
+  const allRows = model.events.filter(isConsoleRow);
+  const scoped = scopeToSelected && selectedAction != null;
+  const actionEvents = selectedAction
     ? new Set(eventsForAction(selectedAction))
     : undefined;
+  // Scoped: filter to the selected action's window. Unscoped: keep every row
+  // and merely highlight the ones in that window (today's behavior).
+  const rows = scoped
+    ? allRows.filter((event) => actionEvents?.has(event))
+    : allRows;
+  const highlighted = scoped ? undefined : actionEvents;
 
   if (rows.length === 0) {
+    if (scoped) {
+      return (
+        <div className="px-3 py-4 text-12 text-fg-4">
+          No console output during this action.
+        </div>
+      );
+    }
     return (
       <Empty className="h-full py-8">
         <EmptyTitle>No console output</EmptyTitle>
