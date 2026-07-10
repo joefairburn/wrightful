@@ -106,6 +106,13 @@ test.describe("Test Replay (embedded trace viewer)", () => {
       timeout: 30_000,
     });
 
+    // Parity-pass chrome renders alongside the workbench: the action search
+    // box, the Call detail tab, and the timeline strip above the panes.
+    await expect(
+      dialog.getByRole("searchbox", { name: "Filter actions" }),
+    ).toBeVisible();
+    await expect(dialog.getByRole("tab", { name: "Call" })).toBeVisible();
+
     // Opening the modal is reflected in the URL (deep-linkable / shareable).
     await expect(page).toHaveURL(/[?&]replay=/);
     const deepLink = page.url();
