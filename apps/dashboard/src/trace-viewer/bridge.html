@@ -141,7 +141,32 @@
             }).catch(() => {});
             error = await load();
           }
-          if (error) send("error", { error });
+          if (error) {
+            // The SW's load error doesn't say WHY the zip fetch failed (a 404
+            // from a missing artifact reads the same as a blocked network).
+            // Probe the trace URL directly (bypassing the SW) and surface the
+            // actual HTTP status — this turns "make sure a valid trace is
+            // accessible" into "the trace URL returned HTTP 404".
+            try {
+              const probe = await fetch(trace, {
+                method: "HEAD",
+                headers: { "x-pw-serviceworker": "skip" },
+              });
+              if (!probe.ok) {
+                error +=
+                  "\n\nThe trace URL returned HTTP " +
+                  probe.status +
+                  (probe.status === 404
+                    ? " — the trace bytes are missing from artifact storage (in local dev this usually means the DB has the artifact row but the dev R2 state was reset; re-run the fixture seed)."
+                    : probe.status === 403 || probe.status === 401
+                      ? " — the download token was rejected (likely expired; reopen the Replay modal to mint a fresh one)."
+                      : ".");
+              }
+            } catch {
+              /* probe is best-effort */
+            }
+            send("error", { error });
+          }
         } catch (err) {
           send("error", {
             error: err && err.message ? err.message : String(err),

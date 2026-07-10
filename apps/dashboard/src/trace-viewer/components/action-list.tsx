@@ -2,6 +2,7 @@
 
 import { ChevronRight, CircleAlert, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
+import { SearchFilterInput } from "@/components/search-filter-input";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/time-format";
 import { actionTitle } from "../model";
@@ -17,6 +18,15 @@ import { buildActionTree, stats } from "../vendor/model-util";
  */
 const GROUPS: ActionGroup[] = ["route", "getter", "configuration"];
 const SHOWN_GROUPS_KEY = "wrightful:trace-viewer:shown-action-groups";
+
+/** The searchable free-text hint shown beside an action's title. */
+function actionParamHint(action: ActionTreeItem["action"]): string {
+  const params: Record<string, unknown> = action.params ?? {};
+  if (typeof params.selector === "string") return params.selector;
+  if (typeof params.url === "string") return params.url;
+  if (typeof params.expression === "string") return params.expression;
+  return "";
+}
 
 function readShownGroups(): ReadonlySet<ActionGroup> {
   try {
@@ -53,6 +63,7 @@ export function ActionList({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const [query, setQuery] = useState("");
 
   const toggleGroup = (group: ActionGroup): void => {
     setShownGroups((prev) => {
@@ -87,15 +98,43 @@ export function ActionList({
 
   const visible = useMemo(() => {
     const rows: Array<{ item: ActionTreeItem; depth: number }> = [];
+    const needle = query.trim().toLowerCase();
+
+    if (!needle) {
+      const walk = (item: ActionTreeItem, depth: number): void => {
+        for (const child of item.children) {
+          rows.push({ item: child, depth });
+          if (!collapsed.has(child.id)) walk(child, depth + 1);
+        }
+      };
+      walk(rootItem, 0);
+      return rows;
+    }
+
+    // Searching: keep matches and their ancestors, ignore collapse state so
+    // a match inside a collapsed group is still reachable.
+    const matches = (item: ActionTreeItem): boolean =>
+      `${actionTitle(item.action)} ${actionParamHint(item.action)}`
+        .toLowerCase()
+        .includes(needle);
+    const hasMatch = new Map<ActionTreeItem, boolean>();
+    const mark = (item: ActionTreeItem): boolean => {
+      let any = matches(item);
+      for (const child of item.children) any = mark(child) || any;
+      hasMatch.set(item, any);
+      return any;
+    };
+    for (const child of rootItem.children) mark(child);
     const walk = (item: ActionTreeItem, depth: number): void => {
       for (const child of item.children) {
+        if (!hasMatch.get(child)) continue;
         rows.push({ item: child, depth });
-        if (!collapsed.has(child.id)) walk(child, depth + 1);
+        walk(child, depth + 1);
       }
     };
     walk(rootItem, 0);
     return rows;
-  }, [rootItem, collapsed]);
+  }, [rootItem, collapsed, query]);
 
   const moveSelection = (delta: number): void => {
     const index = visible.findIndex(
@@ -107,6 +146,14 @@ export function ActionList({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-line-1 px-2 py-1.5">
+        <SearchFilterInput
+          placeholder="Filter actions"
+          aria-label="Filter actions"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
       {groupChips.length > 0 ? (
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line-1 px-2 py-1.5">
           {groupChips.map(({ group, count }) => {

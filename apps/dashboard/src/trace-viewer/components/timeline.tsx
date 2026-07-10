@@ -24,13 +24,20 @@ import type { MultiTraceModel } from "../vendor/model-util";
 
 type ScreencastFrame = PageEntry["screencastFrames"][number];
 
-/** Overall strip height: a ~16px axis/cursor row above a filmstrip row. */
+/**
+ * Overall strip height: a ~16px axis/cursor row, an ~8px action-bars lane,
+ * then the filmstrip row.
+ */
 const AXIS_HEIGHT = 16;
+const BARS_HEIGHT = 8;
 const STRIP_HEIGHT = 56;
-const TOTAL_HEIGHT = AXIS_HEIGHT + STRIP_HEIGHT;
+const TOTAL_HEIGHT = AXIS_HEIGHT + BARS_HEIGHT + STRIP_HEIGHT;
 
 /** Never render more thumbnails than this, however wide the container. */
 const MAX_THUMBS = 60;
+
+/** Size of the hover thumbnail preview card (width follows the frame's aspect). */
+const PREVIEW_HEIGHT = 140;
 
 /** Binary search for the frame whose timestamp is closest to `t`. */
 function nearestFrameIndex(frames: ScreencastFrame[], t: number): number {
@@ -173,6 +180,27 @@ export function Timeline({
     ? (selectedAction.endTime - model.startTime) / duration
     : null;
 
+  // The frame nearest the hovered TIME (not a slot sample) drives the hover
+  // preview card. Keying/fetching by its sha1 means the card only refetches
+  // when the cursor actually crosses into a new frame's window.
+  const hoverTime =
+    hoverFraction !== null ? model.startTime + hoverFraction * duration : null;
+  const previewFrame =
+    hoverTime !== null && allFrames.length > 0
+      ? allFrames[nearestFrameIndex(allFrames, hoverTime)]
+      : undefined;
+  const previewAspect = previewFrame
+    ? previewFrame.width / previewFrame.height
+    : aspect;
+  const previewWidth = Math.max(1, Math.round(PREVIEW_HEIGHT * previewAspect));
+  const previewLeft =
+    hoverFraction !== null && containerWidth > 0
+      ? Math.min(
+          Math.max(hoverFraction * containerWidth - previewWidth / 2, 0),
+          Math.max(0, containerWidth - previewWidth),
+        )
+      : 0;
+
   return (
     <div
       ref={containerRef}
@@ -185,6 +213,38 @@ export function Timeline({
         if (!draggingRef.current) setHoverFraction(null);
       }}
     >
+      {/* Action bars row: one slim bar per action (zero/negative-duration
+       * actions skipped), failed actions in fail red and the rest neutral;
+       * the selected action's bar is brighter and taller. Purely decorative
+       * — pointer-events-none so the strip-level handlers above still own
+       * click/drag seeking. */}
+      <div
+        className="pointer-events-none absolute inset-x-0"
+        style={{ top: AXIS_HEIGHT, height: BARS_HEIGHT }}
+      >
+        {model.actions.map((action) => {
+          const span = action.endTime - action.startTime;
+          if (span <= 0) return null;
+          const isSelected = action.callId === selectedCallId;
+          const left = ((action.startTime - model.startTime) / duration) * 100;
+          const width = (span / duration) * 100;
+          return (
+            <div
+              key={action.callId}
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2 rounded-sm",
+                isSelected
+                  ? "h-full bg-ring"
+                  : action.error
+                    ? "h-1.5 bg-fail"
+                    : "h-1.5 bg-fg-4/50",
+              )}
+              style={{ left: `${left}%`, width: `${width}%`, minWidth: 2 }}
+            />
+          );
+        })}
+      </div>
+
       {/* Filmstrip row. Falls back to a plain fill when the trace has no
        * screencast frames — click-to-seek still works either way. */}
       <div
@@ -214,33 +274,89 @@ export function Timeline({
         />
       ) : null}
 
-      {/* Hover cursor: a vertical line through the full height plus a
-       * mono offset label in the axis row above the strip. */}
+      {/* Hover cursor: a vertical line through the full height. When the
+       * trace has screencast frames, a floating preview card (thumbnail +
+       * time label) takes the place of the plain offset label; with no
+       * frames the plain mono label is unchanged. */}
       {hoverFraction !== null ? (
         <>
           <div
             className="pointer-events-none absolute inset-y-0 w-px bg-fg-3"
             style={{ left: `${hoverFraction * 100}%` }}
           />
-          <div
-            className="pointer-events-none absolute top-0 whitespace-nowrap font-mono text-11 text-fg-3"
-            style={{
-              left: `${hoverFraction * 100}%`,
-              transform:
-                hoverFraction > 0.9
-                  ? "translateX(-100%)"
-                  : hoverFraction < 0.1
-                    ? "translateX(0)"
-                    : "translateX(-50%)",
-            }}
-          >
-            {formatTraceOffset(
-              model.startTime + hoverFraction * duration,
-              model.startTime,
-            )}
-          </div>
+          {previewFrame ? (
+            <HoverPreview
+              key={previewFrame.sha1}
+              bridge={bridge}
+              traceUri={model.traceUri}
+              frame={previewFrame}
+              label={formatTraceOffset(hoverTime ?? 0, model.startTime)}
+              left={previewLeft}
+              width={previewWidth}
+            />
+          ) : (
+            <div
+              className="pointer-events-none absolute top-0 whitespace-nowrap font-mono text-11 text-fg-3"
+              style={{
+                left: `${hoverFraction * 100}%`,
+                transform:
+                  hoverFraction > 0.9
+                    ? "translateX(-100%)"
+                    : hoverFraction < 0.1
+                      ? "translateX(0)"
+                      : "translateX(-50%)",
+              }}
+            >
+              {formatTraceOffset(
+                model.startTime + hoverFraction * duration,
+                model.startTime,
+              )}
+            </div>
+          )}
         </>
       ) : null}
+    </div>
+  );
+}
+
+function HoverPreview({
+  bridge,
+  traceUri,
+  frame,
+  label,
+  left,
+  width,
+}: {
+  bridge: TraceBridge;
+  traceUri: string;
+  frame: ScreencastFrame;
+  label: string;
+  left: number;
+  width: number;
+}): React.ReactElement {
+  const { url } = useObjectUrl(bridge, sha1Path(traceUri, frame.sha1));
+
+  return (
+    <div
+      className="pointer-events-none absolute bottom-full mb-2 rounded border border-line-1 bg-bg-0 p-1 shadow-md"
+      style={{ left }}
+    >
+      <div
+        className="overflow-hidden rounded-sm bg-bg-2"
+        style={{ width, height: PREVIEW_HEIGHT }}
+      >
+        {url ? (
+          <img
+            src={url}
+            alt=""
+            draggable={false}
+            className="size-full object-cover"
+          />
+        ) : null}
+      </div>
+      <div className="mt-1 whitespace-nowrap text-center font-mono text-11 text-fg-3">
+        {label}
+      </div>
     </div>
   );
 }

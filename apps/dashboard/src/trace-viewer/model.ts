@@ -131,10 +131,22 @@ export function collectSnapshots(
 export function snapshotIframeUrl(
   traceUrl: string,
   snapshot: Snapshot,
+  options?: {
+    /**
+     * Repaint `<canvas>` elements from the nearest screencast frame (canvas
+     * pixels aren't captured in DOM snapshots). Best-effort and sometimes
+     * imprecise, so it's a user toggle — same setting the official viewer
+     * gates this behind.
+     */
+    populateCanvasFromScreenshot?: boolean;
+  },
 ): string {
   const params = new URLSearchParams();
   params.set("trace", traceUrl);
   params.set("name", snapshot.snapshotName);
+  if (options?.populateCanvasFromScreenshot) {
+    params.set("shouldPopulateCanvasFromScreenshot", "1");
+  }
   if (snapshot.point) {
     params.set("pointX", String(snapshot.point.x));
     params.set("pointY", String(snapshot.point.y));
@@ -155,6 +167,22 @@ export type SnapshotInfo = {
   timestamp?: number;
   wallTime?: number;
 };
+
+/**
+ * Popout URL for opening one rendered snapshot in a new tab, via the
+ * vendored `snapshot.html` shell (`?r=<absolute snapshot URL>&trace=…`) —
+ * same shape the official viewer builds. `absoluteSnapshotUrl` must be
+ * absolute (resolve `snapshotIframeUrl` against the page origin first).
+ */
+export function snapshotPopoutUrl(
+  traceUrl: string,
+  absoluteSnapshotUrl: string,
+): string {
+  const params = new URLSearchParams();
+  params.set("r", absoluteSnapshotUrl);
+  params.set("trace", traceUrl);
+  return `${TRACE_VIEWER_SCOPE}snapshot.html?${params.toString()}`;
+}
 
 /** Bridge-proxy path for a snapshot's `snapshotInfo/` sidecar JSON. */
 export function snapshotInfoPath(traceUrl: string, snapshot: Snapshot): string {

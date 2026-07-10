@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/cn";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
+import { cn } from "@/lib/cn";
 import type { TraceTabProps } from "../model";
 import { sha1Path } from "../model";
+import type { StackFrame } from "../vendor/protocol-types";
 
 /**
  * Playwright's own viewer resolves a stack frame's `file` to a trace resource
@@ -30,14 +31,13 @@ function basename(path: string): string {
   return idx === -1 ? path : path.slice(idx + 1);
 }
 
-/** Default file: the selected action's top stack frame, else the first file
- * carrying an error, else whichever file the model saw first. */
+/** Default file: the selected frame's file, else the first file carrying an
+ * error, else whichever file the model saw first. */
 function pickDefaultFile(
-  selectedAction: TraceTabProps["selectedAction"],
+  frame: StackFrame | undefined,
   sources: TraceTabProps["model"]["sources"],
 ): string | undefined {
-  const topFrameFile = selectedAction?.stack?.[0]?.file;
-  if (topFrameFile && sources.has(topFrameFile)) return topFrameFile;
+  if (frame && sources.has(frame.file)) return frame.file;
   for (const [file, source] of sources) {
     if (source.errors.length > 0) return file;
   }
@@ -45,28 +45,24 @@ function pickDefaultFile(
 }
 
 /**
- * Read-only source view for the selected action's stack frame.
- *
- * Neither `ui/code-editor.tsx` nor `ui/code-editor-codemirror.tsx` fits this:
- * `CodeEditor`'s `readOnly` path deliberately renders the plain
- * gutter-faking `<textarea>` fallback rather than mounting CodeMirror (see
- * its file comment), so it can't scroll to or highlight a specific line; the
- * lower-level `CodeMirrorField` has no `readOnly`/highlight/reveal props at
- * all. Both only expose a fixed height and a controlled `value`. So this
- * renders its own simple line-numbered `<pre>`, styled to match the same
- * gutter treatment as `CodeEditor`'s fallback, which is the sanctioned
- * escape hatch for exactly this gap.
+ * Read-only source view for the selected action's stack frame, with a stack
+ * frame picker alongside it.
  */
 export function SourceTab(props: TraceTabProps): React.ReactElement {
   const { model, selectedAction, traceUrl, bridge } = props;
   const files = Array.from(model.sources.keys());
   const [manualFile, setManualFile] = useState<string | undefined>(undefined);
+  const [selectedFrameIndex, setSelectedFrameIndex] = useState(0);
 
   useEffect(() => {
     setManualFile(undefined);
+    setSelectedFrameIndex(0);
   }, [selectedAction?.callId]);
 
-  const file = manualFile ?? pickDefaultFile(selectedAction, model.sources);
+  const stack = selectedAction?.stack ?? [];
+  const selectedFrame = stack[selectedFrameIndex];
+
+  const file = manualFile ?? pickDefaultFile(selectedFrame, model.sources);
   const source = file ? model.sources.get(file) : undefined;
 
   const [content, setContent] = useState<string | undefined>(source?.content);
@@ -117,46 +113,134 @@ export function SourceTab(props: TraceTabProps): React.ReactElement {
     );
   }
 
-  const topFrame = selectedAction?.stack?.[0];
   const targetLine =
-    topFrame?.file === file ? topFrame.line : source?.errors[0]?.line;
+    selectedFrame && selectedFrame.file === file
+      ? selectedFrame.line
+      : source?.errors[0]?.line;
   const errors = source?.errors ?? [];
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {files.length > 1 ? (
-        <TabBar className="shrink-0 px-2" role="tablist" scrollable>
-          {files.map((f) => (
-            <span key={f} title={f}>
-              <TabBarTab active={f === file} onSelect={() => setManualFile(f)}>
-                {basename(f)}
-              </TabBarTab>
-            </span>
-          ))}
-        </TabBar>
-      ) : (
-        <div
-          className="shrink-0 truncate border-b border-line-1 px-3 py-1.5 text-12 text-fg-3"
-          title={file}
-        >
-          {basename(file)}
-        </div>
-      )}
-      <div className="min-h-0 flex-1 overflow-auto">
-        {fetchError ? (
-          <div className="px-3 py-2 text-12 text-fg-4">{fetchError}</div>
-        ) : content === undefined ? null : (
-          <SourceLines
-            content={content}
-            errors={errors}
-            targetLine={targetLine}
-          />
+    <div className="flex h-full min-h-0">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {files.length > 1 ? (
+          <TabBar className="shrink-0 px-2" role="tablist" scrollable>
+            {files.map((f) => (
+              <span key={f} title={f}>
+                <TabBarTab
+                  active={f === file}
+                  onSelect={() => setManualFile(f)}
+                >
+                  {basename(f)}
+                </TabBarTab>
+              </span>
+            ))}
+          </TabBar>
+        ) : (
+          <div
+            className="shrink-0 truncate border-b border-line-1 px-3 py-1.5 text-12 text-fg-3"
+            title={file}
+          >
+            {basename(file)}
+          </div>
         )}
+        <div className="min-h-0 flex-1 overflow-auto">
+          {fetchError ? (
+            <div className="px-3 py-2 text-12 text-fg-4">{fetchError}</div>
+          ) : content === undefined ? null : (
+            <SourceLines
+              content={content}
+              errors={errors}
+              targetLine={targetLine}
+            />
+          )}
+        </div>
       </div>
+      {stack.length > 0 ? (
+        <FrameList
+          frames={stack}
+          onSelect={(index) => {
+            setSelectedFrameIndex(index);
+            setManualFile(undefined);
+          }}
+          selectedIndex={selectedFrameIndex}
+          sources={model.sources}
+        />
+      ) : null}
     </div>
   );
 }
 
+/**
+ * Right-hand stack frame picker (~35% width, own scroll region). Clicking an
+ * enabled frame switches the displayed file to that frame's file and
+ * scroll-highlights its line (via `targetLine` in the parent, which is driven
+ * by the selected frame). Frames whose file never made it into
+ * `model.sources` (e.g. library-internal frames the trace didn't capture
+ * source for) render disabled.
+ */
+function FrameList({
+  frames,
+  selectedIndex,
+  sources,
+  onSelect,
+}: {
+  frames: StackFrame[];
+  selectedIndex: number;
+  sources: TraceTabProps["model"]["sources"];
+  onSelect: (index: number) => void;
+}): React.ReactElement {
+  return (
+    <div
+      className="w-[35%] min-w-[160px] shrink-0 overflow-y-auto border-l border-line-1"
+      role="list"
+    >
+      {frames.map((frame, index) => {
+        const available = sources.has(frame.file);
+        const active = index === selectedIndex;
+        return (
+          <button
+            className={cn(
+              "flex w-full flex-col items-start gap-0.5 border-b border-line-1 px-3 py-1.5 text-left",
+              available ? "cursor-pointer hover:bg-bg-2" : "cursor-default",
+              active && available && "bg-bg-2",
+            )}
+            disabled={!available}
+            key={`${frame.file}:${frame.line}:${index}`}
+            onClick={() => onSelect(index)}
+            title={frame.file}
+            type="button"
+          >
+            <span
+              className={cn(
+                "truncate text-12",
+                available ? "text-fg-3" : "text-fg-4",
+              )}
+            >
+              {frame.function || "(anonymous)"}
+            </span>
+            <span
+              className={cn(
+                "truncate font-mono text-12",
+                available ? "text-fg-2" : "text-fg-4",
+              )}
+            >
+              {basename(frame.file)}:{frame.line}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Line-numbered `<pre>` renderer: target line highlighted + scrolled into
+ * view, error lines tinted with their message inline beneath. A CodeMirror
+ * (syntax-highlighted) variant was attempted and REVERTED: custom
+ * decoration extensions built outside the wrapper hit "multiple instances
+ * of @codemirror/state" under Vite dev pre-bundling (instanceof breakage),
+ * silently falling back anyway. Revisit only with a vite dedupe fix.
+ */
 function SourceLines({
   content,
   errors,
@@ -184,12 +268,12 @@ function SourceLines({
         return (
           <div key={lineNumber}>
             <div
-              ref={isTarget ? targetRef : undefined}
               className={cn(
                 "flex gap-3 px-3",
                 isTarget && "bg-bg-2",
                 errorMessage && "bg-fail-soft",
               )}
+              ref={isTarget ? targetRef : undefined}
             >
               <span className="w-8 shrink-0 select-none text-right tabular-nums text-fg-4">
                 {lineNumber}

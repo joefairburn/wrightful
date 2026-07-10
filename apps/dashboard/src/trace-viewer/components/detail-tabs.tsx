@@ -8,6 +8,7 @@ import { formatDuration } from "@/lib/time-format";
 import type { TraceTabProps } from "../model";
 import type { TraceBridge } from "../use-trace-model";
 import { AttachmentsTab } from "./attachments-tab";
+import { CallTab } from "./call-tab";
 import { ConsoleTab } from "./console-tab";
 import { ErrorsTab } from "./errors-tab";
 import { MetadataTab } from "./metadata-tab";
@@ -15,6 +16,7 @@ import { NetworkTab } from "./network-tab";
 import { SourceTab } from "./source-tab";
 
 type DetailTabId =
+  | "call"
   | "log"
   | "errors"
   | "console"
@@ -48,12 +50,12 @@ export function DetailTabs({
       e.type === "console" || (e.type === "event" && e.method === "pageError"),
   ).length;
   const [tab, setTab] = useState<DetailTabId>(
-    errorCount > 0 ? "errors" : "log",
+    errorCount > 0 ? "errors" : "call",
   );
   const [scopeToSelected, setScopeToSelected] = useState(false);
   // A new trace (model identity change) re-evaluates the default.
   useEffect(() => {
-    setTab(model.errorDescriptors.length > 0 ? "errors" : "log");
+    setTab(model.errorDescriptors.length > 0 ? "errors" : "call");
   }, [model]);
 
   const tabProps: TraceTabProps = {
@@ -66,6 +68,7 @@ export function DetailTabs({
   };
 
   const tabs: Array<{ id: DetailTabId; label: string; count?: number }> = [
+    { id: "call", label: "Call" },
     { id: "log", label: "Log" },
     { id: "errors", label: "Errors", count: errorCount },
     { id: "console", label: "Console", count: consoleCount },
@@ -118,6 +121,7 @@ export function DetailTabs({
         ) : null}
       </div>
       <div className="min-h-0 flex-1">
+        {tab === "call" ? <CallTab {...tabProps} /> : null}
         {tab === "log" ? (
           <LogTab selectedAction={selectedAction} startTime={model.startTime} />
         ) : null}
