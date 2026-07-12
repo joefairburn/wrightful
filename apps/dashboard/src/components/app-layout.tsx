@@ -332,7 +332,7 @@ function AppSidebarMiddle({ pathname, base }: AppSidebarMiddleProps) {
             <item.icon className="size-4" />
             <span className="flex-1">{item.label}</span>
             {item.count != null && (
-              <span className="rounded-full bg-flaky-soft px-1.5 py-px font-mono text-11 font-semibold text-flaky tabular-nums">
+              <span className="rounded-full bg-flaky-soft px-1.5 py-px font-mono text-micro font-semibold text-flaky tabular-nums">
                 {item.count}
               </span>
             )}
@@ -525,7 +525,7 @@ function SettingsSectionLabel({
 }) {
   return (
     <div
-      className="truncate px-2.5 pb-1 pt-2 text-12 font-medium tracking-[0.1px] text-fg-3"
+      className="truncate px-2.5 pb-1 pt-2 text-caption font-medium tracking-[0.1px] text-fg-3"
       title={title}
     >
       {children}

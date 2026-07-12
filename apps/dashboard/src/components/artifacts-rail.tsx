@@ -131,7 +131,7 @@ function SectionLabel({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <h4 className="mb-3 text-12 font-medium tracking-[0.1px] text-fg-3">
+    <h4 className="mb-3 text-caption font-medium tracking-[0.1px] text-fg-3">
       {children}
     </h4>
   );
@@ -154,7 +154,7 @@ function RailLogBlock({
 }): React.ReactElement {
   return (
     <div>
-      <div className="text-11 font-mono uppercase tracking-wider text-fg-3 mb-1">
+      <div className="text-micro font-mono uppercase tracking-wider text-fg-3 mb-1">
         {label}
       </div>
       {/* biome-ignore lint/security/noDangerouslySetInnerHtml: ansiToHtml HTML-escapes before colourising */}
@@ -276,7 +276,7 @@ function RailScreenshotButton({
           Screenshot: {artifact.name}
         </DialogTitle>
         <img
-          className="w-full rounded-b-2xl bg-muted"
+          className="w-full rounded-b-2xl bg-muted outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10"
           alt={artifact.name}
           src={artifact.downloadHref}
         />
@@ -300,7 +300,7 @@ function TerminalBlock({ command }: { command: string }): React.ReactElement {
   return (
     <div className="rounded-md border border-line-1 bg-bg-0 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-line-1/60 bg-muted/30">
-        <span className="inline-flex items-center gap-1.5 text-12 font-medium tracking-[0.1px] text-fg-3">
+        <span className="inline-flex items-center gap-1.5 text-caption font-medium tracking-[0.1px] text-fg-3">
           <Terminal size={12} />
           Terminal
         </span>
@@ -309,7 +309,7 @@ function TerminalBlock({ command }: { command: string }): React.ReactElement {
           onClick={() => {
             void onCopy();
           }}
-          className="text-fg-3 hover:text-fg-1 transition-colors"
+          className="relative -m-1.5 rounded-md p-1.5 text-fg-3 transition-colors hover:text-fg-1 pointer-coarse:after:absolute pointer-coarse:after:-inset-2"
           aria-label={copied ? "Copied" : "Copy command"}
         >
           {copied ? (

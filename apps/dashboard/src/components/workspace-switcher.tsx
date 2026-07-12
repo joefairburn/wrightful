@@ -86,10 +86,10 @@ export function WorkspaceSwitcher({
       >
         <TeamBadge name={selectedTeam.name} />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-13 font-medium text-fg-1">
+          <span className="truncate text-body font-medium text-fg-1">
             {selectedTeam.name}
           </span>
-          <span className="truncate font-mono text-11 text-fg-3">
+          <span className="truncate font-mono text-micro text-fg-3">
             {selectedProject.name}
           </span>
         </span>
@@ -132,7 +132,7 @@ export function WorkspaceSwitcher({
               <button
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
-                  "font-mono text-13",
+                  "font-mono text-body",
                   "hover:bg-bg-3",
                   p.slug === selectedProject.slug && "bg-bg-3",
                 )}
@@ -171,7 +171,7 @@ export function WorkspaceSwitcher({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-2 pb-1 pt-1.5 text-12 font-medium tracking-[0.1px] text-fg-3">
+    <div className="px-2 pb-1 pt-1.5 text-caption font-medium tracking-[0.1px] text-fg-3">
       {children}
     </div>
   );

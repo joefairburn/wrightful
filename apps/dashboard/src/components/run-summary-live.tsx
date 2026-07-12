@@ -50,7 +50,7 @@ export function RunSummaryLive({
 
   return (
     <>
-      <div className="flex items-center justify-end gap-3 font-mono text-11 tabular-nums">
+      <div className="flex items-center justify-end gap-3 font-mono text-micro tabular-nums">
         <SummaryStat n={summary.passed} status="passed" />
         {summary.failed > 0 ? (
           <SummaryStat n={summary.failed} status="failed" />

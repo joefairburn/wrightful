@@ -14,7 +14,8 @@ export const SEGMENTED_GROUP_CLASSES =
 
 export function segmentedItemClasses(active: boolean, compact = false): string {
   return cn(
-    "inline-flex items-center gap-1.5 rounded-[4px] text-12 transition-colors",
+    // Concentric with the track: rounded-md (4px) − p-0.5 (2px) = 2px inner.
+    "inline-flex items-center gap-1.5 rounded-[2px] text-caption transition-colors",
     compact ? "px-2" : "px-2.5",
     active ? "bg-bg-3 font-medium text-fg-1" : "text-fg-2 hover:text-fg-1",
   );
@@ -86,7 +87,7 @@ export function SegmentedControl<T extends string>({
             {opt.count != null ? (
               <span
                 className={cn(
-                  "font-mono text-11 tabular-nums",
+                  "font-mono text-micro tabular-nums",
                   active ? "text-fg-3" : "text-fg-4",
                 )}
               >

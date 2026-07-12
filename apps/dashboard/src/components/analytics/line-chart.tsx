@@ -109,7 +109,7 @@ export function AnalyticsLineChart({
         className="grid gap-2"
         style={{ gridTemplateColumns: "56px 1fr", height }}
       >
-        <div className="relative pr-1 text-right font-mono text-11 text-fg-3">
+        <div className="relative pr-1 text-right font-mono text-micro text-fg-3">
           {yTicks.map((t) => (
             <span
               key={t}
@@ -196,7 +196,7 @@ export function AnalyticsLineChart({
             {buckets.map((b, i) => (
               <div
                 key={`xl-${b.key}`}
-                className="flex flex-1 justify-center font-mono text-11 text-fg-3"
+                className="flex flex-1 justify-center font-mono text-micro text-fg-3"
               >
                 {labelIdx.has(i) ? b.label : ""}
               </div>

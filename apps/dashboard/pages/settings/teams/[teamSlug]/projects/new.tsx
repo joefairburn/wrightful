@@ -22,7 +22,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
           <ArrowLeft size={12} strokeWidth={2} />
           {team.name}
         </Link>
-        <h1 className="font-semibold text-2xl tracking-tight">New project</h1>
+        <h1 className="font-semibold text-title">New project</h1>
         <p className="mt-1 text-fg-3 text-sm">
           Add a project to{" "}
           <span className="font-medium text-fg-1">{team.name}</span>. A URL slug
@@ -53,7 +53,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
               maxLength={60}
               placeholder="e.g. Checkout Flow"
             />
-            <FieldDescription className="font-mono text-11">
+            <FieldDescription className="font-mono text-micro">
               Must contain at least one letter or number.
             </FieldDescription>
           </Field>
@@ -61,7 +61,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
             <SubmitButton>Create project</SubmitButton>
             <Link
               href={`/settings/teams/${team.slug}`}
-              className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
+              className="text-caption font-medium text-fg-3 transition-colors hover:text-fg-1"
             >
               Cancel
             </Link>

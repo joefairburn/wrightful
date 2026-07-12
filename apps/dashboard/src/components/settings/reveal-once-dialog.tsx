@@ -39,7 +39,7 @@ export function RevealOnceDialog({
         <div className="flex flex-col gap-4 p-6">
           <div>
             <div className="font-semibold text-base">{title}</div>
-            <div className="mt-1 text-13 text-fg-3 leading-relaxed">
+            <div className="mt-1 text-body text-fg-3 leading-relaxed">
               {description}
             </div>
           </div>

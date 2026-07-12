@@ -78,8 +78,8 @@ const EXPIRED_ARTIFACT_HTML = `<!doctype html>
   <style>
     :root { color-scheme: light dark; }
     html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-    body { display: flex; align-items: center; justify-content: center; background: #fafafa; color: #0a0a0a; }
-    @media (prefers-color-scheme: dark) { body { background: #0a0a0a; color: #fafafa; } }
+    body { display: flex; align-items: center; justify-content: center; background: oklch(0.99 0.003 260); color: oklch(0.18 0.008 260); }
+    @media (prefers-color-scheme: dark) { body { background: oklch(0.135 0.004 260); color: oklch(0.975 0.003 260); } }
     main { max-width: 28rem; padding: 1.5rem; text-align: center; }
     h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem; }
     p { font-size: 0.875rem; line-height: 1.5; opacity: 0.7; margin: 0 0 1.5rem; }

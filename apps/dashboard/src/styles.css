@@ -37,28 +37,30 @@
     "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular,
     Menlo, monospace;
 
-  /* Curated 7-step type ramp. The sole source of font sizes for app code —
-   * consume via the generated utilities, e.g. `text-13`. Do NOT hand-write
-   * text-[NNpx]; snap to the nearest step here so the ramp stays tight
-   * (near-duplicate 0.5px pairs and off-scale sizes were collapsed into these
-   * steps). Whole-pixel values; token name equals its rendered px. */
-  --text-11: 11px; /* micro: badges, timestamps, uppercase meta labels */
-  --text-12: 12px; /* small: dense table cells, secondary text */
+  /* Curated 7-step type ramp, named by role. The sole source of font sizes
+   * for app code — consume via the generated utilities, e.g. `text-body`.
+   * Do NOT hand-write text-[NNpx]; snap to the nearest step here so the ramp
+   * stays tight (near-duplicate 0.5px pairs and off-scale sizes were collapsed
+   * into these steps). Renaming or adding a step? Register it in the
+   * tailwind-merge font-size group in `src/lib/cn.ts` too, or `cn()` will
+   * classify it as a color and drop it. */
+  --text-micro: 11px; /* badges, timestamps, uppercase meta labels */
+  --text-caption: 12px; /* table headers, micro-labels, secondary text */
   /* Body/interactive steps in rem so the user's browser base-font-size (the
    * web analog of Dynamic Type) is honored. 0.8125rem/0.875rem == 13/14px at
    * the 16px default, so there is no visual change at the default size. Dense
-   * chrome (11/12) and headings (18/22/26) stay px for predictable density. */
-  --text-13: 0.8125rem; /* base: body text, most rows */
-  --text-14: 0.875rem; /* medium: emphasized body, row titles */
+   * chrome (micro/caption) and headings stay px for predictable density. */
+  --text-body: 0.8125rem; /* 13px: body text, most rows */
+  --text-body-lg: 0.875rem; /* 14px: emphasized body, row titles */
   /* Size-specific tracking baked into the ramp: large text reads too loose as
-   * it grows, so tighten it automatically. A bare `text-18/22/26` now carries
-   * the right tracking — no per-heading `tracking-[…]` needed. */
-  --text-18: 18px; /* heading: section + card headings */
-  --text-18--letter-spacing: -0.2px;
-  --text-22: 22px; /* title: page titles */
-  --text-22--letter-spacing: -0.3px;
-  --text-26: 26px; /* display: KPI / big numbers */
-  --text-26--letter-spacing: -0.4px;
+   * it grows, so tighten it automatically. A bare `text-heading/title/display`
+   * carries the right tracking — no per-heading `tracking-[…]` needed. */
+  --text-heading: 18px; /* section + card headings */
+  --text-heading--letter-spacing: -0.2px;
+  --text-title: 22px; /* page titles */
+  --text-title--letter-spacing: -0.3px;
+  --text-display: 26px; /* KPI / big numbers */
+  --text-display--letter-spacing: -0.4px;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -247,7 +249,7 @@
   --fg-1: oklch(0.18 0.008 260);
   --fg-2: oklch(0.36 0.01 260);
   --fg-3: oklch(0.5 0.01 260);
-  --fg-4: oklch(0.65 0.008 260);
+  --fg-4: oklch(0.62 0.008 260);
 
   /* 2-level border scale. */
   --line-1: oklch(0.91 0.005 260);
@@ -281,25 +283,28 @@
   --secondary: oklch(0.94 0.006 260);
   --secondary-foreground: oklch(0.18 0.008 260);
 
-  /* Semantic feedback */
+  /* Semantic feedback. The `*-foreground` tokens are the READABLE-ON-PAGE
+   * text color (registry components use them for field errors, destructive
+   * menu items, tinted icons — solid fills pair with text-white instead), so
+   * they alias the status color itself, not an on-solid inverse. */
   --destructive: oklch(0.55 0.22 24);
-  --destructive-foreground: oklch(0.99 0.003 260);
-  --success: oklch(0.55 0.16 152);
-  --success-foreground: oklch(0.99 0.003 260);
-  --warning: oklch(0.62 0.16 70);
-  --warning-foreground: oklch(0.18 0.008 260);
+  --destructive-foreground: var(--destructive);
+  --success: oklch(0.54 0.14 152);
+  --success-foreground: var(--success);
+  --warning: oklch(0.56 0.12 70);
+  --warning-foreground: var(--warning);
   --info: oklch(0.5 0.16 268);
-  --info-foreground: oklch(0.99 0.003 260);
+  --info-foreground: var(--info);
 
   /* Status palette — paired with shape for colorblind safety */
-  --pass: oklch(0.55 0.16 152);
-  --pass-soft: oklch(0.55 0.16 152 / 0.1);
+  --pass: oklch(0.54 0.14 152);
+  --pass-soft: oklch(0.54 0.14 152 / 0.1);
   --fail: oklch(0.55 0.22 24);
   --fail-soft: oklch(0.55 0.22 24 / 0.1);
-  --flaky: oklch(0.62 0.16 70);
-  --flaky-soft: oklch(0.62 0.16 70 / 0.14);
-  --skipped: oklch(0.58 0.008 260);
-  --skipped-soft: oklch(0.58 0.008 260 / 0.14);
+  --flaky: oklch(0.56 0.12 70);
+  --flaky-soft: oklch(0.56 0.12 70 / 0.14);
+  --skipped: oklch(0.56 0.008 260);
+  --skipped-soft: oklch(0.56 0.008 260 / 0.14);
   --running: oklch(0.5 0.16 268);
   --running-soft: oklch(0.5 0.16 268 / 0.1);
 
@@ -356,7 +361,7 @@
   --fg-1: oklch(0.975 0.003 260);
   --fg-2: oklch(0.78 0.005 260);
   --fg-3: oklch(0.6 0.007 260);
-  --fg-4: oklch(0.46 0.008 260);
+  --fg-4: oklch(0.52 0.008 260);
 
   /* 2-level border scale. */
   --line-1: oklch(0.245 0.008 260);
@@ -390,25 +395,26 @@
   --secondary: oklch(0.195 0.006 260);
   --secondary-foreground: oklch(0.975 0.003 260);
 
-  /* Semantic feedback (status colors tuned for dark) */
-  --destructive: oklch(0.7 0.2 24);
-  --destructive-foreground: oklch(0.135 0.004 260);
+  /* Semantic feedback (status colors tuned for dark). `*-foreground` =
+   * readable-on-page text, same convention as :root. */
+  --destructive: oklch(0.7 0.19 24);
+  --destructive-foreground: var(--destructive);
   --success: oklch(0.78 0.16 152);
-  --success-foreground: oklch(0.135 0.004 260);
+  --success-foreground: var(--success);
   --warning: oklch(0.82 0.15 80);
-  --warning-foreground: oklch(0.135 0.004 260);
+  --warning-foreground: var(--warning);
   --info: oklch(0.74 0.1 268);
-  --info-foreground: oklch(0.135 0.004 260);
+  --info-foreground: var(--info);
 
   /* Status */
   --pass: oklch(0.78 0.16 152);
   --pass-soft: oklch(0.78 0.16 152 / 0.14);
-  --fail: oklch(0.7 0.2 24);
-  --fail-soft: oklch(0.7 0.2 24 / 0.14);
+  --fail: oklch(0.7 0.19 24);
+  --fail-soft: oklch(0.7 0.19 24 / 0.14);
   --flaky: oklch(0.82 0.15 80);
   --flaky-soft: oklch(0.82 0.15 80 / 0.14);
-  --skipped: oklch(0.55 0.008 260);
-  --skipped-soft: oklch(0.55 0.008 260 / 0.2);
+  --skipped: oklch(0.58 0.008 260);
+  --skipped-soft: oklch(0.58 0.008 260 / 0.2);
   --running: oklch(0.74 0.1 268);
   --running-soft: oklch(0.74 0.1 268 / 0.16);
 
@@ -493,7 +499,14 @@
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* Both variable fonts cover wght 100–900, so a synthesized (faked) bold
+     * only appears when a font file failed to load — disallow it so that
+     * failure is visible instead of silently ugly. `style` stays allowed:
+     * Geist ships no italic, so the oblique that `.ansi-italic` and the
+     * italic placeholder spans rely on is deliberately synthesized. */
+    font-synthesis: style;
   }
   code,
   kbd,

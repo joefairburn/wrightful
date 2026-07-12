@@ -268,7 +268,7 @@ function MonitorRow({
         >
           <span className="flex min-w-0 items-center gap-2">
             <span
-              className="max-w-[360px] truncate text-14 text-fg-1"
+              className="max-w-[360px] truncate text-body-lg text-fg-1"
               title={m.name}
             >
               {m.name}
@@ -284,7 +284,7 @@ function MonitorRow({
         </RowLink>
       </TableCell>
 
-      <TableCell className="w-[100px] px-4 py-3 align-middle font-mono text-13 text-fg-2">
+      <TableCell className="w-[100px] px-4 py-3 align-middle font-mono text-body text-fg-2">
         {humanizeInterval(m.intervalSeconds)}
       </TableCell>
 
@@ -292,7 +292,7 @@ function MonitorRow({
         <ExecStrip executions={m.recentExecutions} />
       </TableCell>
 
-      <TableCell className="w-[116px] px-4 py-3 text-right align-middle text-12 text-fg-2">
+      <TableCell className="w-[116px] px-4 py-3 text-right align-middle text-caption text-fg-2">
         {m.lastRunAt ? (
           formatRelativeTime(m.lastRunAt)
         ) : (

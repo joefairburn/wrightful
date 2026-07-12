@@ -133,7 +133,7 @@ export default function TestsPage({
 
       {availableTags.length > 0 && (
         <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line-1 bg-bg-0 px-6 py-2">
-          <span className="mr-1 text-12 font-medium tracking-[0.1px] text-fg-3">
+          <span className="mr-1 text-caption font-medium tracking-[0.1px] text-fg-3">
             Tags
           </span>
           {availableTags.map((tag) => {
@@ -143,7 +143,7 @@ export default function TestsPage({
                 aria-label={`${active ? "Remove" : "Add"} tag filter: ${tag}`}
                 aria-pressed={active}
                 className={cn(
-                  "rounded-full border px-2.5 py-0.5 font-mono text-11 transition-colors",
+                  "rounded-full border px-2.5 py-0.5 font-mono text-micro transition-colors",
                   active
                     ? "border-bg-3 bg-accent-soft text-info"
                     : "border-line-1 text-fg-3 hover:text-fg-1",
@@ -230,12 +230,12 @@ function TestsCatalogRegion({
                       <TableCell className="w-10 px-4 py-2" />
                       <TableCell className="px-4 py-2 align-middle">
                         <span
-                          className="truncate font-mono text-11 font-semibold text-fg-1"
+                          className="truncate font-mono text-micro font-semibold text-fg-1"
                           title={g.key}
                         >
                           {g.key}
                         </span>
-                        <span className="ml-2 text-11 text-fg-3">
+                        <span className="ml-2 text-micro text-fg-3">
                           {g.testCount} test{g.testCount === 1 ? "" : "s"}
                         </span>
                       </TableCell>
@@ -363,18 +363,18 @@ function TestRow({ row, base }: { row: TestsPageRow; base: string }) {
       </TableCell>
       <TableCell className="px-4 py-3 align-middle">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-13 text-fg-1" title={title}>
+          <span className="truncate text-body text-fg-1" title={title}>
             {title}
           </span>
           <span
-            className="truncate font-mono text-11 text-fg-3"
+            className="truncate font-mono text-micro text-fg-3"
             title={row.file}
           >
             {row.file}
           </span>
         </div>
       </TableCell>
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-12 tabular-nums text-fg-3">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-caption tabular-nums text-fg-3">
         {row.n.toLocaleString()}
       </TableCell>
       <TableCell className="w-[200px] px-4 py-3 align-middle">
@@ -389,12 +389,12 @@ function TestRow({ row, base }: { row: TestsPageRow; base: string }) {
           skipped={row.skippedCount}
         />
       </TableCell>
-      <TableCell className="w-[110px] px-4 py-3 text-right align-middle font-mono text-12 tabular-nums text-fg-1">
+      <TableCell className="w-[110px] px-4 py-3 text-right align-middle font-mono text-caption tabular-nums text-fg-1">
         {row.avgDurationMs === null
           ? "—"
           : formatDuration(Math.round(row.avgDurationMs))}
       </TableCell>
-      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-12 text-fg-3">
+      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-caption text-fg-3">
         {formatRelativeTime(row.lastSeen)}
       </TableCell>
     </TableRow>

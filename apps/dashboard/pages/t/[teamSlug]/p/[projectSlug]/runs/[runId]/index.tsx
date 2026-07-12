@@ -135,7 +135,7 @@ export default function RunDetailPage({
               ]}
             />
             <h1
-              className="flex min-w-0 flex-1 items-center gap-2 text-18 font-semibold tracking-[-0.2px]"
+              className="flex min-w-0 flex-1 items-center gap-2 text-heading font-semibold tracking-[-0.2px]"
               title={run.commitMessage ?? run.id}
             >
               <span className="min-w-0 truncate">
@@ -149,8 +149,10 @@ export default function RunDetailPage({
                 size={18}
               />
             </h1>
-            <div className="flex shrink-0 items-center gap-3 text-12 text-fg-3">
-              <span className="font-mono text-13 tabular-nums">#{shortId}</span>
+            <div className="flex shrink-0 items-center gap-3 text-caption text-fg-3">
+              <span className="font-mono text-body tabular-nums">
+                #{shortId}
+              </span>
               <RunDurationLive
                 createdAt={run.createdAt}
                 initialSummary={initialSummary}
@@ -164,7 +166,7 @@ export default function RunDetailPage({
 
         {/* Scrolling header — chips + summary, OutcomeBar, duration trend */}
         <div className="border-b border-line-1 px-6 pt-3 pb-[18px]">
-          <div className="flex min-w-0 flex-wrap items-center gap-2 text-12">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-caption">
             {run.branch ? (
               <BranchPill
                 className="max-w-[220px]"
@@ -231,7 +233,7 @@ export default function RunDetailPage({
             <TabBarTab active={tab === key} href={tabHref(key)} key={key}>
               {TAB_LABEL[key]}
               {key === "tests" ? (
-                <span className="font-mono text-11 tabular-nums text-fg-3">
+                <span className="font-mono text-micro tabular-nums text-fg-3">
                   <RunTestCountLive
                     initialSummary={initialSummary}
                     runId={runId}
@@ -246,7 +248,7 @@ export default function RunDetailPage({
            * edge of the tab bar so it doesn't shift the tab pills. */}
           <Link
             aria-label="Compare this run against a baseline"
-            className="-mb-px py-2 text-13 text-fg-3 transition-colors hover:text-fg-1"
+            className="-mb-px py-2 text-body text-fg-3 transition-colors hover:text-fg-1"
             href={`${base}/runs/${runId}/diff`}
           >
             Compare <span aria-hidden="true">↗</span>
@@ -381,7 +383,7 @@ function EnvironmentTab({ run }: { run: Props["run"] }): React.ReactElement {
         {rows.map((r, i) => (
           <div
             className={cn(
-              "flex items-center px-4 py-2.5 text-13",
+              "flex items-center px-4 py-2.5 text-body",
               i !== rows.length - 1 && "border-b border-line-1",
             )}
             key={r.label}

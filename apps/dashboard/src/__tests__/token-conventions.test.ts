@@ -61,12 +61,18 @@ const ALL = sourceFiles(["src", "pages"]);
 const APP = ALL.filter((f) => !f.includes("/components/ui/"));
 
 describe("font-size tokens", () => {
-  it("no hand-written arbitrary px sizes (use text-11…text-26)", () => {
+  it("no hand-written arbitrary px sizes (use text-micro…text-display)", () => {
     expect(offenders(ALL, /text-\[[0-9.]+px\]/)).toEqual([]);
   });
 
-  it("no legacy text-fs-* prefix (renamed to text-NN)", () => {
+  it("no legacy text-fs-* prefix (renamed to the semantic ramp)", () => {
     expect(offenders(ALL, /text-fs-/)).toEqual([]);
+  });
+
+  it("no legacy numeric ramp names (renamed to text-micro…text-display)", () => {
+    expect(
+      offenders(ALL, /(?<![-\w])text-(11|12|13|14|18|22|26)(?![-\w])/),
+    ).toEqual([]);
   });
 
   it("no text-[length:var(--text-…)] arbitrary form (use the bare utility)", () => {
