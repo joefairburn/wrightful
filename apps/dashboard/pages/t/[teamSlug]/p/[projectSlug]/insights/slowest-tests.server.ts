@@ -20,7 +20,8 @@ import {
   statusCounter,
 } from "@/lib/analytics/per-test";
 import { makeRangeParser } from "@/lib/analytics/range";
-import { resolveOffsetPage } from "@/lib/page-window";
+import { paginateOffsetTable, resolveOffsetPage } from "@/lib/page-window";
+import { parsePage } from "@/lib/runs-filters";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -88,9 +89,7 @@ export const loader = defineHandler(async (c) => {
     url.searchParams.get("branch"),
   );
   const q = (url.searchParams.get("q") ?? "").trim();
-  const pageParam = parseInt(url.searchParams.get("page") ?? "1", 10);
-  const requestedPage =
-    Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const requestedPage = parsePage(url.searchParams.get("page"));
 
   const { nowSec, windowStartSec } = resolveAnalyticsWindow(range);
 
@@ -193,7 +192,10 @@ export const loader = defineHandler(async (c) => {
             else tr."durationMs" / ${bucketMs}
           end as integer
         ) as bin,
-        count(*) as cnt
+        -- count(*) is int8: a raw runRows read bypasses Drizzle's decoders, so
+        -- node-postgres returns it as a STRING (pglite returns a number, hiding
+        -- it). intAggExpr casts to integer so cnt is a JS number on real pg.
+        ${intAggExpr("count(*)", { alias: "cnt" })}
       from "testResults" tr
       ${testResultsScopeJoin(scope)}
         and tr."createdAt" >= ${windowStartSec}
@@ -212,9 +214,18 @@ export const loader = defineHandler(async (c) => {
     // testId→points map); all JSX (icons, tooltips, sparkline SVGs) is built in
     // the client component that reads this via `use()`.
     slowest: defer(async () => {
-      const bottlenecks: BottleneckRow[] =
-        totals.totalUniqueTests > 0
-          ? await runRows<BottleneckRow>(sql`
+      // The total is eagerly known (the shell derived `offset`/`fromRow` from
+      // it above), so `paginateOffsetTable` clamps first, fetches the ranked
+      // slice ONCE at the clamped offset (skipping the query for an empty set),
+      // and derives `toRow` from the slice length. `mapRows` is omitted — the
+      // ranked rows already carry the rendered shape, so the fetched slice IS
+      // the output.
+      const page = await paginateOffsetTable<BottleneckRow>({
+        page: requestedPage,
+        pageSize: PAGE_SIZE,
+        count: totals.totalUniqueTests,
+        pageQuery: (off) =>
+          runRows<BottleneckRow>(sql`
       with filtered as (
         select
           tr."testId" as "testId",
@@ -257,9 +268,10 @@ export const loader = defineHandler(async (c) => {
       -- p95 can't be skipped/duplicated across page boundaries).
       order by p95 desc, "testId"
       limit ${PAGE_SIZE}
-      offset ${offset}
-    `)
-          : [];
+      offset ${off}
+    `),
+      });
+      const bottlenecks = page.rows;
 
       const pageTestIds = bottlenecks.map((r) => r.testId);
       const sparklinesEntries: [string, SparklinePoint[]][] = [];
@@ -296,19 +308,12 @@ export const loader = defineHandler(async (c) => {
         sparklinesEntries.push(...sparkMap.entries());
       }
 
-      // `toRow` reflects the real page slice — re-derive it here now the rows
-      // exist (the eager shell only knew `fromRow`/`offset`).
-      const { toRow } = resolveOffsetPage({
-        total: totals.totalUniqueTests,
-        pageSize: PAGE_SIZE,
-        requestedPage,
-        rowCount: bottlenecks.length,
-      });
-
+      // `toRow` reflects the real page slice — `paginateOffsetTable` derived it
+      // from the slice length (the eager shell only knew `fromRow`/`offset`).
       return {
         bottlenecks,
         sparklines: Object.fromEntries(sparklinesEntries),
-        toRow,
+        toRow: page.toRow,
       };
     }),
   };

@@ -11,6 +11,7 @@ import {
   RunHistoryChart,
   RunHistoryChartSkeleton,
 } from "@/components/run-history-chart";
+import { KpiCardSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusGlyph } from "@/components/status-glyph";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -41,10 +42,10 @@ type OkProps = Extract<Props, { kind: "ok" }>;
  * artifact/attempt deep-dive). The loader returns `kind: "ok"` or
  * `kind: "not_found"` so this component doesn't gate existence itself.
  *
- * The header (title/status) + all-time KPI strip paint immediately from the
- * eager aggregate + latest-result reads; the owner + quarantine controls, tag
- * row, and the chart + recent-runs table stream in behind skeletons (the
- * `details` deferred group).
+ * The header paints from the eager latest-result read. Everything else streams
+ * behind skeletons in two independent `defer()` groups: the KPI strip reads
+ * `stats`; the owner/quarantine controls, tag row, and chart + recent-runs
+ * table read `details`.
  */
 export default function TestHistoryPage(props: Props) {
   if (props.kind === "not_found") {
@@ -118,9 +119,11 @@ export default function TestHistoryPage(props: Props) {
             : ""}
           {meta.file}
           {meta.projectName ? ` · ${meta.projectName}` : ""}
-          {stats.firstSeen
-            ? ` · tracked since ${formatRelativeTime(stats.firstSeen)}`
-            : ""}
+          {/* `firstSeen` is in the deferred aggregate — render nothing while
+           * pending/absent rather than skeleton this trailing footnote. */}
+          <DeferredSection errorFallback={null} skeleton={null}>
+            <TrackedSinceLabel stats={stats} />
+          </DeferredSection>
         </div>
         {quarantineError && (
           <Alert className="mt-3" variant="error">
@@ -141,58 +144,28 @@ export default function TestHistoryPage(props: Props) {
       </div>
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+        {/* KPI strip — reads deferred `stats` independently of `details`, so
+         * the heavy percentile query and recent-runs region don't block each
+         * other. */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <AnalyticsKpiCard
-            footnote={`${stats.passedCount.toLocaleString()} of ${stats.executed.toLocaleString()} executed`}
-            label="Pass rate"
-            value={`${stats.passRate.toFixed(1)}%`}
-          />
-          <AnalyticsKpiCard
-            footnote={`${stats.flakyCount.toLocaleString()} flaky · ${stats.failCount.toLocaleString()} failed`}
-            label="Flakiness rate"
-            value={`${stats.flakyRate.toFixed(1)}%`}
-          />
-          <AnalyticsKpiCard
-            footnote={
-              stats.p95DurationMs === null
-                ? "no timing data"
-                : `p95 ${formatDuration(stats.p95DurationMs)}`
-            }
-            label="Avg duration"
-            value={
-              stats.avgDurationMs === null
-                ? "—"
-                : formatDuration(Math.round(stats.avgDurationMs))
-            }
-          />
-          <AnalyticsKpiCard
-            footnote={
-              stats.lastSeen
-                ? `last seen ${formatRelativeTime(stats.lastSeen)}`
-                : undefined
-            }
-            label="Total runs"
-            value={stats.totalRuns.toLocaleString()}
-          />
+          <DeferredSection skeleton={<KpiStripSkeleton />}>
+            <KpiStrip stats={stats} />
+          </DeferredSection>
         </div>
 
-        {/* Chart + recent-runs table both read the deferred history slice. */}
+        {/* Chart + recent-runs table read the deferred history slice; the
+         * "of N total runs" caption also reads the deferred `stats` total. */}
         <DeferredSection
-          skeleton={
-            <HistoryRegionSkeleton
-              subtitle={meta.file}
-              totalRuns={stats.totalRuns}
-            />
-          }
+          skeleton={<HistoryRegionSkeleton subtitle={meta.file} />}
         >
           <HistoryRegion
             base={base}
             details={details}
             file={meta.file}
             projectSlug={project.projectSlug}
+            stats={stats}
             teamSlug={project.teamSlug}
             testTitle={meta.testTitle}
-            totalRuns={stats.totalRuns}
           />
         </DeferredSection>
       </div>
@@ -282,25 +255,89 @@ function TagsRowSkeleton() {
   );
 }
 
-/** Chart + recent-runs table — reads the deferred `history` slice. */
+/** Metadata bar's trailing "· tracked since …" footnote — reads deferred
+ *  `stats.firstSeen`; renders nothing until it resolves (or if it's absent). */
+function TrackedSinceLabel({ stats }: { stats: OkProps["stats"] }) {
+  const { firstSeen } = use(stats);
+  if (!firstSeen) return null;
+  return <> · tracked since {formatRelativeTime(firstSeen)}</>;
+}
+
+/** KPI strip — one `use(stats)` shared by all four cards so they resolve
+ *  together. */
+function KpiStrip({ stats }: { stats: OkProps["stats"] }) {
+  const s = use(stats);
+  return (
+    <>
+      <AnalyticsKpiCard
+        footnote={`${s.passedCount.toLocaleString()} of ${s.executed.toLocaleString()} executed`}
+        label="Pass rate"
+        value={`${s.passRate.toFixed(1)}%`}
+      />
+      <AnalyticsKpiCard
+        footnote={`${s.flakyCount.toLocaleString()} flaky · ${s.failCount.toLocaleString()} failed`}
+        label="Flakiness rate"
+        value={`${s.flakyRate.toFixed(1)}%`}
+      />
+      <AnalyticsKpiCard
+        footnote={
+          s.p95DurationMs === null
+            ? "no timing data"
+            : `p95 ${formatDuration(s.p95DurationMs)}`
+        }
+        label="Avg duration"
+        value={
+          s.avgDurationMs === null
+            ? "—"
+            : formatDuration(Math.round(s.avgDurationMs))
+        }
+      />
+      <AnalyticsKpiCard
+        footnote={
+          s.lastSeen ? `last seen ${formatRelativeTime(s.lastSeen)}` : undefined
+        }
+        label="Total runs"
+        value={s.totalRuns.toLocaleString()}
+      />
+    </>
+  );
+}
+
+/** Fallback for the KPI strip: four {@link KpiCardSkeleton}s. */
+function KpiStripSkeleton() {
+  return (
+    <>
+      <KpiCardSkeleton />
+      <KpiCardSkeleton />
+      <KpiCardSkeleton />
+      <KpiCardSkeleton />
+    </>
+  );
+}
+
+/** Chart + recent-runs table — reads deferred `history` plus (for the "of N
+ *  total runs" caption) `stats.totalRuns`. Reading both defers here means the
+ *  region waits on the slower of the two; acceptable below-the-fold behind its
+ *  own skeleton. */
 function HistoryRegion({
   details,
+  stats,
   base,
   file,
   teamSlug,
   projectSlug,
   testTitle,
-  totalRuns,
 }: {
   details: OkProps["details"];
+  stats: OkProps["stats"];
   base: string;
   file: string;
   teamSlug: string;
   projectSlug: string;
   testTitle: string;
-  totalRuns: number;
 }) {
   const { history } = use(details);
+  const { totalRuns } = use(stats);
 
   // Chart points + the visible-window pass/fail/flaky summary. The summary
   // reflects the "last N runs" the chart plots, not the all-time KPIs above.
@@ -431,32 +468,22 @@ function RecentRunsTableHead() {
   );
 }
 
+/** Placeholder row count for {@link HistoryRegionSkeleton}'s table — the real
+ *  count isn't known until the deferred reads resolve, so this is a guess. */
+const HISTORY_SKELETON_ROWS = 8;
+
 /**
  * Fallback for the chart + recent-runs region. Reuses {@link RunHistoryChart}'s
- * own skeleton (same frame, `subtitle={file}`, height 120 to match the plot)
- * and a matching 5-column table shell so the swap to the resolved data moves
- * nothing. The row count is a fixed placeholder — the real count is unknown
- * until the slice resolves, and this region is the terminal, scrollable block.
+ * skeleton (same frame, `subtitle={file}`, height 120) and a matching 5-column
+ * table shell so the swap moves nothing. Row count is a placeholder and the
+ * chart title omits the run count (like the generic `title="Duration"`
+ * skeletons on the run-detail / result-detail pages) — the real counts aren't
+ * known until the deferred reads resolve.
  */
-function HistoryRegionSkeleton({
-  subtitle,
-  totalRuns,
-}: {
-  subtitle: string;
-  totalRuns: number;
-}) {
-  // The chart draws at most RUN_HISTORY_CHART_MAX_POINTS; use the smaller of the
-  // all-time run count and that cap for a plausible placeholder row count.
-  const rowCount = Math.max(1, Math.min(totalRuns, 8));
+function HistoryRegionSkeleton({ subtitle }: { subtitle: string }) {
   return (
     <>
-      <RunHistoryChartSkeleton
-        subtitle={subtitle}
-        title={`Duration · last ${Math.min(
-          totalRuns,
-          RUN_HISTORY_CHART_MAX_POINTS,
-        )} runs of this test`}
-      />
+      <RunHistoryChartSkeleton subtitle={subtitle} title="Duration" />
       <Card className="overflow-hidden rounded-[9px]">
         <div className="border-b border-line-1 px-[18px] py-3">
           <h2 className="text-13 font-semibold tracking-tight">Recent runs</h2>
@@ -470,7 +497,7 @@ function HistoryRegionSkeleton({
         <Table className="table-fixed">
           <RecentRunsTableHead />
           <TableBody>
-            {Array.from({ length: rowCount }, (_, i) => (
+            {Array.from({ length: HISTORY_SKELETON_ROWS }, (_, i) => (
               <TableRow key={i}>
                 <TableCell className="w-10 px-4 py-3">
                   <Skeleton className="mx-auto size-[13px] rounded-full" />

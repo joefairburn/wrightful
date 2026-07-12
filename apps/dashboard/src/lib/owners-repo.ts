@@ -190,7 +190,9 @@ async function latestFilePerTestId(
 /**
  * Assign a manual owner to a test. Upserts on the unique
  * `(projectId, testId, owner)` so re-assigning the same owner is a no-op rather
- * than a constraint error. Returns the resulting row.
+ * than a constraint error. Returns the resulting row via `.returning()`; on the
+ * no-op conflict path that comes back empty, so we read the existing row by its
+ * unique key rather than fabricating one from the discarded insert values.
  */
 export async function assignOwner(
   scope: TenantScope,
@@ -205,13 +207,28 @@ export async function assignOwner(
     source: "manual" as const,
     createdAt: now,
   };
-  await db
+  const [inserted] = await db
     .insert(testOwners)
     .values(row)
     .onConflictDoNothing({
       target: [testOwners.projectId, testOwners.testId, testOwners.owner],
-    });
-  return row as TestOwner;
+    })
+    .returning();
+  if (inserted) return inserted;
+
+  const [existing] = await db
+    .select()
+    .from(testOwners)
+    .where(ownerRowWhere(scope, input.testId, input.owner))
+    .limit(1);
+  // onConflictDoNothing only returns empty when a conflicting row already
+  // exists, so the fallback SELECT should always find it.
+  if (!existing) {
+    throw new Error(
+      `assignOwner: row missing after onConflictDoNothing for (${scope.projectId}, ${input.testId}, ${input.owner})`,
+    );
+  }
+  return existing;
 }
 
 /**

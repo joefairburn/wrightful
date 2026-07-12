@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { dueMonitorsWhere, planMonitorSweep } from "@/lib/monitors/scheduler";
+import type { DueMonitor } from "@/lib/monitors/scheduler";
 import { monitorExecutions, monitors } from "@schema";
-import type { Monitor } from "@schema";
 
 /**
  * `planMonitorSweep` (`@/lib/monitors/scheduler`) is the synthetic-monitor
@@ -22,28 +22,17 @@ import type { Monitor } from "@schema";
  * (5) an empty input yields a fully empty plan.
  */
 
-/** Build a `Monitor` row with only the fields the planner reads set. */
-function monitor(overrides: Partial<Monitor> & Pick<Monitor, "id">): Monitor {
+/** Build a `DueMonitor` — exactly the columns `planMonitorSweep` reads. */
+function monitor(
+  overrides: Partial<DueMonitor> & Pick<DueMonitor, "id">,
+): DueMonitor {
   return {
-    teamId: "team-1",
     projectId: "proj-1",
-    name: "check",
     type: "browser",
-    enabled: 1,
-    source: "...",
-    config: null,
     intervalSeconds: 300,
-    schedulingStrategy: "round_robin",
-    retryConfig: null,
     nextRunAt: 1000,
-    lastEnqueuedAt: null,
-    lastRunAt: null,
-    lastStatus: null,
-    createdBy: "user-1",
-    createdAt: 0,
-    updatedAt: 0,
     ...overrides,
-  } as Monitor;
+  };
 }
 
 /** Deterministic id generator: ex-1, ex-2, … (no Math.random / Date.now). */

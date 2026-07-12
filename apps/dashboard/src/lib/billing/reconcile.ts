@@ -49,17 +49,27 @@ export async function reconcileBilling(
       // own customers.getStateExternal({ externalId }) is USER-keyed
       // (externalId = user.id), not team-keyed, so it's unusable here.
       // `subscriptions.list` returns a PageIterator — an async-iterable of pages —
-      // so consume the first match with `for await`, NOT `page.result.items[0]`
-      // on the bare return value (fact 10).
+      // so consume it with `for await`, NOT `page.result.items[0]` on the bare
+      // return value (fact 10).
       const result = await sdk.subscriptions.list({
         customerId: t.polarCustomerId,
         limit: 100,
       });
+      // Prefer an active subscription wherever it appears in the paged results:
+      // a customer can have a stale canceled/incomplete subscription ordered
+      // ahead of their active one, and taking page.result.items[0] blindly would
+      // downgrade a paying customer. Fall back to the first seen only if none is active.
       let sub: Subscription | undefined;
+      let fallback: Subscription | undefined;
       for await (const page of result) {
-        sub = page.result.items[0];
-        if (sub) break;
+        const active = page.result.items.find((s) => s.status === "active");
+        if (active) {
+          sub = active;
+          break;
+        }
+        fallback ??= page.result.items[0];
       }
+      sub ??= fallback;
       const desiredTier = sub && sub.status === "active" ? "pro" : "free";
       const desiredEnd =
         polarDateToSeconds(sub?.currentPeriodEnd) ?? t.currentPeriodEnd;
@@ -68,12 +78,21 @@ export async function reconcileBilling(
         t.tier === "pro" &&
         t.currentPeriodEnd != null &&
         nowSeconds > t.currentPeriodEnd + BILLING_PERIOD_GRACE_SECONDS;
-      if (t.tier !== desiredTier && (desiredTier === "pro" || expired)) {
+      const tierChanged =
+        t.tier !== desiredTier && (desiredTier === "pro" || expired);
+      // Correct currentPeriodEnd independently of the tier decision above: a
+      // still-`pro` team whose renewal webhook was lost otherwise keeps a stale
+      // `currentPeriodEnd` forever, since tier never flips to trigger the write.
+      const endChanged = desiredEnd !== t.currentPeriodEnd;
+      if (tierChanged || endChanged) {
         // NB: no billingUpdatedAt here — reconcile must not advance the webhook
         // ordering guard (see the doc-comment above).
         await db
           .update(teams)
-          .set({ tier: desiredTier, currentPeriodEnd: desiredEnd })
+          .set({
+            tier: tierChanged ? desiredTier : t.tier,
+            currentPeriodEnd: desiredEnd,
+          })
           .where(eq(teams.id, t.id));
         corrected++;
       }

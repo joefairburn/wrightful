@@ -55,9 +55,5 @@ test.describe("Member groups (team settings)", () => {
     // (The original card stays visible, so `create`'s success wait still passes.)
     await groupsPage.create(name);
     await expect(groupsPage.page.getByText(/already exists/i)).toBeVisible();
-
-    // Clean up so re-runs against a non-wiped DB stay green.
-    await groupsPage.goto();
-    await groupsPage.delete(name);
   });
 });

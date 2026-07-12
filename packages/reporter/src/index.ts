@@ -212,7 +212,10 @@ export default class WrightfulReporter implements Reporter {
   private shard: ShardInfo | null = null;
   private batcher: Batcher<EnqueuedTest> | null = null;
   private accumulator = new TestAccumulator();
-  private artifactTasks: Promise<void>[] = [];
+  // Set (not array): a settled task removes itself in trackTask's `finally`,
+  // keeping this bounded by in-flight work rather than retaining one settled
+  // promise per finished test for the whole run.
+  private artifactTasks = new Set<Promise<void>>();
   // Tracked tasks still in flight — the count surfaced when the shutdown
   // budget expires and work has to be abandoned.
   private pendingTasks = 0;
@@ -496,25 +499,25 @@ export default class WrightfulReporter implements Reporter {
 
   /**
    * Track a background task on `artifactTasks` with a last-resort rejection
-   * guard. A bare rejected promise on the array would surface as an
-   * unhandledRejection (killing the user's suite) and would make `onEnd`'s
-   * `Promise.all` reject before drain/complete — so tracked tasks must never
-   * reject. `pendingTasks` counts the in-flight tasks for the shutdown-budget
-   * warning.
+   * guard. A bare rejected promise would surface as an unhandledRejection
+   * (killing the user's suite) and make `onEnd`'s `Promise.all` reject before
+   * drain/complete — so tracked tasks must never reject. `pendingTasks` counts
+   * in-flight tasks for the shutdown-budget warning; the task removes itself
+   * from the set once settled.
    */
   private trackTask(task: Promise<void>): void {
     this.pendingTasks++;
-    this.artifactTasks.push(
-      task
-        .catch((err: unknown) => {
-          warn(
-            `internal task failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        })
-        .finally(() => {
-          this.pendingTasks--;
-        }),
-    );
+    const tracked: Promise<void> = task
+      .catch((err: unknown) => {
+        warn(
+          `internal task failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      })
+      .finally(() => {
+        this.pendingTasks--;
+        this.artifactTasks.delete(tracked);
+      });
+    this.artifactTasks.add(tracked);
   }
 
   private async enqueueDone(entry: PendingTest): Promise<void> {

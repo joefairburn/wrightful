@@ -20,10 +20,19 @@ let capturedSet: unknown = null;
 let setCalled = false;
 let capturedValues: unknown = null;
 let valuesCalled = false;
-// The single row the `select(...).limit(1)` read resolves to. Drives the
-// unchanged-guard in `setCodeownersFile`; default `[]` (no current row → null
-// current value), tests override it.
+// Row the `select(...).limit(1)` read resolves to; drives the unchanged-guard
+// in `setCodeownersFile` and `assignOwner`'s conflict-path fallback SELECT.
+// Default `[]` (no current row); tests override it.
 let selectResult: unknown[] = [];
+// Set by a test to simulate the conflict path: `onConflictDoNothing` hit an
+// existing row, `.returning()` is empty, so `assignOwner` falls back to the
+// SELECT rather than fabricating a row from the discarded insert values.
+let insertReturningResult: unknown[] | null = null;
+// Which top-level `db.*` call opened the current chain — insert and its
+// conflict-path follow-up SELECT share the same `node`/`.then`, so `.then`
+// resolves insert (echoes `.values(...)` / `insertReturningResult`) vs. select
+// (`selectResult`) accordingly.
+let mode: "insert" | "select" | null = null;
 
 vi.mock("void/db", async () => {
   const stub = await import("./helpers/void-db-stub");
@@ -51,12 +60,28 @@ vi.mock("void/db", async () => {
     capturedConflict = cfg;
     return node;
   };
-  (node as { then: unknown }).then = (onFulfilled?: (v: unknown) => unknown) =>
-    Promise.resolve(onFulfilled ? onFulfilled(selectResult) : selectResult);
+  node.returning = () => node;
+  (node as { then: unknown }).then = (
+    onFulfilled?: (v: unknown) => unknown,
+  ) => {
+    const result =
+      mode === "insert"
+        ? (insertReturningResult ?? (capturedValues ? [capturedValues] : []))
+        : selectResult;
+    return Promise.resolve(onFulfilled ? onFulfilled(result) : result);
+  };
 
+  const select = () => {
+    mode = "select";
+    return node;
+  };
+  const insert = () => {
+    mode = "insert";
+    return node;
+  };
   const db = {
-    select: chain,
-    insert: chain,
+    select,
+    insert,
     delete: chain,
     update: chain,
     // `runBatch` builds its statements against the transaction executor; the
@@ -106,6 +131,8 @@ beforeEach(() => {
   capturedValues = null;
   valuesCalled = false;
   selectResult = [];
+  insertReturningResult = null;
+  mode = null;
 });
 
 describe("mergeOwners (manual-wins union)", () => {
@@ -163,6 +190,28 @@ describe("assignOwner", () => {
       "testId",
       "owner",
     ]);
+  });
+
+  it("falls back to the existing persisted row when onConflictDoNothing no-ops (conflict path), not a fabricated one", async () => {
+    // Re-assigning an existing owner: the INSERT conflicts, `.returning()` is
+    // empty, so `assignOwner` must read the real persisted row (original
+    // `id`/`createdAt`), not the locally-built ulid+`now` that was never written.
+    insertReturningResult = [];
+    const persistedRow = {
+      id: "existing_owner_id",
+      projectId: "proj_xyz",
+      testId: "t1",
+      owner: "@web",
+      source: "manual" as const,
+      createdAt: 1000,
+    };
+    selectResult = [persistedRow];
+
+    const row = await assignOwner(scope, { testId: "t1", owner: "@web" }, 1700);
+
+    expect(row).toEqual(persistedRow);
+    expect(row.id).toBe("existing_owner_id");
+    expect(row.createdAt).toBe(1000);
   });
 });
 

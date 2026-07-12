@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
  * on a different connection and wouldn't be atomic).
  *
  * The real transaction is exercised end-to-end against pglite / real Postgres in
- * `pg-integration.test.ts`. Here we mock `db.transaction` to pin the pure seam
+ * `pg-integration/`. Here we mock `db.transaction` to pin the pure seam
  * contract (invoke the builder with the tx executor; collect results in order).
  */
 

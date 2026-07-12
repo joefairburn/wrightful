@@ -58,6 +58,125 @@ const DEFAULT_GROUP_BY: GroupByAxis = "file";
 
 const EMPTY_ROWS: readonly RunProgressTest[] = [];
 
+/**
+ * Cached grouping snapshot behind the identity-stable `liveByGroup` memo. `byId`
+ * / `groupBy` are the inputs it was built from (the next render compares its own
+ * `byId` per-id by reference); `groupOf` is the reverse index (`testId →
+ * groupId`) that pulls a changed/removed row out of its old group without
+ * rescanning every group's array.
+ */
+interface LiveGroupCache {
+  byId: Record<string, RunProgressTest>;
+  groupBy: GroupByAxis;
+  groupOf: Map<string, string>;
+  groups: Map<string, RunProgressTest[]>;
+}
+
+/** Full grouping pass — every row assigned to its group from scratch. Used on
+ * first paint and whenever `groupBy` changes (the previous `groupOf` mapping
+ * is keyed on the OLD axis and can't be reused for a new one). */
+function buildLiveGroups(
+  byId: Record<string, RunProgressTest>,
+  groupBy: GroupByAxis,
+): LiveGroupCache {
+  const groupOf = new Map<string, string>();
+  const groups = new Map<string, RunProgressTest[]>();
+  for (const t of Object.values(byId)) {
+    const id = groupKeyId(rawGroupKey(t, groupBy));
+    groupOf.set(t.id, id);
+    const arr = groups.get(id);
+    if (arr) arr.push(t);
+    else groups.set(id, [t]);
+  }
+  return { byId, groupBy, groupOf, groups };
+}
+
+/**
+ * Incremental grouping pass: reuses `cache.groups` and only replaces the arrays
+ * for groups a changed/added/removed row touched. Relies on the reducer's
+ * per-row identity guarantee (`applyRunProgressEvent` rule 4 makes new
+ * references only for `changedTests`), so a `===` per id finds the moved rows
+ * without a deep comparison.
+ */
+function updateLiveGroups(
+  cache: LiveGroupCache,
+  byId: Record<string, RunProgressTest>,
+  groupBy: GroupByAxis,
+): LiveGroupCache {
+  // An empty `byId` means "start over" (a WS-reconnect reseed drops the whole
+  // accumulator at once); rebuild from scratch rather than findIndex+splice
+  // every cached row out one by one (quadratic per group — stalls at a few
+  // thousand live rows).
+  if (Object.keys(byId).length === 0) return buildLiveGroups(byId, groupBy);
+
+  const groupOf = new Map(cache.groupOf);
+  const groups = new Map(cache.groups);
+  // Groups already cloned this pass, so repeated edits to one group (two changed
+  // rows in a file) mutate one copy instead of re-cloning the original each time.
+  const cloned = new Set<string>();
+
+  function mutableArrayFor(groupId: string): RunProgressTest[] {
+    if (cloned.has(groupId)) {
+      // Cloned earlier this pass. Usually still in `groups`, but a prior id may
+      // have emptied and deleted this group before a later id adds back into it
+      // (e.g. by shard, a row moving `null` → real shard the same event another
+      // unsharded row streams into "Unsharded"). Re-materialize so the push
+      // lands in `groups`, not a detached array.
+      const existing = groups.get(groupId);
+      if (existing) return existing;
+      const created: RunProgressTest[] = [];
+      groups.set(groupId, created);
+      return created;
+    }
+    const next = [...(groups.get(groupId) ?? [])];
+    groups.set(groupId, next);
+    cloned.add(groupId);
+    return next;
+  }
+
+  for (const id of Object.keys(byId)) {
+    const t = byId[id];
+    if (cache.byId[id] === t) continue; // untouched row — same object, skip
+
+    const newGroupId = groupKeyId(rawGroupKey(t, groupBy));
+    const oldGroupId = groupOf.get(id); // undefined for a brand-new id
+
+    if (oldGroupId !== undefined && oldGroupId !== newGroupId) {
+      const oldArr = mutableArrayFor(oldGroupId);
+      const idx = oldArr.findIndex((r) => r.id === id);
+      if (idx !== -1) oldArr.splice(idx, 1);
+      if (oldArr.length === 0) groups.delete(oldGroupId);
+    }
+
+    const newArr = mutableArrayFor(newGroupId);
+    if (oldGroupId === newGroupId) {
+      const idx = newArr.findIndex((r) => r.id === id);
+      if (idx !== -1) newArr[idx] = t;
+      else newArr.push(t);
+    } else {
+      newArr.push(t);
+    }
+    groupOf.set(id, newGroupId);
+  }
+
+  // Ids the cache knew about that are gone from `byId`. Today only a
+  // WS-reconnect reseed removes ids (and it drops them all at once); handled
+  // generically so any future partial-removal event is covered too.
+  for (const id of cache.groupOf.keys()) {
+    if (id in byId) continue;
+    const oldGroupId = groupOf.get(id);
+    if (oldGroupId !== undefined) {
+      const arr = mutableArrayFor(oldGroupId);
+      const idx = arr.findIndex((r) => r.id === id);
+      if (idx !== -1) arr.splice(idx, 1);
+      if (arr.length === 0) groups.delete(oldGroupId);
+    }
+    groupOf.delete(id);
+  }
+
+  return { byId, groupBy, groupOf, groups };
+}
+
 /** The group keys the server flagged to auto-expand on first paint. */
 function defaultExpandedIds(headers: readonly RunGroupHeader[]): Set<string> {
   const ids = new Set<string>();
@@ -271,17 +390,21 @@ export function RunProgress({
     isRunning,
   });
 
-  // Group the live overlay once per event (O(byId)), so each group reads its
-  // own slice instead of re-scanning all of `byId`.
+  // Group the live overlay once per event so each group reads its own slice,
+  // and keep each untouched group's array reference stable (`updateLiveGroups`)
+  // so a memoized `<TestGroup liveRows={...}>` re-renders only the group an
+  // event changed. `liveGroupCache` persists the prior pass across renders; a
+  // groupBy change invalidates it (reverse index keyed on the old axis) and
+  // forces a full rebuild, same as first render.
+  const liveGroupCache = useRef<LiveGroupCache | null>(null);
   const liveByGroup = useMemo(() => {
-    const m = new Map<string, RunProgressTest[]>();
-    for (const t of Object.values(byId)) {
-      const id = groupKeyId(rawGroupKey(t, groupBy));
-      const arr = m.get(id);
-      if (arr) arr.push(t);
-      else m.set(id, [t]);
-    }
-    return m;
+    const cache = liveGroupCache.current;
+    const next =
+      cache && cache.groupBy === groupBy
+        ? updateLiveGroups(cache, byId, groupBy)
+        : buildLiveGroups(byId, groupBy);
+    liveGroupCache.current = next;
+    return next.groups;
   }, [byId, groupBy]);
 
   // Load more group headers when the bottom of the group list scrolls into view.
@@ -384,7 +507,7 @@ export function RunProgress({
                 isRunning={isRunning}
                 key={id}
                 liveRows={liveByGroup.get(id) ?? EMPTY_ROWS}
-                onToggle={() => toggle(id)}
+                onToggle={toggle}
                 open={expanded.has(id)}
                 projectSlug={projectSlug}
                 runId={runId}

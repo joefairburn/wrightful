@@ -1,5 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import { Link } from "@void/react";
+import { memo } from "react";
 import { StatusGlyph } from "@/components/status-glyph";
 import { ReplayRowButton } from "@/components/trace-viewer-dialog";
 import { cn } from "@/lib/cn";
@@ -36,8 +37,16 @@ export function GroupStatusCount({
   );
 }
 
-/** One test row within an expanded group: status glyph, title, meta, duration. */
-export function TestRow({
+/**
+ * One test row within an expanded group: status glyph, title, meta, duration.
+ *
+ * Memoized: the reducer (`applyRunProgressEvent`) makes a new `test` reference
+ * only when that test changes, so an unaffected row keeps its `test` identity
+ * even when its group's `rows` array is rebuilt (`mergeGroupRows` reuses the
+ * individual row objects). The remaining props are primitives, and there are no
+ * callback props to hoist.
+ */
+export const TestRow = memo(function TestRow({
   test,
   groupBy,
   teamSlug,
@@ -133,4 +142,4 @@ export function TestRow({
       </span>
     </div>
   );
-}
+});

@@ -23,7 +23,9 @@ export type Props = InferProps<typeof loader>;
 
 const TOP_N = 50;
 const SPARKLINE_SIZE = 20;
-const RECENT_FAILURES = 3;
+// Only the latest failure per test is ever rendered (flaky-test-row.tsx reads
+// recentFailures[0]), so this fetches exactly 1 row per testId.
+const RECENT_FAILURES = 1;
 
 type RangeKey = "7d" | "14d" | "30d";
 const RANGES: readonly RangeKey[] = ["7d", "14d", "30d"];
@@ -74,7 +76,6 @@ export interface RecentFailureRow {
   actor: string | null;
   createdAt: number;
   errorMessage: string | null;
-  errorStack: string | null;
 }
 
 /**
@@ -82,7 +83,7 @@ export interface RecentFailureRow {
  *  1. Aggregate per testId across the window — flakyCount / passedCount /
  *     total. Filter to tests that have at least one flaky result.
  *  2. Sparkline (last 20 statuses) + latest title/file for the page slice.
- *  3. Recent failures (last 3 flaky/failed/timedout) per testId.
+ *  3. Recent failures (latest flaky/failed/timedout) per testId.
  */
 export const loader = defineHandler(async (c) => {
   const { project, scope } = requireTenantContext(c);
@@ -201,7 +202,6 @@ export const loader = defineHandler(async (c) => {
             actor: r.actor,
             createdAt: r.createdAt,
             errorMessage: r.errorMessage,
-            errorStack: r.errorStack,
           });
         }
       }
@@ -279,7 +279,6 @@ interface RecentFailureSqlRow {
   runId: string;
   createdAt: number;
   errorMessage: string | null;
-  errorStack: string | null;
   commitSha: string | null;
   branch: string | null;
   actor: string | null;
@@ -302,7 +301,6 @@ async function loadRecentFailures(
         tr."runId" as "runId",
         tr."createdAt" as "createdAt",
         tr."errorMessage" as "errorMessage",
-        tr."errorStack" as "errorStack",
         runs."commitSha" as "commitSha",
         runs.branch as branch,
         runs.actor as actor,
@@ -317,7 +315,7 @@ async function loadRecentFailures(
         ${branchSql}
     )
     select "testId", "testResultId", "runId", "createdAt",
-           "errorMessage", "errorStack", "commitSha", branch, actor, rn
+           "errorMessage", "commitSha", branch, actor, rn
     from ranked
     where rn <= ${count}
     order by "testId" asc, rn asc

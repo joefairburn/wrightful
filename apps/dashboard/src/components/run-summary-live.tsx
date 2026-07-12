@@ -6,7 +6,7 @@ import {
   currentSummary,
   type RunProgressSummary,
 } from "@/realtime/run-progress";
-import { useRunRoom } from "@/realtime/use-run-room";
+import { useRunSummary } from "@/realtime/use-run-summary";
 
 interface RunSummaryLiveProps {
   /** Run id used as the `void/ws` run-room key (`run:<runId>`). */
@@ -32,12 +32,17 @@ interface RunSummaryLiveProps {
  * The total denominator prefers the bucket sum and falls back to `totalTests`
  * so the bar stays proportional even before the recompute lands — mirroring the
  * page's prior `run.passed + … || run.totalTests` derivation.
+ *
+ * Reads only `summary`, never `byId`, so it subscribes via the lean
+ * `useRunSummary` accumulator (shares the run room's one WebSocket with every
+ * other leaf via `useRoom`'s ref-counting — this only changes what gets
+ * folded locally, not the connection) instead of `useRunRoom`.
  */
 export function RunSummaryLive({
   runId,
   initialSummary,
 }: RunSummaryLiveProps): React.ReactElement {
-  const state = useRunRoom(runId, { initialSummary });
+  const state = useRunSummary(runId, { initialSummary });
   const summary = currentSummary(state, initialSummary);
   const total =
     summary.passed + summary.failed + summary.flaky + summary.skipped ||

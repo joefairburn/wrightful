@@ -25,11 +25,12 @@ import {
  *     `registerArtifacts` for `artifactBytes`/`artifactCount`). Atomic with the
  *     data, no extra round-trip. Counts FRESH rows only (a new run, newly-inserted
  *     artifacts) so an idempotent re-stream/re-registration doesn't double-count.
- *     The `testResults` dimension is the EXCEPTION: it is NOT bumped on the
- *     /results hot path. That upsert serialized every concurrent flush of a team
- *     on the single team-month row; since testResults is never quota-gated, its
- *     count is instead derived on read (`countTeamTestResults` → `loadTeamUsage`)
- *     and re-based by the `rollup-usage` cron — no live counter is needed.
+ *     The `testResults` dimension is the exception: not bumped on the /results
+ *     hot path (that upsert serialized every concurrent flush of a team on the
+ *     single team-month row) and never quota-gated. It's derived on read
+ *     instead (`countTeamTestResults`, called by `checkQuota` and the usage
+ *     page's own `defer()`, kept out of `loadTeamUsage` so its `count(*)` scan
+ *     can't gate the cheap runs/artifact meters) and re-based by `rollup-usage`.
  *
  *   - **Enforcement** is a read-then-gate (`checkQuota`) at the cheap entry
  *     points, compared against the team's `tier` limits. The runs dimension is
@@ -71,32 +72,32 @@ export interface TierLimits {
 }
 
 /**
- * Limit set for a tier. When billing is OFF (`!billingEnabled(env)` — the OSS /
- * self-host default), EVERY tier is UNLIMITED: a self-hoster never hits a quota.
- * This billing-off short-circuit is the ONLY uncapped path. Caps exist ONLY when
- * billing is configured (the hosted deployment): with billing ON, `'free'` reads
- * the `WRIGHTFUL_FREE_*` ceilings and every other tier (`'pro'` / trial-pro) reads
- * the high, configurable FINITE `WRIGHTFUL_PRO_*` ceilings (NOT Infinity) — Pro is
- * enforced exactly like free (the existing soft-warn-then-block machinery), just at
- * a higher ceiling. The tier→limit mapping is the only place tiers are interpreted.
+ * Limit set for a tier, the only place tiers are interpreted. Billing off
+ * (`!billingEnabled(env)`, the OSS/self-host default) is the only uncapped path:
+ * every tier is unlimited. With billing on, `'pro'` (incl. trial-pro) reads the
+ * high, configurable finite `WRIGHTFUL_PRO_*` ceilings; every other value —
+ * `'free'` and any unrecognized/corrupt string — reads `WRIGHTFUL_FREE_*`, so
+ * unknown tiers fail closed to the low cap. Pro is enforced like free
+ * (soft-warn-then-block), just at a higher ceiling.
  */
 export function tierLimits(tier: string): TierLimits {
-  // OSS / self-host: billing unconfigured → no caps for anyone. THE ONLY unlimited path.
+  // OSS / self-host: billing unconfigured → no caps for anyone. The only unlimited path.
   if (!billingEnabled(env)) {
     return { runs: Infinity, testResults: Infinity, artifactBytes: Infinity };
   }
-  if (tier === "free") {
+  if (tier === "pro") {
+    // pro (incl. trial-pro): high, configurable FINITE caps (was Infinity).
     return {
-      runs: env.WRIGHTFUL_FREE_MONTHLY_RUNS,
-      testResults: env.WRIGHTFUL_FREE_MONTHLY_TEST_RESULTS,
-      artifactBytes: env.WRIGHTFUL_FREE_ARTIFACT_BYTES,
+      runs: env.WRIGHTFUL_PRO_MONTHLY_RUNS,
+      testResults: env.WRIGHTFUL_PRO_MONTHLY_TEST_RESULTS,
+      artifactBytes: env.WRIGHTFUL_PRO_ARTIFACT_BYTES,
     };
   }
-  // pro (incl. trial-pro): high, configurable FINITE caps (was Infinity).
+  // 'free', and any unrecognized/corrupt tier value: fail closed to the Free caps.
   return {
-    runs: env.WRIGHTFUL_PRO_MONTHLY_RUNS,
-    testResults: env.WRIGHTFUL_PRO_MONTHLY_TEST_RESULTS,
-    artifactBytes: env.WRIGHTFUL_PRO_ARTIFACT_BYTES,
+    runs: env.WRIGHTFUL_FREE_MONTHLY_RUNS,
+    testResults: env.WRIGHTFUL_FREE_MONTHLY_TEST_RESULTS,
+    artifactBytes: env.WRIGHTFUL_FREE_ARTIFACT_BYTES,
   };
 }
 
@@ -231,11 +232,15 @@ export async function checkQuota(
   return { status, dimension, used, limit };
 }
 
+/**
+ * Current-period usage excluding testResults — that dimension loads separately
+ * via {@link countTeamTestResults} (a `defer()`ed prop) so its heavier
+ * `count(*)` scan never gates the cheap `runsCount`/`artifactBytes` meters.
+ */
 export interface TeamUsage {
   tier: string;
   periodStart: number;
   runsCount: number;
-  testResultsCount: number;
   artifactBytes: number;
   artifactCount: number;
   limits: TierLimits;
@@ -272,7 +277,13 @@ export async function countTeamTestResults(
   return rows[0]?.n ?? 0;
 }
 
-/** Current-period usage + tier limits for the team usage settings page. */
+/**
+ * Current-period usage (runs + artifact bytes/count, live counters) + tier
+ * limits for the usage settings page. Omits `testResultsCount` — that has no
+ * live counter (module doc) so deriving it costs a `count(*)` fact-table scan;
+ * the page loads it separately via {@link countTeamTestResults} in its own
+ * `defer()`, letting this cheap indexed query paint the meters first.
+ */
 export async function loadTeamUsage(
   teamId: string,
   nowSeconds: number,
@@ -304,15 +315,10 @@ export async function loadTeamUsage(
     row?.currentPeriodEnd ?? null,
     nowSeconds,
   );
-  // testResults has no live counter (see the module doc / `appendRunResults`):
-  // count it from the authoritative rows so the page stays exact without the
-  // hot-path bump. runs + artifact bytes are still live counters.
-  const testResultsCount = await countTeamTestResults(teamId, periodStart);
   return {
     tier,
     periodStart,
     runsCount: row?.runsCount ?? 0,
-    testResultsCount,
     artifactBytes: row?.artifactBytes ?? 0,
     artifactCount: row?.artifactCount ?? 0,
     limits: tierLimits(tier),
@@ -324,13 +330,43 @@ export interface ReconcileUsageResult {
   teamsReconciled: number;
 }
 
+// Postgres's per-statement bound-param ceiling (65535). Mirrors the chunking
+// idiom in `src/lib/ingest.ts`, duplicated locally rather than imported to
+// avoid a cycle (`ingest.ts` already imports from this module).
+const USAGE_PG_MAX_BOUND_PARAMS = 65_535;
+
+/**
+ * Chunk `usageCounters` upsert rows so a single `.values(chunk)` stays under
+ * the bound-param ceiling, deriving the per-row column count from the row shape
+ * (so it can't drift). Pre-launch this is virtually always one chunk.
+ */
+function chunkUsageCounterRows<T extends Record<string, unknown>>(
+  rows: T[],
+): T[][] {
+  if (rows.length === 0) return [];
+  const perChunk = Math.floor(
+    USAGE_PG_MAX_BOUND_PARAMS / Object.keys(rows[0]).length,
+  );
+  const chunks: T[][] = [];
+  for (let i = 0; i < rows.length; i += perChunk) {
+    chunks.push(rows.slice(i, i + perChunk));
+  }
+  return chunks;
+}
+
 /**
  * Recompute every team's current-period counters from the authoritative
- * `runs` / `testResults` / `artifacts` rows and overwrite the live counter.
- * The live in-batch counters can drift from truth — chiefly when a retention
- * sweep deletes rows inside the current window — so this is the safety net that
- * re-bases them. Runs carry `teamId` directly; testResults/artifacts are scoped
- * to the team through their `projectId`.
+ * `runs` / `artifacts` rows and overwrite the live counter (testResults has no
+ * live counter to reconcile — see the module doc). The live in-batch counters
+ * can drift from truth — chiefly when a retention sweep deletes rows inside
+ * the current window — so this is the safety net that re-bases them.
+ *
+ * Set-based, not a per-team loop: two aggregate queries (each `teams LEFT JOIN
+ * …`, so a team with no current-period activity still gets a zero-count row —
+ * that rebase-to-zero after a retention delete is the point) plus one bulk
+ * upsert. The joins stay in separate queries: chaining `runs` and `artifacts`
+ * off the same `teams` row would fan out (each run × each artifact per team),
+ * corrupting both counts.
  *
  * Pre-launch this recomputes all teams in one pass (team count is tiny). When
  * the fleet grows this should switch to a bounded slice like `sweepStaleRuns`.
@@ -339,57 +375,72 @@ export async function reconcileUsage(
   nowSeconds: number,
 ): Promise<ReconcileUsageResult> {
   const periodStart = monthStartSeconds(nowSeconds);
-  const teamRows = await db.select({ id: teams.id }).from(teams);
 
-  for (const team of teamRows) {
-    const teamProjectIds = db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(eq(projects.teamId, team.id));
+  // Runs scope to a team directly. Period filter in the JOIN's ON clause (not
+  // a WHERE) so an unmatched team keeps its zero-count row instead of dropping.
+  const runCountRows = await db
+    .select({
+      teamId: teams.id,
+      runsCount: numericSql(sql`count(${runs.id})`),
+    })
+    .from(teams)
+    .leftJoin(
+      runs,
+      and(eq(runs.teamId, teams.id), gte(runs.createdAt, periodStart)),
+    )
+    .groupBy(teams.id);
 
-    const runRows = await db
-      .select({ n: numericSql(sql`count(*)`) })
-      .from(runs)
-      .where(and(eq(runs.teamId, team.id), gte(runs.createdAt, periodStart)));
+  // Artifacts scope to a team through their project: teams LEFT JOIN projects
+  // (unconditional) LEFT JOIN artifacts (period filter in ON, as above).
+  const artifactRows = await db
+    .select({
+      teamId: teams.id,
+      artifactBytes: numericSql(sql`coalesce(sum(${artifacts.sizeBytes}), 0)`),
+      artifactCount: numericSql(sql`count(${artifacts.id})`),
+    })
+    .from(teams)
+    .leftJoin(projects, eq(projects.teamId, teams.id))
+    .leftJoin(
+      artifacts,
+      and(
+        eq(artifacts.projectId, projects.id),
+        gte(artifacts.createdAt, periodStart),
+      ),
+    )
+    .groupBy(teams.id);
 
-    const artRows = await db
-      .select({
-        bytes: numericSql(sql`coalesce(sum(${artifacts.sizeBytes}), 0)`),
-        n: numericSql(sql`count(*)`),
-      })
-      .from(artifacts)
-      .where(
-        and(
-          gte(artifacts.createdAt, periodStart),
-          sql`${artifacts.projectId} in ${teamProjectIds}`,
-        ),
-      );
+  const artifactsByTeam = new Map(artifactRows.map((r) => [r.teamId, r]));
 
-    const runsCount = runRows[0]?.n ?? 0;
-    const artifactBytes = artRows[0]?.bytes ?? 0;
-    const artifactCount = artRows[0]?.n ?? 0;
+  const rows = runCountRows.map((r) => {
+    const art = artifactsByTeam.get(r.teamId);
+    return {
+      id: ulid(),
+      teamId: r.teamId,
+      periodStart,
+      runsCount: r.runsCount,
+      artifactBytes: art?.artifactBytes ?? 0,
+      artifactCount: art?.artifactCount ?? 0,
+      updatedAt: nowSeconds,
+    };
+  });
 
+  // Each row's SET differs, so the upsert reads new values from `excluded`
+  // (Postgres's alias for the proposed INSERT row), not a shared literal — the
+  // multi-row `onConflictDoUpdate` idiom `src/lib/ingest.ts` also uses.
+  for (const chunk of chunkUsageCounterRows(rows)) {
     await db
       .insert(usageCounters)
-      .values({
-        id: ulid(),
-        teamId: team.id,
-        periodStart,
-        runsCount,
-        artifactBytes,
-        artifactCount,
-        updatedAt: nowSeconds,
-      })
+      .values(chunk)
       .onConflictDoUpdate({
         target: [usageCounters.teamId, usageCounters.periodStart],
         set: {
-          runsCount,
-          artifactBytes,
-          artifactCount,
-          updatedAt: nowSeconds,
+          runsCount: sql`excluded."runsCount"`,
+          artifactBytes: sql`excluded."artifactBytes"`,
+          artifactCount: sql`excluded."artifactCount"`,
+          updatedAt: sql`excluded."updatedAt"`,
         },
       });
   }
 
-  return { teamsReconciled: teamRows.length };
+  return { teamsReconciled: rows.length };
 }

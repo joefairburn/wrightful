@@ -16,7 +16,6 @@ export interface FlakyRecentFailure {
   actor: string | null;
   createdAt: number;
   errorMessage: string | null;
-  errorStack: string | null;
 }
 
 export interface FlakyTestRowProps {

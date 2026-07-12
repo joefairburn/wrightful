@@ -99,6 +99,20 @@
       "when": 1783377315114,
       "tag": "20260706223515_abnormal_omega_red",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783785662460,
+      "tag": "20260711160102_right_sentinel",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1783807229444,
+      "tag": "20260711220029_careless_sentinel",
+      "breakpoints": true
     }
   ]
 }

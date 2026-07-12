@@ -3,6 +3,7 @@ import { env } from "void/env";
 import { logger } from "void/log";
 import { queues } from "void/queues";
 import { sweepDueMonitors } from "@/lib/monitors/scheduler";
+import { monitorFamily } from "@/lib/monitors/types";
 
 /**
  * Synthetic-monitor scheduler: every minute, find the enabled monitors whose
@@ -35,15 +36,12 @@ export default loggedScheduled("sweep-monitors", async () => {
   const { found, enqueued } = await sweepDueMonitors({
     now: nowSeconds,
     limit: env.WRIGHTFUL_MONITOR_SWEEP_BATCH_SIZE,
-    // Route by type: the lightweight uptime family (http + tcp/ping) to the
-    // batched `uptime` queue, browser checks to the container-tuned `monitors`
-    // queue.
+    // Route by family (`monitorFamily` — the shared partition the executor
+    // registry also dispatches on): the lightweight uptime family (http +
+    // tcp/ping) to the batched `uptime` queue, browser checks to the
+    // container-tuned `monitors` queue.
     enqueue: async (job, monitor) => {
-      if (
-        monitor.type === "http" ||
-        monitor.type === "tcp" ||
-        monitor.type === "ping"
-      ) {
+      if (monitorFamily(monitor.type) === "uptime") {
         await queues.uptime.send(job);
       } else {
         await queues.monitors.send(job);

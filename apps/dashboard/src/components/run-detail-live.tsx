@@ -6,7 +6,7 @@ import {
   currentSummary,
   type RunProgressSummary,
 } from "@/realtime/run-progress";
-import { useRunRoom } from "@/realtime/use-run-room";
+import { useRunSummary } from "@/realtime/use-run-summary";
 import { LiveDuration } from "@/components/live-duration";
 
 /**
@@ -14,13 +14,15 @@ import { LiveDuration } from "@/components/live-duration";
  * `run.*` props — so they went stale until a reload, most visibly the run status
  * glyph, which kept showing "running" after a run completed (the bug these fix).
  *
- * Each subscribes to the run's `void/ws` room via `useRunRoom` and reads the live
- * `summary` (falling back to the SSR `initialSummary` until the first event), so
- * they track streaming results + run completion in lockstep with the summary
- * tiles (`<RunSummaryLive>`) and the per-test list (`<RunProgress>`). They are
- * separate leaves rather than one island because they sit in different parts of
- * the page (sticky H1 vs the tab bar); `useRoom` ref-counts the connection, so
- * all of them — plus the tiles + list — share ONE WebSocket to the room.
+ * Each subscribes to the run's `void/ws` room via `useRunSummary` and reads the
+ * live `summary` (falling back to the SSR `initialSummary` until the first
+ * event), tracking streaming results + completion in lockstep with the summary
+ * tiles (`<RunSummaryLive>`) and per-test list (`<RunProgress>`). They are
+ * separate leaves because they sit in different parts of the page (sticky H1 vs
+ * tab bar); `useRoom` ref-counts the connection, so all of them — plus tiles +
+ * list — share one WebSocket. None read `byId` (only `<RunProgress>` does), so
+ * they use the lean `useRunSummary` accumulator, not `useRunRoom` — no per-test
+ * map to clone on events they don't care about.
  */
 
 interface RunLiveLeafProps {
@@ -34,7 +36,7 @@ export function RunStatusGlyphLive({
   initialSummary,
   size,
 }: RunLiveLeafProps & { size: number }): React.ReactElement {
-  const state = useRunRoom(runId, { initialSummary });
+  const state = useRunSummary(runId, { initialSummary });
   return (
     <StatusGlyph
       size={size}
@@ -55,7 +57,7 @@ export function RunDurationLive({
   createdAt,
 }: RunLiveLeafProps & { createdAt: number }): React.ReactElement {
   const summary = currentSummary(
-    useRunRoom(runId, { initialSummary }),
+    useRunSummary(runId, { initialSummary }),
     initialSummary,
   );
   return (
@@ -75,6 +77,6 @@ export function RunTestCountLive({
   runId,
   initialSummary,
 }: RunLiveLeafProps): React.ReactElement {
-  const state = useRunRoom(runId, { initialSummary });
+  const state = useRunSummary(runId, { initialSummary });
   return <>{currentSummary(state, initialSummary).totalTests}</>;
 }
