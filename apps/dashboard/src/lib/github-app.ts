@@ -1,18 +1,14 @@
 import { env } from "void/env";
-import { base64urlEncode, timingSafeEqualHex } from "@/lib/token-crypto";
+import { githubFetch, mintAppJwt } from "@/lib/github-http";
 
 /**
- * GitHub App authentication primitives (WebCrypto-only, Workers-compatible):
- * mint the App JWT, exchange it for an installation token, and verify inbound
- * webhook signatures. The check-run posting logic that consumes these lives in
- * `github-checks.ts`.
+ * GitHub App authentication — the env-reading layer: read the App's identity,
+ * mint the App JWT, exchange it for installation-scoped access. The env-free
+ * HTTP/crypto primitives it composes (`githubFetch`, `mintAppJwt`, webhook
+ * verification) live in `github-http.ts` so config-time modules can import them;
+ * this module is request-time only (top-level `void/env` import). The check-run
+ * posting logic that consumes these lives in `github-checks.ts`.
  */
-
-const GITHUB_API = "https://api.github.com";
-const USER_AGENT = "wrightful-dashboard";
-const REQUEST_TIMEOUT_MS = 10_000;
-
-const encoder = new TextEncoder();
 
 /**
  * The GitHub App's env-sourced identity (App id + PKCS#8 private key). Reading
@@ -31,89 +27,6 @@ function appCredentials(): { appId: string; privateKeyPem: string } {
     throw new Error("GitHub App credentials are not configured");
   }
   return { appId, privateKeyPem };
-}
-
-/** Owner segment of a `"owner/name"` repo string, or null if malformed. PURE. */
-export function parseRepoOwner(repo: string | null | undefined): string | null {
-  if (!repo) return null;
-  const owner = repo.split("/")[0]?.trim();
-  return owner ? owner : null;
-}
-
-/** Lowercase hex of a byte array. */
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-/** Strip a PEM envelope and base64-decode the body to DER bytes. */
-function pemToDer(pem: string): ArrayBuffer {
-  const b64 = pem
-    .replace(/-----BEGIN [^-]+-----/, "")
-    .replace(/-----END [^-]+-----/, "")
-    .replace(/\s+/g, "");
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
-
-/**
- * Mint a short-lived GitHub App JWT (RS256) for App-level API calls. `iat` is
- * back-dated 60s to tolerate clock skew; `exp` is +9min (GitHub caps the App
- * JWT lifetime at 10 minutes). `privateKeyPem` must be PKCS#8 (see env.ts).
- */
-export async function mintAppJwt(
-  appId: string,
-  privateKeyPem: string,
-  nowSeconds: number,
-): Promise<string> {
-  const header = base64urlEncode(
-    encoder.encode(JSON.stringify({ alg: "RS256", typ: "JWT" })),
-  );
-  const payload = base64urlEncode(
-    encoder.encode(
-      JSON.stringify({
-        iat: nowSeconds - 60,
-        exp: nowSeconds + 540,
-        iss: appId,
-      }),
-    ),
-  );
-  const signingInput = `${header}.${payload}`;
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    pemToDer(privateKeyPem),
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    encoder.encode(signingInput),
-  );
-  return `${signingInput}.${base64urlEncode(new Uint8Array(signature))}`;
-}
-
-/** Fetch against the GitHub API with the standard App headers + a timeout. */
-export async function githubFetch(
-  path: string,
-  init: RequestInit,
-  bearer: string,
-): Promise<Response> {
-  return fetch(`${GITHUB_API}${path}`, {
-    ...init,
-    headers: {
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      Authorization: `Bearer ${bearer}`,
-      "User-Agent": USER_AGENT,
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
-    },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
 }
 
 /**
@@ -151,6 +64,81 @@ export async function mintInstallationToken(
 }
 
 /**
+ * Page cap for `/user/installations` (100 per page) when verifying ownership.
+ * 10 × 100 = 1000 is far beyond any realistic count, and the loop stops early
+ * on the first short page; a user past the ceiling can't be verified past it.
+ */
+const USER_INSTALLATIONS_MAX_PAGES = 10;
+
+/**
+ * Outcome of {@link verifyUserAdministersInstallation}: `"authorized"` (yes),
+ * `"denied"` (GitHub listed the user's installations and this wasn't among
+ * them), or `"error"` (transport failure, incl. an expired token → 401). The
+ * callback maps each to a distinct leak-safe flash instead of a 500.
+ */
+export type InstallationOwnershipVerdict = "authorized" | "denied" | "error";
+
+/**
+ * PURE: does the user's accessible-installations list contain `installationId`?
+ * Split out so the membership decision is unit-testable without a live token.
+ */
+export function userInstallationsInclude(
+  installations: readonly { id?: number }[],
+  installationId: number,
+): boolean {
+  return installations.some((i) => i.id === installationId);
+}
+
+/**
+ * SECURITY (H1: GitHub App installation takeover / confused deputy). Prove the
+ * signed-in user administers the GitHub account backing `installationId` before
+ * the `/api/github/setup` callback persists the team↔installation link.
+ *
+ * Wrightful holds the App private key, so it can mint a token for any
+ * installation id (see {@link mintInstallationToken}). The callback's only
+ * inputs — `state` (team slug) and `installation_id` — are both attacker-
+ * suppliable, so without this check a signed-in owner of a throwaway team could
+ * claim any unlinked installation id (won by enumeration) and drive that org's
+ * repos via merge-gating check runs (`maybePostGithubCheck`).
+ *
+ * `GET /user/installations` (with the USER's OAuth token) returns exactly the
+ * installations this user can manage — GitHub's own answer to "may this user
+ * configure this installation", which we defer to instead of the query params.
+ * Leak-safe and never throws: `"denied"` when not in the list, `"error"` on any
+ * non-OK/parse/network failure. Do NOT downgrade this to trusting
+ * `installation_id` — it's the sole barrier between an enumerable integer and
+ * another org's merge gate.
+ */
+export async function verifyUserAdministersInstallation(
+  userAccessToken: string,
+  installationId: number,
+): Promise<InstallationOwnershipVerdict> {
+  try {
+    for (let page = 1; page <= USER_INSTALLATIONS_MAX_PAGES; page++) {
+      const response = await githubFetch(
+        `/user/installations?per_page=100&page=${page}`,
+        { method: "GET" },
+        userAccessToken,
+      );
+      if (!response.ok) return "error";
+      const body = (await response.json().catch(() => null)) as {
+        installations?: { id?: number }[];
+      } | null;
+      if (!body) return "error";
+      const installations = body.installations ?? [];
+      if (userInstallationsInclude(installations, installationId)) {
+        return "authorized";
+      }
+      // A short page means we've seen every accessible installation.
+      if (installations.length < 100) break;
+    }
+    return "denied";
+  } catch {
+    return "error";
+  }
+}
+
+/**
  * Resolve the account login an installation is installed on (the repo owner).
  * Reads the App creds + JWT clock internally; the caller supplies only the
  * `installationId`.
@@ -174,27 +162,4 @@ export async function fetchInstallationAccountLogin(
     account?: { login?: string };
   };
   return body.account?.login ?? null;
-}
-
-/**
- * Verify a GitHub webhook's `X-Hub-Signature-256` (HMAC-SHA256 of the raw body
- * keyed by the webhook secret). Constant-time compare. Returns false on a
- * missing/malformed header so an unsigned request is simply rejected.
- */
-export async function verifyWebhookSignature(
-  rawBody: string,
-  signatureHeader: string | null,
-  secret: string,
-): Promise<boolean> {
-  if (!signatureHeader?.startsWith("sha256=")) return false;
-  const provided = signatureHeader.slice("sha256=".length);
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(rawBody));
-  return timingSafeEqualHex(bytesToHex(new Uint8Array(mac)), provided);
 }

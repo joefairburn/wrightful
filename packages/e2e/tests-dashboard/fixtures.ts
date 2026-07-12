@@ -28,6 +28,12 @@ export interface DashboardFixtures {
   apiKeysPage: ApiKeysPage;
   monitorsPage: MonitorsPage;
   groupsPage: GroupsPage;
+  /**
+   * Navigate to the detail page of the newest seeded run (optionally
+   * branch-filtered) and return its runId. Collapses the
+   * `runsListPage.goto()` → `firstRunId()` → `runDetailPage.goto()` preamble.
+   */
+  openSeededRun: (branch?: string) => Promise<string>;
 }
 
 export const test = base.extend<
@@ -71,6 +77,19 @@ export const test = base.extend<
 
   groupsPage: async ({ page, ctx }, use) => {
     await use(new GroupsPage(page, ctx.teamSlug));
+  },
+
+  // Optional branch filter (e.g. `FAILURES_BRANCH`) for specs that need a
+  // specific seeded run rather than the newest one.
+  openSeededRun: async ({ runsListPage, runDetailPage }, use) => {
+    await use(async (branch?: string) => {
+      await runsListPage.goto(
+        branch ? `branch=${encodeURIComponent(branch)}` : undefined,
+      );
+      const runId = await runsListPage.firstRunId();
+      await runDetailPage.goto(runId);
+      return runId;
+    });
   },
 });
 

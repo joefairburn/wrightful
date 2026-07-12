@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { auth } from "void/client";
 import { Link, useRouter } from "@void/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useHydrated } from "@/lib/hooks/use-hydrated";
 import { hrefWithNext } from "@/lib/safe-next-path";
 import type { Props } from "./signup.server";
 
@@ -28,9 +29,8 @@ export default function SignupPage({
   const [awaitingVerification, setAwaitingVerification] = useState(false);
   // Sign-up runs client-side (`auth.signUp`); disable submit until hydrated so
   // a pre-hydration native submit can't GET this page with the password in the
-  // query string. `useEffect` only runs after hydration. (Mirrors login.tsx.)
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
+  // query string. (Mirrors login.tsx.)
+  const hydrated = useHydrated();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

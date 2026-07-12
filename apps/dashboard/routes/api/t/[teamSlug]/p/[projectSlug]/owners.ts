@@ -7,8 +7,8 @@ import {
   SetOwnersSchema,
 } from "@/lib/owner-schemas";
 import { assignOwner, removeOwner, setManualOwners } from "@/lib/owners-repo";
-import { redirectWithParam } from "@/lib/settings-scope";
-import { resolveOwnerTenantApiScope } from "@/lib/tenant-api-scope";
+import { resolveProjectApiScope } from "@/lib/tenant-api-scope";
+import { TEST_DETAIL_FLASH } from "@/lib/test-detail-flash";
 import { safeNextPath } from "@/lib/safe-next-path";
 
 /**
@@ -22,13 +22,13 @@ import { safeNextPath } from "@/lib/safe-next-path";
  * `assign` inserts one manual owner; `remove` deletes one (both kept as the
  * granular no-JS/API surface). Manual owners are the source of truth and
  * override CODEOWNERS. Owner gating + scope come from
- * `resolveOwnerTenantApiScope` (404s a non-owner / non-member without leaking
- * existence). On success it redirects back to the originating page
- * (`redirectTo`, validated as a same-origin path); on a validation/conflict
- * error it appends `?ownerError=` so the page surfaces it.
+ * `resolveProjectApiScope(c, "writeConfig")` (404s a non-owner / non-member
+ * without leaking existence). On success it redirects back to the originating
+ * page (`redirectTo`, validated as a same-origin path); on a
+ * validation/conflict error it appends `?ownerError=` so the page surfaces it.
  */
 export const POST = defineHandler(async (c) => {
-  const ctx = await resolveOwnerTenantApiScope(c);
+  const ctx = await resolveProjectApiScope(c, "writeConfig");
   if (ctx instanceof Response) return ctx;
   const { scope } = ctx;
 
@@ -44,7 +44,7 @@ export const POST = defineHandler(async (c) => {
   const safeRedirect = rawRedirect ? safeNextPath(rawRedirect) : "/";
   const redirectTo = safeRedirect === "/" ? `${base}/flaky` : safeRedirect;
   const fail = (msg: string) =>
-    redirectWithParam(c, redirectTo, "ownerError", msg);
+    TEST_DETAIL_FLASH.fail(c, redirectTo, "ownerError", msg);
 
   const intent = readField(form, "intent");
 

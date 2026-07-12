@@ -142,6 +142,17 @@ describe("buildAttemptArtifactGroups", () => {
     expect(group?.copyPrompt?.id).toBe("prompt");
   });
 
+  it("keeps only the first `other` row as copyPrompt but surfaces additional `other` rows in media, not dropped", () => {
+    const rows: SignedArtifact[] = [
+      signed({ id: "prompt", type: "other", name: "error-context.md" }),
+      signed({ id: "extra", type: "other", name: "notes.txt" }),
+      signed({ id: "trace", type: "trace", name: "trace.zip" }),
+    ];
+    const group = buildAttemptArtifactGroups(rows).get(0);
+    expect(group?.copyPrompt?.id).toBe("prompt");
+    expect(group?.media.map((m) => m.id)).toEqual(["trace", "extra"]);
+  });
+
   it("buckets rows by attempt", () => {
     const rows: SignedArtifact[] = [
       signed({ id: "a0", type: "trace", attempt: 0 }),

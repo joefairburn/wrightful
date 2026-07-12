@@ -14,7 +14,7 @@ import {
   Users,
   UsersRound,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useRouter, useShared } from "@void/react";
 import { useCommandMenuShortcut } from "@/components/command-menu-shortcut";
 import { DeferErrorBoundary } from "@/components/defer-error-boundary";
@@ -100,10 +100,9 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
   const [cmdOpen, setCmdOpen] = useState(false);
   // Mount the lazy command menu the first time it opens, then keep it mounted so
   // its close animation runs and the chunk isn't re-fetched on the next ⌘K.
+  // A one-way latch, flipped during render rather than in an effect.
   const [cmdMounted, setCmdMounted] = useState(false);
-  useEffect(() => {
-    if (cmdOpen) setCmdMounted(true);
-  }, [cmdOpen]);
+  if (cmdOpen && !cmdMounted) setCmdMounted(true);
   useCommandMenuShortcut(setCmdOpen);
 
   return (

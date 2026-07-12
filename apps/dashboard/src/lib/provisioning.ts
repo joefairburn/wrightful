@@ -1,7 +1,9 @@
+import type { Context } from "hono";
 import { db, eq, like, or } from "void/db";
 import { env } from "void/env";
 import { ulid } from "ulid";
 import { memberships, projects, teams as teamsTable } from "@schema";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { openSignupAllowed } from "@/lib/config";
 import { runBatch } from "@/lib/db-batch";
 import { SLUG_MAX_LEN } from "@/lib/slug";
@@ -231,6 +233,32 @@ export async function createProjectForTeam(
     slug,
     name,
     createdAt: Math.floor(Date.now() / 1000),
+  });
+  return { slug };
+}
+
+/**
+ * Request-scoped companion to {@link createProjectForTeam}: create the project
+ * and record its `PROJECT_CREATE` audit row (both project-creating handlers
+ * previously re-spelled the same audit block). `recordAudit` is best-effort
+ * (never throws), so failure semantics match the bare create.
+ *
+ * The audit write stays out of `createProjectForTeam` so that function remains
+ * context-free for script/seeder callers; the audit row needs the request
+ * `Context` to resolve the actor.
+ */
+export async function createProjectAudited(
+  c: Context,
+  teamId: string,
+  name: string,
+): Promise<{ slug: string }> {
+  const { slug } = await createProjectForTeam(teamId, name);
+  await recordAudit(c, {
+    teamId,
+    action: AUDIT_ACTIONS.PROJECT_CREATE,
+    targetType: "project",
+    targetId: slug,
+    metadata: { projectName: name },
   });
   return { slug };
 }

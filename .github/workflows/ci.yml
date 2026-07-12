@@ -139,10 +139,15 @@ jobs:
   # Real-Postgres integration leg. The pglite lane (in `test-dashboard`) is fast
   # but cannot reproduce node-postgres result shapes — most importantly int8
   # (`count`/`sum`/bigint) and `numeric` come back as STRINGS on the production
-  # driver, numbers on pglite (see src/__tests__/pg-integration.test.ts). This
-  # job runs the SAME suite against a real `postgres:16` service container via
+  # driver, numbers on pglite (see src/__tests__/pg-integration/). This job runs
+  # the SAME suites against a real `postgres:16` service container via
   # `PG_TEST_URL`, so a result-shape/SQL divergence the surrogate hides fails CI
-  # here. `pg` is already transitive (drizzle-orm/node-postgres), so no extra dep.
+  # here. `pg` is already transitive (drizzle-orm/node-postgres), so no extra
+  # dep. The directory's files share ONE database under `PG_TEST_URL`, and each
+  # file drop+recreates its own tables independently — `--no-file-parallelism`
+  # forces vitest to run them one at a time so concurrent DDL from different
+  # files can't corrupt each other (the pglite default lane doesn't need this;
+  # each file there gets its own fresh in-process instance).
   test-postgres:
     name: Postgres Integration (real engine)
     runs-on: ubuntu-latest
@@ -179,7 +184,7 @@ jobs:
       - name: Postgres integration test (real node-postgres)
         env:
           PG_TEST_URL: postgres://wrightful:wrightful@localhost:5432/wrightful_test
-        run: pnpm --filter @wrightful/dashboard exec vp test run src/__tests__/pg-integration.test.ts
+        run: pnpm --filter @wrightful/dashboard exec vp test run src/__tests__/pg-integration/ --no-file-parallelism
 
   build-dashboard:
     name: Dashboard Build

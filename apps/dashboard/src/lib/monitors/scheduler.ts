@@ -21,6 +21,18 @@ import type { MonitorJob } from "@/lib/monitors/types";
  */
 
 /**
+ * The slice of a `Monitor` row the sweep reads (`planMonitorSweep` uses
+ * id/projectId/intervalSeconds/nextRunAt; `enqueue` routes by `type`).
+ * Projecting exactly these in the sweep SELECT avoids pulling `source` (the
+ * full Playwright spec) and the jsonb config columns every cron minute — the
+ * queue consumer re-loads the full row via `loadMonitorById`.
+ */
+export type DueMonitor = Pick<
+  Monitor,
+  "id" | "projectId" | "type" | "intervalSeconds" | "nextRunAt"
+>;
+
+/**
  * The transactional plan for one sweep pass: the execution rows to INSERT, the
  * per-monitor `nextRunAt`/`lastEnqueuedAt` re-arm UPDATEs, and the queue jobs to
  * send. `executions` and `jobs` are 1:1 and index-aligned (job N enqueues
@@ -60,7 +72,7 @@ export interface SweepPlan {
  * An empty input yields an empty plan (no executions, no updates, no jobs).
  */
 export function planMonitorSweep(
-  dueMonitors: Monitor[],
+  dueMonitors: DueMonitor[],
   now: number,
   makeId: () => string,
 ): SweepPlan {
@@ -146,14 +158,20 @@ export async function sweepDueMonitors(opts: {
   now: number;
   limit: number;
   /**
-   * Enqueue one job, given its monitor row so the caller can route by
+   * Enqueue one job, given its due-monitor slice so the caller can route by
    * `monitor.type` (http → `queues.uptime`, browser → `queues.monitors`). The
    * job body itself stays IDs-only.
    */
-  enqueue: (job: MonitorJob, monitor: Monitor) => Promise<void>;
+  enqueue: (job: MonitorJob, monitor: DueMonitor) => Promise<void>;
 }): Promise<{ found: number; enqueued: number }> {
   const due = await db
-    .select()
+    .select({
+      id: monitors.id,
+      projectId: monitors.projectId,
+      type: monitors.type,
+      intervalSeconds: monitors.intervalSeconds,
+      nextRunAt: monitors.nextRunAt,
+    })
     .from(monitors)
     .where(dueMonitorsWhere(opts.now))
     .orderBy(asc(monitors.nextRunAt))
@@ -184,8 +202,9 @@ export async function sweepDueMonitors(opts: {
     ),
   ]);
 
-  // Pair each job with its monitor row (plan.jobs is index-aligned with `due` —
-  // see `planMonitorSweep`) so the enqueue callback can route by `monitor.type`.
+  // Pair each job with its due-monitor slice (plan.jobs is index-aligned with
+  // `due` — see `planMonitorSweep`) so the enqueue callback can route by
+  // `monitor.type`.
   const items = plan.jobs.map((job, i) => ({ job, monitor: due[i]! }));
 
   // Enqueue with bounded concurrency, same wave policy as `drainStaleRuns`:

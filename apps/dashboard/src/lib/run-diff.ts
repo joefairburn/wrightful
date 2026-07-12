@@ -410,10 +410,40 @@ export async function resolveRunDiff(
 }
 
 /** The head + base pair {@link resolveRunDiffTargets} resolves — before any
- *  per-test scan. */
+ *  per-test scan. `baseCandidates` is populated only when the caller passes
+ *  `opts.baseCandidateLimit` (the page loader's base-selector query;
+ *  {@link resolveRunDiff}'s callers don't need it and don't pay for it). */
 export interface ResolvedRunDiffTargets {
   head: DiffRunRef;
   base: DiffRunRef | null;
+  baseCandidates?: DiffRunRef[];
+}
+
+/**
+ * Recent runs on the same branch as `headBranch` — the run-diff page's
+ * base-selector options. Cheap, served by `runs_project_branch_created_at_idx`
+ * `(projectId, branch, createdAt)`. Scoped by `(teamId, projectId)` via
+ * `runScopeWhere`. Callers filter the head run's own id back out (it's on its
+ * own branch and would otherwise appear as a candidate for itself).
+ */
+async function loadBaseCandidates(
+  scope: TenantScope,
+  headBranch: string,
+  limit: number,
+): Promise<DiffRunRef[]> {
+  return db
+    .select({
+      id: runs.id,
+      status: runs.status,
+      branch: runs.branch,
+      commitSha: runs.commitSha,
+      commitMessage: runs.commitMessage,
+      createdAt: runs.createdAt,
+    })
+    .from(runs)
+    .where(and(runScopeWhere(scope), eq(runs.branch, headBranch)))
+    .orderBy(desc(runs.createdAt))
+    .limit(limit);
 }
 
 /**
@@ -424,27 +454,55 @@ export interface ResolvedRunDiffTargets {
  * heavy scans ({@link computeRunDiff}) behind a skeleton, while the JSON API
  * keeps calling the all-in-one `resolveRunDiff`. The base-selection branches
  * therefore still live in exactly one place and can't drift between callers.
+ *
+ * Two request waves, not serial round trips:
+ *   - Wave 1: the head lookup (404 gate) and, when `opts.baseParam` is an
+ *     explicit id other than the head, its validating lookup — independent, so
+ *     they run together.
+ *   - Wave 2 (needs the head): with no explicit base, auto-resolve the natural
+ *     baseline ({@link resolveBaseRun}, needs `head.branch`), run alongside the
+ *     base-candidate selector query (also keyed on `head.branch`).
  */
 export async function resolveRunDiffTargets(
   scope: TenantScope,
   runId: string,
-  opts: { baseParam?: string | null } = {},
+  opts: { baseParam?: string | null; baseCandidateLimit?: number } = {},
 ): Promise<ResolvedRunDiffTargets | { notFound: true }> {
-  const head = await loadDiffRunRef(scope, runId);
+  const baseParam = opts.baseParam ?? null;
+  // `base === head` (self-compare) yields no base and skips the explicit
+  // lookup entirely.
+  const wantsExplicitBase = !!baseParam && baseParam !== runId;
+
+  const [head, explicitBase] = await Promise.all([
+    loadDiffRunRef(scope, runId),
+    wantsExplicitBase
+      ? loadDiffRunRef(scope, baseParam)
+      : Promise.resolve(null),
+  ]);
   if (!head) return { notFound: true };
 
   // An explicit `?base` is validated via the same project-scoped lookup as the
   // head (a foreign/missing id → no base, not a 404 — the page degrades to the
-  // empty state). `base === head` (self-compare) yields no base. Otherwise
-  // auto-resolve the natural baseline.
-  const baseParam = opts.baseParam ?? null;
-  let base: DiffRunRef | null = null;
-  if (baseParam && baseParam !== runId) {
-    base = await loadDiffRunRef(scope, baseParam);
-  } else if (!baseParam) {
-    base = await resolveBaseRun(scope, head);
-  }
-  return { head, base };
+  // empty state). Otherwise auto-resolve the natural baseline.
+  //
+  // `headBranch` also gates `loadBaseCandidates` below: a null or
+  // empty/whitespace branch has no "same branch" group (an empty string must
+  // not match every branchless run via `eq(branch, "")`).
+  const headBranch = head.branch?.trim() ? head.branch : null;
+  const { baseCandidateLimit } = opts;
+
+  const [base, baseCandidates] = await Promise.all([
+    wantsExplicitBase
+      ? Promise.resolve(explicitBase)
+      : baseParam
+        ? Promise.resolve(null)
+        : resolveBaseRun(scope, head),
+    baseCandidateLimit == null || headBranch === null
+      ? Promise.resolve(undefined)
+      : loadBaseCandidates(scope, headBranch, baseCandidateLimit),
+  ]);
+
+  return { head, base, baseCandidates };
 }
 
 /**

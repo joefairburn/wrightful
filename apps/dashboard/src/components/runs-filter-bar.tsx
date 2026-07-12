@@ -7,7 +7,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import { useNavigate } from "@/lib/navigate";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DateRange } from "react-day-picker";
 import {
   FilterTriggerButton,
@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { DATE_RANGE_PRESETS, presetRange } from "@/lib/date-range-presets";
-import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import {
   type RunOriginFilter,
   type RunsFilters,
@@ -52,7 +51,9 @@ function applyFilters(
   navigate: NavigateFn,
   next: RunsFilters,
 ): void {
-  const qs = toSearchParams({ ...next, page: 1 }).toString();
+  // No `cursor` param is set here (it lives outside `RunsFilters`), so a filter
+  // change always drops in-flight keyset pagination back to the first page.
+  const qs = toSearchParams(next).toString();
   navigate(qs ? `${pathname}?${qs}` : pathname, { history: "replace" });
 }
 
@@ -65,26 +66,46 @@ export function RunsSearchInput({
 }): React.ReactElement {
   const navigate = useNavigate();
   const [qLocal, setQLocal] = useState(filters.q);
-  const debouncedQ = useDebouncedValue(qLocal, 300);
+  const timerRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    if (debouncedQ === filters.q) return;
-    applyFilters(pathname, navigate, { ...filters, q: debouncedQ });
-    // Only debouncedQ should drive URL writes; filters/pathname changing on
-    // their own must not re-fire this effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ]);
+  // The timeout callback fires after the render that scheduled it; resolve
+  // pathname/filters through this ref so a stale closure never navigates
+  // against a stale filter set.
+  const latest = useRef({ pathname, filters });
+  latest.current = { pathname, filters };
 
+  // Cancel a pending debounce on unmount so it can't navigate after the input
+  // is gone.
   useEffect(() => {
-    if (qLocal === debouncedQ) setQLocal(filters.q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.q]);
+    return () => {
+      if (timerRef.current != null) window.clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  // External re-sync (e.g. back/forward changing filters.q): a during-render
+  // adjustment, not an effect. Only adopt it when not mid-debounce
+  // (timerRef.current == null), else it clobbers in-flight typing.
+  const [prevQ, setPrevQ] = useState(filters.q);
+  if (prevQ !== filters.q) {
+    setPrevQ(filters.q);
+    if (timerRef.current == null) setQLocal(filters.q);
+  }
 
   return (
     <SearchFilterInput
       aria-label="Search runs"
       className="w-[240px] shrink-0"
-      onChange={(e) => setQLocal(e.target.value)}
+      onChange={(e) => {
+        const value = e.target.value;
+        setQLocal(value);
+        if (timerRef.current != null) window.clearTimeout(timerRef.current);
+        timerRef.current = window.setTimeout(() => {
+          timerRef.current = null;
+          const { pathname: p, filters: f } = latest.current;
+          if (value === f.q) return;
+          applyFilters(p, navigate, { ...f, q: value });
+        }, 300);
+      }}
       placeholder="Search commits…"
       value={qLocal}
     />

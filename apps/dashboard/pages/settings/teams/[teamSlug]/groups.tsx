@@ -102,6 +102,7 @@ export default function SettingsTeamGroupsPage({
           return (
             <SettingsCard
               key={group.id}
+              data-testid="group-card"
               title={
                 <span className="inline-flex items-center gap-2">
                   <Users className="size-4 text-fg-3" />

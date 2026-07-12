@@ -115,11 +115,15 @@ export function buildAttemptArtifactGroups(
 
   const out = new Map<number, AttemptArtifactGroup>();
   for (const [attempt, bucket] of byAttempt) {
+    // Only the FIRST `other` row becomes the copyPrompt slot. Any further
+    // `other` rows on the same attempt (multiple non-media attachments are
+    // plausible — see attachments.ts's `other` catch-all) fall through into
+    // `nonVisual`/`media` instead of being silently dropped.
     const copyPromptRow = bucket.find((a) => a.type === "other");
     const copyPrompt = copyPromptRow ? signedToAction(copyPromptRow) : null;
 
     const nonVisual = bucket
-      .filter((a) => a.type !== "other" && a.type !== "visual")
+      .filter((a) => a !== copyPromptRow && a.type !== "visual")
       .map(signedToAction);
 
     const visualByName = new Map<string, SignedArtifact[]>();

@@ -51,6 +51,7 @@ export function SettingsCard({
   footer,
   tone = "default",
   className,
+  "data-testid": dataTestId,
 }: {
   title: React.ReactNode;
   subtitle?: React.ReactNode;
@@ -58,6 +59,8 @@ export function SettingsCard({
   footer?: React.ReactNode;
   tone?: "default" | "danger";
   className?: string;
+  /** Optional test hook for e2e locators (e.g. a per-group settings card). */
+  "data-testid"?: string;
 }) {
   const isDanger = tone === "danger";
   return (
@@ -67,6 +70,7 @@ export function SettingsCard({
         isDanger ? "border border-fail/30" : "border border-line-1",
         className,
       )}
+      data-testid={dataTestId}
     >
       <div
         className={cn(

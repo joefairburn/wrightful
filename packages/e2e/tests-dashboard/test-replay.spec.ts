@@ -42,12 +42,9 @@ test.describe("Test Replay (embedded trace viewer)", () => {
 
   test("run test-list Replay button mints a self-hosted viewer URL, deep-links, and closes on Escape", async ({
     page,
-    runsListPage,
-    runDetailPage,
+    openSeededRun,
   }) => {
-    await runsListPage.goto(`branch=${encodeURIComponent(FAILURES_BRANCH)}`);
-    const runId = await runsListPage.firstRunId();
-    await runDetailPage.goto(runId);
+    await openSeededRun(FAILURES_BRANCH);
 
     // The button renders only for rows whose test has a trace (the row's
     // `hasTrace`, set by the `…/results` read); the failures run has at least one.
@@ -104,21 +101,25 @@ test.describe("Test Replay (embedded trace viewer)", () => {
 
   test("test-detail rail shows Replay (self-hosted) alongside the standalone video/screenshot buttons", async ({
     page,
-    runsListPage,
-    runDetailPage,
+    openSeededRun,
   }) => {
-    await runsListPage.goto(`branch=${encodeURIComponent(FAILURES_BRANCH)}`);
-    const runId = await runsListPage.firstRunId();
-    await runDetailPage.goto(runId);
+    await openSeededRun(FAILURES_BRANCH);
 
-    // Navigate into a test KNOWN to have a trace: the row that carries the
-    // list-level Replay button. Click its sibling detail link (SPA nav, so
-    // the app stays hydrated and the rail's dialog trigger is interactive on
-    // arrival — a full `goto` would race re-hydration). The run-detail row no
-    // longer bounces back to the run page (see use-feed-room's navigation guard).
+    // Navigate into a test known to have a trace: the row carrying the
+    // list-level Replay button. `TestRow` (run-progress-row.tsx) renders each
+    // row as a `<div className="group …">` with the detail `<Link>` and the
+    // `<ReplayRowButton>` as siblings (a control nested inside an <a> is
+    // invalid HTML). Recover the row by filtering row containers to the one
+    // that has the Replay button, not an XPath parent-hop. Click its sibling
+    // detail link (SPA nav keeps the app hydrated so the rail's dialog trigger
+    // is interactive on arrival; a full `goto` would race re-hydration). The
+    // row no longer bounces back to the run page (see use-feed-room's guard).
     const listReplay = page.getByRole("button", { name: /^replay$/i }).first();
     await expect(listReplay).toBeVisible({ timeout: 10_000 });
-    const row = listReplay.locator("xpath=..");
+    const row = page
+      .locator("div.group")
+      .filter({ has: listReplay })
+      .filter({ has: page.locator('a[href*="/tests/"]') });
     await row.locator('a[href*="/tests/"]').first().click();
     await page.waitForURL(/\/tests\//, { timeout: 15_000 });
 

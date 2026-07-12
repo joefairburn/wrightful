@@ -752,9 +752,11 @@ export async function deleteArtifactObjectsByKeys(
  * only part needing a live binding), and `buildArtifactResponse` is the pure,
  * unit-testable HTTP-protocol math (Content-Range arithmetic, 304/206/200
  * status selection, immutable-cache + Content-Disposition + CORS header
- * assembly). The download route handler stays request -> readArtifact ->
- * buildArtifactResponse, with no R2 object shape leaking into the protocol
- * logic.
+ * assembly). Both compose under `serveArtifactBytes`
+ * (`src/lib/artifacts/serve.ts`) — the ONE serve interface that also owns the
+ * direct-R2 302 fork (ADR 0003) — so the download route stays request ->
+ * verify token -> serveArtifactBytes, with no R2 object shape leaking into
+ * the protocol logic and no second home for the origin-safety policy.
  */
 
 /**

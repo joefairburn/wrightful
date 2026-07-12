@@ -2,7 +2,7 @@ import { runs } from "@schema";
 
 /**
  * The `runs` columns safe to serialize into SSR page props — every column EXCEPT
- * `idempotencyKey`.
+ * `idempotencyKey` and `githubCheckClaimedAt`.
  *
  * `idempotencyKey` is a WRITE CREDENTIAL, not display data: presenting it is what
  * re-arms an idle terminal run's write window (`reopenRunForWrites` /
@@ -14,8 +14,13 @@ import { runs } from "@schema";
  * leaked a whole page of them). A bare `.select()` also silently re-leaks any
  * future secret column added to `runs`.
  *
+ * `githubCheckClaimedAt` is withheld for a different reason: not a secret, just
+ * server-side coordination state (the claim `maybePostGithubCheck` in
+ * `@/lib/github-checks` CASes on to dedupe concurrent check-run POSTs) that no
+ * page component reads.
+ *
  * Project THIS instead of `.select()` in any loader that returns a run row to the
- * client. Everything except the key is retained so no page component's `run.*`
+ * client. Everything except those two is retained so no page component's `run.*`
  * read breaks; the reopen mechanism keeps working because the reporter derives
  * the SAME deterministic key from the CI build id (salting it server-side would
  * break re-stream / re-run recovery, so column projection — not hashing — is the

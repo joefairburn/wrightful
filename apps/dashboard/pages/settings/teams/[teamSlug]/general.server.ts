@@ -1,5 +1,6 @@
+import { all } from "better-all";
 import { defineHandler, type InferProps } from "void";
-import { and, db, eq, ne } from "void/db";
+import { and, db, eq, ne, sql } from "void/db";
 import { env } from "void/env";
 import {
   githubInstallations,
@@ -8,24 +9,34 @@ import {
   teamInvites,
   teams as teamsTable,
 } from "@schema";
-import { logger } from "void/log";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { githubAppEnabled } from "@/lib/config";
+import { numericSql } from "@/lib/db/sql-ops";
 import { runBatch } from "@/lib/db-batch";
 import { scheduleProjectArtifactCleanup } from "@/lib/project-teardown";
-import { mutationErrorMessage } from "@/lib/action-errors";
+import { logMutationFailure, mutationErrorMessage } from "@/lib/action-errors";
+import { defineFlashSlots } from "@/lib/flash";
 import { readField } from "@/lib/form";
-import {
-  redirectWithParam,
-  requireOwnerScope,
-  requireRoleScope,
-} from "@/lib/settings-scope";
+import { requireOwnerScope, requireRoleScope } from "@/lib/settings-scope";
 import { isValidSlug, SLUG_ERROR } from "@/lib/slug";
 
 export type Props = InferProps<typeof loader>;
 
 const hereFor = (team: { slug: string }) =>
   `/settings/teams/${team.slug}/general`;
+
+/**
+ * This page's form-flash slots — one declaration shared by the actions below,
+ * the loader, and the cross-route GitHub setup callback
+ * (`routes/api/github/setup.ts`, the only `githubError` writer), so a typo'd
+ * slot is a compile error rather than a silently-dropped banner.
+ */
+export const GENERAL_FLASH = defineFlashSlots([
+  "generalError",
+  "retentionError",
+  "githubError",
+  "dangerError",
+]);
 
 /**
  * Settings → Team → General. Identity (rename + slug) and the Danger zone
@@ -35,28 +46,39 @@ export const loader = defineHandler(async (c) => {
   const { team } = await requireRoleScope(c, "viewSettings");
 
   const url = new URL(c.req.url);
-
-  const projectCountRows = await db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.teamId, team.id));
-
-  const retentionRows = await db
-    .select({
-      artifactDays: teamsTable.retentionArtifactDays,
-      testResultDays: teamsTable.retentionTestResultsDays,
-    })
-    .from(teamsTable)
-    .where(eq(teamsTable.id, team.id))
-    .limit(1);
-
   const githubEnabled = githubAppEnabled(env);
-  const installations = githubEnabled
-    ? await db
-        .select({ accountLogin: githubInstallations.accountLogin })
-        .from(githubInstallations)
-        .where(eq(githubInstallations.teamId, team.id))
-    : [];
+
+  // Three independent reads (project count, retention, GitHub installations)
+  // in one parallel wave. `projectCount` is a `count(*)` (not fetching every
+  // id to read `.length`) — node-postgres returns it as a string, hence
+  // `numericSql`.
+  const { projectCount, retentionRows, installations } = await all({
+    async projectCount(): Promise<number> {
+      const rows = await db
+        .select({ value: numericSql(sql`count(*)`) })
+        .from(projects)
+        .where(eq(projects.teamId, team.id));
+      return rows[0]?.value ?? 0;
+    },
+    async retentionRows() {
+      return db
+        .select({
+          artifactDays: teamsTable.retentionArtifactDays,
+          testResultDays: teamsTable.retentionTestResultsDays,
+        })
+        .from(teamsTable)
+        .where(eq(teamsTable.id, team.id))
+        .limit(1);
+    },
+    async installations() {
+      return githubEnabled
+        ? db
+            .select({ accountLogin: githubInstallations.accountLogin })
+            .from(githubInstallations)
+            .where(eq(githubInstallations.teamId, team.id))
+        : [];
+    },
+  });
   const appSlug = env.GITHUB_APP_SLUG;
   const installUrl =
     githubEnabled && appSlug
@@ -65,7 +87,7 @@ export const loader = defineHandler(async (c) => {
 
   return {
     team,
-    projectCount: projectCountRows.length,
+    projectCount,
     retention: {
       artifactDays: retentionRows[0]?.artifactDays ?? null,
       testResultDays: retentionRows[0]?.testResultDays ?? null,
@@ -77,10 +99,7 @@ export const loader = defineHandler(async (c) => {
       installations: installations.map((i) => i.accountLogin),
       installUrl,
     },
-    generalError: url.searchParams.get("generalError"),
-    retentionError: url.searchParams.get("retentionError"),
-    githubError: url.searchParams.get("githubError"),
-    dangerError: url.searchParams.get("dangerError"),
+    ...GENERAL_FLASH.read(url),
   };
 });
 
@@ -94,10 +113,10 @@ export const actions = {
     const slug = readField(form, "slug").trim().toLowerCase();
 
     if (!name) {
-      return redirectWithParam(c, here, "generalError", "Name is required.");
+      return GENERAL_FLASH.fail(c, here, "generalError", "Name is required.");
     }
     if (!isValidSlug(slug)) {
-      return redirectWithParam(c, here, "generalError", SLUG_ERROR);
+      return GENERAL_FLASH.fail(c, here, "generalError", SLUG_ERROR);
     }
 
     if (slug !== team.slug) {
@@ -107,7 +126,7 @@ export const actions = {
         .where(and(eq(teamsTable.slug, slug), ne(teamsTable.id, team.id)))
         .limit(1);
       if (clash[0]) {
-        return redirectWithParam(
+        return GENERAL_FLASH.fail(
           c,
           here,
           "generalError",
@@ -127,7 +146,7 @@ export const actions = {
         uniqueMessage: "That slug is already taken.",
         genericMessage: "Could not save changes.",
       });
-      return redirectWithParam(c, here, "generalError", friendly);
+      return GENERAL_FLASH.fail(c, here, "generalError", friendly);
     }
 
     // Audit the rename only after it lands (best-effort). Capture the before/
@@ -170,7 +189,7 @@ export const actions = {
     const testResultDays = parseDays(readField(form, "testResultDays"));
 
     if (artifactDays === "invalid" || testResultDays === "invalid") {
-      return redirectWithParam(
+      return GENERAL_FLASH.fail(
         c,
         here,
         "retentionError",
@@ -183,7 +202,7 @@ export const actions = {
     const effectiveTestResult =
       testResultDays ?? env.WRIGHTFUL_RETENTION_TEST_RESULTS_DAYS;
     if (effectiveArtifact > effectiveTestResult) {
-      return redirectWithParam(
+      return GENERAL_FLASH.fail(
         c,
         here,
         "retentionError",
@@ -200,11 +219,8 @@ export const actions = {
         })
         .where(eq(teamsTable.id, team.id));
     } catch (err) {
-      logger.error("update retention failed", {
-        teamId: team.id,
-        message: err instanceof Error ? err.message : String(err),
-      });
-      return redirectWithParam(
+      logMutationFailure("update retention failed", err, { teamId: team.id });
+      return GENERAL_FLASH.fail(
         c,
         here,
         "retentionError",
@@ -225,7 +241,7 @@ export const actions = {
     const form = await c.req.formData();
     const confirm = readField(form, "confirm").trim();
     if (confirm !== team.slug) {
-      return redirectWithParam(
+      return GENERAL_FLASH.fail(
         c,
         here,
         "dangerError",
@@ -266,11 +282,8 @@ export const actions = {
         tx.delete(teamsTable).where(eq(teamsTable.id, team.id)),
       ]);
     } catch (err) {
-      logger.error("delete team failed", {
-        teamId: team.id,
-        message: err instanceof Error ? err.message : String(err),
-      });
-      return redirectWithParam(
+      logMutationFailure("delete team failed", err, { teamId: team.id });
+      return GENERAL_FLASH.fail(
         c,
         here,
         "dangerError",

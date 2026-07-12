@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ArrowRight, Eye, EyeOff } from "lucide-react";
 import { auth } from "void/client";
 import { Link, useRouter } from "@void/react";
@@ -11,6 +11,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
+import { useHydrated } from "@/lib/hooks/use-hydrated";
 import { hrefWithNext } from "@/lib/safe-next-path";
 import type { Props } from "./login.server";
 
@@ -42,9 +43,8 @@ export default function LoginPage({
   // until React hydrates. Until then, keep the submit disabled: a pre-hydration
   // native submit would otherwise GET this page with the credentials in the
   // query string (leaking the password into the URL/history) and do nothing
-  // useful. `useEffect` only runs after hydration.
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
+  // useful.
+  const hydrated = useHydrated();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

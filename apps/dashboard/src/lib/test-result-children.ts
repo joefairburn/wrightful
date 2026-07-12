@@ -1,28 +1,17 @@
-import { asc, db } from "void/db";
+import { asc, db, desc } from "void/db";
 import { testAnnotations, testResultAttempts, testTags } from "@schema";
 import { childByTestResultWhere, type TenantScope } from "@/lib/scope";
 
 /**
- * The three run-scoped child reads a test-result detail view needs — tags,
- * annotations, and per-attempt rows (error message/stack + captured
- * stdout/stderr) — as one project-scoped batch.
- *
- * Both the test-detail page loader (`pages/…/tests/[testResultId]`) and the
- * MCP `get_test_result` tool (`src/lib/mcp/queries.ts`) render the same three
- * lists with the same projections; keeping the queries here means the column
- * shapes and the `childByTestResultWhere` scoping can't drift between the two
- * surfaces. Each caller fires this alongside its own extra reads (quarantine /
- * run metadata for the page, the artifact index for MCP), so the fan-out stays
- * concurrent.
- *
- * `tags` is returned as `{ tag }` rows (not a flat `string[]`) so the page
- * loader can hand them to the client untouched; the MCP tool flattens.
+ * Tags + annotations for a test result — the two small run-scoped child lists
+ * every consumer wants. Factored out so `loadTestResultChildren` (MCP) and the
+ * test-detail page loader share one projection without drifting on column shape.
  */
-export async function loadTestResultChildren(
+export async function loadTestTagsAndAnnotations(
   scope: TenantScope,
   testResultId: string,
 ) {
-  const [tags, annotations, attempts] = await Promise.all([
+  const [tags, annotations] = await Promise.all([
     db
       .select({ tag: testTags.tag })
       .from(testTags)
@@ -34,23 +23,106 @@ export async function loadTestResultChildren(
       })
       .from(testAnnotations)
       .where(childByTestResultWhere(testAnnotations, scope, testResultId)),
-    db
-      .select({
-        attempt: testResultAttempts.attempt,
-        status: testResultAttempts.status,
-        durationMs: testResultAttempts.durationMs,
-        errorMessage: testResultAttempts.errorMessage,
-        errorStack: testResultAttempts.errorStack,
-        // Captured per-attempt logs — surfaced by the `get_test_result` MCP tool
-        // (via loadMcpTestResultDetail, which passes children.attempts straight
-        // through) and the test-detail page so agents/humans see `console.log`
-        // CI output alongside each attempt's error.
-        stdout: testResultAttempts.stdout,
-        stderr: testResultAttempts.stderr,
-      })
-      .from(testResultAttempts)
-      .where(childByTestResultWhere(testResultAttempts, scope, testResultId))
-      .orderBy(asc(testResultAttempts.attempt)),
   ]);
+  return { tags, annotations };
+}
+
+/**
+ * Lightweight per-attempt metadata: attempt/status/duration only. Stays eager
+ * on the test-detail page (drives the attempt tab bar's dots + count) without
+ * pulling the heavy error/stdout/stderr blobs into the initial SSR payload —
+ * those live in `loadTestResultAttemptDetails`, which the page defers.
+ */
+export async function loadTestResultAttemptSummaries(
+  scope: TenantScope,
+  testResultId: string,
+) {
+  return db
+    .select({
+      attempt: testResultAttempts.attempt,
+      status: testResultAttempts.status,
+      durationMs: testResultAttempts.durationMs,
+    })
+    .from(testResultAttempts)
+    .where(childByTestResultWhere(testResultAttempts, scope, testResultId))
+    .orderBy(asc(testResultAttempts.attempt));
+}
+
+/**
+ * Error message/stack for the highest-numbered attempt (the final try, the tab
+ * the page shows by default). Kept eager (unlike `loadTestResultAttemptDetails`)
+ * because its error alert is the page's above-the-fold content and must paint
+ * immediately, not behind a Suspense boundary.
+ */
+export async function loadTestResultPrimaryAttemptDetail(
+  scope: TenantScope,
+  testResultId: string,
+) {
+  const rows = await db
+    .select({
+      attempt: testResultAttempts.attempt,
+      errorMessage: testResultAttempts.errorMessage,
+      errorStack: testResultAttempts.errorStack,
+    })
+    .from(testResultAttempts)
+    .where(childByTestResultWhere(testResultAttempts, scope, testResultId))
+    .orderBy(desc(testResultAttempts.attempt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * The heavy per-attempt fields — error message/stack + captured stdout/stderr —
+ * for every attempt. MCP `get_test_result` wants these eagerly (JSON-RPC has no
+ * defer) via `loadTestResultChildren`; the test-detail page reads them through a
+ * `defer()` so a chatty multi-retry test doesn't add hundreds of KB to the
+ * initial payload for attempts the user isn't looking at.
+ */
+export async function loadTestResultAttemptDetails(
+  scope: TenantScope,
+  testResultId: string,
+) {
+  return db
+    .select({
+      attempt: testResultAttempts.attempt,
+      errorMessage: testResultAttempts.errorMessage,
+      errorStack: testResultAttempts.errorStack,
+      stdout: testResultAttempts.stdout,
+      stderr: testResultAttempts.stderr,
+    })
+    .from(testResultAttempts)
+    .where(childByTestResultWhere(testResultAttempts, scope, testResultId))
+    .orderBy(asc(testResultAttempts.attempt));
+}
+
+/**
+ * Tags, annotations, and full per-attempt rows as one eager batch — the MCP
+ * `get_test_result` shape (`src/lib/mcp/queries.ts`), which has nothing to
+ * stream. The test-detail page does NOT use this: it composes the helpers above
+ * with an eager/deferred split of its own, sharing their projections without
+ * inheriting an all-eager shape that only makes sense for MCP.
+ */
+export async function loadTestResultChildren(
+  scope: TenantScope,
+  testResultId: string,
+) {
+  const [{ tags, annotations }, summaries, details] = await Promise.all([
+    loadTestTagsAndAnnotations(scope, testResultId),
+    loadTestResultAttemptSummaries(scope, testResultId),
+    loadTestResultAttemptDetails(scope, testResultId),
+  ]);
+  const detailsByAttempt = new Map(details.map((d) => [d.attempt, d]));
+  const attempts = summaries.map((s) => {
+    const d = detailsByAttempt.get(s.attempt);
+    return {
+      attempt: s.attempt,
+      status: s.status,
+      durationMs: s.durationMs,
+      errorMessage: d?.errorMessage ?? null,
+      errorStack: d?.errorStack ?? null,
+      stdout: d?.stdout ?? null,
+      stderr: d?.stderr ?? null,
+    };
+  });
   return { tags, annotations, attempts };
 }

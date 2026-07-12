@@ -210,6 +210,7 @@ export default function SettingsProjectKeysPage({
                     "flex items-center gap-3.5 px-[18px] py-3",
                     i !== keys.length - 1 && "border-b border-line-1",
                   )}
+                  data-testid="key-row"
                   key={k.id}
                 >
                   <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-bg-3 text-fg-2">

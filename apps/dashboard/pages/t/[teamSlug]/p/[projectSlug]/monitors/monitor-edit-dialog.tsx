@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogDescription,
@@ -41,9 +41,13 @@ export function MonitorEditDialog({
 
   // Re-sync when the server flips the flag (deep-link with `?edit=1`, a
   // validation-error redirect that re-opens it, or a save that closes it).
-  useEffect(() => {
+  // Compared during render (not an effect) so the flip is visible in the same
+  // frame instead of lagging one paint behind.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     setLocalOpen(open);
-  }, [open]);
+  }
 
   return (
     <Dialog

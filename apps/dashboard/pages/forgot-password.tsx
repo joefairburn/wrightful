@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { auth } from "void/client";
 import { Link } from "@void/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useHydrated } from "@/lib/hooks/use-hydrated";
 
 /**
  * Request a password-reset link. Runs client-side via `void/client`'s Better
@@ -20,8 +21,7 @@ export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   // Mirror login/signup: the request runs client-side, so keep submit disabled
   // until hydration to avoid a pre-hydration native GET leaking the email.
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
+  const hydrated = useHydrated();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -135,7 +135,7 @@ export interface ResultMapping {
   testResultId: string;
 }
 
-export async function resolveTestResultIds(
+async function resolveTestResultIds(
   scope: TenantScope,
   runId: string,
   testIds: string[],
@@ -180,7 +180,7 @@ export async function resolveTestResultIds(
   return { existingIds, assignedIds, prevStatusByTestId };
 }
 
-export function buildQueuePrefillStatements(
+function buildQueuePrefillStatements(
   scope: TenantScope,
   runId: string,
   plannedTests: ReadonlyArray<{
@@ -345,7 +345,7 @@ function resultUpsertSet() {
  * `resolveTestResultIds` result to `computeAggregateDelta`; `assignedIds` still
  * supplies each result's stable id (the existing id for a re-sent test).
  */
-export function buildResultInsertStatements(
+function buildResultInsertStatements(
   scope: TenantScope,
   runId: string,
   results: TestResultInput[],
@@ -598,7 +598,7 @@ export function computeAggregateDelta(
   return delta;
 }
 
-export function aggregateDeltaStatement(
+function aggregateDeltaStatement(
   scope: TenantScope,
   runId: string,
   delta: AggregateDelta,
@@ -639,7 +639,7 @@ export function aggregateDeltaStatement(
  * the broadcast summary via `.returning()`, replacing the read-only summary
  * SELECT in that branch so the bump and the snapshot stay in one statement.
  */
-export function activityBumpStatement(
+function activityBumpStatement(
   scope: TenantScope,
   runId: string,
   nowSeconds: number,
@@ -788,7 +788,7 @@ export async function reconcileAndBroadcast(
  * way to clear it is the settings textarea). So we update iff the payload
  * carries non-blank content.
  */
-export function shouldUpdateCodeowners(
+function shouldUpdateCodeowners(
   codeowners: string | undefined,
 ): codeowners is string {
   return typeof codeowners === "string" && codeowners.trim().length > 0;
@@ -808,7 +808,7 @@ export function shouldUpdateCodeowners(
  * never fails the run open (a missing CODEOWNERS just leaves ownership
  * derivation on the previous file).
  */
-export async function maybeUpdateCodeowners(
+async function maybeUpdateCodeowners(
   scope: TenantScope,
   codeowners: string | undefined,
   nowSeconds: number,
@@ -829,7 +829,7 @@ export async function maybeUpdateCodeowners(
  * workerd terminates orphaned promises after the response so an unawaited
  * write can be silently dropped.
  */
-export async function bumpTeamActivity(
+async function bumpTeamActivity(
   teamId: string,
   nowSeconds: number,
 ): Promise<void> {
@@ -864,7 +864,7 @@ export function buildChangedTests(
  * counter delta to apply).
  * Awaited because the publish RPC mustn't be dropped by workerd termination.
  */
-export async function broadcastRunUpdate(
+async function broadcastRunUpdate(
   runId: string,
   changedTests: RunProgressTest[],
   summary: RunAggregateSummary,
@@ -1300,7 +1300,7 @@ async function reopenRunForWrites(
 
 /**
  * The single UPDATE behind {@link reopenRunForWrites}' sharded branch (see its
- * doc for the semantics). Exported so `pg-integration.test.ts` can execute the
+ * doc for the semantics). Exported so the `pg-integration/` suites can execute the
  * EXACT production statement against a real schema — this is hand-written
  * jsonb SQL the mocked unit lane can't vouch for.
  */
@@ -1665,7 +1665,7 @@ export async function completeRun(
   // Best-effort GitHub check run (no-op unless the App is configured + the
   // repo's org installed it). Awaited per the no-fire-and-forget rule; it
   // swallows its own errors so a GitHub outage never fails /complete.
-  await maybePostGithubCheck(runId);
+  await maybePostGithubCheck(runId, scope.projectId);
 
   return { kind: "ok", status: summary?.status ?? payload.status };
 }
@@ -1808,7 +1808,7 @@ async function completeShardedRun(
 
   // Post the merge-gating GitHub check only once the run is actually terminal —
   // an in-progress (still-sharding) run must not publish a "completed" check.
-  if (allDone) await maybePostGithubCheck(runId);
+  if (allDone) await maybePostGithubCheck(runId, scope.projectId);
 
   return {
     kind: "ok",
@@ -1880,7 +1880,7 @@ export async function finalizeStaleRun(
   );
   // Watchdog-finalized runs (CI killed before /complete) still post their check
   // — same best-effort, self-silencing path as completeRun.
-  await maybePostGithubCheck(run.id);
+  await maybePostGithubCheck(run.id, run.projectId);
 }
 
 /** Counts a watchdog sweep emits: rows seen, finalized, and failed. */

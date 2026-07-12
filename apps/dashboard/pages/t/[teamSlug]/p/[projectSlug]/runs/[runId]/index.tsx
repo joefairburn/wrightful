@@ -124,7 +124,10 @@ export default function RunDetailPage({
         {/* Sticky H1 row — fixed 52px height so the tab bar below can pin to a
          * matching `top-[52px]` with zero gap. Padding-based heights aren't
          * deterministic enough (text metrics + border can drift a couple px). */}
-        <DetailHeaderBar className="sticky top-0 z-30 border-b border-line-1 bg-bg-0">
+        <DetailHeaderBar
+          className="sticky top-0 z-30 border-b border-line-1 bg-bg-0"
+          data-testid="run-header"
+        >
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <HeaderCrumbs
               items={[

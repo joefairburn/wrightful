@@ -84,12 +84,10 @@ test.describe("Accessibility (axe-core, serious/critical only)", () => {
   });
 
   test("run-detail page has no serious/critical violations", async ({
-    runsListPage,
     runDetailPage,
+    openSeededRun,
   }) => {
-    await runsListPage.goto();
-    const runId = await runsListPage.firstRunId();
-    await runDetailPage.goto(runId);
+    await openSeededRun();
     await scanSerious(runDetailPage.page, "run-detail");
   });
 });

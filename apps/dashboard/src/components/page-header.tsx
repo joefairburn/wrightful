@@ -65,12 +65,18 @@ export function PageHeader({ title, crumbs = [], right }: PageHeaderProps) {
 export function DetailHeaderBar({
   className,
   children,
+  "data-testid": dataTestId,
 }: {
   className?: string;
   children: React.ReactNode;
+  /** Optional test hook for e2e locators (e.g. the run-detail sticky header). */
+  "data-testid"?: string;
 }): React.ReactElement {
   return (
-    <div className={cn("flex h-[52px] shrink-0 items-center px-6", className)}>
+    <div
+      className={cn("flex h-[52px] shrink-0 items-center px-6", className)}
+      data-testid={dataTestId}
+    >
       {children}
     </div>
   );

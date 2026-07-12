@@ -1,5 +1,6 @@
 import { PREFETCH_REALTIME } from "@/components/ui/link";
 import { RowLink } from "@/components/row-link";
+import { memo } from "react";
 import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
 import { githubAvatarUrl } from "@/lib/github-avatar";
@@ -37,8 +38,15 @@ interface RunListRowProps {
  * from `run`, so the same markup serves both terminal runs (straight from SSR)
  * and live ones (the page overlays the streamed summary onto `run`). Extracted
  * out of the page so the row markup has a single home.
+ *
+ * Memoized: the page re-renders on every `run-progress` WS event, but the feed
+ * reducer (`applyProjectFeedEvent`) preserves identity for untouched rows and
+ * clones only the changed one. Props are just that `run` reference plus
+ * primitives (no inline callbacks or fresh objects), so `React.memo`'s shallow
+ * compare bails out for the other ~19 rows instead of re-running their
+ * formatting/URL/pill work.
  */
-export function RunListRow({
+export const RunListRow = memo(function RunListRow({
   run,
   teamSlug,
   projectSlug,
@@ -62,7 +70,11 @@ export function RunListRow({
          * click target. Nested `relative z-10` external links (branch/PR/commit
          * chips) call `e.stopPropagation()` so their clicks don't bubble to this
          * Link's SPA-navigation handler. */}
-        <RowLink cacheFor={PREFETCH_REALTIME} href={href}>
+        {/* prefetch disabled: hover-prefetch would fire a full run-detail loader
+         * (incl. the deferred run-history chart) for every row the pointer sweeps.
+         * Run detail already seeds live via the realtime room, so it buys nothing
+         * worth the 20x loader fan-out. */}
+        <RowLink cacheFor={PREFETCH_REALTIME} href={href} prefetch={false}>
           <span className="sr-only">
             View run {run.commitMessage ?? run.id.slice(0, 8)}
           </span>
@@ -174,4 +186,4 @@ export function RunListRow({
       </TableCell>
     </TableRow>
   );
-}
+});

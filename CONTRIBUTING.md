@@ -53,7 +53,8 @@ pnpm --filter @wrightful/dashboard db:generate
 Migrations apply automatically on `void deploy`. There's a fast pglite test lane
 and a real-Postgres lane (`PG_TEST_URL`); if your change could hit a
 node-postgres result-shape trap (int8-as-string) or transaction semantics, add a
-case to `src/__tests__/pg-integration.test.ts`.
+case to the domain-appropriate file under `src/__tests__/pg-integration/`
+(shared boot logic lives in `pg-integration/harness.ts`).
 
 ## Worklogs (required for non-trivial changes)
 

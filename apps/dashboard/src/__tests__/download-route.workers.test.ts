@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Context } from "hono";
 
 /**
- * The download route's flag-conditional branch (ADR 0003): when direct-R2 is ON,
- * a verified GET 302s to a presigned R2 URL (no bytes through the worker);
- * HEAD and the OFF state fall through to `readArtifact`. These are the
- * behavior-defining glue the lib-level tests don't reach, and the regressions
- * that would silently ship (caching the redirect, routing HEAD into the
- * method-bound presigned URL, minting before verifying the token) all live here.
+ * Download route end-to-end through the real `serveArtifactBytes`
+ * (`@/lib/artifacts/serve`), which owns the flag-conditional fork (ADR 0003):
+ * direct-R2 ON → verified GET 302s to a presigned R2 URL; HEAD and the OFF
+ * state fall through to `readArtifact`. Only IO seams are mocked, so this
+ * covers the token gate + the fork's glue — guarding against caching the
+ * redirect, routing HEAD into the method-bound presigned URL, and minting
+ * before verifying the token. Origin-safety policy on both branches is the
+ * companion `artifact-origin-safety.workers.test.ts`.
  */
 
 vi.mock("void", () => ({ defineHandler: (fn: unknown) => fn }));
