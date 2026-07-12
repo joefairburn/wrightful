@@ -236,7 +236,7 @@ export function ExecStrip({
   if (items.length === 0) {
     return (
       <div
-        className="flex items-center font-mono text-11 text-fg-4"
+        className="flex items-center font-mono text-micro text-fg-4"
         style={{ width, height }}
       >
         no data

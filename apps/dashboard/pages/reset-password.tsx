@@ -46,7 +46,7 @@ export default function ResetPasswordPage({ token, tokenError }: Props) {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-8 p-6">
       <header className="space-y-2 text-center">
-        <h1 className="text-2xl font-semibold">Choose a new password</h1>
+        <h1 className="text-title font-semibold">Choose a new password</h1>
       </header>
 
       {invalidLink ? (

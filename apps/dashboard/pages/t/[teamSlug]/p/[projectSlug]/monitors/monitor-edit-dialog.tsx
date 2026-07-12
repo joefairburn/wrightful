@@ -60,7 +60,7 @@ export function MonitorEditDialog({
       <DialogPopup className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-base">Edit monitor</DialogTitle>
-          <DialogDescription className="text-13">
+          <DialogDescription className="text-body">
             Changes take effect on the next scheduled run.
           </DialogDescription>
         </DialogHeader>

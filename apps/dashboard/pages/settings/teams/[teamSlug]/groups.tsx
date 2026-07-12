@@ -22,12 +22,12 @@ function MemberChecklist({
   selected: Set<string>;
 }) {
   if (members.length === 0) {
-    return <p className="text-fg-3 text-13">No members yet.</p>;
+    return <p className="text-fg-3 text-body">No members yet.</p>;
   }
   return (
     <div className="flex flex-col gap-1.5">
       {members.map((m) => (
-        <label key={m.userId} className="flex items-center gap-2 text-13">
+        <label key={m.userId} className="flex items-center gap-2 text-body">
           <input
             type="checkbox"
             name="member"
@@ -91,7 +91,7 @@ export default function SettingsTeamGroupsPage({
 
       {groups.length === 0 ? (
         <SettingsCard title="Groups">
-          <p className="text-fg-3 text-13">
+          <p className="text-fg-3 text-body">
             No groups yet.
             {isOwner ? " Create one above." : ""}
           </p>
@@ -140,7 +140,7 @@ export default function SettingsTeamGroupsPage({
                 </form>
               ) : (
                 <div className="flex flex-col gap-3">
-                  <p className="text-13">
+                  <p className="text-body">
                     {group.memberIds.length === 0 ? (
                       <span className="text-fg-3">No members.</span>
                     ) : (

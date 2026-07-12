@@ -43,7 +43,9 @@ export function ActorAvatar({ actor, size = 16, imageUrl }: ActorAvatarProps) {
       <AvatarFallback
         className="font-semibold text-white"
         style={{
-          background: `oklch(0.55 0.10 ${hue})`,
+          // C 0.09 is the sRGB max chroma at L 0.55 for the worst-case hue
+          // (~200, cyan) — higher values clip there, making some hues duller.
+          background: `oklch(0.55 0.09 ${hue})`,
           fontSize: Math.max(8, Math.round(size * 0.55)),
         }}
       >

@@ -96,9 +96,9 @@ export default function LoginPage({
             "radial-gradient(oklch(0.975 0.003 260 / 0.04) 1px, transparent 1px)",
           backgroundSize: "22px 22px",
           maskImage:
-            "radial-gradient(80% 60% at 50% 42%, #000 0%, transparent 75%)",
+            "radial-gradient(80% 60% at 50% 42%, oklch(0 0 0) 0%, transparent 75%)",
           WebkitMaskImage:
-            "radial-gradient(80% 60% at 50% 42%, #000 0%, transparent 75%)",
+            "radial-gradient(80% 60% at 50% 42%, oklch(0 0 0) 0%, transparent 75%)",
         }}
       />
 
@@ -110,10 +110,10 @@ export default function LoginPage({
               void handleSubmit(e);
             }}
           >
-            <h2 className="text-center font-semibold text-22 tracking-[-0.4px]">
+            <h2 className="text-center font-semibold text-title tracking-[-0.4px]">
               Sign in to Wrightful
             </h2>
-            <p className="mt-1.5 text-center text-13 text-fg-3">
+            <p className="mt-1.5 text-center text-body text-fg-3">
               Welcome back. Let's get you to your runs.
             </p>
 
@@ -143,14 +143,14 @@ export default function LoginPage({
 
                 <div className="my-5 flex items-center gap-3">
                   <div className="h-px flex-1 bg-line-1" />
-                  <span className="text-12 text-fg-3">or</span>
+                  <span className="text-caption text-fg-3">or</span>
                   <div className="h-px flex-1 bg-line-1" />
                 </div>
               </>
             )}
 
             <div className={githubEnabled ? "mb-3.5" : "mt-6 mb-3.5"}>
-              <Label htmlFor="email" className="text-12 text-fg-2">
+              <Label htmlFor="email" className="text-caption text-fg-2">
                 Work email
               </Label>
               <Input
@@ -168,13 +168,13 @@ export default function LoginPage({
 
             <div className="mb-3.5">
               <div className="flex items-baseline justify-between">
-                <Label htmlFor="password" className="text-12 text-fg-2">
+                <Label htmlFor="password" className="text-caption text-fg-2">
                   Password
                 </Label>
                 {resetEnabled && (
                   <Link
                     href="/forgot-password"
-                    className="text-12 text-fg-3 underline-offset-2 transition-colors hover:text-fg-1 hover:underline"
+                    className="text-caption text-fg-3 underline-offset-2 transition-colors hover:text-fg-1 hover:underline"
                   >
                     Forgot password?
                   </Link>
@@ -217,14 +217,14 @@ export default function LoginPage({
               />
               <Label
                 htmlFor="remember"
-                className="cursor-pointer font-normal text-13 text-fg-2"
+                className="cursor-pointer font-normal text-body text-fg-2"
               >
                 Keep me signed in
               </Label>
             </div>
 
             {error && (
-              <p role="alert" className="mb-3 text-13 text-destructive">
+              <p role="alert" className="mb-3 text-body text-destructive">
                 {error}
               </p>
             )}
@@ -241,7 +241,7 @@ export default function LoginPage({
             </Button>
 
             {signupAllowed && (
-              <div className="mt-[22px] text-center text-13 text-fg-3">
+              <div className="mt-[22px] text-center text-body text-fg-3">
                 New to Wrightful?{" "}
                 <Link
                   href={hrefWithNext("/signup", next)}

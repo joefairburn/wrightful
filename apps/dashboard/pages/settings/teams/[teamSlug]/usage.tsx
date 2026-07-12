@@ -19,8 +19,8 @@ function UsageMeter({ row }: { row: UsageRow }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="font-medium text-13 text-fg-1">{row.label}</span>
-        <span className="font-mono text-11 text-fg-3 tabular-nums">
+        <span className="font-medium text-body text-fg-1">{row.label}</span>
+        <span className="font-mono text-micro text-fg-3 tabular-nums">
           {row.usedLabel} / {row.limitLabel}
         </span>
       </div>
@@ -39,7 +39,7 @@ function UsageMeter({ row }: { row: UsageRow }) {
         )}
       </div>
       {row.tone === "over" && (
-        <span className="text-11 text-fail">
+        <span className="text-micro text-fail">
           Over the plan limit — new {row.label.toLowerCase()} are blocked until
           the next billing period.
         </span>
@@ -92,7 +92,7 @@ export default function SettingsTeamUsagePage({
             <TestResultsMeter testResults={testResults} />
           </DeferredSection>
           {artifactBytesRow && <UsageMeter row={artifactBytesRow} />}
-          <p className="text-13 text-fg-3 leading-relaxed">
+          <p className="text-body text-fg-3 leading-relaxed">
             <span className="font-mono tabular-nums">
               {artifactCount.toLocaleString("en-US")}
             </span>{" "}

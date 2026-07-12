@@ -105,10 +105,10 @@ export default function SuiteSizePage({
 
         <Card className="overflow-hidden rounded-[9px] border-line-1">
           <div className="border-b border-line-1 px-[18px] py-3">
-            <h2 className="text-13 font-semibold tracking-tight">
+            <h2 className="text-body font-semibold tracking-tight">
               Test count over time
             </h2>
-            <p className="mt-0.5 text-12 text-fg-3">
+            <p className="mt-0.5 text-caption text-fg-3">
               Peak suite size per {segment}. Catches accidental deletions and
               big-bang additions.
             </p>
@@ -207,7 +207,7 @@ function TrendChart({
       values: [peak ?? null],
       tooltip: (
         <>
-          <div className="mb-1 border-b border-line-1/50 pb-1 font-mono text-11 text-fg-3">
+          <div className="mb-1 border-b border-line-1/50 pb-1 font-mono text-micro text-fg-3">
             {s.label}
           </div>
           <div className="font-mono text-xs">
@@ -247,10 +247,10 @@ function DistributionSection({
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
       <Card className="overflow-hidden rounded-[9px] border-line-1 lg:col-span-2">
         <div className="border-b border-line-1 px-[18px] py-3">
-          <h2 className="text-13 font-semibold tracking-tight">
+          <h2 className="text-body font-semibold tracking-tight">
             Distribution by spec file
           </h2>
-          <p className="mt-0.5 text-12 text-fg-3">
+          <p className="mt-0.5 text-caption text-fg-3">
             Top {fileRows.length} files by distinct test count.
           </p>
         </div>
@@ -274,8 +274,10 @@ function DistributionSection({
 
       <Card className="overflow-hidden rounded-[9px] border-line-1">
         <div className="border-b border-line-1 px-[18px] py-3">
-          <h2 className="text-13 font-semibold tracking-tight">Top tags</h2>
-          <p className="mt-0.5 text-12 text-fg-3">Distinct tests per tag.</p>
+          <h2 className="text-body font-semibold tracking-tight">Top tags</h2>
+          <p className="mt-0.5 text-caption text-fg-3">
+            Distinct tests per tag.
+          </p>
         </div>
         <CardPanel className="px-[18px] py-3">
           {tagRows.length === 0 ? (
@@ -284,7 +286,7 @@ function DistributionSection({
             <div className="flex flex-wrap gap-1.5">
               {tagRows.map((r) => (
                 <span
-                  className="inline-flex items-center gap-1.5 rounded-full border border-line-1 bg-bg-2 px-2 py-px font-mono text-12 text-fg-2"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-line-1 bg-bg-2 px-2 py-px font-mono text-caption text-fg-2"
                   key={r.tag}
                   style={{ lineHeight: "18px" }}
                 >
@@ -302,7 +304,7 @@ function DistributionSection({
 
 /**
  * Suspense fallback matching the two-card distribution layout. Boxes mirror
- * `DistributionSection`: headers reserve the real `text-13`/`text-12`
+ * `DistributionSection`: headers reserve the real `text-body`/`text-caption`
  * line boxes (with the same `mt-0.5`), each file row is 26px (a `text-xs` label
  * line + `mt-1` + the `h-1.5` bar, like `DistributionRow`), and tag pills are
  * 22px (18px inline line box + `py-px` + 1px borders). The row/pill counts are
@@ -316,8 +318,8 @@ function DistributionSkeleton() {
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
       <Card className="overflow-hidden rounded-[9px] border-line-1 lg:col-span-2">
         <div className="border-b border-line-1 px-[18px] py-3">
-          <TextLineSkeleton className="w-40" text="text-13" />
-          <TextLineSkeleton className="mt-0.5 w-56" text="text-12" />
+          <TextLineSkeleton className="w-40" text="text-body" />
+          <TextLineSkeleton className="mt-0.5 w-56" text="text-caption" />
         </div>
         <CardPanel className="px-[18px] py-3">
           <ul className="space-y-2.5">
@@ -336,8 +338,8 @@ function DistributionSkeleton() {
 
       <Card className="overflow-hidden rounded-[9px] border-line-1">
         <div className="border-b border-line-1 px-[18px] py-3">
-          <TextLineSkeleton className="w-20" text="text-13" />
-          <TextLineSkeleton className="mt-0.5 w-36" text="text-12" />
+          <TextLineSkeleton className="w-20" text="text-body" />
+          <TextLineSkeleton className="mt-0.5 w-36" text="text-caption" />
         </div>
         <CardPanel className="px-[18px] py-3">
           <div className="flex flex-wrap gap-1.5">
@@ -381,7 +383,7 @@ function DistributionRow({
       <div className="w-16 text-right font-mono text-sm text-fg-1">
         {value.toLocaleString()}
       </div>
-      <div className="w-12 text-right font-mono text-11 text-fg-3">
+      <div className="w-12 text-right font-mono text-micro text-fg-3">
         {pct.toFixed(0)}%
       </div>
     </li>

@@ -21,7 +21,7 @@ export default function SettingsTeamProjectsPage({ team, projects }: Props) {
 
       <SettingsCard title={`Projects · ${projects.length}`}>
         {projects.length === 0 ? (
-          <div className="py-6 text-center text-13 text-fg-3">
+          <div className="py-6 text-center text-body text-fg-3">
             No projects yet.
           </div>
         ) : (
@@ -38,15 +38,15 @@ export default function SettingsTeamProjectsPage({ team, projects }: Props) {
                   <FlaskConical className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-mono font-medium text-14 text-fg-1">
+                  <div className="truncate font-mono font-medium text-body-lg text-fg-1">
                     {p.name}
                   </div>
-                  <div className="mt-0.5 text-12 text-fg-3">
+                  <div className="mt-0.5 text-caption text-fg-3">
                     /t/{team.slug}/p/{p.slug}
                   </div>
                 </div>
                 <Link
-                  className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
+                  className="text-caption font-medium text-fg-3 transition-colors hover:text-fg-1"
                   href={`/settings/teams/${team.slug}/p/${p.slug}/keys`}
                 >
                   Project settings

@@ -467,7 +467,7 @@ export function RunProgress({
 
         <div className="flex-1" />
 
-        <span className="text-12 text-fg-3">Group by</span>
+        <span className="text-caption text-fg-3">Group by</span>
         <SegmentedControl
           compact
           onChange={onGroupBy}
@@ -483,7 +483,7 @@ export function RunProgress({
       {showSkeleton ? (
         <TestsListSkeleton />
       ) : groups.length === 0 ? (
-        <div className="px-6 py-10 text-center text-13 text-fg-3">
+        <div className="px-6 py-10 text-center text-body text-fg-3">
           {summary.totalTests === 0
             ? "No tests recorded for this run."
             : statusFilter === "recommended"

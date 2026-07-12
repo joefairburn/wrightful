@@ -274,7 +274,7 @@ function FlakyTableSkeleton({ rangeDays }: { rangeDays: number }) {
                   <Skeleton className="mx-auto h-3.5 w-3.5 rounded-full" />
                 </TableCell>
                 <TableCell className="px-4 py-3 align-middle">
-                  {/* leading-none: text-13 + mt-0.5 + text-11 = 26px */}
+                  {/* leading-none: text-body + mt-0.5 + text-micro = 26px */}
                   <div className="min-w-0">
                     <Skeleton className="h-[13px] w-2/3" />
                     <Skeleton className="mt-0.5 h-[11px] w-1/2" />

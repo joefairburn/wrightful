@@ -199,7 +199,7 @@ function SliderCompare({
       aria-valuemax={100}
       aria-valuemin={0}
       aria-valuenow={Math.round(pos)}
-      className="relative w-full touch-none select-none overflow-hidden rounded-md bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="relative w-full touch-none select-none overflow-hidden rounded-md bg-muted outline outline-1 -outline-offset-1 outline-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:outline-white/10"
       onKeyDown={(e) => {
         if (e.key === "ArrowLeft") setPos((p) => Math.max(0, p - 5));
         else if (e.key === "ArrowRight") setPos((p) => Math.min(100, p + 5));
@@ -246,10 +246,10 @@ function SliderCompare({
           <SplitSquareHorizontal className="size-3.5" />
         </span>
       </div>
-      <span className="pointer-events-none absolute top-2 left-2 rounded bg-black/60 px-1.5 py-0.5 font-medium text-11 text-white">
+      <span className="pointer-events-none absolute top-2 left-2 rounded bg-black/60 px-1.5 py-0.5 font-medium text-micro text-white">
         Expected
       </span>
-      <span className="pointer-events-none absolute top-2 right-2 rounded bg-black/60 px-1.5 py-0.5 font-medium text-11 text-white">
+      <span className="pointer-events-none absolute top-2 right-2 rounded bg-black/60 px-1.5 py-0.5 font-medium text-micro text-white">
         Actual
       </span>
     </div>
@@ -265,7 +265,11 @@ function FrameImage({
 }): React.ReactElement {
   if (!frame) return <FrameMissing />;
   return (
-    <img className="w-full rounded-md bg-muted" alt={alt} src={frame.href} />
+    <img
+      className="w-full rounded-md bg-muted outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10"
+      alt={alt}
+      src={frame.href}
+    />
   );
 }
 
@@ -280,12 +284,14 @@ function SideBySideFrame({
 }): React.ReactElement {
   return (
     <figure className="flex flex-col gap-1">
-      <figcaption className="text-12 font-medium tracking-[0.1px] text-fg-3">
+      <figcaption className="text-caption font-medium tracking-[0.1px] text-fg-3">
         {label}
       </figcaption>
       {frame ? (
         <img
-          className={cn("w-full rounded-md bg-muted")}
+          className={cn(
+            "w-full rounded-md bg-muted outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10",
+          )}
           alt={alt}
           src={frame.href}
         />

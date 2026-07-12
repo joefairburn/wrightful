@@ -85,11 +85,11 @@ export const RunListRow = memo(function RunListRow({
       <TableCell className="px-4 py-3 align-middle">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono text-12 tabular-nums text-fg-3">
+            <span className="shrink-0 font-mono text-caption tabular-nums text-fg-3">
               #{runNum}
             </span>
             <span
-              className="min-w-0 flex-1 truncate text-14 text-fg-1"
+              className="min-w-0 flex-1 truncate text-body-lg text-fg-1"
               title={run.commitMessage ?? undefined}
             >
               {run.commitMessage ? (
@@ -101,7 +101,7 @@ export const RunListRow = memo(function RunListRow({
               )}
             </span>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 text-12 text-fg-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-caption text-fg-3">
             {run.branch ? (
               <BranchPill href={branchHref} name={run.branch} />
             ) : null}
@@ -135,7 +135,7 @@ export const RunListRow = memo(function RunListRow({
             skipped={run.skipped}
             total={total}
           />
-          <div className="flex items-center gap-2.5 font-mono text-11 tabular-nums">
+          <div className="flex items-center gap-2.5 font-mono text-micro tabular-nums">
             <RunTestsPopover
               count={run.passed}
               projectSlug={projectSlug}
@@ -172,7 +172,7 @@ export const RunListRow = memo(function RunListRow({
         </div>
       </TableCell>
 
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-12 tabular-nums text-fg-3">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-caption tabular-nums text-fg-3">
         <LiveDuration
           completedAt={run.completedAt}
           createdAt={run.createdAt}
@@ -181,7 +181,7 @@ export const RunListRow = memo(function RunListRow({
         />
       </TableCell>
 
-      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-12 text-fg-3">
+      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-caption text-fg-3">
         {formatRelativeTime(run.createdAt)}
       </TableCell>
     </TableRow>

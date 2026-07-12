@@ -79,14 +79,16 @@ export default function SignupPage({
     return (
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-6 text-center">
         <header className="space-y-2">
-          <h1 className="text-2xl font-semibold">Check your inbox</h1>
+          <h1 className="text-title font-semibold text-balance">
+            Check your inbox
+          </h1>
           <p className="text-fg-3 text-sm">
             We sent a verification link to{" "}
             <span className="text-fg-1 font-medium">{email}</span>. Click it to
             finish setting up your account, then sign in.
           </p>
         </header>
-        <Link href="/login" className="text-sm underline">
+        <Link href="/login" className="text-sm underline underline-offset-2">
           Back to sign in
         </Link>
       </main>
@@ -96,7 +98,7 @@ export default function SignupPage({
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-8 p-6">
       <header className="space-y-2 text-center">
-        <h1 className="text-2xl font-semibold">
+        <h1 className="text-title font-semibold text-balance">
           Create your Wrightful account
         </h1>
         <p className="text-fg-3 text-sm">Get started in a few seconds.</p>
@@ -170,7 +172,10 @@ export default function SignupPage({
 
       <p className="text-center text-sm">
         Already have an account?{" "}
-        <Link href={hrefWithNext("/login", next)} className="underline">
+        <Link
+          href={hrefWithNext("/login", next)}
+          className="underline underline-offset-2"
+        >
           Sign in
         </Link>
       </p>

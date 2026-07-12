@@ -61,7 +61,7 @@ export default function TestDetailPage(props: Props) {
     const base = `/t/${project.teamSlug}/p/${project.projectSlug}`;
     return (
       <div className="mx-auto max-w-6xl p-6 sm:p-8">
-        <h1 className="mb-2 font-semibold text-2xl">Test not found</h1>
+        <h1 className="mb-2 font-semibold text-title">Test not found</h1>
         <Link
           href={`${base}/runs/${runId}`}
           className="text-fg-1 underline-offset-4 hover:underline"
@@ -178,7 +178,7 @@ export default function TestDetailPage(props: Props) {
             ]}
           />
           <StatusBadge status={result.status} />
-          <h1 className="min-w-0 truncate text-18 font-semibold tracking-[-0.2px]">
+          <h1 className="min-w-0 truncate text-heading font-semibold tracking-[-0.2px]">
             {testTitle}
           </h1>
         </div>

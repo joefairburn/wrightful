@@ -110,7 +110,7 @@ export function MonitorForm({
       <div>
         <div className="mb-[7px] flex items-baseline justify-between">
           <FieldLabel className="mb-0">Browser check</FieldLabel>
-          <span className="text-12 text-fg-3">
+          <span className="text-caption text-fg-3">
             A Playwright test, run on schedule. Use{" "}
             <span className="font-mono text-fg-2">expect</span> for hard checks;
             soft assertions surface as{" "}
@@ -125,7 +125,7 @@ export function MonitorForm({
           onValueChange={setSource}
           value={source}
         />
-        <p className="mt-1.5 text-12 text-fg-3">
+        <p className="mt-1.5 text-caption text-fg-3">
           Secrets like <span className="font-mono">process.env.SYNTH_USER</span>{" "}
           are injected from project settings.
         </p>
