@@ -1,7 +1,7 @@
 import { ArrowLeft, FolderPlus } from "lucide-react";
 import { Link } from "@/components/ui/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { Props } from "./new.server";
@@ -22,7 +22,7 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
           <ArrowLeft size={12} strokeWidth={2} />
           {team.name}
         </Link>
-        <h1 className="font-semibold text-2xl tracking-tight">New project</h1>
+        <h1 className="font-semibold text-title">New project</h1>
         <p className="mt-1 text-fg-3 text-sm">
           Add a project to{" "}
           <span className="font-medium text-fg-1">{team.name}</span>. A URL slug
@@ -53,15 +53,15 @@ export default function SettingsProjectNewPage({ team, error }: Props) {
               maxLength={60}
               placeholder="e.g. Checkout Flow"
             />
-            <FieldDescription className="font-mono text-11">
+            <FieldDescription className="font-mono text-micro">
               Must contain at least one letter or number.
             </FieldDescription>
           </Field>
           <div className="flex items-center gap-3 pt-1">
-            <Button type="submit">Create project</Button>
+            <SubmitButton>Create project</SubmitButton>
             <Link
               href={`/settings/teams/${team.slug}`}
-              className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
+              className="text-caption font-medium text-fg-3 transition-colors hover:text-fg-1"
             >
               Cancel
             </Link>

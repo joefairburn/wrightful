@@ -44,14 +44,17 @@ export default function RunsListPage({
   project,
   runs,
   totalRuns,
-  currentPage,
-  totalPages,
+  currentCursor,
+  historyStack,
+  nextCursor,
   offset,
+  pageSize,
   filters,
   options,
   pathname,
 }: Props) {
   const base = `/t/${project.teamSlug}/p/${project.slug}`;
+  const isFirstPage = currentCursor === null;
 
   // Live run feed for the whole list over ONE shared connection: in-flight rows
   // stream in place and brand-new runs prepend without a refresh. New runs are
@@ -66,19 +69,50 @@ export default function RunsListPage({
     origin: DEFAULT_ORIGIN_FILTER,
   });
   const liveRows = useProjectRoom(project.id, runs, {
-    acceptNewRuns: currentPage === 1 && !nonOriginFiltersActive,
+    acceptNewRuns: isFirstPage && !nonOriginFiltersActive,
     origin: filters.origin,
   });
   // Rows the feed prepended beyond the SSR page — shifts #N and the footer.
+  // Always 0 past the first page (`acceptNewRuns` is false there).
   const newCount = liveRows.length - runs.length;
 
   const fromRow = totalRuns + newCount === 0 ? 0 : offset + 1;
   const toRow = offset + liveRows.length;
+  // Orientation label only ("Page 2 of 61") — keyset knows where you are but
+  // can't link to an arbitrary page. Live prepends fold into the denominator.
+  const currentPage = Math.floor(offset / pageSize) + 1;
+  const totalPages = Math.max(1, Math.ceil((totalRuns + newCount) / pageSize));
 
-  const pageHref = (page: number): string => {
-    const qs = toSearchParams({ ...filters, page }).toString();
+  // Href carrying filter-bar state plus a keyset cursor + its ancestor stack
+  // (`?history=`, comma-joined, oldest first). `toSearchParams(filters)` never
+  // includes `cursor`/`history` (outside `RunsFilters`), so changing a filter
+  // drops back to the first page — see `runs-filter-bar.tsx`'s `applyFilters`.
+  const hrefForCursor = (cursor: string | null, history: string[]): string => {
+    const params = toSearchParams(filters);
+    if (cursor) params.set("cursor", cursor);
+    if (history.length > 0) params.set("history", history.join(","));
+    const qs = params.toString();
     return qs ? `${pathname}?${qs}` : pathname;
   };
+
+  // "Previous" pops the stack tail; an empty stack means the prior page is the
+  // first (no cursor).
+  const prevHref = isFirstPage
+    ? null
+    : (() => {
+        const stack = [...historyStack];
+        const prevCursor = stack.pop() ?? null;
+        return hrefForCursor(prevCursor, stack);
+      })();
+
+  // "Next" pushes the current cursor onto the stack (none on the first page)
+  // and swaps in the server-minted cursor from this page's last row.
+  const nextHref = nextCursor
+    ? hrefForCursor(
+        nextCursor,
+        currentCursor ? [...historyStack, currentCursor] : historyStack,
+      )
+    : null;
 
   return (
     <>
@@ -145,7 +179,8 @@ export default function RunsListPage({
           currentPage={currentPage}
           fromRow={fromRow}
           itemNoun="run"
-          pageHref={pageHref}
+          nextHref={nextHref}
+          prevHref={prevHref}
           toRow={toRow}
           totalCount={totalRuns + newCount}
           totalPages={totalPages}

@@ -119,13 +119,13 @@ export function RunHistoryChartFrame({
               <span className="text-sm font-medium truncate">{title}</span>
             )}
             {subtitle && (
-              <span className="font-mono text-11 text-fg-3 truncate">
+              <span className="font-mono text-micro text-fg-3 truncate">
                 {subtitle}
               </span>
             )}
           </div>
           {rightSlot && (
-            <div className="ml-auto flex items-center gap-3 font-mono text-11 text-fg-3 shrink-0">
+            <div className="ml-auto flex items-center gap-3 font-mono text-micro text-fg-3 shrink-0">
               {rightSlot}
             </div>
           )}
@@ -250,7 +250,7 @@ export function RunHistoryChart({
         {/* Y-axis labels — HTML, so text doesn't stretch with the SVG.
          * Positioned absolutely so each label pins to its tick's exact y,
          * matching the dashed gridlines from `yScale.ticks()`. */}
-        <div className="relative pr-1 text-right font-mono text-11 text-fg-3">
+        <div className="relative pr-1 text-right font-mono text-micro text-fg-3">
           {yTicks.map((t) => (
             <span
               key={t}

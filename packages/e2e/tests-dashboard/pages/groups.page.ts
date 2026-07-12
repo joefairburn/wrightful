@@ -42,7 +42,7 @@ export class GroupsPage {
 
   /** A group's settings card, anchored on its (unique) name. */
   card(name: string): Locator {
-    return this.page.locator("div.mb-4").filter({ hasText: name });
+    return this.page.getByTestId("group-card").filter({ hasText: name });
   }
 
   /**

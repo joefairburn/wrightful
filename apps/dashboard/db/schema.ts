@@ -492,8 +492,19 @@ export const runs = pgTable(
      * The GitHub check-run id created for this run, or null. Lets the terminal
      * path (`completeRun` / `finalizeStaleRun` → `maybePostGithubCheck`) PATCH
      * the existing check on a re-complete instead of POSTing a duplicate.
+     * Always a real check-run id, or null — never a sentinel.
      */
     githubCheckRunId: big("githubCheckRunId"),
+    /**
+     * Epoch-seconds when a caller claimed the right to POST this run's check run,
+     * or null. Makes concurrent `completeRun` + `finalizeStaleRun` race-safe: only
+     * one caller's claim `UPDATE ... WHERE` matches (`claimCheckRunSlot` in
+     * `@/lib/github-checks`), so only one POSTs while the loser backs off. A claim
+     * older than `CHECK_CLAIM_TTL_SECONDS` (same file) is stale/reclaimable — its
+     * poster crashed before finishing. Cleared once the real id lands in
+     * `githubCheckRunId`, or if the POST fails.
+     */
+    githubCheckClaimedAt: big("githubCheckClaimedAt"),
   },
   (t) => [
     uniqueIndex("runs_project_idempotency_key_idx").on(
@@ -514,6 +525,13 @@ export const runs = pgTable(
       .on(t.monitorId)
       .where(sql`${t.monitorId} is not null`),
     index("runs_project_created_at_idx").on(t.projectId, t.createdAt),
+    /**
+     * Serves the usage reconcile's team-scoped period counts (`rollup-usage` cron:
+     * `teams ⟕ runs ON teamId AND createdAt >= periodStart GROUP BY team`). Every
+     * other runs index leads with `projectId`, so without this the team-keyed count
+     * seq-scans the largest table.
+     */
+    index("runs_team_createdAt_idx").on(t.teamId, t.createdAt),
     index("runs_project_branch_created_at_idx").on(
       t.projectId,
       t.branch,
@@ -535,6 +553,23 @@ export const runs = pgTable(
      * index — the watchdog is now keyed on lastActivityAt, not createdAt.)
      */
     index("runs_status_lastActivityAt_idx").on(t.status, t.lastActivityAt),
+    /**
+     * Trigram GINs backing the runs-list free-text `q` search
+     * (`runs-filters-where.ts`): a leading-wildcard `ILIKE '%q%'` OR'd across
+     * commitMessage/commitSha/branch that no b-tree can accelerate. Same pattern as
+     * the `tests` catalog's title/file GINs (same `pg_trgm` extension, created by
+     * migration `20260703092642_slimy_layla_miller.sql`). Write amplification lands
+     * on run open only (one row per run), so the /results ingest hot path is unaffected.
+     */
+    index("runs_commitMessage_trgm_idx").using(
+      "gin",
+      t.commitMessage.op("gin_trgm_ops"),
+    ),
+    index("runs_commitSha_trgm_idx").using(
+      "gin",
+      t.commitSha.op("gin_trgm_ops"),
+    ),
+    index("runs_branch_trgm_idx").using("gin", t.branch.op("gin_trgm_ops")),
   ],
 );
 

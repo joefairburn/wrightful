@@ -92,6 +92,17 @@ describe("tierLimits — billing ON (both POLAR_* set)", () => {
     expect(proLimits.runs).not.toBe(Infinity);
     expect(Number.isFinite(proLimits.runs)).toBe(true);
   });
+
+  it("fails CLOSED to the Free ceilings for an unrecognized/corrupt tier string", () => {
+    // Only 'pro' gets the high ceiling; anything else — including a value that
+    // isn't a real tier at all — must map to the safe (low) Free caps, never the
+    // high Pro caps.
+    expect(tierLimits("garbage")).toEqual({
+      runs: config.WRIGHTFUL_FREE_MONTHLY_RUNS,
+      testResults: config.WRIGHTFUL_FREE_MONTHLY_TEST_RESULTS,
+      artifactBytes: config.WRIGHTFUL_FREE_ARTIFACT_BYTES,
+    });
+  });
 });
 
 describe("effectiveTier", () => {

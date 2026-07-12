@@ -14,11 +14,12 @@ import {
   Users,
   UsersRound,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useRouter, useShared } from "@void/react";
 import { useCommandMenuShortcut } from "@/components/command-menu-shortcut";
 import { DeferErrorBoundary } from "@/components/defer-error-boundary";
 import { Link, PREFETCH_REALTIME } from "@/components/ui/link";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryProvider } from "@/components/query-provider";
 
 // Lazy-loaded and mounted only on first open (see `cmdMounted`): the command
@@ -99,81 +100,85 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
   const [cmdOpen, setCmdOpen] = useState(false);
   // Mount the lazy command menu the first time it opens, then keep it mounted so
   // its close animation runs and the chunk isn't re-fetched on the next ⌘K.
+  // A one-way latch, flipped during render rather than in an effect.
   const [cmdMounted, setCmdMounted] = useState(false);
-  useEffect(() => {
-    if (cmdOpen) setCmdMounted(true);
-  }, [cmdOpen]);
+  if (cmdOpen && !cmdMounted) setCmdMounted(true);
   useCommandMenuShortcut(setCmdOpen);
 
   return (
     <QueryProvider>
-      <div className="flex h-screen overflow-hidden bg-bg-0 text-fg-1 font-sans">
-        <nav className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-          <SidebarTop
-            selectedProject={selectedProject}
-            selectedTeam={selectedTeam}
-            teamProjects={teamProjects}
-            teams={userTeams}
-          />
-
-          {mode === "settings" ? (
-            <SettingsSidebarMiddle
-              billingEnabled={billingEnabled}
-              pathname={pathname}
+      {/* One tooltip provider at the root arms the shared open-delay + the
+       * `data-instant` skip-delay (2nd-through-nth tooltip in a hover sweep
+       * opens instantly) for every tooltip in the app, not just charts. */}
+      <TooltipProvider delay={600} closeDelay={0}>
+        <div className="flex h-screen overflow-hidden bg-bg-0 text-fg-1 font-sans">
+          <nav className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+            <SidebarTop
               selectedProject={selectedProject}
               selectedTeam={selectedTeam}
+              teamProjects={teamProjects}
               teams={userTeams}
             />
-          ) : (
-            <AppSidebarMiddle
-              base={
-                selectedTeam && selectedProject
-                  ? `/t/${selectedTeam.slug}/p/${selectedProject.slug}`
-                  : null
-              }
-              pathname={pathname}
-            />
-          )}
 
-          <SidebarBottom
-            mode={mode}
-            selectedProject={selectedProject}
-            selectedTeam={selectedTeam}
-          />
-
-          {user && (
-            <div className="shrink-0 border-t border-sidebar-border p-2">
-              <SidebarUserMenu
-                email={user.email}
-                image={user.image}
-                name={user.name}
+            {mode === "settings" ? (
+              <SettingsSidebarMiddle
+                billingEnabled={billingEnabled}
+                pathname={pathname}
+                selectedProject={selectedProject}
+                selectedTeam={selectedTeam}
+                teams={userTeams}
               />
-            </div>
-          )}
-        </nav>
+            ) : (
+              <AppSidebarMiddle
+                base={
+                  selectedTeam && selectedProject
+                    ? `/t/${selectedTeam.slug}/p/${selectedProject.slug}`
+                    : null
+                }
+                pathname={pathname}
+              />
+            )}
 
-        <main className="flex flex-1 min-w-0 flex-col overflow-hidden">
-          {children}
-        </main>
-      </div>
-
-      {cmdMounted && (
-        // Error boundary: a failed lazy chunk (e.g. a hashed filename 404 after a
-        // redeploy while this tab was open) degrades to no menu instead of
-        // throwing past Suspense and blanking the whole app shell.
-        <DeferErrorBoundary fallback={null}>
-          <Suspense fallback={null}>
-            <CommandMenu
-              activeProject={selectedProject}
-              activeTeam={selectedTeam}
-              onOpenChange={setCmdOpen}
-              open={cmdOpen}
-              projects={teamProjects}
-              teams={userTeams}
+            <SidebarBottom
+              mode={mode}
+              selectedProject={selectedProject}
+              selectedTeam={selectedTeam}
             />
-          </Suspense>
-        </DeferErrorBoundary>
-      )}
+
+            {user && (
+              <div className="shrink-0 border-t border-sidebar-border p-2">
+                <SidebarUserMenu
+                  email={user.email}
+                  image={user.image}
+                  name={user.name}
+                />
+              </div>
+            )}
+          </nav>
+
+          <main className="flex flex-1 min-w-0 flex-col overflow-hidden">
+            {children}
+          </main>
+        </div>
+
+        {cmdMounted && (
+          // Error boundary: a failed lazy chunk (e.g. a hashed filename 404 after a
+          // redeploy while this tab was open) degrades to no menu instead of
+          // throwing past Suspense and blanking the whole app shell.
+          <DeferErrorBoundary fallback={null}>
+            <Suspense fallback={null}>
+              <CommandMenu
+                activeProject={selectedProject}
+                activeTeam={selectedTeam}
+                onOpenChange={setCmdOpen}
+                open={cmdOpen}
+                projects={teamProjects}
+                teams={userTeams}
+              />
+            </Suspense>
+          </DeferErrorBoundary>
+        )}
+      </TooltipProvider>
     </QueryProvider>
   );
 }
@@ -327,7 +332,7 @@ function AppSidebarMiddle({ pathname, base }: AppSidebarMiddleProps) {
             <item.icon className="size-4" />
             <span className="flex-1">{item.label}</span>
             {item.count != null && (
-              <span className="rounded-full bg-flaky-soft px-1.5 py-px font-mono text-11 font-semibold text-flaky tabular-nums">
+              <span className="rounded-full bg-flaky-soft px-1.5 py-px font-mono text-micro font-semibold text-flaky tabular-nums">
                 {item.count}
               </span>
             )}
@@ -520,7 +525,7 @@ function SettingsSectionLabel({
 }) {
   return (
     <div
-      className="truncate px-2.5 pb-1 pt-2 text-12 font-medium tracking-[0.1px] text-fg-3"
+      className="truncate px-2.5 pb-1 pt-2 text-caption font-medium tracking-[0.1px] text-fg-3"
       title={title}
     >
       {children}

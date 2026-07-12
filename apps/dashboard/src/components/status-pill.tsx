@@ -28,7 +28,9 @@ export function StatusPill({
     <span
       className={cn(
         "inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm font-medium",
-        size === "sm" ? "px-1.5 py-0.5 text-11" : "px-2 py-[3px] text-12",
+        size === "sm"
+          ? "px-1.5 py-0.5 text-micro"
+          : "px-2 py-[3px] text-caption",
         className,
       )}
       style={{

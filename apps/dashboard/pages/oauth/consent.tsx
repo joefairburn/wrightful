@@ -55,7 +55,7 @@ export default function OAuthConsentPage({
     <div className="relative flex h-screen items-center justify-center overflow-hidden bg-bg-0 p-10">
       <section className="relative w-full max-w-[420px]">
         <div className="rounded-[12px] border border-line-1 bg-bg-1 p-8 shadow-[var(--shadow-lg)]">
-          <h1 className="text-lg font-semibold text-fg-1">
+          <h1 className="text-heading font-semibold text-fg-1">
             Authorize {displayName}
           </h1>
           <p className="mt-2 text-sm text-fg-3">

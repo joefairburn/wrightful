@@ -1,5 +1,6 @@
 import { PREFETCH_REALTIME } from "@/components/ui/link";
 import { RowLink } from "@/components/row-link";
+import { memo } from "react";
 import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
 import { githubAvatarUrl } from "@/lib/github-avatar";
@@ -37,8 +38,15 @@ interface RunListRowProps {
  * from `run`, so the same markup serves both terminal runs (straight from SSR)
  * and live ones (the page overlays the streamed summary onto `run`). Extracted
  * out of the page so the row markup has a single home.
+ *
+ * Memoized: the page re-renders on every `run-progress` WS event, but the feed
+ * reducer (`applyProjectFeedEvent`) preserves identity for untouched rows and
+ * clones only the changed one. Props are just that `run` reference plus
+ * primitives (no inline callbacks or fresh objects), so `React.memo`'s shallow
+ * compare bails out for the other ~19 rows instead of re-running their
+ * formatting/URL/pill work.
  */
-export function RunListRow({
+export const RunListRow = memo(function RunListRow({
   run,
   teamSlug,
   projectSlug,
@@ -62,7 +70,11 @@ export function RunListRow({
          * click target. Nested `relative z-10` external links (branch/PR/commit
          * chips) call `e.stopPropagation()` so their clicks don't bubble to this
          * Link's SPA-navigation handler. */}
-        <RowLink cacheFor={PREFETCH_REALTIME} href={href}>
+        {/* prefetch disabled: hover-prefetch would fire a full run-detail loader
+         * (incl. the deferred run-history chart) for every row the pointer sweeps.
+         * Run detail already seeds live via the realtime room, so it buys nothing
+         * worth the 20x loader fan-out. */}
+        <RowLink cacheFor={PREFETCH_REALTIME} href={href} prefetch={false}>
           <span className="sr-only">
             View run {run.commitMessage ?? run.id.slice(0, 8)}
           </span>
@@ -73,11 +85,11 @@ export function RunListRow({
       <TableCell className="px-4 py-3 align-middle">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono text-12 tabular-nums text-fg-3">
+            <span className="shrink-0 font-mono text-caption tabular-nums text-fg-3">
               #{runNum}
             </span>
             <span
-              className="min-w-0 flex-1 truncate text-14 text-fg-1"
+              className="min-w-0 flex-1 truncate text-body-lg text-fg-1"
               title={run.commitMessage ?? undefined}
             >
               {run.commitMessage ? (
@@ -89,7 +101,7 @@ export function RunListRow({
               )}
             </span>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 text-12 text-fg-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-caption text-fg-3">
             {run.branch ? (
               <BranchPill href={branchHref} name={run.branch} />
             ) : null}
@@ -123,7 +135,7 @@ export function RunListRow({
             skipped={run.skipped}
             total={total}
           />
-          <div className="flex items-center gap-2.5 font-mono text-11 tabular-nums">
+          <div className="flex items-center gap-2.5 font-mono text-micro tabular-nums">
             <RunTestsPopover
               count={run.passed}
               projectSlug={projectSlug}
@@ -160,7 +172,7 @@ export function RunListRow({
         </div>
       </TableCell>
 
-      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-12 tabular-nums text-fg-3">
+      <TableCell className="w-[90px] px-4 py-3 text-right align-middle font-mono text-caption tabular-nums text-fg-3">
         <LiveDuration
           completedAt={run.completedAt}
           createdAt={run.createdAt}
@@ -169,9 +181,9 @@ export function RunListRow({
         />
       </TableCell>
 
-      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-12 text-fg-3">
+      <TableCell className="w-[100px] px-4 py-3 text-right align-middle text-caption text-fg-3">
         {formatRelativeTime(run.createdAt)}
       </TableCell>
     </TableRow>
   );
-}
+});

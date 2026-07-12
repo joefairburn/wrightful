@@ -2,14 +2,8 @@ import { defineHandler } from "void";
 import { env } from "void/env";
 import type { Context } from "hono";
 import { verifyArtifactToken } from "@/lib/artifact-tokens";
-import {
-  artifactContentDisposition,
-  buildArtifactResponse,
-  readArtifact,
-} from "@/lib/artifacts";
-import { signGetUrl } from "@/lib/artifacts/presign";
+import { serveArtifactBytes } from "@/lib/artifacts/serve";
 import { r2DirectConfig } from "@/lib/config";
-import { safeContentType } from "@/lib/content-types";
 
 const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
 
@@ -21,9 +15,14 @@ const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
  * see `lib/artifact-tokens.ts#getKey`) carries the R2 key + content-type
  * directly, so we skip the DB on the hot path. CORS narrowed to the dashboard
  * + the Playwright trace viewer.
+ *
+ * Auth + translation only: verify the token, resolve the CORS origin and the
+ * token's remaining life, then hand off to `serveArtifactBytes`, which owns the
+ * proxy-vs-302 fork (ADR 0003) and the origin-safety invariants (sanitised
+ * content-type, forced attachment, remaining-life cap) on both branches.
  */
-// Exported for unit testing the flag-conditional branch (302-mint vs
-// worker-proxy fall-through); the Void router only binds the `GET` export below.
+// Exported for unit testing the token gate + translation into
+// `serveArtifactBytes`; the Void router only binds the `GET` export below.
 export async function handle(c: Context): Promise<Response> {
   const url = new URL(c.req.url);
   const token = url.searchParams.get("t");
@@ -32,56 +31,22 @@ export async function handle(c: Context): Promise<Response> {
     return unauthorizedResponse(c);
   }
 
-  const corsOrigin = resolveAllowedOrigin(c.req.raw, url.origin);
-  const { r2Key, contentType, exp } = payload;
-
   // Seconds of token life left (≥1s; the token is already verified non-expired
-  // above). Caps BOTH capabilities that outlive this request to the token's
-  // remaining life so neither can be replayed past its expiry: the direct-R2
-  // presigned URL, and the worker-proxy response's SHARED-cache (`s-maxage`)
-  // window in Cloudflare Workers Cache.
+  // above). `serveArtifactBytes` caps both request-outliving capabilities
+  // (presigned URL expiry / shared-cache window) to it.
   const remainingTokenSeconds = Math.max(
     1,
-    exp - Math.floor(Date.now() / 1000),
+    payload.exp - Math.floor(Date.now() / 1000),
   );
 
-  // Direct-R2 (ADR 0003): once the token is verified, hand the byte transfer to
-  // R2 itself — 302 to a short-lived presigned GET so the worker moves zero
-  // bytes. The same-origin dashboard initiator means only the final R2 response
-  // needs CORS (the trace viewer uses a direct-embedded presigned URL instead of
-  // this redirect — see `test-artifact-actions.ts`). HEAD stays on the worker
-  // path below (metadata only, no bytes) — a presigned GET URL is method-bound,
-  // so a HEAD against it would 403.
-  const directCfg = r2DirectConfig(env);
-  if (directCfg && c.req.method === "GET") {
-    // Cap the presigned URL to the token's remaining life so the R2 capability
-    // can't outlive the token that authorized it.
-    const location = await signGetUrl(directCfg, r2Key, {
-      responseContentType: safeContentType(contentType),
-      responseContentDisposition: artifactContentDisposition(r2Key),
-      expiresIn: remainingTokenSeconds,
-    });
-    return new Response(null, {
-      status: 302,
-      headers: {
-        location,
-        // The redirect carries a short-lived presigned URL — never cache it.
-        "cache-control": "private, no-store",
-        "access-control-allow-origin": corsOrigin,
-        vary: "Origin",
-      },
-    });
-  }
-
-  const read = await readArtifact(r2Key, c.req.raw.headers, c.req.method);
-  if (!read) return new Response("Not found", { status: 404 });
-
-  return buildArtifactResponse(read, {
-    tokenContentType: contentType,
-    allowedOrigin: corsOrigin,
-    r2Key,
+  return serveArtifactBytes({
+    r2Key: payload.r2Key,
+    tokenContentType: payload.contentType,
     method: c.req.method,
-    sharedMaxAgeSeconds: remainingTokenSeconds,
+    requestHeaders: c.req.raw.headers,
+    allowedOrigin: resolveAllowedOrigin(c.req.raw, url.origin),
+    remainingTokenSeconds,
+    directConfig: r2DirectConfig(env),
   });
 }
 
@@ -113,8 +78,8 @@ const EXPIRED_ARTIFACT_HTML = `<!doctype html>
   <style>
     :root { color-scheme: light dark; }
     html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-    body { display: flex; align-items: center; justify-content: center; background: #fafafa; color: #0a0a0a; }
-    @media (prefers-color-scheme: dark) { body { background: #0a0a0a; color: #fafafa; } }
+    body { display: flex; align-items: center; justify-content: center; background: oklch(0.99 0.003 260); color: oklch(0.18 0.008 260); }
+    @media (prefers-color-scheme: dark) { body { background: oklch(0.135 0.004 260); color: oklch(0.975 0.003 260); } }
     main { max-width: 28rem; padding: 1.5rem; text-align: center; }
     h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem; }
     p { font-size: 0.875rem; line-height: 1.5; opacity: 0.7; margin: 0 0 1.5rem; }
@@ -142,8 +107,9 @@ function resolveAllowedOrigin(
   return dashboardOrigin;
 }
 
-// HEAD requests fall through to the GET route in Hono. `readArtifact` branches
-// on the method to short-circuit a HEAD with a metadata-only `storage.head()`
-// (no R2 GET); the range/304/header math then lives in the pure
+// HEAD requests fall through to the GET route in Hono. `serveArtifactBytes`
+// keeps HEAD on the worker path (a presigned GET URL is method-bound), where
+// `readArtifact` short-circuits it with a metadata-only `storage.head()` (no
+// R2 GET); the range/304/header math then lives in the pure
 // `buildArtifactResponse` (see `@/lib/artifacts`).
 export const GET = defineHandler(handle);

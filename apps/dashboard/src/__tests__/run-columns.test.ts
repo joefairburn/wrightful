@@ -13,8 +13,10 @@ import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
  * the excluded set below) rather than silently re-leaking via a bare `.select()`.
  */
 describe("RUN_PUBLIC_COLUMNS", () => {
-  // The only column deliberately withheld from client props (see run-columns.ts).
-  const EXCLUDED = new Set(["idempotencyKey"]);
+  // The columns deliberately withheld from client props (see run-columns.ts):
+  // `idempotencyKey` is the write-reopen credential; `githubCheckClaimedAt` is
+  // server-side check-run claim-coordination state no page reads.
+  const EXCLUDED = new Set(["idempotencyKey", "githubCheckClaimedAt"]);
 
   it("never exposes idempotencyKey", () => {
     expect(Object.keys(RUN_PUBLIC_COLUMNS)).not.toContain("idempotencyKey");

@@ -23,11 +23,11 @@ export function KpiInline({ label, value, accent, className }: KpiInlineProps) {
         className,
       )}
     >
-      <span className="text-12 font-medium tracking-[0.1px] text-fg-3">
+      <span className="text-caption font-medium tracking-[0.1px] text-fg-3">
         {label}
       </span>
       <span
-        className="font-mono text-13 font-semibold tracking-[-0.2px] tabular-nums text-fg-1"
+        className="font-mono text-body font-semibold tracking-[-0.2px] tabular-nums text-fg-1"
         style={accent ? { color: accent } : undefined}
       >
         {value}

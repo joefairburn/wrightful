@@ -9,12 +9,12 @@ import {
 } from "@schema";
 import { ciRunsJoinOn } from "@/lib/analytics/filters";
 import { rankFlakyTests } from "@/lib/analytics/flaky-ranking";
+import { loadRunColumns, RUN_SUMMARY_COLUMNS } from "@/lib/run-read-model";
 import { paginateRunTests } from "@/lib/run-results-page";
 import {
   childByIdWhere,
   childByTestResultWhere,
   childProjectScopeWhere,
-  runByIdWhere,
   type TenantScope,
 } from "@/lib/scope";
 import { loadTestResultChildren } from "@/lib/test-result-children";
@@ -54,38 +54,22 @@ export function truncateText(text: string | null, max: number): string | null {
   return `${text.slice(0, max)}… [truncated ${text.length - max} chars — see get_test_result for the full text]`;
 }
 
-/** The run columns the `get_run` tool returns — its full summary card. */
+/**
+ * The run columns the `get_run` tool returns — its full summary card: the shared
+ * summary base plus this surface's agent-debugging extras (which CI produced the
+ * run, which Playwright version ran it). Deliberately omits v1's
+ * `expectedTotalTests` — the two contracts are pinned independently (see
+ * `@/lib/run-read-model`).
+ */
 const MCP_RUN_COLUMNS = {
-  id: runs.id,
-  status: runs.status,
-  branch: runs.branch,
-  environment: runs.environment,
-  commitSha: runs.commitSha,
-  commitMessage: runs.commitMessage,
-  prNumber: runs.prNumber,
-  actor: runs.actor,
-  repo: runs.repo,
-  origin: runs.origin,
+  ...RUN_SUMMARY_COLUMNS,
   ciProvider: runs.ciProvider,
-  totalTests: runs.totalTests,
-  passed: runs.passed,
-  failed: runs.failed,
-  flaky: runs.flaky,
-  skipped: runs.skipped,
-  durationMs: runs.durationMs,
   playwrightVersion: runs.playwrightVersion,
-  createdAt: runs.createdAt,
-  completedAt: runs.completedAt,
 } as const;
 
 /** One run's full summary by id, project-scoped; `null` when out of scope. */
 export async function loadMcpRun(scope: TenantScope, runId: string) {
-  const rows = await db
-    .select(MCP_RUN_COLUMNS)
-    .from(runs)
-    .where(runByIdWhere(scope, runId))
-    .limit(1);
-  return rows[0] ?? null;
+  return loadRunColumns(scope, runId, MCP_RUN_COLUMNS);
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   type StatusFilterValue,
 } from "@/lib/group-tests-by-file";
 import { STATUS_BUCKET_MEMBERS, statusMatchSql } from "@/lib/ingest";
+import { decodeKeyset, encodeKeyset } from "@/lib/keyset-cursor";
 import {
   groupPredicate,
   statusFilterMembers,
@@ -56,28 +57,22 @@ export interface LoadRunResultsOpts {
 /**
  * Decode an opaque base64 cursor of `${createdAt}:${id}` back into its
  * components. Returns `null` for any malformed input so callers degrade to
- * first-page (matches the legacy route's lenient behaviour).
+ * first-page (matches the legacy route's lenient behaviour). Wire codec is
+ * the shared `keyset-cursor` one; numeric coercion + non-empty id stay here.
  */
 export function decodeCursor(
   raw: string | null,
 ): { createdAt: number; id: string } | null {
-  if (!raw) return null;
-  let decoded: string;
-  try {
-    decoded = atob(raw);
-  } catch {
-    return null;
-  }
-  const sep = decoded.indexOf(":");
-  if (sep <= 0) return null;
-  const createdAt = Number(decoded.slice(0, sep));
-  const id = decoded.slice(sep + 1);
+  const segments = decodeKeyset(raw, 2);
+  if (!segments) return null;
+  const createdAt = Number(segments[0]);
+  const id = segments[1] ?? "";
   if (!Number.isFinite(createdAt) || id.length === 0) return null;
   return { createdAt, id };
 }
 
 export function encodeCursor(createdAt: number, id: string): string {
-  return btoa(`${createdAt}:${id}`);
+  return encodeKeyset([String(createdAt), id]);
 }
 
 /**
@@ -92,24 +87,17 @@ export function encodeRankedCursor(
   createdAt: number,
   id: string,
 ): string {
-  return btoa(`${rank}:${createdAt}:${id}`);
+  return encodeKeyset([String(rank), String(createdAt), id]);
 }
 
 export function decodeRankedCursor(
   raw: string | null,
 ): { rank: number; createdAt: number; id: string } | null {
-  if (!raw) return null;
-  let decoded: string;
-  try {
-    decoded = atob(raw);
-  } catch {
-    return null;
-  }
-  const parts = decoded.split(":");
-  if (parts.length < 3) return null;
-  const rank = Number(parts[0]);
-  const createdAt = Number(parts[1]);
-  const id = parts.slice(2).join(":");
+  const segments = decodeKeyset(raw, 3);
+  if (!segments) return null;
+  const rank = Number(segments[0]);
+  const createdAt = Number(segments[1]);
+  const id = segments[2] ?? "";
   if (
     !Number.isFinite(rank) ||
     !Number.isFinite(createdAt) ||

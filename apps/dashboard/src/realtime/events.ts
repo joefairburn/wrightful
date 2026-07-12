@@ -161,10 +161,17 @@ export type ProjectFeedEvent =
   | {
       type: "monitor-result";
       monitorId: string;
-      /** The monitor's new denormalized last result (mirrors `recordExecutionResult`). */
-      lastStatus: string;
-      /** Epoch seconds of this settle — the monitor's new `lastRunAt`. */
-      lastRunAt: number;
+      /**
+       * The monitor's denormalized badge after this settle, from the same
+       * `monitorBadgeUpdate` projection (`@/lib/monitors/executor`) that
+       * `recordExecutionResult` persists, so broadcast and database agree. A
+       * real outcome carries the new state; a retryable infra error re-asserts
+       * the prior badge (`null` if the monitor never recorded a real result).
+       */
+      lastStatus: string | null;
+      /** Epoch seconds of `lastRunAt` after this settle (prior value, possibly
+       * `null`, on an infra error; see `lastStatus`). */
+      lastRunAt: number | null;
       execution: MonitorExecutionRow;
     };
 
@@ -220,8 +227,10 @@ export const projectRoomServerSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("monitor-result"),
     monitorId: z.string(),
-    lastStatus: z.string(),
-    lastRunAt: z.number(),
+    // Nullable: an infra-error settle re-asserts the prior badge, which is null
+    // for a monitor that has never recorded a real result (see the wire type).
+    lastStatus: z.string().nullable(),
+    lastRunAt: z.number().nullable(),
     execution: z.custom<MonitorExecutionRow>(
       (v) => isRecord(v) && typeof v.id === "string",
     ),

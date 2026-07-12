@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Download, ExternalLink, PlayCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { fetch } from "void/client";
@@ -272,55 +273,34 @@ export function ReplayModalHost({
   runId: string;
 }): React.ReactElement {
   const [replay, setReplay] = useSearchParam(REPLAY_PARAM, "");
-  const [resolved, setResolved] = useState<{
-    testResultId: string;
-    viewerUrl: string;
-    downloadHref: string;
-    title: string;
-    attempts: TestReplayAttempt[];
-  } | null>(null);
 
+  const query = useQuery({
+    queryKey: ["test-replay", teamSlug, projectSlug, runId, replay],
+    queryFn: ({ signal }) =>
+      // Typed client: returns `TestReplayResponse`, so a contract change would
+      // break this at compile time.
+      fetch(
+        "/api/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId/replay",
+        {
+          params: { teamSlug, projectSlug, runId, testResultId: replay },
+          signal,
+        },
+      ),
+    enabled: replay !== "",
+    // A trace for a given testResultId is immutable — never refetch on remount.
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+  // No trace / transient failure — drop the param so the URL doesn't advertise
+  // a modal that can't open. This is a navigation side effect, so it can't run
+  // during render.
   useEffect(() => {
-    if (!replay) {
-      setResolved(null);
-      return;
-    }
-    if (resolved?.testResultId === replay) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        // Typed client: returns `TestReplayResponse`, so a contract change would
-        // break this at compile time.
-        const body = await fetch(
-          "/api/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId/replay",
-          { params: { teamSlug, projectSlug, runId, testResultId: replay } },
-        );
-        if (!cancelled) {
-          setResolved({
-            testResultId: replay,
-            viewerUrl: body.traceViewerUrl,
-            downloadHref: body.downloadHref,
-            title: body.title,
-            attempts: body.attempts.map((a) => ({
-              attempt: a.attempt,
-              viewerUrl: a.traceViewerUrl,
-              downloadHref: a.downloadHref,
-            })),
-          });
-        }
-      } catch {
-        // No trace / transient failure — drop the param so the URL doesn't
-        // advertise a modal that can't open.
-        if (!cancelled) setReplay("");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [replay, resolved?.testResultId, teamSlug, projectSlug, runId, setReplay]);
+    if (query.isError) setReplay("");
+  }, [query.isError, setReplay]);
 
   const close = (): void => setReplay("");
-  const open = Boolean(replay) && resolved?.testResultId === replay;
+  const resolved = query.data;
+  const open = Boolean(replay) && resolved !== undefined;
 
   return (
     <Dialog
@@ -329,12 +309,16 @@ export function ReplayModalHost({
         if (!next) close();
       }}
     >
-      {resolved && resolved.testResultId === replay ? (
+      {resolved ? (
         <TestReplayContent
-          viewerUrl={resolved.viewerUrl}
+          viewerUrl={resolved.traceViewerUrl}
           downloadHref={resolved.downloadHref}
           title={resolved.title}
-          attempts={resolved.attempts}
+          attempts={resolved.attempts.map((a) => ({
+            attempt: a.attempt,
+            viewerUrl: a.traceViewerUrl,
+            downloadHref: a.downloadHref,
+          }))}
           open={open}
           onClose={close}
         />

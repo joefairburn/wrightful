@@ -32,8 +32,12 @@ export function SidebarUserMenu({ name, email, image }: SidebarUserMenuProps) {
       >
         <UserAvatar name={name} image={image} size={22} />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-13 font-medium text-fg-1">{name}</span>
-          <span className="truncate font-mono text-11 text-fg-3">{email}</span>
+          <span className="truncate text-body font-medium text-fg-1">
+            {name}
+          </span>
+          <span className="truncate font-mono text-micro text-fg-3">
+            {email}
+          </span>
         </span>
       </PopoverTrigger>
       <PopoverPopup
@@ -46,7 +50,7 @@ export function SidebarUserMenu({ name, email, image }: SidebarUserMenuProps) {
           <UserAvatar name={name} image={image} size={28} />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{name}</p>
-            <p className="truncate font-mono text-11 text-fg-3">{email}</p>
+            <p className="truncate font-mono text-micro text-fg-3">{email}</p>
           </div>
         </div>
         <div className="my-1 h-px bg-line-1" />

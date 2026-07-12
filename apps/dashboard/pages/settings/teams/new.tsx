@@ -1,7 +1,7 @@
 import { Users } from "lucide-react";
 import { Link } from "@/components/ui/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { Props } from "./new.server";
@@ -15,7 +15,7 @@ export default function SettingsTeamNewPage({ error }: Props) {
   return (
     <div className="mx-auto w-full max-w-xl p-6 sm:p-8">
       <div className="mb-6 border-line-1/50 border-b pb-5">
-        <h1 className="font-semibold text-2xl tracking-tight">Create a team</h1>
+        <h1 className="font-semibold text-title">Create a team</h1>
         <p className="mt-1 text-fg-3 text-sm">
           Teams group projects and teammates together. A URL slug is generated
           from the name.
@@ -43,15 +43,15 @@ export default function SettingsTeamNewPage({ error }: Props) {
               maxLength={60}
               placeholder="e.g. Platform Engineering"
             />
-            <FieldDescription className="font-mono text-11">
+            <FieldDescription className="font-mono text-micro">
               Must contain at least one letter or number.
             </FieldDescription>
           </Field>
           <div className="flex items-center gap-3 pt-1">
-            <Button type="submit">Create team</Button>
+            <SubmitButton>Create team</SubmitButton>
             <Link
               href="/settings/profile"
-              className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
+              className="text-caption font-medium text-fg-3 transition-colors hover:text-fg-1"
             >
               Cancel
             </Link>

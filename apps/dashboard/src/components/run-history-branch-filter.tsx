@@ -92,7 +92,7 @@ export function RunHistoryBranchFilter({
           ) : (
             <button
               aria-label="Filter history by branch"
-              className="inline-flex items-center gap-1 rounded px-1 py-0.5 font-mono text-11 text-fg-3 outline-none transition-colors cursor-pointer hover:bg-muted hover:text-fg-1 focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex items-center gap-1 rounded px-1 py-0.5 font-mono text-micro text-fg-3 outline-none transition-colors cursor-pointer hover:bg-muted hover:text-fg-1 focus-visible:ring-2 focus-visible:ring-ring"
               type="button"
             >
               <GitBranchIcon className="size-3 opacity-80" aria-hidden />

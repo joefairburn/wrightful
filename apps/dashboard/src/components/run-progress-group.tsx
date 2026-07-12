@@ -3,7 +3,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { fetch } from "void/client";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { GroupRowsSkeleton } from "@/components/run-progress-skeletons";
 import { GroupStatusCount, TestRow } from "@/components/run-progress-row";
 import { StatusGlyph } from "@/components/status-glyph";
@@ -28,8 +28,20 @@ const LIVE_STALE_MS = 5_000;
  * per-bucket counts from the server skeleton) plus, when open, its rows —
  * fetched lazily via `useInfiniteQuery` and merged on top of the live `byId`
  * overlay (see {@link mergeGroupRows}). Collapsed groups cost only their header.
+ *
+ * Memoized so a streaming event re-renders only the groups it touches, not all
+ * ~50. Holds because every prop is stable across an unrelated event:
+ *   - `header` — from the parent's `groups`, memoized on the TanStack query
+ *     data, unchanged by a live `byId` event.
+ *   - `liveRows` — this group's slice of `liveByGroup` (`run-progress.tsx`),
+ *     reference-stable for any group the event didn't touch (see that memo).
+ *   - `onToggle` — the parent's `toggle`, an empty-dep `useCallback` (stable
+ *     identity); it takes `id` as an argument rather than being pre-bound per
+ *     group, keeping it one shared reference instead of a fresh closure each.
+ *   - the rest (`groupBy`, `open`, slugs, `runId`, `statusFilter`,
+ *     `debouncedSearch`, `isRunning`) are primitives, compared by value.
  */
-export function TestGroup({
+export const TestGroup = memo(function TestGroup({
   header,
   groupBy,
   open,
@@ -45,7 +57,7 @@ export function TestGroup({
   header: RunGroupHeader;
   groupBy: GroupByAxis;
   open: boolean;
-  onToggle: () => void;
+  onToggle: (id: string) => void;
   teamSlug: string;
   projectSlug: string;
   runId: string;
@@ -111,7 +123,7 @@ export function TestGroup({
         aria-expanded={open}
         className="flex w-full items-center gap-2 px-6 py-2 text-left hover:bg-bg-1"
         data-testid="run-test-group"
-        onClick={onToggle}
+        onClick={() => onToggle(id)}
         type="button"
       >
         {open ? (
@@ -125,19 +137,19 @@ export function TestGroup({
           </span>
         ) : null}
         {groupBy === "file" ? (
-          <span className="min-w-0 truncate font-mono text-13 text-fg-1">
+          <span className="min-w-0 truncate font-mono text-body text-fg-1">
             {label}
           </span>
         ) : (
-          <span className="truncate text-13 font-medium text-fg-1">
+          <span className="truncate text-body font-medium text-fg-1">
             {label}
           </span>
         )}
-        <span className="shrink-0 font-mono text-12 tabular-nums text-fg-3">
+        <span className="shrink-0 font-mono text-caption tabular-nums text-fg-3">
           {header.total}
         </span>
         <div className="flex-1" />
-        <div className="flex shrink-0 items-center gap-2.5 font-mono text-11 tabular-nums">
+        <div className="flex shrink-0 items-center gap-2.5 font-mono text-micro tabular-nums">
           {header.failed > 0 ? (
             <GroupStatusCount n={header.failed} status="failed" />
           ) : null}
@@ -175,4 +187,4 @@ export function TestGroup({
       ) : null}
     </div>
   );
-}
+});

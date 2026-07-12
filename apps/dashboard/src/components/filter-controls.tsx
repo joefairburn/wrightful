@@ -32,7 +32,7 @@ export function TrailingAction({
     return (
       <span
         aria-label="Clear"
-        className="relative z-10 -mr-1 inline-flex size-5 items-center justify-center rounded-sm text-fg-3 hover:bg-bg-3 hover:text-fg-1 [&_svg]:size-3"
+        className="relative z-10 -mr-1 inline-flex size-5 items-center justify-center rounded-sm text-fg-3 hover:bg-bg-3 hover:text-fg-1 pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5 [&_svg]:size-3"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -121,7 +121,7 @@ export function ComboboxFilterPopup({
         <div className="border-b border-line-1">
           <ComboboxPrimitive.Input
             autoFocus
-            className="h-9 w-full bg-transparent px-3 text-sm outline-none placeholder:text-fg-3/72"
+            className="h-9 w-full bg-transparent px-3 text-base outline-none placeholder:text-fg-3/72 sm:text-sm"
             placeholder={searchPlaceholder}
           />
         </div>

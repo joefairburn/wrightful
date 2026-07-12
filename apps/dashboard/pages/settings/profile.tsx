@@ -186,16 +186,16 @@ function ConnectedAccountsCard({
       <div className="flex items-center gap-3 rounded-md border border-line-1 bg-bg-2 px-3 py-2.5">
         <Github className="size-5 shrink-0 text-fg-2" />
         <div className="min-w-0 flex-1">
-          <div className="font-medium text-13">GitHub</div>
+          <div className="font-medium text-body">GitHub</div>
           {githubAccount ? (
-            <div className="font-mono text-12 text-fg-3">
+            <div className="font-mono text-caption text-fg-3">
               {githubAccount.login ? `@${githubAccount.login}` : "connected"}
               {githubAccount.connectedAt
                 ? ` · connected ${formatRelativeTime(githubAccount.connectedAt)}`
                 : ""}
             </div>
           ) : (
-            <div className="text-12 text-fg-3">Not connected.</div>
+            <div className="text-caption text-fg-3">Not connected.</div>
           )}
         </div>
         {githubAccount ? (

@@ -47,7 +47,6 @@ export type RunsFilters = {
    * reporter records the full 40-char one. Null = no commit filter.
    */
   commit: string | null;
-  page: number;
 };
 
 export const EMPTY_FILTERS: RunsFilters = {
@@ -61,7 +60,6 @@ export const EMPTY_FILTERS: RunsFilters = {
   to: null,
   pr: null,
   commit: null,
-  page: 1,
 };
 
 // Each filter value becomes a bound param in an `in (...)` clause downstream;
@@ -83,7 +81,13 @@ function isValidIsoDate(s: string): boolean {
   return isValid(parse(s, "yyyy-MM-dd", new Date()));
 }
 
-function parsePage(raw: string | null): number {
+/**
+ * Canonical `?page=` coercion: missing, non-numeric, or < 1 degrades to page 1.
+ * Exported because it's the one blessed parse for every offset-paginated table
+ * — `paginateOffsetTable` (`src/lib/page-window.ts`) folds it in, so loaders
+ * never hand-roll `parseInt(get("page") ?? "1")`.
+ */
+export function parsePage(raw: string | null): number {
   if (!raw) return 1;
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 1) return 1;
@@ -138,7 +142,6 @@ export function parseRunsFilters(params: URLSearchParams): RunsFilters {
     to: inverted ? fromValid : toValid,
     pr: parsePr(params.get("pr")),
     commit: parseCommit(params.get("commit")),
-    page: parsePage(params.get("page")),
   };
 }
 
@@ -156,7 +159,6 @@ export function toSearchParams(filters: RunsFilters): URLSearchParams {
   if (filters.to) params.set("to", filters.to);
   if (filters.pr !== null) params.set("pr", String(filters.pr));
   if (filters.commit !== null) params.set("commit", filters.commit);
-  if (filters.page > 1) params.set("page", String(filters.page));
   return params;
 }
 

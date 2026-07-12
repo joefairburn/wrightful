@@ -27,7 +27,6 @@ export class MonitorsPage {
   readonly intervalSelect: Locator;
   readonly sourceEditor: Locator;
   readonly urlInput: Locator;
-  readonly enabledSwitch: Locator;
   readonly createButton: Locator;
 
   constructor(page: Page, teamSlug: string, projectSlug: string) {
@@ -43,7 +42,6 @@ export class MonitorsPage {
       name: /playwright source/i,
     });
     this.urlInput = page.locator('input[name="url"]');
-    this.enabledSwitch = page.getByRole("switch");
     this.createButton = page.getByRole("button", { name: /create monitor/i });
   }
 

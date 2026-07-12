@@ -17,7 +17,7 @@ interface ActorAvatarProps {
  * from the string (`avatarHue`) so the same actor renders with the same
  * color across runs. When `imageUrl` is given, the profile picture is shown
  * over the tile (which stays as the fallback for load errors / no-JS), via
- * the Base UI `Avatar` primitive.
+ * the shared `Avatar` component.
  */
 export function ActorAvatar({ actor, size = 16, imageUrl }: ActorAvatarProps) {
   const initial = actor.charAt(0).toUpperCase();
@@ -29,12 +29,23 @@ export function ActorAvatar({ actor, size = 16, imageUrl }: ActorAvatarProps) {
       title={actor}
     >
       {imageUrl ? (
-        <AvatarImage referrerPolicy="no-referrer" src={imageUrl} />
+        // `loading="lazy"` matches UserAvatar: the SSR <img> means visible
+        // avatars still fetch on first paint, while actor avatars far down a
+        // long run/test list defer until scrolled near — one consistent rule.
+        <AvatarImage
+          height={size}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          src={imageUrl}
+          width={size}
+        />
       ) : null}
       <AvatarFallback
         className="font-semibold text-white"
         style={{
-          background: `oklch(0.55 0.10 ${hue})`,
+          // C 0.09 is the sRGB max chroma at L 0.55 for the worst-case hue
+          // (~200, cyan) — higher values clip there, making some hues duller.
+          background: `oklch(0.55 0.09 ${hue})`,
           fontSize: Math.max(8, Math.round(size * 0.55)),
         }}
       >

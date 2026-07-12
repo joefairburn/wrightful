@@ -4,6 +4,7 @@ import { ChevronDown, X } from "lucide-react";
 import { Link } from "@/components/ui/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -67,7 +68,7 @@ export function TcpMonitorForm({
       <input name="type" type="hidden" value="tcp" />
 
       {limitReached && (
-        <div className="flex items-center gap-2.5 rounded-lg border border-fail/30 bg-fail-soft px-3.5 py-2.5 text-13">
+        <div className="flex items-center gap-2.5 rounded-lg border border-fail/30 bg-fail-soft px-3.5 py-2.5 text-body">
           <X className="size-3.5 shrink-0 text-fail" />
           <span className="text-fg-1">Monitor limit reached.</span>
           <span className="text-fg-3">Delete one or upgrade to add more.</span>
@@ -75,7 +76,7 @@ export function TcpMonitorForm({
       )}
 
       {error && (
-        <div className="flex items-center gap-2.5 rounded-lg border border-fail/30 bg-fail-soft px-3.5 py-2.5 text-13">
+        <div className="flex items-center gap-2.5 rounded-lg border border-fail/30 bg-fail-soft px-3.5 py-2.5 text-body">
           <X className="size-3.5 shrink-0 text-fail" />
           <span className="text-fg-1">{error}</span>
         </div>
@@ -144,7 +145,7 @@ export function TcpMonitorForm({
           />
         </div>
       </div>
-      <p className="-mt-2.5 text-12 text-fg-3">
+      <p className="-mt-2.5 text-caption text-fg-3">
         A TCP connection is opened on a schedule — the check passes when the
         port accepts the connection. Private, loopback, and link-local hosts
         can&apos;t be monitored. (Workers can&apos;t send ICMP, so this is also
@@ -166,7 +167,7 @@ export function TcpMonitorForm({
             nativeInput
             type="number"
           />
-          <p className="mt-1.5 text-12 text-fg-3">
+          <p className="mt-1.5 text-caption text-fg-3">
             Not connected within this is a{" "}
             <span className="text-fail">Fail</span>.
           </p>
@@ -181,10 +182,10 @@ export function TcpMonitorForm({
           <Switch checked={enabled} onCheckedChange={setEnabled} />
           {enabled && <input name="enabled" type="hidden" value="on" />}
           <span>
-            <span className="block text-13 font-medium text-fg-1">
+            <span className="block text-body font-medium text-fg-1">
               {enabled ? "Enabled" : "Paused"}
             </span>
-            <span className="block text-12 text-fg-3">
+            <span className="block text-caption text-fg-3">
               {enabled
                 ? "Runs on schedule as soon as it’s saved."
                 : "Saved but won’t run until resumed."}
@@ -204,9 +205,9 @@ export function TcpMonitorForm({
               Cancel
             </Button>
           )}
-          <Button disabled={limitReached} size="sm" type="submit">
+          <SubmitButton disabled={limitReached} size="sm">
             {submitLabel}
-          </Button>
+          </SubmitButton>
         </div>
       </div>
     </form>

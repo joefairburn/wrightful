@@ -21,12 +21,23 @@ export interface TablePaginationFooterProps {
   /** Singular noun used in the summary, e.g. `"test"` → "tests". */
   itemNoun: string;
   /**
-   * Pagination wiring — omit all three for unpaginated lists (monitors
-   * roster, flaky tests): the footer then renders only the "Showing …" line.
+   * Numbered-page wiring — omit all three for unpaginated lists (the footer
+   * then renders only the "Showing …" line). Mutually exclusive with
+   * `prevHref`/`nextHref` (a table is either offset- or keyset-paginated, never
+   * both). `currentPage`/`totalPages` without `pageHref` are the cursor mode's
+   * "Page X of Y" label (keyset knows where you are but can't link to an
+   * arbitrary page).
    */
   currentPage?: number;
   totalPages?: number;
   pageHref?: (page: number) => string;
+  /**
+   * Keyset/cursor pagination — a prev/next strip with no numbered links; pass
+   * `currentPage`/`totalPages` for the "Page X of Y" label. `null` disables that
+   * direction (greyed out); omit both to skip the nav strip.
+   */
+  prevHref?: string | null;
+  nextHref?: string | null;
   /** Override the wrapper class, e.g. for in-card embedding. */
   className?: string;
 }
@@ -47,14 +58,19 @@ export function TablePaginationFooter({
   totalPages,
   itemNoun,
   pageHref,
+  prevHref,
+  nextHref,
   className,
 }: TablePaginationFooterProps): React.ReactElement {
   const plural = totalCount === 1 ? itemNoun : `${itemNoun}s`;
-  const paginated =
+  const numberedPaginated =
     pageHref != null &&
     currentPage != null &&
     totalPages != null &&
     totalPages > 1;
+  const cursorPaginated =
+    (prevHref !== undefined || nextHref !== undefined) &&
+    (prevHref != null || nextHref != null);
 
   return (
     <div
@@ -68,14 +84,57 @@ export function TablePaginationFooter({
           ? `No ${plural}`
           : `Showing ${fromRow}–${toRow} of ${totalCount.toLocaleString()} ${plural}`}
       </span>
-      {paginated && (
+      {numberedPaginated && (
         <PaginationStrip
           currentPage={currentPage}
           pageHref={pageHref}
           totalPages={totalPages}
         />
       )}
+      {cursorPaginated && (
+        <div className="flex items-center gap-3">
+          {currentPage != null && totalPages != null && totalPages > 1 && (
+            <span>
+              Page {currentPage.toLocaleString()} of{" "}
+              {totalPages.toLocaleString()}
+            </span>
+          )}
+          <CursorPaginationStrip nextHref={nextHref} prevHref={prevHref} />
+        </div>
+      )}
     </div>
+  );
+}
+
+/** The prev/next-only strip for keyset-paginated tables (no numbered pages). */
+function CursorPaginationStrip({
+  prevHref,
+  nextHref,
+}: {
+  prevHref?: string | null;
+  nextHref?: string | null;
+}): React.ReactElement {
+  return (
+    <Pagination className="mx-0 w-auto justify-end">
+      <PaginationContent>
+        <PaginationItem>
+          <PaginationPrevious
+            href={prevHref ?? undefined}
+            render={prevHref ? <Link href={prevHref} /> : undefined}
+            aria-disabled={!prevHref}
+            className={cn(!prevHref && "pointer-events-none opacity-50")}
+          />
+        </PaginationItem>
+        <PaginationItem>
+          <PaginationNext
+            href={nextHref ?? undefined}
+            render={nextHref ? <Link href={nextHref} /> : undefined}
+            aria-disabled={!nextHref}
+            className={cn(!nextHref && "pointer-events-none opacity-50")}
+          />
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
   );
 }
 

@@ -69,16 +69,11 @@ export class ApiKeysPage {
   }
 
   rowFor(label: string): Locator {
-    // The keys list is not a table: each key is a <div> row containing
-    // the label, prefix, a status badge with exact text "active"/
-    // "revoked", and (while active) a Revoke button. Anchor on the row
-    // <div> that holds both the label and the status badge so the inner
-    // label-only <div> can't match.
-    return this.page
-      .locator("div")
-      .filter({ hasText: label })
-      .filter({ has: this.page.getByText(/^(active|revoked)$/i) })
-      .last();
+    // Not a table: each key is a <div data-testid="key-row"> with a label,
+    // prefix, active/revoked badge, and (while active) a Revoke button. The
+    // test id matches only the row container, so anchor there and narrow by
+    // label — no `.last()` hack against the inner label-only <div> needed.
+    return this.page.getByTestId("key-row").filter({ hasText: label });
   }
 
   async revoke(label: string): Promise<void> {

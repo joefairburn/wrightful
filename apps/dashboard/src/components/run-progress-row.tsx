@@ -1,5 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import { Link } from "@void/react";
+import { memo } from "react";
 import { StatusGlyph } from "@/components/status-glyph";
 import { ReplayRowButton } from "@/components/trace-viewer-dialog";
 import { cn } from "@/lib/cn";
@@ -36,8 +37,16 @@ export function GroupStatusCount({
   );
 }
 
-/** One test row within an expanded group: status glyph, title, meta, duration. */
-export function TestRow({
+/**
+ * One test row within an expanded group: status glyph, title, meta, duration.
+ *
+ * Memoized: the reducer (`applyRunProgressEvent`) makes a new `test` reference
+ * only when that test changes, so an unaffected row keeps its `test` identity
+ * even when its group's `rows` array is rebuilt (`mergeGroupRows` reuses the
+ * individual row objects). The remaining props are primitives, and there are no
+ * callback props to hoist.
+ */
+export const TestRow = memo(function TestRow({
   test,
   groupBy,
   teamSlug,
@@ -94,10 +103,10 @@ export function TestRow({
           <StatusGlyph size={12} status={test.status} />
         </span>
         <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
-          <span className="min-w-0 truncate text-13">{displayTitle}</span>
+          <span className="min-w-0 truncate text-body">{displayTitle}</span>
           {test.retryCount > 0 ? (
             <span
-              className="shrink-0 font-mono text-11"
+              className="shrink-0 font-mono text-micro"
               style={{ color: statusToken("flaky") }}
             >
               ×{test.retryCount + 1}
@@ -107,7 +116,7 @@ export function TestRow({
         {meta ? (
           <span
             className={cn(
-              "inline-flex max-w-[128px] shrink-0 items-center rounded-[4px] bg-bg-2 px-1.5 py-px font-mono text-11 leading-[16px] text-fg-3",
+              "inline-flex max-w-[128px] shrink-0 items-center rounded-[4px] bg-bg-2 px-1.5 py-px font-mono text-micro leading-[16px] text-fg-3",
               groupBy === "file" && "capitalize",
             )}
             title={meta}
@@ -115,7 +124,7 @@ export function TestRow({
             <span className="truncate">{meta}</span>
           </span>
         ) : null}
-        <span className="w-[70px] shrink-0 px-2 text-right font-mono text-12 tabular-nums text-fg-3">
+        <span className="w-[70px] shrink-0 px-2 text-right font-mono text-caption tabular-nums text-fg-3">
           {formatDuration(test.durationMs)}
         </span>
       </Link>
@@ -133,4 +142,4 @@ export function TestRow({
       </span>
     </div>
   );
-}
+});

@@ -19,13 +19,11 @@ export default function InvitePage(props: Props) {
   if (props.kind === "invalid") {
     return (
       <InviteShell>
-        <h1 className="font-semibold text-2xl tracking-tight">
-          Invite not valid
-        </h1>
+        <h1 className="font-semibold text-title">Invite not valid</h1>
         <p className="text-fg-3 text-sm">{props.message}</p>
         <Link
           href="/"
-          className="mt-2 inline-flex text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
+          className="mt-2 inline-flex text-caption font-medium text-fg-3 transition-colors hover:text-fg-1"
         >
           Go home
         </Link>
@@ -36,13 +34,13 @@ export default function InvitePage(props: Props) {
   if (props.kind === "directed_mismatch") {
     return (
       <InviteShell>
-        <h1 className="font-semibold text-2xl tracking-tight">
+        <h1 className="font-semibold text-title">
           Invite not for this account
         </h1>
         <p className="text-fg-3 text-sm">{props.message}</p>
         <Link
           href="/"
-          className="mt-2 inline-flex text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
+          className="mt-2 inline-flex text-caption font-medium text-fg-3 transition-colors hover:text-fg-1"
         >
           Go home
         </Link>
@@ -60,7 +58,7 @@ export default function InvitePage(props: Props) {
             className="text-success-foreground"
           />
         </div>
-        <h1 className="font-semibold text-2xl tracking-tight">
+        <h1 className="font-semibold text-title">
           You&apos;re already on this team
         </h1>
         <p className="text-fg-3 text-sm">
@@ -82,7 +80,7 @@ export default function InvitePage(props: Props) {
       <div className="flex size-10 items-center justify-center rounded-full border border-line-1/50 bg-muted">
         <Users size={18} strokeWidth={2} className="text-fg-3" />
       </div>
-      <h1 className="font-semibold text-2xl tracking-tight">
+      <h1 className="font-semibold text-title text-balance">
         Join {invite.teamName}
       </h1>
       <p className="text-fg-3 text-sm">
@@ -102,7 +100,7 @@ export default function InvitePage(props: Props) {
         <Button type="submit">Accept invite</Button>
         <Link
           href="/"
-          className="text-12 font-medium text-fg-3 transition-colors hover:text-fg-1"
+          className="text-caption font-medium text-fg-3 transition-colors hover:text-fg-1"
         >
           Not now
         </Link>

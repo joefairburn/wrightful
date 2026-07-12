@@ -14,6 +14,8 @@
  * dashboard tightens without the reporter tracking it would otherwise surface
  * only as a production 400/413).
  */
+import { StringDecoder } from "node:string_decoder";
+
 export const MAX_TITLE = 2048;
 export const MAX_MESSAGE = 65_536;
 export const MAX_STACK = 131_072;
@@ -51,19 +53,27 @@ export function truncateNullable(
  * `null` rather than `""` — the dashboard column is nullable and the two
  * surfaces (reporter + Zod schema) agree on "no output === null".
  *
- * `Buffer` chunks are decoded as UTF-8 (`toString("utf8")`); already-string
- * chunks pass through untouched. Chunks are concatenated in emission order with
- * no separator — Playwright's chunks already carry their own newlines.
+ * `Buffer` chunks are decoded via one `StringDecoder("utf8")` shared across the
+ * array: Playwright can split a UTF-8 codepoint across two chunks at any byte
+ * boundary, and per-chunk `toString("utf8")` would mangle the split into
+ * replacement chars — the decoder carries incomplete trailing bytes to the next
+ * chunk. Already-string chunks pass through. Chunks join in emission order with
+ * no separator (Playwright's chunks carry their own newlines). Accumulation
+ * stops once output reaches `max` so a runaway `console.log` can't balloon the
+ * heap before truncation.
  */
 export function joinStdio(
   chunks: ReadonlyArray<string | Buffer> | undefined | null,
   max: number,
 ): string | null {
   if (chunks == null || chunks.length === 0) return null;
+  const decoder = new StringDecoder("utf8");
   let out = "";
   for (const chunk of chunks) {
-    out += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    out += typeof chunk === "string" ? chunk : decoder.write(chunk);
+    if (out.length >= max) break;
   }
+  out += decoder.end();
   if (out.length === 0) return null;
   return truncate(out, max);
 }

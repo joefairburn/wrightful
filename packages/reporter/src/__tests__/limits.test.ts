@@ -24,6 +24,26 @@ describe("joinStdio", () => {
     );
   });
 
+  it("decodes a multi-byte UTF-8 codepoint split across two Buffer chunks", () => {
+    // "é" is 0xC3 0xA9 in UTF-8; split between the bytes so neither chunk holds
+    // a complete codepoint — per-chunk `toString("utf8")` would yield mojibake.
+    const full = Buffer.from("héllo", "utf8");
+    const first = full.subarray(0, 2);
+    const second = full.subarray(2);
+    const out = joinStdio([first, second], MAX_MESSAGE);
+    expect(out).toBe("héllo");
+    expect(out).not.toContain("�");
+  });
+
+  it("joins a mixed string + split-Buffer array carrying decoder state across chunks", () => {
+    const full = Buffer.from("héllo", "utf8");
+    const out = joinStdio(
+      ["pre:", full.subarray(0, 2), full.subarray(2), ":post"],
+      MAX_MESSAGE,
+    );
+    expect(out).toBe("pre:héllo:post");
+  });
+
   it("returns null for a missing, empty, or all-empty-string array", () => {
     expect(joinStdio(undefined, MAX_MESSAGE)).toBeNull();
     expect(joinStdio(null, MAX_MESSAGE)).toBeNull();

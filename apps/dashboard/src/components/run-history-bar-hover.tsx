@@ -168,7 +168,7 @@ function RunHistoryBarSummary(target: HoverTarget): React.ReactElement {
           <p>Couldn't load summary.</p>
           <button
             type="button"
-            className="mt-1 font-mono text-11 underline hover:text-fg-1"
+            className="mt-1 font-mono text-micro underline underline-offset-2 hover:text-fg-1"
             onClick={() => void refetch()}
           >
             Retry
@@ -213,12 +213,12 @@ function SkelLine({ w, text }: { w: string; text?: string }) {
   );
 }
 
-/** Shimmer sized like a `StatusPill` (sm): `text-11` + `px-1.5 py-0.5`. */
+/** Shimmer sized like a `StatusPill` (sm): `text-micro` + `px-1.5 py-0.5`. */
 function SkelPill({ w }: { w: string }) {
   return (
     <div
       className={cn(
-        "animate-pulse rounded-sm bg-fg-4/20 px-1.5 py-0.5 text-11",
+        "animate-pulse rounded-sm bg-fg-4/20 px-1.5 py-0.5 text-micro",
         w,
       )}
     >
@@ -233,14 +233,14 @@ function RunSummarySkeleton() {
     <>
       <div className="flex items-center gap-2">
         <SkelPill w="w-16" />
-        <SkelLine text="text-11" w="w-20" />
+        <SkelLine text="text-micro" w="w-20" />
       </div>
       <div>
         <SkelLine text="text-sm leading-snug" w="w-3/4" />
-        <SkelLine text="mt-1 text-11" w="w-1/2" />
+        <SkelLine text="mt-1 text-micro" w="w-1/2" />
       </div>
       <div className="border-t border-line-1 pt-2">
-        <SkelLine text="text-11" w="w-2/3" />
+        <SkelLine text="text-micro" w="w-2/3" />
       </div>
     </>
   );
@@ -255,12 +255,12 @@ function TestResultSummarySkeleton() {
       </div>
       <div>
         <SkelLine text="text-sm leading-snug" w="w-3/4" />
-        <SkelLine text="mt-1 text-11" w="w-2/3" />
-        <SkelLine text="mt-1 text-11" w="w-1/2" />
+        <SkelLine text="mt-1 text-micro" w="w-2/3" />
+        <SkelLine text="mt-1 text-micro" w="w-1/2" />
       </div>
       <div className="flex flex-col gap-1 border-t border-line-1 pt-2">
-        <SkelLine text="text-11" w="w-3/4" />
-        <SkelLine text="text-11" w="w-1/2" />
+        <SkelLine text="text-micro" w="w-3/4" />
+        <SkelLine text="text-micro" w="w-1/2" />
       </div>
     </>
   );
@@ -275,7 +275,7 @@ function RunSummaryBody({ summary }: { summary: RunSummaryResponse }) {
     <>
       <div className="flex items-center gap-2">
         <StatusChip status={summary.status} label={`#${shortId}`} />
-        <div className="flex items-center gap-2 font-mono text-11 text-fg-3">
+        <div className="flex items-center gap-2 font-mono text-micro text-fg-3">
           <span className="inline-flex items-center gap-0.5 text-success">
             <Check size={10} strokeWidth={3} />
             {summary.passed}
@@ -316,7 +316,7 @@ function TestResultSummaryBody({
       <div className="flex items-center gap-2">
         <StatusChip status={summary.status} label={`#${runShortId}`} />
         {summary.retryCount > 0 && (
-          <span className="inline-flex items-center gap-0.5 font-mono text-11 text-warning">
+          <span className="inline-flex items-center gap-0.5 font-mono text-micro text-warning">
             <Repeat size={10} strokeWidth={2.5} />
             {summary.retryCount}
           </span>
@@ -326,11 +326,11 @@ function TestResultSummaryBody({
         <div className="truncate text-sm font-medium leading-snug">
           {summary.title}
         </div>
-        <div className="mt-1 font-mono text-11 text-fg-3 truncate">
+        <div className="mt-1 font-mono text-micro text-fg-3 truncate">
           {summary.projectName ? `${summary.projectName} · ` : ""}
           {summary.file}
         </div>
-        <div className="mt-1 font-mono text-11 text-fg-3">
+        <div className="mt-1 font-mono text-micro text-fg-3">
           {formatDuration(summary.durationMs)} (
           {formatRelativeTime(summary.createdAt)})
         </div>
@@ -338,11 +338,11 @@ function TestResultSummaryBody({
       {(summary.commitSha || commitTitle) && (
         <div className="flex flex-col gap-1 border-t border-line-1 pt-2">
           {commitTitle && (
-            <div className="line-clamp-1 font-mono text-11 text-fg-3">
+            <div className="line-clamp-1 font-mono text-micro text-fg-3">
               {commitTitle}
             </div>
           )}
-          <div className="flex items-center gap-1.5 font-mono text-11 text-fg-3">
+          <div className="flex items-center gap-1.5 font-mono text-micro text-fg-3">
             {summary.commitSha && (
               <>
                 <GitCommit size={11} />
@@ -383,7 +383,7 @@ function TitleAndMeta({
   return (
     <div>
       <div className="truncate text-sm font-medium leading-snug">{title}</div>
-      <div className="mt-1 flex items-center gap-2 font-mono text-11 text-fg-3">
+      <div className="mt-1 flex items-center gap-2 font-mono text-micro text-fg-3">
         {actor && (
           <span className="inline-flex items-center gap-1">
             <User size={10} />
@@ -408,7 +408,7 @@ function CommitFooter({
 }) {
   if (!commitSha) return null;
   return (
-    <div className="flex items-center gap-1.5 border-t border-line-1 pt-2 font-mono text-11 text-fg-3">
+    <div className="flex items-center gap-1.5 border-t border-line-1 pt-2 font-mono text-micro text-fg-3">
       <GitCommit size={11} />
       <span>{commitSha.slice(0, 7)}</span>
       {branch && (

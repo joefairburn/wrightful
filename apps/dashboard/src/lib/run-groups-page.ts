@@ -2,6 +2,7 @@ import { and, asc, db, desc, eq, isNull, or, sql } from "void/db";
 import { runs, testResults } from "@schema";
 import type { GroupByAxis, StatusFilterValue } from "@/lib/group-tests-by-file";
 import { STATUS_BUCKET_MEMBERS, statusMatchSql } from "@/lib/ingest";
+import { decodeKeyset, encodeKeyset } from "@/lib/keyset-cursor";
 import { numericSql } from "@/lib/db/sql-ops";
 import { escapeLike, likeEscaped } from "@/lib/runs-filters-where";
 import { childByRunWhere, runByIdWhere, type TenantScope } from "@/lib/scope";
@@ -74,31 +75,25 @@ function groupSeverity(failed: number, flaky: number): number {
 
 /**
  * Opaque base64 cursor for group pagination: the last group's
- * `${severity}:${key}` under the `(severity DESC, key ASC)` ordering. Mirrors
- * the row cursor's codec in `run-results-page`. `null`/malformed → first page.
+ * `${severity}:${key}` under the `(severity DESC, key ASC)` ordering. Shares
+ * the row cursor's wire codec (`keyset-cursor`); a `null` key encodes as the
+ * empty string (the NULL fallback group). `null`/malformed → first page.
  */
 export function encodeGroupCursor(
   severity: number,
   key: string | null,
 ): string {
-  return btoa(`${severity}:${key ?? ""}`);
+  return encodeKeyset([String(severity), key ?? ""]);
 }
 
 function decodeGroupCursor(
   raw: string | null,
 ): { severity: number; key: string } | null {
-  if (!raw) return null;
-  let decoded: string;
-  try {
-    decoded = atob(raw);
-  } catch {
-    return null;
-  }
-  const sep = decoded.indexOf(":");
-  if (sep < 0) return null;
-  const severity = Number(decoded.slice(0, sep));
+  const segments = decodeKeyset(raw, 2);
+  if (!segments) return null;
+  const severity = Number(segments[0]);
   if (!Number.isFinite(severity)) return null;
-  return { severity, key: decoded.slice(sep + 1) };
+  return { severity, key: segments[1] ?? "" };
 }
 
 /** One group's header: the raw axis value + its 4-bucket counts, worst-first. */
@@ -268,15 +263,38 @@ export async function loadRunGroupSkeleton(
     STATUS_BUCKET_MEMBERS.flaky,
   )}) * ${sql.raw(String(SEVERITY_FLAKY_WEIGHT))}`;
 
-  // Keyset pagination on `(severity DESC, key ASC)` via HAVING (the cursor
-  // references the aggregate, which WHERE can't). The key tiebreak casts to
-  // text so it stays type-safe on the integer `shardIndex` axis — only the
-  // text `file` axis realistically paginates, and its native order == text
-  // order, so the cursor matches the ORDER BY.
+  // Keyset pagination on `(severity DESC, key ASC NULLS LAST)` via HAVING (the
+  // cursor references the aggregate, which WHERE can't). The key tiebreak must
+  // match the ORDER BY's native type comparison and NULLS-LAST placement, so
+  // it's built per axis rather than a blanket `::text` cast: on the integer
+  // `shard` axis a text cast diverges from numeric order (e.g. "10" < "9" as
+  // text, dropping shard 10 right after a cursor at shard 9), and a plain `>`
+  // comparison never matches the NULL fallback group (`NULL > x` is NULL).
   const cursor = decodeGroupCursor(opts.cursor);
-  const having = cursor
-    ? sql`(${severity}) < ${cursor.severity} or ((${severity}) = ${cursor.severity} and ${axisCol}::text > ${cursor.key})`
-    : undefined;
+  const axisIsNumeric = opts.groupBy === "shard";
+  let having: SqlFragment | undefined;
+  if (cursor) {
+    if (cursor.key === "") {
+      // Cursor sits on the NULL fallback group, which under `asc(axisCol)`
+      // (NULLS LAST) sorts after every non-null key in its tier — nothing else
+      // remains in that tier, so only lower-severity tiers continue.
+      having = sql`(${severity}) < ${cursor.severity}`;
+    } else {
+      const numericKey = Number(cursor.key);
+      const keyCompare =
+        axisIsNumeric && Number.isFinite(numericKey)
+          ? sql`${axisCol} > ${numericKey}`
+          : axisIsNumeric
+            ? // Malformed numeric key (shouldn't happen via our encoder) — fail
+              // closed; comparing an integer column to a text bind errors in pg.
+              sql`false`
+            : sql`${axisCol} > ${cursor.key}`;
+      // Continue the tier at the next key (native compare, matching
+      // `ORDER BY asc(axisCol)`) or the NULL fallback group, which sorts after
+      // every non-null key in the tier (NULLS LAST) and must stay visible.
+      having = sql`(${severity}) < ${cursor.severity} or ((${severity}) = ${cursor.severity} and ((${keyCompare}) or (${axisCol} is null)))`;
+    }
+  }
 
   const limit = clampGroupLimit(opts.limit);
   const rows = await db
