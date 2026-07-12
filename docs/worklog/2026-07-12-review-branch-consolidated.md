@@ -1,10 +1,13 @@
-# 2026-07-11–12 — `review` branch consolidated (deepening + hardening + DB review)
+# 2026-07-11–12 — `review` branch consolidated (deepening + hardening + DB review + perf + e2e)
 
-Consolidates five same-branch worklogs into one entry: an architecture
+Consolidates every same-branch worklog into one entry: an architecture
 deepening pass, its code-quality review fixes, a HIGH-severity GitHub-App
-security fix, the pg-integration test split, and a DB security/performance
-review. All landed uncommitted on the `review` branch, sharing one working
-tree; commit strategy was deferred to a human so the strands aren't entangled.
+security fix, the pg-integration test split, a DB security/performance
+review, a frontend/loader performance pass (with the test-detail defer split),
+a Playwright best-practices pass over the e2e suite, and a "you might not need
+an effect" cleanup. All landed uncommitted on the `review` branch, sharing one
+working tree; commit strategy was deferred to a human so the strands aren't
+entangled.
 
 None of the locked ADR decisions (realtime rooms, capability-flagged billing,
 direct-R2 seam, DELETE retention / epoch-seconds) were re-litigated.
@@ -170,6 +173,120 @@ its own `defer()`; the 404 gate rides the eager latest-row point-seek. 8. **Moni
 _Explicitly not changed:_ ingest hot path, cron sweeps, retention drain (reviewed clean); the
 eager runs-list `count(*)` + DISTINCT filter-option scans (still needed for count text +
 dropdowns).
+
+## 6. Performance pass — SSR loaders + React frontend
+
+Implemented every SSR-loader and frontend finding from the 2026-07-12 performance review
+(the DB-query layer is §5; API/ingest findings — reporter flush cadence, `bumpTeamActivity`
+debounce, parallel broadcasts — were deliberately left out of scope).
+
+**Loaders** (each standalone Drizzle chain is a fresh Hyperdrive `pg.Pool` connection under
+the void patch, so round-trip count dominates loader latency): collapse serial awaits of
+independent queries into one `better-all` wave, stop re-querying data the tenant middleware
+already resolved, and stop shipping columns the page never renders.
+
+- `runs/[runId]/index.server.ts` — run row ∥ `loadProjectBranches` (2 serial → 1 wave).
+- `insights/run-duration.server.ts` — the two percentile CTEs run `Promise.all` inside the
+  deferred resolver.
+- `runs/[runId]/diff.server.ts` + `run-diff.ts` — `resolveRunDiffTargets` restructured to two
+  waves; new optional `baseCandidateLimit`/`baseCandidates` + `loadBaseCandidates` keeps
+  base-selection branching in one place (3 serial → 2 waves; JSON API path pays nothing).
+- `…/p/[projectSlug]/keys.server.ts` — keys list ∥ codeowners row.
+- `settings/…/general.server.ts` — project count ∥ retention ∥ GitHub installs; count is now
+  `count(*)` via `numericSql` (int8-as-string trap) instead of fetching every id for `.length`.
+- `t/[teamSlug]/index.server.ts` + `pages/index.server.ts` — team/user-teams read from the
+  middleware `shared` bundle; zero-project teams short-circuit (2 → 0 round trips for empty
+  teams). The `asc(projects.id)` first-project pick stays (bundle has no `id`).
+- `flaky.server.ts` + `flaky-test-row.tsx` — dropped never-rendered `errorStack` from the
+  recent-failures CTE, cut `RECENT_FAILURES` 3 → 1 (150 multi-KB rows → 50 slim).
+- Settings-wide (`middleware/01.context.ts` + `authz.ts` + `settings-scope.ts`) — the bundle
+  query already fetched every membership+role and discarded all but the cookie team; now
+  retained as **server-only** `memberTeams` context var (not on the client `SharedBundle`);
+  `requireRoleScope`/`resolveOwnedTeam` consult it before the `resolveTeamBySlug` fallback
+  (−1 membership query on ~10 settings pages; API/STUB paths hit the unchanged fallback).
+
+**Frontend** — the ws plumbing (shared sockets, reducer bailouts) was already good but nothing
+was memoized and the reducers churned `summary`/group-array identities every event, so a
+streaming run re-rendered the whole Tests tab and all 20 runs-list rows on every broadcast.
+
+- `realtime/run-progress.ts` — `applyRunProgressEvent` reuses `prev.summary` on shallow-equal
+  (typed field-by-field compare — a new wire field is a compile error until compared) and
+  returns `prev` outright for empty-`changedTests` + equal-summary events. New lean
+  `applyRunSummaryEvent` reducer that ignores `changedTests` (no `byId` clone).
+- `realtime/use-run-summary.ts` (new) — summary-only counterpart of `useRunRoom` over the same
+  `useFeedRoom` machinery; the four summary-only leaves switched to it (removes 4× full-map
+  clones per event near the end of a 5k-test run). Only `RunProgress` still folds `byId`.
+- `run-progress.tsx` — `liveByGroup` identity-stable via a per-id-diffed snapshot cache; only
+  touched groups' arrays rebuild. `onToggle` passes a stable `useCallback`d `toggle(id)`.
+- `run-progress-group.tsx` / `run-progress-row.tsx` — `TestGroup`/`TestRow` `React.memo`d
+  (prop-identity documented per file): ~1 group + changed rows re-render, not every group+row.
+- `run-list-row.tsx` — `RunListRow` memoized (20 → 1 per event); hover prefetch disabled on
+  the stretched `RowLink` (sweeping the table had fired up to 20 run-detail loaders every 5 s).
+- `live-duration.tsx` — per-row `setInterval` → one shared module-level 1 s ticker via
+  `useSyncExternalStore`; pauses on hidden tab, torn down when the last running row unsubs.
+
+### 6.1 Test-detail: defer heavy per-attempt fields
+
+The test-result detail page eagerly shipped every attempt's `errorStack` (~128 KiB), `stdout`
+(64 KiB) and `stderr` (64 KiB) — a 3-retry flaky test added several hundred KB of SSR/hydration
+payload, most for attempts the viewer isn't looking at. Split per-attempt reads into eager
+(`attemptSummaries` + `primaryAttempt` error — above-the-fold, no Suspense) and one deferred
+`attemptDetails` (all-attempts heavy fields), consumed via `use()` from both the non-primary
+attempt panels (each behind a `DeferredSection`, mounted on tab click) and the artifacts rail's
+Output section. `loadTestResultChildren` was split into composable helpers
+(`test-result-children.ts`) so the MCP `get_test_result` surface keeps its identical eager
+`{tags, annotations, attempts}` shape. Both page mutations (quarantine/owner) are separate API
+routes + redirect (fresh GET), so the "no deferred props over a mutation response" caveat
+doesn't apply. Worst-case eager payload ~832 KiB → ~192 KiB.
+
+## 7. Playwright best-practices pass over the e2e suite
+
+Ten findings from a `packages/e2e` review against Playwright best practices (resilient
+locators, web-first assertions, fixtures over shared state, no hard sleeps / `networkidle`,
+minimal CLI reporters); all ten applied, **no test semantics changed**.
+
+- `realtime.spec.ts` fixed `waitForTimeout(800)` → `gotoAndAwaitRoom` collects `websocket`
+  events (first connect + a bounded 2 s wait for the dev-mode remount reconnect), no sleep.
+- `login.page.ts` dropped `networkidle` → waits for the `X-VoidPages: true` post-hydration
+  re-nav (matched on pathname, 5 s bounded fallback); `auth.spec.ts` routes its two `?next`
+  settles through `gotoSignIn(query?)` so settle logic lives in one place.
+- `test-replay.spec.ts` XPath parent-hop → `div.group` filtered by `has:` Replay button + link.
+- Styling-class locators (`div.mb-4`, all-divs+`.last()`, `div.sticky.top-0`) → `data-testid`
+  (`group-card`/`key-row`/`run-header`) threaded through `SettingsCard`/`DetailHeaderBar`.
+- `cross-tenant.spec.ts` `beforeAll` + module `let` + per-test guards → worker-scoped
+  `secondTenant` fixture seeding user/team/project/key/run B once per worker.
+- Demo + load configs got the `CI || CLAUDE → line` reporter guard (matters for the 1000-test
+  load config).
+- `groups.spec.ts` deleted success-path-only cleanup (timestamped name + DB reset made it a
+  no-op that could mask failures); the 8-way duplicated runs-list → run-detail preamble → new
+  test-scoped `openSeededRun(branch?)` fixture; `logout.spec.ts` opaque 3-way boolean → named
+  cookie/condition; dead unscoped `getByRole("switch")` removed.
+
+App-source impact is confined to test hooks: two components gained an optional `data-testid`
+pass-through prop, three call sites set one; no behavior change.
+
+## 8. Remove unnecessary `useEffect`s ("You Might Not Need an Effect" pass)
+
+Audited all 26 `useEffect` sites (all in `apps/dashboard`); fixed the seven matching an
+anti-pattern, left every legitimate external-system sync (WS rooms, DOM listeners, timers,
+IntersectionObserver, TanStack invalidation, hydration reads) alone.
+
+- `monitor-edit-dialog.tsx`, `command-menu.tsx`, `reveal-once-dialog.tsx` — prop→state
+  re-sync effects → compare-during-render (`prevOpen`/`open`-transition), server flip visible
+  same frame; reveal-once caches `children` during render while open (was committing a `null`
+  first frame).
+- `app-layout.tsx` — `cmdMounted` latch → render-time one-way latch.
+- `runs-filter-bar.tsx` (`RunsSearchInput`) — `useDebouncedValue` + two `exhaustive-deps`-
+  suppressed effects → debounced `setTimeout` scheduled in `onChange` (reads latest
+  pathname/filters via ref) + a during-render back-sync gated on "not mid-debounce"; both
+  lint suppressions gone.
+- `trace-viewer-dialog.tsx` (`ReplayModalHost`) — hand-rolled fetch-in-effect → TanStack
+  `useQuery` keyed on the replay id, `staleTime: Infinity` (traces immutable → reopen hits
+  cache); the no-trace `setReplay("")` fallback stays a small effect (nav can't run in render).
+- `{login,signup,reset-password,forgot-password}.tsx` — four identical hydration-gate effects
+  → shared `src/lib/hooks/use-hydrated.ts` (`useSyncExternalStore`, flip lands in the hydration
+  commit, no extra re-render). Gate purpose unchanged: submit disabled pre-hydration so a
+  native submit can't GET the page with credentials in the query string.
 
 ---
 
