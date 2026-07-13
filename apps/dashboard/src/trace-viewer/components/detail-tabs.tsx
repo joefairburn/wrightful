@@ -96,7 +96,7 @@ export function DetailTabs({
             >
               {label}
               {count ? (
-                <span className="ml-1 text-11 text-fg-4 tabular-nums">
+                <span className="ml-1 text-micro text-fg-4 tabular-nums">
                   {count}
                 </span>
               ) : null}
@@ -164,7 +164,7 @@ function LogTab({
       {log.map((entry, i) => (
         <div
           key={i}
-          className="col-span-full grid grid-cols-subgrid items-baseline px-3 py-0.5 font-mono text-12"
+          className="col-span-full grid grid-cols-subgrid items-baseline px-3 py-0.5 font-mono text-caption"
         >
           <span className="text-right text-fg-4 tabular-nums">
             {formatTraceOffset(entry.time, startTime, { signed: false })}

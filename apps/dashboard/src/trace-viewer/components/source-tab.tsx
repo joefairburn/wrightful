@@ -116,7 +116,7 @@ export function SourceTab(props: TraceTabProps): React.ReactElement {
           </TabBar>
         ) : (
           <div
-            className="shrink-0 truncate border-b border-line-1 px-3 py-1.5 text-12 text-fg-3"
+            className="shrink-0 truncate border-b border-line-1 px-3 py-1.5 text-caption text-fg-3"
             title={file}
           >
             {basename(file)}
@@ -124,7 +124,7 @@ export function SourceTab(props: TraceTabProps): React.ReactElement {
         )}
         <div className="min-h-0 flex-1 overflow-auto">
           {fetchError ? (
-            <div className="px-3 py-2 text-12 text-fg-4">{fetchError}</div>
+            <div className="px-3 py-2 text-caption text-fg-4">{fetchError}</div>
           ) : content === undefined ? null : (
             <SourceLines
               content={content}
@@ -192,7 +192,7 @@ function FrameList({
           >
             <span
               className={cn(
-                "truncate text-12",
+                "truncate text-caption",
                 available ? "text-fg-3" : "text-fg-4",
               )}
             >
@@ -200,7 +200,7 @@ function FrameList({
             </span>
             <span
               className={cn(
-                "truncate font-mono text-12",
+                "truncate font-mono text-caption",
                 available ? "text-fg-2" : "text-fg-4",
               )}
             >
@@ -315,7 +315,7 @@ function SourceLines({
   }, [targetLine, content]);
 
   return (
-    <pre className="trace-source min-w-max py-1 font-mono text-13 leading-5">
+    <pre className="trace-source min-w-max py-1 font-mono text-body leading-5">
       {lines.map((line, i) => {
         const lineNumber = i + 1;
         const isTarget = lineNumber === targetLine;
@@ -347,7 +347,7 @@ function SourceLines({
               </span>
             </div>
             {errorMessage ? (
-              <div className="ml-11 whitespace-pre-wrap break-words px-3 py-1 text-12 text-fail">
+              <div className="ml-11 whitespace-pre-wrap break-words px-3 py-1 text-caption text-fail">
                 {errorMessage}
               </div>
             ) : null}

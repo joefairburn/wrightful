@@ -237,15 +237,17 @@ function GeneralSection({
     <Section title="General" className={NETWORK_SECTION_CLASSES}>
       <div className="flex flex-col gap-2">
         <GeneralRow label="URL">
-          <span className="break-all font-mono text-12">{request.url}</span>
+          <span className="break-all font-mono text-caption">
+            {request.url}
+          </span>
         </GeneralRow>
         <GeneralRow label="Method">
-          <span className="font-mono text-12">{request.method}</span>
+          <span className="font-mono text-caption">{request.method}</span>
         </GeneralRow>
         <GeneralRow label="Status">
           <span
             className={cn(
-              "font-mono text-12",
+              "font-mono text-caption",
               response.status >= 400 && "text-fail",
             )}
           >
@@ -283,7 +285,7 @@ function TimingSection({ timings }: { timings: Timings }): React.ReactElement {
   return (
     <Section title="Timing" className={NETWORK_SECTION_CLASSES}>
       {phases.length === 0 || total <= 0 ? (
-        <div className="text-12 text-fg-4">No timing data.</div>
+        <div className="text-caption text-fg-4">No timing data.</div>
       ) : (
         <div className="flex flex-col gap-2">
           <div className="flex h-2 w-full overflow-hidden rounded-full bg-bg-2">
@@ -299,7 +301,7 @@ function TimingSection({ timings }: { timings: Timings }): React.ReactElement {
             {phases.map((phase) => (
               <div
                 key={phase.key}
-                className="flex items-center gap-1.5 text-11 text-fg-3"
+                className="flex items-center gap-1.5 text-micro text-fg-3"
               >
                 <span
                   className={cn("size-2 shrink-0 rounded-full", phase.token)}
@@ -320,10 +322,10 @@ function HeaderRows({
   headers: { name: string; value: string }[];
 }): React.ReactElement {
   if (headers.length === 0) {
-    return <div className="text-12 text-fg-4">None</div>;
+    return <div className="text-caption text-fg-4">None</div>;
   }
   return (
-    <div className="flex flex-col gap-0.5 font-mono text-12">
+    <div className="flex flex-col gap-0.5 font-mono text-caption">
       {headers.map((header, i) => (
         <div key={`${header.name}-${i}`} className="break-all">
           <span className="text-fg-3">{header.name}: </span>
@@ -375,7 +377,7 @@ function ResponseBodyPreview({
 
   if (isImage) {
     if (!imageUrl) {
-      return <div className="text-12 text-fg-4">Loading preview…</div>;
+      return <div className="text-caption text-fg-4">Loading preview…</div>;
     }
     return (
       <img
@@ -388,21 +390,23 @@ function ResponseBodyPreview({
 
   if (!canPreviewText) {
     return (
-      <div className="text-12 text-fg-4">
+      <div className="text-caption text-fg-4">
         Preview not available · {formatBytes(content.size)}
       </div>
     );
   }
 
   if (textError) {
-    return <div className="text-12 text-fg-4">Failed to load preview.</div>;
+    return (
+      <div className="text-caption text-fg-4">Failed to load preview.</div>
+    );
   }
   if (text === undefined) {
-    return <div className="text-12 text-fg-4">Loading preview…</div>;
+    return <div className="text-caption text-fg-4">Loading preview…</div>;
   }
 
   return (
-    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-12">
+    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-caption">
       {prettyPrintJson(text, mimeType)}
     </pre>
   );
@@ -429,7 +433,7 @@ function DetailPanel({
     >
       <div className="flex shrink-0 items-center gap-2 border-line-1 border-b px-3 py-2">
         <span
-          className="min-w-0 flex-1 truncate font-mono text-12"
+          className="min-w-0 flex-1 truncate font-mono text-caption"
           title={entry.request.url}
         >
           {entry.request.url}
@@ -455,7 +459,7 @@ function DetailPanel({
           </Section>
           {postData?.text ? (
             <Section title="Request body" className={NETWORK_SECTION_CLASSES}>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-12">
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-caption">
                 {prettyPrintJson(postData.text, postData.mimeType)}
               </pre>
             </Section>

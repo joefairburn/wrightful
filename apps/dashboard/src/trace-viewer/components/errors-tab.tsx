@@ -101,7 +101,7 @@ export function ErrorsTab({
                 ) : null}
                 <CopyPromptButton descriptor={descriptor} />
               </div>
-              <AnsiPre text={descriptor.message} className="text-12" />
+              <AnsiPre text={descriptor.message} className="text-caption" />
             </div>
           );
         })}

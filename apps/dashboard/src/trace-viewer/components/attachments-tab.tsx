@@ -93,12 +93,12 @@ function AttachmentLightbox({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl">
-        <DialogTitle className="min-w-0 truncate border-b border-line-1 py-2.5 pr-12 pl-4 font-medium text-13">
+        <DialogTitle className="min-w-0 truncate border-b border-line-1 py-2.5 pr-12 pl-4 font-medium text-body">
           {attachment.name}
         </DialogTitle>
         <div className="flex min-h-40 items-center justify-center overflow-hidden rounded-b-2xl bg-bg-0">
           {error ? (
-            <span className="text-13 text-fg-3">
+            <span className="text-body text-fg-3">
               Unable to load attachment.
             </span>
           ) : !mediaUrl ? (
@@ -268,10 +268,10 @@ function AttachmentRow({
           />
         ) : null}
         <Paperclip className="size-3.5 shrink-0 text-fg-4" />
-        <span className="min-w-0 flex-1 truncate text-13">
+        <span className="min-w-0 flex-1 truncate text-body">
           {attachment.name}
         </span>
-        <span className="shrink-0 text-fg-4 text-12">
+        <span className="shrink-0 text-fg-4 text-caption">
           {attachment.contentType}
         </span>
         {kind ? (
@@ -302,7 +302,7 @@ function AttachmentRow({
         ) : null}
       </div>
       {expanded ? (
-        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-12">
+        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-caption">
           {text ?? "Loading…"}
         </pre>
       ) : null}

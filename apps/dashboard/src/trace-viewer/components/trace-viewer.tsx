@@ -45,7 +45,7 @@ export function TraceViewer({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
         <Spinner className="size-5 text-fg-3" />
-        <div className="text-13 text-fg-3">Loading trace…</div>
+        <div className="text-body text-fg-3">Loading trace…</div>
         {fraction !== null ? (
           <div
             role="progressbar"

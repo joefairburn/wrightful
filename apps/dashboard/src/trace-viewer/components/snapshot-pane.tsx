@@ -189,7 +189,7 @@ function SnapshotUrlBar({
 }): React.ReactElement {
   return (
     <div className="flex h-6 shrink-0 items-center border-b border-line-1 px-3">
-      <span className="truncate font-mono text-12 text-fg-4" title={url}>
+      <span className="truncate font-mono text-caption text-fg-4" title={url}>
         {url ?? "—"}
       </span>
     </div>

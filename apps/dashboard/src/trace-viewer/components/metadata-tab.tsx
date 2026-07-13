@@ -14,7 +14,7 @@ function MetaField({
   label: string;
   value: React.ReactNode;
 }): React.ReactElement {
-  return <Field label={label} value={value} className="text-13" />;
+  return <Field label={label} value={value} className="text-body" />;
 }
 
 /** Trace/context metadata as a dense two-column definition grid. */

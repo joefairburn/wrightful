@@ -407,7 +407,7 @@ export function Timeline({
               />
             ) : (
               <div
-                className="pointer-events-none absolute top-0 whitespace-nowrap font-mono text-11 text-fg-3"
+                className="pointer-events-none absolute top-0 whitespace-nowrap font-mono text-micro text-fg-3"
                 style={{
                   left: `${hoverFraction * 100}%`,
                   transform:
@@ -481,17 +481,20 @@ function HoverPreview({
        * selector truncates instead of stretching the card. */}
       {title ? (
         <div className="mt-1 px-0.5" style={{ width }}>
-          <div className="truncate text-12 text-fg-2" title={title}>
+          <div className="truncate text-caption text-fg-2" title={title}>
             {title}
           </div>
           {hint ? (
-            <div className="truncate font-mono text-11 text-fg-4" title={hint}>
+            <div
+              className="truncate font-mono text-micro text-fg-4"
+              title={hint}
+            >
               {hint}
             </div>
           ) : null}
         </div>
       ) : null}
-      <div className="mt-1 whitespace-nowrap text-center font-mono text-11 text-fg-3">
+      <div className="mt-1 whitespace-nowrap text-center font-mono text-micro text-fg-3">
         {label}
       </div>
     </div>

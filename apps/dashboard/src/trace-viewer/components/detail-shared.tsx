@@ -11,7 +11,7 @@ import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 
 /** dt/dd definition-list pair: micro-label + value. `className` fully replaces
  * the default `dd` styling rather than merging with it (Metadata's plain
- * `text-13` value needs to shed Call's `font-mono … text-fg-2`). */
+ * `text-body` value needs to shed Call's `font-mono … text-fg-2`). */
 export function Field({
   label,
   value,
@@ -23,10 +23,12 @@ export function Field({
 }): React.ReactElement {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="text-12 font-medium tracking-[0.1px] text-fg-3">
+      <dt className="text-caption font-medium tracking-[0.1px] text-fg-3">
         {label}
       </dt>
-      <dd className={className ?? "font-mono text-12 text-fg-2"}>{value}</dd>
+      <dd className={className ?? "font-mono text-caption text-fg-2"}>
+        {value}
+      </dd>
     </div>
   );
 }
@@ -44,7 +46,7 @@ export function Section({
 }): React.ReactElement {
   return (
     <div className={className ?? "flex flex-col gap-1.5"}>
-      <h3 className="text-12 font-medium tracking-[0.1px] text-fg-3">
+      <h3 className="text-caption font-medium tracking-[0.1px] text-fg-3">
         {title}
       </h3>
       {children}
@@ -61,7 +63,7 @@ export function GeneralRow({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <div className="flex gap-3 text-13">
+    <div className="flex gap-3 text-body">
       <span className="w-28 shrink-0 text-fg-3">{label}</span>
       <span className="min-w-0 flex-1">{children}</span>
     </div>
@@ -74,7 +76,7 @@ export function TabNotice({
 }: {
   children: React.ReactNode;
 }): React.ReactElement {
-  return <div className="px-3 py-4 text-12 text-fg-4">{children}</div>;
+  return <div className="px-3 py-4 text-caption text-fg-4">{children}</div>;
 }
 
 /**

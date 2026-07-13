@@ -368,7 +368,7 @@ export function PlaybackControls({
         aria-label="Playback speed"
         title="Playback speed"
         onClick={onCycleSpeed}
-        className="flex h-6 min-w-8 items-center justify-center rounded px-1 font-mono text-11 text-fg-3 tabular-nums transition-colors hover:bg-bg-2 hover:text-fg-2"
+        className="flex h-6 min-w-8 items-center justify-center rounded px-1 font-mono text-micro text-fg-3 tabular-nums transition-colors hover:bg-bg-2 hover:text-fg-2"
       >
         {SPEEDS[speedIndex]}×
       </button>

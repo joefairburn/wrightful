@@ -88,7 +88,7 @@ export function ConsoleTab({
             <div
               key={`${event.time}-${i}`}
               className={cn(
-                "col-span-full grid grid-cols-subgrid items-start px-3 py-1.5 text-13 font-mono",
+                "col-span-full grid grid-cols-subgrid items-start px-3 py-1.5 text-body font-mono",
                 highlighted?.has(event) && "bg-bg-2",
               )}
             >

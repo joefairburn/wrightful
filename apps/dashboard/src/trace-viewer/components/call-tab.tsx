@@ -12,13 +12,13 @@ function renderJsonValue(value: unknown): React.ReactElement {
   const isObjectLike = typeof value === "object" && value !== null;
   if (!isObjectLike) {
     return (
-      <span className="break-words font-mono text-12">
+      <span className="break-words font-mono text-caption">
         {JSON.stringify(value)}
       </span>
     );
   }
   return (
-    <pre className="max-h-40 overflow-auto break-words font-mono text-12">
+    <pre className="max-h-40 overflow-auto break-words font-mono text-caption">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -58,7 +58,7 @@ export function CallTab({
     <div className="h-full overflow-y-auto overscroll-contain">
       <div className="flex flex-col gap-4 px-3 py-3">
         <div className="flex flex-col gap-3">
-          <div className="font-mono text-13 font-medium text-fg-2">
+          <div className="font-mono text-body font-medium text-fg-2">
             {actionTitle(action)}
           </div>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5">
@@ -104,7 +104,7 @@ export function CallTab({
 
         {errorMessage ? (
           <Section title="Error">
-            <AnsiPre text={errorMessage} className="text-12" />
+            <AnsiPre text={errorMessage} className="text-caption" />
           </Section>
         ) : null}
       </div>

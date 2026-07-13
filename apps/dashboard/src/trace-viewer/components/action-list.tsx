@@ -266,7 +266,7 @@ export function ActionList({
                 }
                 onClick={() => toggleGroup(group)}
                 className={cn(
-                  "rounded-full border px-2 py-0.5 text-11 tabular-nums",
+                  "rounded-full border px-2 py-0.5 text-micro tabular-nums",
                   shown
                     ? "border-ring/40 bg-bg-3 text-fg-2"
                     : "border-line-1 text-fg-4 hover:text-fg-2",
@@ -309,7 +309,7 @@ export function ActionList({
           />
         ))}
         {visible.length === 0 ? (
-          <div className="px-3 py-6 text-center text-12 text-fg-4">
+          <div className="px-3 py-6 text-center text-caption text-fg-4">
             No actions recorded in this trace.
           </div>
         ) : null}
@@ -355,7 +355,7 @@ function ActionRow({
       ref={rowRef}
       onClick={() => onSelect(action.callId)}
       className={cn(
-        "flex h-7 cursor-pointer items-center gap-1.5 pr-2 text-13",
+        "flex h-7 cursor-pointer items-center gap-1.5 pr-2 text-body",
         selected ? "bg-bg-3" : "hover:bg-bg-2",
       )}
       style={{ paddingLeft: depth * 14 + 6 }}
@@ -395,7 +395,7 @@ function ActionRow({
       </span>
       {paramHint ? (
         <span
-          className="min-w-0 flex-1 truncate font-mono text-12 text-fg-4"
+          className="min-w-0 flex-1 truncate font-mono text-caption text-fg-4"
           title={paramHint}
         >
           {paramHint}
@@ -405,7 +405,7 @@ function ActionRow({
       )}
       {errors > 0 ? (
         <span
-          className="flex shrink-0 items-center gap-0.5 text-11 text-fail"
+          className="flex shrink-0 items-center gap-0.5 text-micro text-fail"
           title={`${errors} console error${errors === 1 ? "" : "s"}`}
         >
           <CircleAlert className="size-3" />
@@ -414,14 +414,14 @@ function ActionRow({
       ) : null}
       {warnings > 0 ? (
         <span
-          className="flex shrink-0 items-center gap-0.5 text-11 text-warning"
+          className="flex shrink-0 items-center gap-0.5 text-micro text-warning"
           title={`${warnings} console warning${warnings === 1 ? "" : "s"}`}
         >
           <TriangleAlert className="size-3" />
           {warnings}
         </span>
       ) : null}
-      <span className="shrink-0 font-mono text-11 text-fg-4 tabular-nums">
+      <span className="shrink-0 font-mono text-micro text-fg-4 tabular-nums">
         {duration >= 0 ? formatDuration(Math.max(1, Math.round(duration))) : ""}
       </span>
       <span className="sr-only">
