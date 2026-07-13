@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { PlaybackController } from "@/trace-viewer/components/playback-controls";
 import { SnapshotPane } from "@/trace-viewer/components/snapshot-pane";
 import {
   FIXTURE_TRACE_URL,
@@ -11,20 +11,37 @@ import {
 import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 
 /**
+ * Inert playback controller — these tests exercise the snapshot scrubber, not
+ * the prev/play/stop/next/speed cluster (that lives in `usePlayback` +
+ * `PlaybackControls`, covered by `trace-viewer-timeline.test.tsx`). The pane
+ * only forwards these values into the control cluster; a no-op stub keeps the
+ * buttons rendered without pulling the whole workbench into scope.
+ */
+const STUB_PLAYBACK: PlaybackController = {
+  playing: false,
+  speedIndex: 1,
+  selectedIndex: 0,
+  hasActions: true,
+  session: 0,
+  playFrom: 0,
+  initialSelectedCallId: undefined,
+  togglePlay: () => {},
+  pause: () => {},
+  stopPlayback: () => {},
+  step: () => {},
+  cycleSpeed: () => {},
+};
+
+/**
  * Component tests for the center snapshot-scrubber pane: Before/Action/After
  * iframe derivation (`collectSnapshots`), the click-point carried on the
- * Action tab, the `snapshotInfo` URL bar, the canvas-from-screenshot toggle
- * (+ its localStorage persistence), the popout link, and the "no snapshot"
- * empty state — all against the shared synthetic fixture.
+ * Action tab, the `snapshotInfo` URL bar, the popout link, and the "no
+ * snapshot" empty state — all against the shared synthetic fixture.
  */
-
-const CANVAS_FROM_SCREENSHOT_KEY =
-  "wrightful:trace-viewer:canvas-from-screenshot";
 
 let restoreDomStubs: () => void;
 
 beforeEach(() => {
-  window.localStorage.clear();
   // SnapshotPane's stage sizes itself off the container's clientWidth/Height
   // (not getBoundingClientRect), but the shared stub mocks both — the fixed
   // ~800×400 read is what lets `scale > 0` and the iframes actually mount.
@@ -39,7 +56,6 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   restoreDomStubs();
-  window.localStorage.clear();
 });
 
 /** Parse a mounted snapshot iframe's `src` into a URL for param assertions. */
@@ -57,6 +73,8 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
     expect(iframeSrc("DOM snapshot (Before)").searchParams.get("name")).toBe(
@@ -75,6 +93,8 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
     const url = iframeSrc("DOM snapshot (Action)");
@@ -96,39 +116,11 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={bridge}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
     expect(await screen.findByText("https://app.example/cart")).toBeTruthy();
-  });
-
-  it("persists the canvas-from-screenshot toggle and threads it onto snapshot srcs", async () => {
-    const user = userEvent.setup();
-    const model = makeModel();
-    const action = model.actions.find((a) => a.callId === "call@1")!;
-    render(
-      <SnapshotPane
-        action={action}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
-    await user.click(
-      screen.getByTitle(
-        "Paint <canvas> content from the nearest screenshot (may be imprecise)",
-      ),
-    );
-    expect(window.localStorage.getItem(CANVAS_FROM_SCREENSHOT_KEY)).toBe("1");
-    // The src change double-buffers behind the old documents (same machinery
-    // as scrubbing/attempt swaps) — settle the pending loads so every slot
-    // resolves to its new src before asserting.
-    for (const frame of screen.getAllByTitle(/^DOM snapshot /)) {
-      fireEvent.load(frame);
-    }
-    expect(
-      iframeSrc("DOM snapshot (After)").searchParams.get(
-        "shouldPopulateCanvasFromScreenshot",
-      ),
-    ).toBe("1");
   });
 
   it("links the popout to the vendored snapshot.html shell", () => {
@@ -139,6 +131,8 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
     const link = screen.getByTitle("Open snapshot in a new tab");
@@ -156,6 +150,8 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
 
@@ -165,6 +161,8 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={OTHER_TRACE_URL}
         bridge={makeBridge()}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
 
@@ -199,6 +197,8 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
 
@@ -207,6 +207,8 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={OTHER_TRACE_URL}
         bridge={makeBridge()}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
     expect(screen.getAllByTitle("DOM snapshot (Action)")).toHaveLength(2);
@@ -218,6 +220,8 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
     const frames = screen.getAllByTitle("DOM snapshot (Action)");
@@ -251,6 +255,8 @@ describe("SnapshotPane", () => {
         action={action}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
+        playback={STUB_PLAYBACK}
+        playableActionsCount={3}
       />,
     );
     expect(screen.getByText("No snapshot")).toBeTruthy();

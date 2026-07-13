@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
 import { actionParamHint, actionTitle, sha1Path } from "../model";
@@ -11,17 +11,17 @@ import type { PageEntry } from "../vendor/entries";
 import type { TraceModel } from "../vendor/model-util";
 import {
   lowerBoundByTime,
+  type PlaybackController,
   Playhead,
-  PlaybackControls,
-  usePlayback,
   type TimelineAction,
 } from "./playback-controls";
 
 /**
- * Filmstrip + click-to-seek timeline strip below the snapshot pane, plus the
- * playback control cluster (prev / play–pause / stop / next / speed) — the
- * playback engine itself (rAF clock, state model, moving playhead) lives in
- * `playback-controls.tsx`; this file owns the strip: filmstrip sampling,
+ * Filmstrip + click-to-seek timeline strip below the snapshot pane. The
+ * playback engine itself (rAF clock, state model) and the moving Playhead live
+ * in `playback-controls.tsx`, and the `usePlayback` controller is owned one
+ * level up in the workbench (its prev/play/stop/next/speed cluster is rendered
+ * in the snapshot pane's nav) — this file owns the strip: filmstrip sampling,
  * action bars lane, hover preview, and click/drag seeking.
  *
  * Screencast frames are served by the trace-viewer service worker under
@@ -93,12 +93,21 @@ export function Timeline({
   bridge,
   selectedCallId,
   onSelect,
+  playback,
+  playableActions,
   className,
 }: {
   model: TraceModel;
   bridge: TraceBridge;
   selectedCallId: string | undefined;
   onSelect: (callId: string) => void;
+  /** Shared playback controller (owned by the workbench). */
+  playback: PlaybackController;
+  /**
+   * The default-visible action set playback + seeking walk — computed once in
+   * the workbench and shared with the snapshot pane's control cluster.
+   */
+  playableActions: TimelineAction[];
   className?: string;
 }): React.ReactElement | null {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -151,34 +160,9 @@ export function Timeline({
   } | null>(null);
   const draggingRef = useRef(false);
 
-  // Playback, prev/next stepping, and click-to-seek walk the DEFAULT-VISIBLE
-  // action set — `filteredActions([])` drops the noise groups (route/getter/
-  // configuration) the action list hides by default. Selecting one of those
-  // would land on an action with no row in the list (they're filtered out of
-  // its tree entirely), so "Next" would appear to do nothing. The bars lane
-  // below still renders every action.
-  const playableActions = useMemo(() => model.filteredActions([]), [model]);
-
-  const playback = usePlayback({
-    traceStartTime: model.startTime,
-    playableActions,
-    selectedCallId,
-    selectedStartTime: selectedAction?.startTime,
-    onSelect,
-  });
-
-  // An attempt swap replaces `model` in place (the workbench stays mounted, see
-  // TraceViewer). The playhead's clock lives in the previous trace's time base,
-  // so playback that survives the swap would run from a stale, out-of-range
-  // position — stop it instead of letting it dead-play or instantly complete.
-  const { pause } = playback;
-  const playbackModelRef = useRef(model);
-  useEffect(() => {
-    if (playbackModelRef.current === model) return;
-    playbackModelRef.current = model;
-    pause();
-  }, [model, pause]);
-
+  // The bars lane below renders every action; `playableActions` (the
+  // default-visible set that playback + seeking walk) is provided by the
+  // workbench.
   if (duration <= 0) return null;
 
   const fractionAtClientX = (clientX: number): number => {
@@ -273,18 +257,6 @@ export function Timeline({
       className={cn("flex w-full select-none", className)}
       style={{ height: TOTAL_HEIGHT }}
     >
-      <PlaybackControls
-        playing={playback.playing}
-        hasActions={playback.hasActions}
-        selectedIndex={playback.selectedIndex}
-        actionsCount={playableActions.length}
-        speedIndex={playback.speedIndex}
-        onTogglePlay={playback.togglePlay}
-        onStop={playback.stopPlayback}
-        onStep={playback.step}
-        onCycleSpeed={playback.cycleSpeed}
-      />
-
       <div
         ref={containerRef}
         data-testid="timeline-strip"

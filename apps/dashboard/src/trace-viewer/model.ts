@@ -138,22 +138,10 @@ export function collectSnapshots(
 export function snapshotIframeUrl(
   traceUrl: string,
   snapshot: Snapshot,
-  options?: {
-    /**
-     * Repaint `<canvas>` elements from the nearest screencast frame (canvas
-     * pixels aren't captured in DOM snapshots). Best-effort and sometimes
-     * imprecise, so it's a user toggle — same setting the official viewer
-     * gates this behind.
-     */
-    populateCanvasFromScreenshot?: boolean;
-  },
 ): string {
   const params = new URLSearchParams();
   params.set("trace", traceUrl);
   params.set("name", snapshot.snapshotName);
-  if (options?.populateCanvasFromScreenshot) {
-    params.set("shouldPopulateCanvasFromScreenshot", "1");
-  }
   if (snapshot.point) {
     params.set("pointX", String(snapshot.point.x));
     params.set("pointY", String(snapshot.point.y));

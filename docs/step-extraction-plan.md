@@ -1,8 +1,8 @@
 # Plan: server-side step extraction at ingest
 
 Status: SCOPED, not implemented. Split out of the 2026-07-10 trace-viewer
-work (see `docs/worklog/2026-07-10-custom-trace-viewer.md` and the follow-up
-entry) because it touches the ingest path + schema and deserves its own
+work (see `docs/worklog/2026-07-10-custom-trace-viewer-consolidated.md`)
+because it touches the ingest path + schema and deserves its own
 migration, contract review, and rollout — bundling it into a large UI change
 would have made both harder to review.
 

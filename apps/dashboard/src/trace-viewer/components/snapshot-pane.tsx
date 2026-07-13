@@ -1,8 +1,7 @@
 "use client";
 
-import { ExternalLink, ImageIcon } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
@@ -21,10 +20,10 @@ import {
   snapshotViewport,
 } from "../model";
 import { useElementSize } from "../use-element-size";
-import { usePersistedFlag } from "../use-persisted-flag";
 import type { TraceBridge } from "../use-trace-model";
 import type { ActionTraceEventInContext } from "../vendor/model-util";
 import { bindEscapeAcrossFrames } from "./escape-frames";
+import { PlaybackControls, type PlaybackController } from "./playback-controls";
 
 const TAB_LABELS: Record<SnapshotTabId, string> = {
   before: "Before",
@@ -32,15 +31,6 @@ const TAB_LABELS: Record<SnapshotTabId, string> = {
   after: "After",
 };
 const TAB_ORDER: SnapshotTabId[] = ["before", "action", "after"];
-
-/**
- * Persisted opt-in for repainting `<canvas>` content from the nearest
- * screencast frame (canvas pixels aren't captured in DOM snapshots — see
- * `snapshotIframeUrl`'s `populateCanvasFromScreenshot` option). Off by
- * default since the repaint is best-effort and sometimes imprecise.
- */
-const CANVAS_FROM_SCREENSHOT_KEY =
-  "wrightful:trace-viewer:canvas-from-screenshot";
 
 /**
  * Cache key for a snapshot's `snapshotInfo/` sidecar. The trace URL is part
@@ -72,22 +62,24 @@ export function SnapshotPane({
   traceUrl,
   onEscape,
   bridge,
+  playback,
+  playableActionsCount,
 }: {
   action: ActionTraceEventInContext | undefined;
   traceUrl: string;
   onEscape?: () => void;
   /** Bridge proxy for the `snapshotInfo/` sidecar (URL bar + exact viewport). */
   bridge: TraceBridge;
+  /** Shared playback controller (owned by the workbench). */
+  playback: PlaybackController;
+  /** Size of the default-visible action set the controls step through. */
+  playableActionsCount: number;
 }): React.ReactElement {
   const snapshots: SnapshotSet = useMemo(
     () => collectSnapshots(action),
     [action],
   );
   const [tab, setTab] = useState<SnapshotTabId>("action");
-  const [canvasFromScreenshot, setCanvasFromScreenshot] = usePersistedFlag(
-    CANVAS_FROM_SCREENSHOT_KEY,
-    false,
-  );
   const available = TAB_ORDER.filter((id) => snapshots[id]);
   const activeTab: SnapshotTabId | undefined = snapshots[tab]
     ? tab
@@ -104,48 +96,62 @@ export function SnapshotPane({
   // client-side effect — it never server-renders.
   const popoutHref = useMemo(() => {
     if (!activeSnapshot) return undefined;
-    const relativeUrl = snapshotIframeUrl(traceUrl, activeSnapshot, {
-      populateCanvasFromScreenshot: canvasFromScreenshot,
-    });
+    const relativeUrl = snapshotIframeUrl(traceUrl, activeSnapshot);
     const absoluteUrl = new URL(relativeUrl, window.location.origin).href;
     return snapshotPopoutUrl(traceUrl, absoluteUrl);
-  }, [traceUrl, activeSnapshot, canvasFromScreenshot]);
+  }, [traceUrl, activeSnapshot]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-end justify-between gap-2 pr-2">
         <TabBar className="min-w-0 flex-1 px-2" role="tablist">
-          {available.map((id) => (
-            <TabBarTab
-              key={id}
-              active={id === activeTab}
-              onSelect={() => setTab(id)}
+          {available.length > 0 ? (
+            available.map((id) => (
+              <TabBarTab
+                key={id}
+                active={id === activeTab}
+                onSelect={() => setTab(id)}
+              >
+                {TAB_LABELS[id]}
+              </TabBarTab>
+            ))
+          ) : (
+            // No snapshot for this action → no tabs. Reserve one tab's height
+            // (same box as TabBarTab) so the nav row doesn't shrink to the
+            // shorter playback-control cluster on the right.
+            <span
+              aria-hidden
+              className="invisible inline-flex items-center px-3 py-2 text-body"
             >
-              {TAB_LABELS[id]}
-            </TabBarTab>
-          ))}
+              &nbsp;
+            </span>
+          )}
         </TabBar>
         <div className="mb-1 flex shrink-0 items-center gap-1">
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-pressed={canvasFromScreenshot}
-            title="Paint <canvas> content from the nearest screenshot (may be imprecise)"
-            onClick={() => setCanvasFromScreenshot(!canvasFromScreenshot)}
-            className={cn(canvasFromScreenshot && "bg-bg-3 text-fg-2")}
-          >
-            <ImageIcon />
-          </Button>
+          <PlaybackControls
+            playing={playback.playing}
+            hasActions={playback.hasActions}
+            selectedIndex={playback.selectedIndex}
+            actionsCount={playableActionsCount}
+            speedIndex={playback.speedIndex}
+            onTogglePlay={playback.togglePlay}
+            onStop={playback.stopPlayback}
+            onStep={playback.step}
+            onCycleSpeed={playback.cycleSpeed}
+          />
           {popoutHref ? (
-            <a
-              href={popoutHref}
-              target="_blank"
-              rel="noreferrer"
-              title="Open snapshot in a new tab"
-              className="flex size-6 shrink-0 items-center justify-center rounded text-fg-4 hover:text-fg-2"
-            >
-              <ExternalLink className="size-3.5" />
-            </a>
+            <>
+              <div className="mx-0.5 h-5 w-px shrink-0 bg-line-1" aria-hidden />
+              <a
+                href={popoutHref}
+                target="_blank"
+                rel="noreferrer"
+                title="Open snapshot in a new tab"
+                className="flex size-6 shrink-0 items-center justify-center rounded text-fg-4 hover:text-fg-2"
+              >
+                <ExternalLink className="size-3.5" />
+              </a>
+            </>
           ) : null}
         </div>
       </div>
@@ -159,7 +165,6 @@ export function SnapshotPane({
             activeTab={activeTab}
             viewport={info?.viewport ?? snapshotViewport(action)}
             onEscape={onEscape}
-            canvasFromScreenshot={canvasFromScreenshot}
           />
         ) : (
           <Empty className="h-full justify-center">
@@ -253,7 +258,6 @@ function ScaledSnapshotStage({
   activeTab,
   viewport,
   onEscape,
-  canvasFromScreenshot,
 }: {
   traceUrl: string;
   snapshots: SnapshotSet;
@@ -261,8 +265,6 @@ function ScaledSnapshotStage({
   activeTab: SnapshotTabId;
   viewport: { width: number; height: number };
   onEscape?: () => void;
-  /** See `CANVAS_FROM_SCREENSHOT_KEY` — applies to every mounted iframe's src. */
-  canvasFromScreenshot: boolean;
 }): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(containerRef);
@@ -292,9 +294,7 @@ function ScaledSnapshotStage({
           {available.map((id) => {
             const snapshot = snapshots[id];
             if (!snapshot) return null;
-            const url = snapshotIframeUrl(traceUrl, snapshot, {
-              populateCanvasFromScreenshot: canvasFromScreenshot,
-            });
+            const url = snapshotIframeUrl(traceUrl, snapshot);
             return (
               <BufferedSnapshotFrame
                 key={id}

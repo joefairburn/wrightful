@@ -304,9 +304,12 @@ function PlaybackButton({
 }
 
 /**
- * Playback control cluster: prev / play–pause / stop / next / speed. Lives
- * BESIDE the strip (not inside it) so its clicks never collide with the
- * strip's pointer-seek handlers.
+ * Playback control cluster: prev / play–pause / stop / next / speed. Rendered
+ * in the snapshot pane's Before/Action/After nav (to the right, before the
+ * paint-`<canvas>` button) rather than inside the timeline strip, so its
+ * clicks never collide with the strip's pointer-seek handlers. The playback
+ * engine lives one level up in the workbench (see `usePlayback`) so this
+ * cluster and the timeline's moving Playhead share a single controller.
  */
 export function PlaybackControls({
   playing,
@@ -330,7 +333,7 @@ export function PlaybackControls({
   onCycleSpeed: () => void;
 }): React.ReactElement {
   return (
-    <div className="flex shrink-0 items-center gap-0.5 border-r border-line-1 px-1.5">
+    <div className="flex shrink-0 items-center gap-0.5">
       <PlaybackButton
         label="Previous action"
         disabled={selectedIndex <= 0}

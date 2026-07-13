@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
 import { defaultSelectedActionId, describeTraceLoadError } from "../model";
@@ -10,6 +10,7 @@ import type { ContextEntry } from "../vendor/entries";
 import { TraceModel } from "../vendor/model-util";
 import { ActionList } from "./action-list";
 import { DetailTabs } from "./detail-tabs";
+import { usePlayback } from "./playback-controls";
 import { SnapshotPane } from "./snapshot-pane";
 import { SplitPane } from "./split-pane";
 import { Timeline } from "./timeline";
@@ -160,6 +161,36 @@ function Workbench({
     [model, selectedCallId],
   );
 
+  // Playback (rAF clock + prev/play/stop/next/speed state) lives here, one
+  // level above both the timeline strip (which draws the moving Playhead) and
+  // the snapshot pane's nav (which renders the control cluster) — the two are
+  // siblings, so a single shared controller is what keeps the Playhead and the
+  // buttons in lockstep. Prev/next stepping and click-to-seek walk the
+  // DEFAULT-VISIBLE action set (`filteredActions([])` drops the route/getter/
+  // configuration noise groups the action list hides by default) — selecting a
+  // hidden action would land on a row that isn't in the list, so "Next" would
+  // appear to do nothing.
+  const playableActions = useMemo(() => model.filteredActions([]), [model]);
+  const playback = usePlayback({
+    traceStartTime: model.startTime,
+    playableActions,
+    selectedCallId,
+    selectedStartTime: selectedAction?.startTime,
+    onSelect: setSelectedCallId,
+  });
+
+  // An attempt swap replaces `model` in place (the workbench stays mounted, see
+  // TraceViewer). The playhead's clock lives in the previous trace's time base,
+  // so playback that survives the swap would run from a stale, out-of-range
+  // position — stop it instead of letting it dead-play or instantly complete.
+  const { pause } = playback;
+  const playbackModelRef = useRef(model);
+  useEffect(() => {
+    if (playbackModelRef.current === model) return;
+    playbackModelRef.current = model;
+    pause();
+  }, [model, pause]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Timeline
@@ -167,6 +198,8 @@ function Workbench({
         bridge={bridge}
         selectedCallId={selectedCallId}
         onSelect={setSelectedCallId}
+        playback={playback}
+        playableActions={playableActions}
         className="shrink-0 border-b border-line-1"
       />
       <SplitPane
@@ -193,6 +226,8 @@ function Workbench({
             traceUrl={traceUrl}
             bridge={bridge}
             onEscape={onEscape}
+            playback={playback}
+            playableActionsCount={playableActions.length}
           />
           <DetailTabs
             model={model}

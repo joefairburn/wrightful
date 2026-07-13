@@ -13,7 +13,14 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
+import { useMemo } from "react";
+import {
+  PlaybackControls,
+  usePlayback,
+} from "@/trace-viewer/components/playback-controls";
 import { Timeline } from "@/trace-viewer/components/timeline";
+import type { TraceBridge } from "@/trace-viewer/use-trace-model";
+import type { TraceModel } from "@/trace-viewer/vendor/model-util";
 import { makeBridge, makeModel } from "./trace-viewer-fixture";
 import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 
@@ -25,7 +32,65 @@ import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
  * (prev/play–pause/stop/next/speed with a stubbed requestAnimationFrame
  * clock), and the boundary-aware hover-preview flip — against the shared
  * synthetic fixture (`trace-viewer-fixture.ts`).
+ *
+ * The playback controller (`usePlayback`) is owned by the workbench and shared
+ * between the timeline strip (which draws the moving Playhead) and the snapshot
+ * pane's nav (which renders the prev/play/stop/next/speed cluster). `Harness`
+ * reproduces that wiring so a single render exercises both consumers: the
+ * strip's seek handlers + Playhead and the control buttons off one controller.
  */
+function Harness({
+  model,
+  bridge,
+  selectedCallId,
+  onSelect,
+  controls = true,
+}: {
+  model: TraceModel;
+  bridge: TraceBridge;
+  selectedCallId: string | undefined;
+  onSelect: (callId: string) => void;
+  /** Off for the zero-duration case, which asserts a null render. */
+  controls?: boolean;
+}): React.ReactElement {
+  const playableActions = useMemo(() => model.filteredActions([]), [model]);
+  const selectedAction = useMemo(
+    () => model.actions.find((a) => a.callId === selectedCallId),
+    [model, selectedCallId],
+  );
+  const playback = usePlayback({
+    traceStartTime: model.startTime,
+    playableActions,
+    selectedCallId,
+    selectedStartTime: selectedAction?.startTime,
+    onSelect,
+  });
+  return (
+    <>
+      {controls ? (
+        <PlaybackControls
+          playing={playback.playing}
+          hasActions={playback.hasActions}
+          selectedIndex={playback.selectedIndex}
+          actionsCount={playableActions.length}
+          speedIndex={playback.speedIndex}
+          onTogglePlay={playback.togglePlay}
+          onStop={playback.stopPlayback}
+          onStep={playback.step}
+          onCycleSpeed={playback.cycleSpeed}
+        />
+      ) : null}
+      <Timeline
+        model={model}
+        bridge={bridge}
+        selectedCallId={selectedCallId}
+        onSelect={onSelect}
+        playback={playback}
+        playableActions={playableActions}
+      />
+    </>
+  );
+}
 
 let restoreDomStubs: () => void;
 
@@ -88,7 +153,7 @@ describe("Timeline", () => {
     // selected so the fail-red and selected-ring styling land on separate
     // bars (selection styling takes precedence over the fail color).
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId="call@1"
@@ -117,7 +182,7 @@ describe("Timeline", () => {
       "sha1/page@1-300.jpeg": new Blob(["c"]),
     });
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={bridge}
         selectedCallId={undefined}
@@ -136,7 +201,7 @@ describe("Timeline", () => {
     const model = makeModel();
     const onSelect = vi.fn();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId={undefined}
@@ -162,11 +227,12 @@ describe("Timeline", () => {
       events: [],
     });
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId={undefined}
         onSelect={vi.fn()}
+        controls={false}
       />,
     );
     expect(container.firstChild).toBeNull();
@@ -184,7 +250,7 @@ describe("Timeline playback toolbar", () => {
   it("disables Play (and stepping) when the trace has no actions", () => {
     const model = makeModel({ actions: [] });
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId={undefined}
@@ -200,7 +266,7 @@ describe("Timeline playback toolbar", () => {
   it("enables Play and disables prev/stop on the first action, next on the last", () => {
     const model = makeModel();
     const first = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId="call@1"
@@ -214,7 +280,7 @@ describe("Timeline playback toolbar", () => {
     first.unmount();
 
     const last = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId="call@4"
@@ -230,7 +296,7 @@ describe("Timeline playback toolbar", () => {
     const model = makeModel();
     const onSelect = vi.fn();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId="call@2"
@@ -251,7 +317,7 @@ describe("Timeline playback toolbar", () => {
     const model = makeModel();
     const onSelect = vi.fn();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId="call@4"
@@ -265,7 +331,7 @@ describe("Timeline playback toolbar", () => {
   it("cycles the speed label 1× → 2× → 0.5× → 1×", () => {
     const model = makeModel();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId="call@1"
@@ -286,7 +352,7 @@ describe("Timeline playback toolbar", () => {
     const model = makeModel();
     const onSelect = vi.fn();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId={undefined}
@@ -328,7 +394,7 @@ describe("Timeline playback toolbar", () => {
     const model = makeModel();
     const onSelect = vi.fn();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId="call@4"
@@ -343,7 +409,7 @@ describe("Timeline playback toolbar", () => {
   it("pauses playback on a manual strip seek", () => {
     const model = makeModel();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId="call@1"
@@ -363,7 +429,7 @@ describe("Timeline hover preview placement", () => {
     // The beforeEach mock already reports container top 0 — no room above.
     const model = makeModel();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId={undefined}
@@ -383,7 +449,7 @@ describe("Timeline hover preview placement", () => {
     // (startTime 3000, selector "#total") is active.
     const model = makeModel();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId={undefined}
@@ -414,7 +480,7 @@ describe("Timeline hover preview placement", () => {
     });
     const model = makeModel();
     const { container } = render(
-      <Timeline
+      <Harness
         model={model}
         bridge={makeBridge()}
         selectedCallId={undefined}
