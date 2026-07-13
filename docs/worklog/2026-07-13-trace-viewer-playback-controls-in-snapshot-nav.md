@@ -49,6 +49,14 @@ no other consumer), the `CANVAS_FROM_SCREENSHOT_KEY` localStorage key, and the
 `populateCanvasFromScreenshot` option on `snapshotIframeUrl` (`model.ts`). The
 divider now sits before the popout link (only rendered when a popout exists).
 
+### Follow-up: full-width header divider
+
+The rule under the Before/Action/After row was the `TabBar`'s own `border-b`,
+which spans only the `flex-1` TabBar and so stopped where the playback/popout
+controls begin. Moved the divider onto the whole header row (`border-b` on the
+row) and dropped the TabBar's rule (`border-b-0`) so a single 1px line spans the
+full width; the active-tab underline still overhangs it (geometry unchanged).
+
 ## Files
 
 | File                                            | Change                                                                                                                                                                                      |

@@ -103,8 +103,12 @@ export function SnapshotPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-end justify-between gap-2 pr-2">
-        <TabBar className="min-w-0 flex-1 px-2" role="tablist">
+      {/* The bottom rule lives on the whole header row so it spans full width
+       * — the TabBar is only `flex-1`, so its own `border-b` would stop where
+       * the playback/popout controls begin. `border-b-0` drops the TabBar's
+       * rule so the row owns the single divider. */}
+      <div className="flex shrink-0 items-end justify-between gap-2 border-b border-line-1 pr-2">
+        <TabBar className="min-w-0 flex-1 border-b-0 px-2" role="tablist">
           {available.length > 0 ? (
             available.map((id) => (
               <TabBarTab
