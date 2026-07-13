@@ -2,24 +2,19 @@
 
 import type React from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatDuration } from "@/lib/time-format";
+import { formatTraceDuration } from "../format";
 import type { TraceTabProps } from "../model";
+import { Field } from "./detail-shared";
 
-function Field({
+/** Metadata's `dd`s are plain (no mono/muted styling, unlike Call's). */
+function MetaField({
   label,
   value,
 }: {
   label: string;
   value: React.ReactNode;
 }): React.ReactElement {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-12 font-medium tracking-[0.1px] text-fg-3">
-        {label}
-      </dt>
-      <dd className="text-13">{value}</dd>
-    </div>
-  );
+  return <Field label={label} value={value} className="text-13" />;
 }
 
 /** Trace/context metadata as a dense two-column definition grid. */
@@ -36,25 +31,25 @@ export function MetadataTab({ model }: TraceTabProps): React.ReactElement {
   return (
     <ScrollArea className="h-full">
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3.5 px-4 py-3">
-        <Field label="Browser" value={browser} />
-        <Field label="Platform" value={model.platform || "—"} />
-        <Field
+        <MetaField label="Browser" value={browser} />
+        <MetaField label="Platform" value={model.platform || "—"} />
+        <MetaField
           label="Playwright version"
           value={model.playwrightVersion || "—"}
         />
-        <Field label="SDK language" value={model.sdkLanguage || "—"} />
-        <Field label="Viewport" value={viewport} />
-        <Field
+        <MetaField label="SDK language" value={model.sdkLanguage || "—"} />
+        <MetaField label="Viewport" value={viewport} />
+        <MetaField
           label="Test ID attribute"
           value={model.testIdAttributeName || "—"}
         />
-        <Field label="Started" value={started} />
-        <Field
+        <MetaField label="Started" value={started} />
+        <MetaField
           label="Duration"
-          value={formatDuration(model.endTime - model.startTime)}
+          value={formatTraceDuration(model.endTime - model.startTime)}
         />
-        <Field label="Pages" value={model.pages.length} />
-        <Field
+        <MetaField label="Pages" value={model.pages.length} />
+        <MetaField
           label="Timeout"
           value={model.testTimeout ? `${model.testTimeout}ms` : "—"}
         />

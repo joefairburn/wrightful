@@ -7,7 +7,9 @@ import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import type { TraceTabProps } from "../model";
 import { sha1Path } from "../model";
+import { useBridgeFetch } from "../use-bridge-fetch";
 import type { StackFrame } from "../vendor/protocol-types";
+import { TabNotice } from "./detail-shared";
 
 /**
  * Playwright's own viewer resolves a stack frame's `file` to a trace resource
@@ -48,7 +50,9 @@ function pickDefaultFile(
 
 /**
  * Read-only source view for the selected action's stack frame, with a stack
- * frame picker alongside it.
+ * frame picker alongside it. Keyed on the selected action by `DetailTabs`,
+ * so a selection change remounts it (fresh default file + frame index)
+ * instead of reconciling stale manual picks against a new stack.
  */
 export function SourceTab(props: TraceTabProps): React.ReactElement {
   const { model, selectedAction, traceUrl, bridge } = props;
@@ -56,63 +60,36 @@ export function SourceTab(props: TraceTabProps): React.ReactElement {
   const [manualFile, setManualFile] = useState<string | undefined>(undefined);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState(0);
 
-  useEffect(() => {
-    setManualFile(undefined);
-    setSelectedFrameIndex(0);
-  }, [selectedAction?.callId]);
-
   const stack = selectedAction?.stack ?? [];
   const selectedFrame = stack[selectedFrameIndex];
 
   const file = manualFile ?? pickDefaultFile(selectedFrame, model.sources);
   const source = file ? model.sources.get(file) : undefined;
 
-  const [content, setContent] = useState<string | undefined>(source?.content);
-  const [fetchError, setFetchError] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    setFetchError(undefined);
-    if (!file || !source) {
-      setContent(undefined);
-      return;
-    }
-    if (source.content !== undefined) {
-      setContent(source.content);
-      return;
-    }
-    setContent(undefined);
-    let cancelled = false;
-    void (async () => {
-      try {
-        const sha1 = await sha1Hex(file);
-        const blob = await bridge.fetchBlob(
-          sha1Path(traceUrl, `src@${sha1}.txt`),
-        );
-        const text = await blob.text();
-        if (cancelled) return;
-        // Cache on the shared model, mirroring the upstream viewer's own
-        // lazy-fill of `SourceModel.content` — later tab visits (and other
-        // consumers of this `model`) skip the fetch.
-        source.content = text;
-        setContent(text);
-      } catch (err) {
-        if (cancelled) return;
-        setFetchError(
-          err instanceof Error ? err.message : "Failed to load source.",
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [file, source, traceUrl, bridge]);
+  // Fetch keyed on `file`, so a file switch can never render the previous
+  // file's text under the new file's tab/dialect/error lines. The fetched
+  // text is cached on the shared model (mirroring the upstream viewer's
+  // lazy-fill of `SourceModel.content`), so later tab visits skip the fetch.
+  const needsFetch = source !== undefined && source.content === undefined;
+  const fetched = useBridgeFetch(
+    bridge,
+    needsFetch && file ? file : null,
+    async (sourceFile) => {
+      const sha1 = await sha1Hex(sourceFile);
+      const blob = await bridge.fetchBlob(
+        sha1Path(traceUrl, `src@${sha1}.txt`),
+      );
+      const text = await blob.text();
+      const cached = model.sources.get(sourceFile);
+      if (cached) cached.content = text;
+      return text;
+    },
+  );
+  const content = source?.content ?? fetched.value;
+  const fetchError = fetched.error?.message;
 
   if (files.length === 0 || !file) {
-    return (
-      <div className="px-3 py-4 text-12 text-fg-4">
-        Source view is not available yet.
-      </div>
-    );
+    return <TabNotice>Source view is not available yet.</TabNotice>;
   }
 
   const targetLine =

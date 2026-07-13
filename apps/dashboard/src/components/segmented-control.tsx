@@ -36,6 +36,13 @@ export interface SegmentedControlProps<T extends string> {
   options: readonly SegmentedOption<T>[];
   /** Tighter padding for compact contexts (sidebars, dense toolbars). */
   compact?: boolean;
+  /**
+   * Hover intent on a single option (fires for the active one too — filter
+   * in the caller if it only cares about candidates). Used to prefetch what
+   * selecting the option would load (e.g. the replay dialog warming the
+   * hovered attempt's trace).
+   */
+  onOptionHover?: (value: T) => void;
 }
 
 /**
@@ -53,6 +60,7 @@ export function SegmentedControl<T extends string>({
   onChange,
   options,
   compact = false,
+  onOptionHover,
 }: SegmentedControlProps<T>): React.ReactElement {
   return (
     <div className={SEGMENTED_GROUP_CLASSES}>
@@ -74,6 +82,9 @@ export function SegmentedControl<T extends string>({
             className={segmentedItemClasses(active, compact)}
             key={opt.value}
             onClick={() => onChange(opt.value)}
+            onPointerEnter={
+              onOptionHover ? () => onOptionHover(opt.value) : undefined
+            }
             type="button"
           >
             {dotColor ? (

@@ -7,7 +7,7 @@ import { defaultSelectedActionId, describeTraceLoadError } from "../model";
 import type { TraceBridge } from "../use-trace-model";
 import { useTraceModel } from "../use-trace-model";
 import type { ContextEntry } from "../vendor/entries";
-import { MultiTraceModel } from "../vendor/model-util";
+import { TraceModel } from "../vendor/model-util";
 import { ActionList } from "./action-list";
 import { DetailTabs } from "./detail-tabs";
 import { SnapshotPane } from "./snapshot-pane";
@@ -21,6 +21,13 @@ import { Timeline } from "./timeline";
  * component library — replacing the old iframe embed of the official viewer
  * UI. `traceUrl` must be absolute (typically the signed artifact download
  * URL resolved against the current origin).
+ *
+ * When `traceUrl` changes while a model is showing (attempt switch), the
+ * hook keeps the previous model alive and loads the new trace behind it —
+ * the workbench stays MOUNTED (deliberately un-keyed; it resets its own
+ * selection when the model swaps) with only a thin progress bar on top.
+ * Keeping the same workbench instance is what lets the snapshot pane
+ * double-buffer across the swap instead of tearing its iframes down.
  */
 export function TraceViewer({
   traceUrl,
@@ -40,7 +47,14 @@ export function TraceViewer({
         <Spinner className="size-5 text-fg-3" />
         <div className="text-13 text-fg-3">Loading trace…</div>
         {fraction !== null ? (
-          <div className="h-1 w-48 overflow-hidden rounded-full bg-bg-3">
+          <div
+            role="progressbar"
+            aria-label="Loading trace"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(fraction * 100)}
+            className="h-1 w-48 overflow-hidden rounded-full bg-bg-3"
+          >
             <div
               className="h-full rounded-full bg-ring transition-[width]"
               style={{ width: `${Math.round(fraction * 100)}%` }}
@@ -62,14 +76,49 @@ export function TraceViewer({
     );
   }
 
+  const switchProgress = state.switching?.progress ?? null;
+  const switchFraction =
+    switchProgress && switchProgress.total > 0
+      ? switchProgress.done / switchProgress.total
+      : null;
+
   return (
-    <Workbench
-      key={traceUrl}
-      traceUrl={traceUrl}
-      contextEntries={state.contextEntries}
-      bridge={bridge}
-      onEscape={onEscape}
-    />
+    <div aria-busy={state.switching !== null} className="relative h-full">
+      {state.switching ? (
+        <div
+          role="progressbar"
+          aria-label="Loading attempt"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          // Indeterminate (no aria-valuenow) until the SW reports progress.
+          aria-valuenow={
+            switchFraction !== null
+              ? Math.round(switchFraction * 100)
+              : undefined
+          }
+          className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-bg-3"
+        >
+          <div
+            className={
+              switchFraction !== null
+                ? "h-full bg-ring transition-[width]"
+                : "h-full w-full animate-pulse bg-ring"
+            }
+            style={
+              switchFraction !== null
+                ? { width: `${Math.round(switchFraction * 100)}%` }
+                : undefined
+            }
+          />
+        </div>
+      ) : null}
+      <Workbench
+        traceUrl={state.traceUrl}
+        contextEntries={state.contextEntries}
+        bridge={bridge}
+        onEscape={onEscape}
+      />
+    </div>
   );
 }
 
@@ -85,12 +134,27 @@ function Workbench({
   onEscape?: () => void;
 }): React.ReactElement {
   const model = useMemo(
-    () => new MultiTraceModel(traceUrl, contextEntries),
+    () => new TraceModel(traceUrl, contextEntries),
     [traceUrl, contextEntries],
   );
-  const [selectedCallId, setSelectedCallId] = useState<string | undefined>(() =>
-    defaultSelectedActionId(model),
-  );
+  // Selection is stored WITH the model it belongs to. The workbench stays
+  // mounted across an attempt swap (see TraceViewer), so when a new model
+  // arrives the stale callId is replaced during render — an effect-based
+  // reset would let one frame render the old selection against the new
+  // model, flashing the snapshot pane's empty state.
+  const [selection, setSelection] = useState<{
+    model: TraceModel;
+    callId: string | undefined;
+  }>(() => ({ model, callId: defaultSelectedActionId(model) }));
+  if (selection.model !== model) {
+    setSelection({ model, callId: defaultSelectedActionId(model) });
+  }
+  const selectedCallId =
+    selection.model === model
+      ? selection.callId
+      : defaultSelectedActionId(model);
+  const setSelectedCallId = (callId: string | undefined): void =>
+    setSelection({ model, callId });
   const selectedAction = useMemo(
     () => model.actions.find((a) => a.callId === selectedCallId),
     [model, selectedCallId],

@@ -67,9 +67,10 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     await expect(replay).toBeVisible({ timeout: 10_000 });
 
     // Clicking sets `?replay=<testResultId>`; the page-level host then fetches
-    // the replay endpoint. The endpoint still hands back the SELF-HOSTED
-    // official viewer URL (the "Official viewer" fallback link) plus the
-    // downloadHref the native viewer feeds to the service worker.
+    // the replay endpoint. Each attempt entry carries the SELF-HOSTED official
+    // viewer URL (the "Official viewer" fallback link) plus the downloadHref
+    // the native viewer feeds to the service worker; the modal replays the
+    // LAST attempt.
     const [resp] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes("/replay") && r.request().method() === "GET",
@@ -77,11 +78,10 @@ test.describe("Test Replay (embedded trace viewer)", () => {
       replay.click(),
     ]);
     expect(resp.ok()).toBe(true);
-    const body: unknown = await resp.json();
-    const traceViewerUrl =
-      body && typeof body === "object" && "traceViewerUrl" in body
-        ? body.traceViewerUrl
-        : null;
+    const body = (await resp.json()) as {
+      attempts?: Array<{ traceViewerUrl?: unknown }>;
+    };
+    const traceViewerUrl = body.attempts?.at(-1)?.traceViewerUrl ?? null;
     expect(typeof traceViewerUrl).toBe("string");
     expect(traceViewerUrl).toContain("/trace-viewer/index.html?trace=");
     expect(traceViewerUrl).not.toContain("trace.playwright.dev");

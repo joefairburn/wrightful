@@ -21,7 +21,8 @@
 // since it also carries the provenance/adaptation notes). So on every sync we:
 //   1. Split the CURRENT local file at its first `import`/`export`/`const`
 //      line — everything before that is "header", kept as-is except for
-//      `tag vX.Y.Z` mentions, which get bumped to the new version.
+//      word-bounded `vX.Y.Z` mentions (`tag vX.Y.Z`, prose like "As of
+//      vX.Y.Z,"), which get bumped to the new version.
 //   2. Download the upstream file at the new tag and split IT at its own
 //      first `import`/`export`/`const` line the same way — everything
 //      before that (the upstream license block, plus any incidental
@@ -34,12 +35,16 @@
 //   4. Reassemble header + rewritten body, then run it through this repo's
 //      formatter (`vp fmt --write`) so the result matches house style
 //      (double quotes, semicolons, trailing commas) instead of upstream's.
+//   5. After all files (+ version.ts) are written, regenerate
+//      vendor/vendor-manifest.json (sha256 per managed file) so the offline
+//      drift canary in trace-viewer-vendor.test.ts tracks the new bytes.
+//      (`--manifest-only` runs just this step against the current files.)
 //
 // Two files (protocol-types.ts, language.ts) are HAND-EXTRACTED subsets of a
 // much larger upstream file (not verbatim copies) — this script deliberately
 // does not touch them; it just flags them for manual re-verification.
-import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
@@ -51,6 +56,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
+import { resolvePlaywrightCoreOrExit } from "./lib/playwright-core.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const at = (rel) => `${root}/${rel}`;
@@ -61,6 +67,11 @@ const VP_BIN = at("node_modules/.bin/vp");
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
 const MAKE_PR = args.includes("--pr");
+// --manifest-only: skip the (network-bound) sync entirely and just rewrite
+// vendor-manifest.json from the CURRENT on-disk vendor files — the escape
+// hatch for (re)generating the manifest offline through the exact same code
+// path a real sync uses. A normal (non-dry) run writes the manifest itself.
+const MANIFEST_ONLY = args.includes("--manifest-only");
 
 function fail(msg) {
   console.error(pc.red(`[sync-trace-vendor] ${msg}`));
@@ -77,30 +88,6 @@ function ok(msg) {
 }
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
-}
-
-// `playwright-core` is a transitive dep (via @playwright/test) and isn't
-// directly resolvable under pnpm — hop through @playwright/test, which is
-// (same dance as scripts/vendor-trace-viewer.mjs).
-function resolvePlaywrightCoreVersion() {
-  const req = createRequire(`${root}/`);
-  try {
-    const pkgPath = req.resolve("playwright-core/package.json");
-    return JSON.parse(readFileSync(pkgPath, "utf8")).version;
-  } catch {
-    // fall through to the @playwright/test hop below
-  }
-  try {
-    const testPkg = req.resolve("@playwright/test/package.json");
-    const req2 = createRequire(testPkg);
-    const pkgPath = req2.resolve("playwright-core/package.json");
-    return JSON.parse(readFileSync(pkgPath, "utf8")).version;
-  } catch {
-    fail(
-      "could not resolve `playwright-core` (via @playwright/test). Is it installed? Run `pnpm install`.",
-    );
-  }
-  return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -144,11 +131,6 @@ const VERBATIM_FILES = [
       "@trace/trace": "./trace",
       "@protocol/channels": "./protocol-types",
     },
-    // Upstream's class is `TraceModel`; this repo also exports the
-    // pre-refactor name `MultiTraceModel` as a zero-logic alias so existing
-    // callers keep working. Not present upstream — re-inserted every sync
-    // right after the class closes (see insertAfterClassClose below).
-    aliasClassName: "TraceModel",
     bodyPatches: [
       {
         description:
@@ -219,31 +201,127 @@ function localPath(name) {
   return `${VENDOR_DIR}/${name}`;
 }
 
+// ---------------------------------------------------------------------------
+// Content-hash manifest — the offline drift canary's source of truth.
+//
+// Covers exactly the machine-managed VERBATIM_FILES: version.ts is excluded
+// because its docstring is legitimately hand-edited (and the version canary
+// in trace-viewer-vendor.test.ts already guards its constant), and the
+// MANUAL_FILES (protocol-types.ts, language.ts) are excluded because they
+// are hand-extracted subsets that a human legitimately edits by hand.
+// `src/__tests__/trace-viewer-vendor.test.ts` re-hashes each entry's file
+// and fails on any mismatch, so a hand-edit to a managed vendor body can't
+// slip in silently between syncs.
+// ---------------------------------------------------------------------------
+const MANIFEST_FILE = `${VENDOR_DIR}/vendor-manifest.json`;
+
+function sha256File(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function writeVendorManifest() {
+  const files = {};
+  const names = VERBATIM_FILES.map((f) => f.local).sort();
+  for (const name of names) {
+    files[`src/trace-viewer/vendor/${name}`] = sha256File(localPath(name));
+  }
+  const manifest = {
+    $comment:
+      "Machine-generated by scripts/sync-trace-vendor.mjs — do not hand-edit. " +
+      "sha256 of each machine-managed vendor file's exact on-disk bytes; " +
+      "src/__tests__/trace-viewer-vendor.test.ts fails on any drift. " +
+      "Regenerate via `pnpm --filter @wrightful/dashboard sync:trace-vendor` " +
+      "(or its --manifest-only flag).",
+    algorithm: "sha256",
+    files,
+  };
+  writeFileSync(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Whether every line in `lines` is blank, a `//` line comment, or part of a
+// `/* ... */` block comment (including its opening/closing lines). Used to
+// verify the prefix `splitAtFirstCodeLine` is about to discard is really
+// just scaffolding, not real code.
+function isCommentsOnly(lines) {
+  let inBlock = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line === "") continue;
+    if (inBlock) {
+      if (line.includes("*/")) inBlock = false;
+      continue;
+    }
+    if (line.startsWith("//")) continue;
+    if (line.startsWith("/*")) {
+      if (!line.includes("*/")) inBlock = true;
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 // A "code line" is the first import/export/const statement — everything
 // before it is scaffolding (a license/comment header in upstream files;
 // license + oxlint-disable + VENDOR-PROVENANCE in ours).
-function splitAtFirstCodeLine(content) {
+//
+// `strict` is used for the upstream download (see buildFile): it fails
+// loudly instead of silently discarding a prefix that isn't pure
+// comment/blank scaffolding — a top-level `type`/`function`/`class`/
+// `declare` sitting before the first import/export/const would otherwise be
+// silently dropped along with the license header.
+function splitAtFirstCodeLine(content, { strict, upstreamPath } = {}) {
   const lines = content.split("\n");
   const idx = lines.findIndex((l) => /^(import|export|const)\b/.test(l));
-  if (idx === -1) return { header: content, body: "" };
-  return {
-    header: lines.slice(0, idx).join("\n"),
-    body: lines.slice(idx).join("\n"),
-  };
+  if (idx === -1) {
+    if (strict) {
+      fail(
+        `${upstreamPath}: could not find an import/export/const line to ` +
+          `split on — the resulting body would be empty. Upstream's file ` +
+          `layout may have changed.`,
+      );
+    }
+    return { header: content, body: "" };
+  }
+  const prefixLines = lines.slice(0, idx);
+  const body = lines.slice(idx).join("\n");
+  if (strict) {
+    if (!body.trim()) {
+      fail(`${upstreamPath}: split produced an empty body.`);
+    }
+    if (!isCommentsOnly(prefixLines)) {
+      fail(
+        `${upstreamPath}: the prefix discarded before the first ` +
+          `import/export/const line contains something other than blank ` +
+          `lines/comments — a top-level type/function/class/declare would ` +
+          `be silently dropped. Re-check this file by hand.`,
+      );
+    }
+  }
+  return { header: prefixLines.join("\n"), body };
 }
 
+// Rewrites every word-bounded `v<oldVersion>` mention (`tag v1.61.1`, `As of
+// v1.61.1,`, etc.) to the new version — broader than just the `tag vX.Y.Z`
+// provenance line, since prose elsewhere in a header (e.g. model-util.ts's
+// "As of v1.61.1, ...") can also cite the version.
 function bumpVersionMentions(header, oldVersion, newVersion) {
   if (oldVersion === newVersion) return header;
   return header.replaceAll(
-    new RegExp(`tag v${escapeRegExp(oldVersion)}`, "g"),
-    `tag v${newVersion}`,
+    new RegExp(`\\bv${escapeRegExp(oldVersion)}\\b`, "g"),
+    `v${newVersion}`,
   );
 }
 
+// Matches `from "…"` / `from '…'` ANYWHERE in the text — including inside
+// string literals or comments, not just real import statements. Known,
+// accepted exposure: an accidental non-relative match fails loudly via
+// rewriteImports' unknown-import set (rather than being silently rewritten),
+// and the slice we sync today has no such strings.
 const IMPORT_FROM_RE = /\bfrom\s*(['"])([^'"]+)\1/g;
 
 // Rewrites `from '<specifier>'` occurrences per the file's import map; fails
@@ -272,17 +350,86 @@ function rewriteImports(body, importMap, upstreamPath) {
   return rewritten;
 }
 
-function multiTraceModelAlias(version) {
-  return (
-    "/**\n" +
-    " * VENDOR-NOTE (compat alias, not upstream): the task brief that motivated\n" +
-    " * vendoring this file referred to the exported class as `MultiTraceModel`\n" +
-    " * (its pre-refactor name in older Playwright versions). This is a\n" +
-    " * zero-logic re-export so code written against that name still resolves;\n" +
-    ` * prefer \`TraceModel\` (the v${version} upstream name) in new code.\n` +
-    " */\n" +
-    "export { TraceModel as MultiTraceModel };"
+// Bare `import "specifier"` / `import 'specifier'` side-effect imports —
+// IMPORT_FROM_RE can't see these (there's no `from` clause), so they'd sail
+// straight through rewriteImports unrewritten and unchecked. Upstream
+// doesn't have any in the slice we sync today; fail loudly rather than
+// silently ship one unrewritten if that ever changes.
+const SIDE_EFFECT_IMPORT_RE = /^\s*import\s*(['"])([^'"]+)\1\s*;?\s*$/gm;
+
+// Dynamic `import(...)` expressions — the other import form IMPORT_FROM_RE
+// can't see (no `from` clause), so a specifier in one would sail through
+// rewriteImports unrewritten and unchecked exactly like a bare side-effect
+// import. Upstream's slice has none today; fail loudly on ANY occurrence
+// (literal or computed specifier) rather than trying to whitelist.
+const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*(?:(['"])([^'"]*)\1)?/g;
+
+// Guards against three ways an import could silently ship broken after
+// rewriteImports: a bare side-effect import (see above), a dynamic
+// `import(...)` (see above), or a relative specifier (rewritten or
+// pass-through) that doesn't actually resolve to a file in vendor/.
+function validateRewrittenImports(body, upstreamPath) {
+  const sideEffects = [...body.matchAll(SIDE_EFFECT_IMPORT_RE)].map(
+    (m) => m[2],
   );
+  if (sideEffects.length) {
+    fail(
+      `${upstreamPath}: found side-effect import(s) ` +
+        `${sideEffects.map((s) => `"${s}"`).join(", ")} — this script only ` +
+        `rewrites \`from "..."\` specifiers, so a bare \`import "..."\` would ` +
+        `ship unrewritten and unchecked. Handle it by hand (and teach ` +
+        `rewriteImports about it) before re-running.`,
+    );
+  }
+
+  const dynamics = [...body.matchAll(DYNAMIC_IMPORT_RE)].map(
+    (m) => m[2] ?? "<computed specifier>",
+  );
+  if (dynamics.length) {
+    fail(
+      `${upstreamPath}: found dynamic import(s) ` +
+        `${dynamics.map((s) => `"${s}"`).join(", ")} — this script only ` +
+        `rewrites static \`from "..."\` specifiers, so a dynamic ` +
+        `\`import(...)\` would ship unrewritten and unchecked. Handle it by ` +
+        `hand (and teach rewriteImports about it) before re-running.`,
+    );
+  }
+
+  const missing = new Set();
+  for (const match of body.matchAll(IMPORT_FROM_RE)) {
+    const specifier = match[2];
+    if (!specifier.startsWith(".")) continue;
+    if (!existsSync(join(VENDOR_DIR, `${specifier}.ts`)))
+      missing.add(specifier);
+  }
+  if (missing.size) {
+    fail(
+      `${upstreamPath}: relative import specifier(s) ` +
+        `${[...missing].map((s) => `"${s}"`).join(", ")} do not resolve to ` +
+        `an existing file in ${VENDOR_DIR} after import rewriting — the ` +
+        `import map likely needs an update (cross-check + update the ` +
+        `file's VENDOR-PROVENANCE comment too) before re-running.`,
+    );
+  }
+}
+
+// How many times `find` (string or regex) occurs in `haystack`. Regexes are
+// counted via a `g`-flagged clone so a non-global patch regex still counts
+// every occurrence, not just whether one exists.
+function countOccurrences(haystack, find) {
+  if (typeof find === "string") {
+    let count = 0;
+    for (
+      let idx = haystack.indexOf(find);
+      idx !== -1;
+      idx = haystack.indexOf(find, idx + find.length)
+    ) {
+      count++;
+    }
+    return count;
+  }
+  const flags = find.flags.includes("g") ? find.flags : `${find.flags}g`;
+  return [...haystack.matchAll(new RegExp(find.source, flags))].length;
 }
 
 // Small, hand-documented deviations from strict verbatim — mostly cases
@@ -291,44 +438,29 @@ function multiTraceModelAlias(version) {
 // vendoring pass hand-fixed them rather than blanket oxlint-disabling the
 // whole file. Re-applied on every sync so the fix doesn't get silently
 // reverted next time upstream is re-pulled.
+//
+// These are precision fixes by design: each `find` must match EXACTLY once.
+// Zero matches means upstream changed (or fixed) the code the patch targets;
+// more than one means a second occurrence would ship unpatched (string) or
+// the patch is no longer as targeted as it claims (regex). Either way a
+// human must re-check the patch, so fail loudly instead of guessing.
 function applyBodyPatches(body, patches, upstreamPath) {
   let out = body;
   for (const patch of patches ?? []) {
-    const present =
-      typeof patch.find === "string"
-        ? out.includes(patch.find)
-        : patch.find.test(out);
-    if (!present) {
-      warn(
-        `${upstreamPath}: lint-fixup patch "${patch.description}" did not ` +
-          `match anything — upstream may have changed this code; re-check ` +
-          `this file by hand.`,
+    const count = countOccurrences(out, patch.find);
+    if (count !== 1) {
+      fail(
+        `${upstreamPath}: lint-fixup patch "${patch.description}" matched ` +
+          `${count} occurrence(s), expected exactly 1 — upstream may have ` +
+          `changed this code. Re-check the patch (and the file) by hand ` +
+          `before re-running.`,
       );
-      continue;
     }
-    out = out.replace(patch.find, patch.replace);
+    // Function replacement so `$` sequences in patch.replace stay literal
+    // instead of being interpreted as replacement patterns.
+    out = out.replace(patch.find, () => patch.replace);
   }
   return out;
-}
-
-// Inserts `insertText` as a new top-level statement right after the given
-// class's own closing brace (NOT at the end of the file — the class may be
-// followed by more top-level helper functions). Relies on this codebase's
-// (and upstream's) convention that top-level closing braces sit at column 0
-// while every nested block is indented, so the first standalone "}" line
-// after the class's opening line is its own close.
-function insertAfterClassClose(body, className, insertText) {
-  const lines = body.split("\n");
-  const startIdx = lines.findIndex((l) => l.includes(`class ${className}`));
-  if (startIdx === -1) {
-    fail(`could not find "class ${className}" to anchor the alias export.`);
-  }
-  const closeIdx = lines.findIndex((l, i) => i > startIdx && l === "}");
-  if (closeIdx === -1) {
-    fail(`could not find the closing brace of "class ${className}".`);
-  }
-  lines.splice(closeIdx + 1, 0, "", insertText);
-  return lines.join("\n");
 }
 
 async function downloadUpstream(tag, upstreamPath) {
@@ -370,17 +502,13 @@ async function buildFile(file, version) {
 
   const tag = `v${version}`;
   const raw = await downloadUpstream(tag, file.upstreamPath);
-  const { body: rawBody } = splitAtFirstCodeLine(raw);
+  const { body: rawBody } = splitAtFirstCodeLine(raw, {
+    strict: true,
+    upstreamPath: file.upstreamPath,
+  });
   let body = rewriteImports(rawBody, file.importMap, file.upstreamPath);
+  validateRewrittenImports(body, file.upstreamPath);
   body = applyBodyPatches(body, file.bodyPatches, file.upstreamPath);
-
-  if (file.aliasClassName && !body.includes("MultiTraceModel")) {
-    body = insertAfterClassClose(
-      body,
-      file.aliasClassName,
-      multiTraceModelAlias(version),
-    );
-  }
 
   return `${header}\n${body}`;
 }
@@ -405,7 +533,10 @@ function writeVersionFile(newVersion) {
 }
 
 async function main() {
-  const version = resolvePlaywrightCoreVersion();
+  const { version } = resolvePlaywrightCoreOrExit(
+    import.meta.url,
+    "sync-trace-vendor",
+  );
   const oldVersion = readVersionFile();
   info(
     `installed playwright-core ${version} (vendor/ currently pinned to ${oldVersion})`,
@@ -440,6 +571,9 @@ async function main() {
   let versionBumped = false;
   if (!DRY_RUN) {
     versionBumped = writeVersionFile(version);
+    // Re-hash the just-written files so the drift canary in
+    // trace-viewer-vendor.test.ts agrees with the new bytes.
+    writeVendorManifest();
   } else {
     versionBumped = oldVersion !== version;
   }
@@ -532,6 +666,11 @@ ${fileList}
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 `;
 
+  // Only the branch + commit are automated here — pushing and opening the
+  // PR are left to the operator (printed below) rather than run
+  // automatically, so there's no ambiguity about which step succeeded when
+  // something goes wrong (a push/gh failure used to reprint the checkout +
+  // commit commands too, even though those had already succeeded).
   try {
     git(["checkout", "-b", branch]);
     git(["add", "src/trace-viewer/vendor"]);
@@ -540,28 +679,28 @@ ${fileList}
       "-m",
       `${title}\n\nRe-synced the vendored trace-model source from microsoft/playwright's\nv${version} tag to match the installed playwright-core.\n`,
     ]);
-    git(["push", "-u", "origin", branch]);
-    execFileSync(
-      "gh",
-      ["pr", "create", "--base", "main", "--title", title, "--body", body],
-      { cwd: root, stdio: "inherit" },
-    );
-    ok(`opened PR for branch ${branch}.`);
   } catch (err) {
-    warn(
-      `--pr automation failed (${errorMessage(err)}). ` +
-        `Run these manually instead:`,
-    );
-    console.log(pc.dim(`  git checkout -b ${branch}`));
-    console.log(pc.dim(`  git add apps/dashboard/src/trace-viewer/vendor`));
-    console.log(pc.dim(`  git commit -m "${title}"`));
-    console.log(pc.dim(`  git push -u origin ${branch}`));
-    console.log(
-      pc.dim(
-        `  gh pr create --base main --title "${title}" --body-file <(cat <<'EOF'\n${body}\nEOF\n)`,
-      ),
+    fail(
+      `--pr automation failed while creating branch "${branch}" / ` +
+        `committing (${errorMessage(err)}). Resolve the issue and re-run ` +
+        `with --pr, or finish the commit manually.`,
     );
   }
+
+  ok(`committed vendor/ sync to branch ${branch}. Push it and open the PR:`);
+  console.log(pc.dim(`  git push -u origin ${branch}`));
+  console.log(
+    pc.dim(
+      `  gh pr create --base main --title "${title}" --body-file <(cat <<'EOF'\n${body}\nEOF\n)`,
+    ),
+  );
 }
 
-await main();
+if (MANIFEST_ONLY) {
+  writeVendorManifest();
+  ok(
+    `wrote ${MANIFEST_FILE} from the current on-disk vendor files (no sync performed).`,
+  );
+} else {
+  await main();
+}

@@ -1,7 +1,7 @@
 import type { TraceBridge } from "./use-trace-model";
 import type {
   ActionTraceEventInContext,
-  MultiTraceModel,
+  TraceModel,
 } from "./vendor/model-util";
 import {
   context,
@@ -39,7 +39,7 @@ export type SnapshotSet = {
 
 /** Props shared by every detail tab in the workbench. */
 export type TraceTabProps = {
-  model: MultiTraceModel;
+  model: TraceModel;
   selectedAction: ActionTraceEventInContext | undefined;
   /** Select an action in the action list (e.g. from an error's link). */
   onSelectAction: (callId: string) => void;
@@ -98,18 +98,25 @@ export function collectSnapshots(
   }
 
   if (!after) {
-    let last: Snapshot | undefined;
+    // The latest-ENDING descendant (max endTime), matching upstream
+    // collectSnapshots — not the latest-starting one. Iteration is by start
+    // time, so the last qualifying action isn't necessarily the last to end
+    // (an earlier-starting descendant can span past a later-starting one).
+    let latest: Snapshot | undefined;
     for (
       let a = nextActionByStartTime(action);
       a && a.startTime <= action.endTime;
       a = nextActionByStartTime(a)
     ) {
-      if (a.endTime <= action.endTime) {
+      if (
+        a.endTime <= action.endTime &&
+        (!latest || a.endTime >= latest.action.endTime)
+      ) {
         const snapshot = createSnapshot(a, "afterSnapshot");
-        if (snapshot) last = snapshot;
+        if (snapshot) latest = snapshot;
       }
     }
-    after = last ?? before;
+    after = latest ?? before;
   }
 
   const actionSnapshot = createSnapshot(action, "inputSnapshot") ?? after;
@@ -158,15 +165,46 @@ export function snapshotIframeUrl(
  * Sidecar metadata for a snapshot (`snapshotInfo/<pageId>?…`): the page URL
  * at capture time and the EXACT viewport (correct even when a test resizes
  * mid-run). Fetch through the bridge proxy — the SW only answers controlled
- * clients.
+ * clients. A discriminated union rather than an optional `error` field on
+ * the success shape — the two are mutually exclusive on the wire (the SW
+ * sidecar either resolves the snapshot or reports why it couldn't), and this
+ * keeps `.url`/`.viewport` accessible without an `error` narrowing check at
+ * every call site.
  */
-export type SnapshotInfo = {
-  error?: string;
+export type SnapshotInfo = SnapshotInfoError | ResolvedSnapshotInfo;
+
+export type SnapshotInfoError = { error: string };
+
+export type ResolvedSnapshotInfo = {
   url: string;
   viewport: { width: number; height: number };
   timestamp?: number;
   wallTime?: number;
 };
+
+/**
+ * Validate + narrow a `snapshotInfo/` sidecar response of unknown shape (it
+ * crosses the bridge `fetchJson` boundary as `unknown`). Returns `null` for
+ * anything that isn't a recognizable `SnapshotInfo` — malformed sidecars are
+ * treated the same as a fetch failure by callers (fall back silently).
+ */
+export function parseSnapshotInfo(raw: unknown): SnapshotInfo | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.error === "string") return { error: raw.error };
+  if (typeof raw.url !== "string") return null;
+  const viewport = raw.viewport;
+  if (!isRecord(viewport)) return null;
+  const { width, height } = viewport;
+  if (typeof width !== "number" || typeof height !== "number") return null;
+  const timestamp =
+    typeof raw.timestamp === "number" ? raw.timestamp : undefined;
+  const wallTime = typeof raw.wallTime === "number" ? raw.wallTime : undefined;
+  return { url: raw.url, viewport: { width, height }, timestamp, wallTime };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 /**
  * Popout URL for opening one rendered snapshot in a new tab, via the
@@ -227,6 +265,19 @@ export function actionTitle(action: ActionTraceEvent): string {
 }
 
 /**
+ * The searchable free-text hint shown beside an action's title (the selector,
+ * URL, or evaluated expression) — the dimmed second line in an action row and
+ * in the timeline hover preview. Empty when the action carries none of them.
+ */
+export function actionParamHint(action: ActionTraceEvent): string {
+  const params: Record<string, unknown> = action.params ?? {};
+  if (typeof params.selector === "string") return params.selector;
+  if (typeof params.url === "string") return params.url;
+  if (typeof params.expression === "string") return params.expression;
+  return "";
+}
+
+/**
  * The viewport used to size/scale a snapshot: the recorded browser-context
  * viewport (falls back to Playwright's default). The official viewer reads
  * the per-snapshot `snapshotInfo/` sidecar instead, but that endpoint needs
@@ -244,9 +295,7 @@ export function snapshotViewport(action: ActionTraceEventInContext): {
  * Default selection for a freshly loaded trace: the first action that failed,
  * else the last action (the terminal state a user usually wants to see).
  */
-export function defaultSelectedActionId(
-  model: MultiTraceModel,
-): string | undefined {
+export function defaultSelectedActionId(model: TraceModel): string | undefined {
   const failed = model.actions.find((a) => a.error?.message);
   const target = failed ?? model.actions[model.actions.length - 1];
   return target?.callId;

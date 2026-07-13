@@ -1,13 +1,13 @@
 "use client";
 
 import { ChevronRight, CircleAlert, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/time-format";
-import { actionTitle } from "../model";
+import { actionParamHint, actionTitle } from "../model";
 import type { ActionGroup } from "../vendor/protocol-formatter";
-import type { ActionTreeItem, MultiTraceModel } from "../vendor/model-util";
+import type { ActionTreeItem, TraceModel } from "../vendor/model-util";
 import { buildActionTree, stats } from "../vendor/model-util";
 
 /**
@@ -18,15 +18,6 @@ import { buildActionTree, stats } from "../vendor/model-util";
  */
 const GROUPS: ActionGroup[] = ["route", "getter", "configuration"];
 const SHOWN_GROUPS_KEY = "wrightful:trace-viewer:shown-action-groups";
-
-/** The searchable free-text hint shown beside an action's title. */
-function actionParamHint(action: ActionTreeItem["action"]): string {
-  const params: Record<string, unknown> = action.params ?? {};
-  if (typeof params.selector === "string") return params.selector;
-  if (typeof params.url === "string") return params.url;
-  if (typeof params.expression === "string") return params.expression;
-  return "";
-}
 
 function readShownGroups(): ReadonlySet<ActionGroup> {
   try {
@@ -68,6 +59,22 @@ function computeDefaultCollapsed(
   return collapsed;
 }
 
+/**
+ * Whether an item is collapsed once the computed default is XOR'd against a
+ * manual override — the override toggles the default rather than replacing
+ * it, which is what lets a group chip toggle (rebuilding `defaultCollapsed`)
+ * preserve a user's manual expand/collapse. Shared by the row-render collapse
+ * check and the auto-reveal effect (which evaluates it against an in-progress
+ * override set before committing).
+ */
+function isEffectivelyCollapsed(
+  defaultCollapsed: ReadonlySet<string>,
+  overrides: ReadonlySet<string>,
+  id: string,
+): boolean {
+  return defaultCollapsed.has(id) !== overrides.has(id);
+}
+
 /** Ancestor chain from `item`'s parent up to (excluding) the synthetic root. */
 function ancestorChain(item: ActionTreeItem): ActionTreeItem[] {
   const chain: ActionTreeItem[] = [];
@@ -87,7 +94,7 @@ export function ActionList({
   selectedCallId,
   onSelect,
 }: {
-  model: MultiTraceModel;
+  model: TraceModel;
   selectedCallId: string | undefined;
   onSelect: (callId: string) => void;
 }): React.ReactElement {
@@ -111,9 +118,20 @@ export function ActionList({
     () => new Set(),
   );
   const [query, setQuery] = useState("");
+  const searching = query.trim().length > 0;
+  // Manual collapse overrides are keyed by callId, which restarts per trace
+  // file — so they must NOT survive an attempt swap (the workbench stays
+  // mounted and only resets its own selection, see trace-viewer.tsx). Reset
+  // them when the model changes, or a stale `call@N` override would XOR
+  // against an unrelated group's default in the next attempt.
+  const [overridesModel, setOverridesModel] = useState(model);
+  if (overridesModel !== model) {
+    setOverridesModel(model);
+    setOverrides(new Set());
+  }
 
   const isCollapsed = (id: string): boolean =>
-    defaultCollapsed.has(id) !== overrides.has(id);
+    isEffectivelyCollapsed(defaultCollapsed, overrides, id);
 
   // Auto-reveal: if selection moves (from outside — timeline seek, playback
   // stepping) to an action hidden under a collapsed ancestor, expand just
@@ -129,8 +147,11 @@ export function ActionList({
       let changed = false;
       const next = new Set(prev);
       for (const ancestor of ancestors) {
-        const effectivelyCollapsed =
-          defaultCollapsed.has(ancestor.id) !== next.has(ancestor.id);
+        const effectivelyCollapsed = isEffectivelyCollapsed(
+          defaultCollapsed,
+          next,
+          ancestor.id,
+        );
         if (!effectivelyCollapsed) continue;
         if (next.has(ancestor.id)) next.delete(ancestor.id);
         else next.add(ancestor.id);
@@ -279,8 +300,11 @@ export function ActionList({
             depth={depth}
             startTime={model.startTime}
             selected={item.action.callId === selectedCallId}
-            isCollapsed={isCollapsed(item.id)}
-            onToggle={toggle}
+            // While filtering, the tree is force-expanded (matches + ancestors
+            // are shown regardless of collapse) and toggling is disabled, so
+            // the chevron reflects that instead of the underlying override.
+            isCollapsed={searching ? false : isCollapsed(item.id)}
+            onToggle={searching ? undefined : toggle}
             onSelect={onSelect}
           />
         ))}
@@ -308,30 +332,27 @@ function ActionRow({
   startTime: number;
   selected: boolean;
   isCollapsed: boolean;
-  onToggle: (id: string) => void;
+  /** Undefined disables the disclosure toggle (e.g. while filtering). */
+  onToggle?: (id: string) => void;
   onSelect: (callId: string) => void;
 }): React.ReactElement {
   const action = item.action;
   const failed = Boolean(action.error?.message);
   const { errors, warnings } = stats(action);
   const duration = action.endTime - action.startTime;
-  const params = action.params ?? {};
-  const paramHint =
-    typeof params.selector === "string"
-      ? params.selector
-      : typeof params.url === "string"
-        ? params.url
-        : typeof params.expression === "string"
-          ? params.expression
-          : "";
+  const paramHint = actionParamHint(action);
+
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selected) rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   return (
     <div
       role="option"
       aria-selected={selected}
-      ref={(node) => {
-        if (selected) node?.scrollIntoView({ block: "nearest" });
-      }}
+      data-status={failed ? "fail" : "ok"}
+      ref={rowRef}
       onClick={() => onSelect(action.callId)}
       className={cn(
         "flex h-7 cursor-pointer items-center gap-1.5 pr-2 text-13",
@@ -339,7 +360,7 @@ function ActionRow({
       )}
       style={{ paddingLeft: depth * 14 + 6 }}
     >
-      {item.children.length > 0 ? (
+      {item.children.length > 0 && onToggle ? (
         <button
           type="button"
           aria-label={isCollapsed ? "Expand" : "Collapse"}
@@ -356,6 +377,12 @@ function ActionRow({
             )}
           />
         </button>
+      ) : item.children.length > 0 ? (
+        <span className="flex size-4 shrink-0 items-center justify-center text-fg-4">
+          <ChevronRight
+            className={cn("size-3.5", !isCollapsed && "rotate-90")}
+          />
+        </span>
       ) : (
         <span className="size-4 shrink-0" />
       )}

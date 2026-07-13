@@ -51,4 +51,9 @@ describe("formatTraceOffset", () => {
   it("clamps a negative offset (ms before startTime) to +0ms", () => {
     expect(formatTraceOffset(500, 1000)).toBe("+0ms");
   });
+
+  it("drops the + prefix when signed is false", () => {
+    expect(formatTraceOffset(1834, 1000, { signed: false })).toBe("834ms");
+    expect(formatTraceOffset(2200, 1000, { signed: false })).toBe("1.2s");
+  });
 });

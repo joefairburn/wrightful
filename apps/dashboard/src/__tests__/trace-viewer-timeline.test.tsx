@@ -15,6 +15,7 @@ import {
 } from "@testing-library/react";
 import { Timeline } from "@/trace-viewer/components/timeline";
 import { makeBridge, makeModel } from "./trace-viewer-fixture";
+import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 
 /**
  * Component tests for the filmstrip + click-to-seek timeline strip: one
@@ -26,10 +27,7 @@ import { makeBridge, makeModel } from "./trace-viewer-fixture";
  * synthetic fixture (`trace-viewer-fixture.ts`).
  */
 
-let originalResizeObserver: typeof ResizeObserver | undefined;
-let originalCreateObjectURL: typeof URL.createObjectURL;
-let originalRevokeObjectURL: typeof URL.revokeObjectURL;
-let restorePointerCapture: (() => void) | undefined;
+let restoreDomStubs: () => void;
 
 // Controllable requestAnimationFrame: pending callbacks are keyed by id so
 // the Timeline's cancelAnimationFrame cleanup genuinely cancels, and each
@@ -48,53 +46,16 @@ function flushFrame(timestamp: number): void {
 }
 
 beforeEach(() => {
-  originalResizeObserver = globalThis.ResizeObserver;
-  class ResizeObserverStub {
-    #callback: ResizeObserverCallback;
-    constructor(callback: ResizeObserverCallback) {
-      this.#callback = callback;
-    }
-    observe(target: Element): void {
-      // Timeline reads `entries[0].contentRect.width`, unlike snapshot-pane's
-      // stage (which reads clientWidth/Height directly) — feed both shapes.
-      this.#callback(
-        [
-          {
-            target,
-            contentRect: target.getBoundingClientRect(),
-          } as ResizeObserverEntry,
-        ],
-        this as unknown as ResizeObserver,
-      );
-    }
-    unobserve(): void {}
-    disconnect(): void {}
-  }
-  globalThis.ResizeObserver =
-    ResizeObserverStub as unknown as typeof ResizeObserver;
-
-  // left:0/width:800 is load-bearing for the click-to-seek test's fraction
-  // math (clientX=400 -> fraction 0.5), not just a sizing nicety.
-  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
-    width: 800,
-    height: 400,
-    left: 0,
-    top: 0,
-    right: 800,
-    bottom: 400,
-    x: 0,
-    y: 0,
-    toJSON() {
-      return {};
-    },
+  // left:0/width:800 (the shared stub's default) is load-bearing for the
+  // click-to-seek test's fraction math (clientX=400 -> fraction 0.5), not
+  // just a sizing nicety. Timeline reads `entries[0].contentRect.width`,
+  // unlike snapshot-pane's stage (which reads clientWidth/Height directly) —
+  // the shared ResizeObserver stub feeds both shapes off the same rect mock.
+  restoreDomStubs = installTraceViewerDomStubs({
+    layout: true,
+    objectUrl: true,
+    pointerCapture: true,
   });
-  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
-
-  originalCreateObjectURL = URL.createObjectURL.bind(URL);
-  originalRevokeObjectURL = URL.revokeObjectURL.bind(URL);
-  URL.createObjectURL = vi.fn(() => "blob:mock-url");
-  URL.revokeObjectURL = vi.fn();
 
   originalRaf = globalThis.requestAnimationFrame;
   originalCaf = globalThis.cancelAnimationFrame;
@@ -109,24 +70,6 @@ beforeEach(() => {
   globalThis.cancelAnimationFrame = (id: number): void => {
     rafCallbacks.delete(id);
   };
-
-  if (typeof Element.prototype.setPointerCapture === "function") {
-    vi.spyOn(Element.prototype, "setPointerCapture").mockImplementation(
-      () => {},
-    );
-    vi.spyOn(Element.prototype, "releasePointerCapture").mockImplementation(
-      () => {},
-    );
-  } else {
-    Element.prototype.setPointerCapture = vi.fn();
-    Element.prototype.releasePointerCapture = vi.fn();
-    restorePointerCapture = () => {
-      // @ts-expect-error -- deleting happy-dom-absent polyfills we added
-      delete Element.prototype.setPointerCapture;
-      // @ts-expect-error -- deleting happy-dom-absent polyfills we added
-      delete Element.prototype.releasePointerCapture;
-    };
-  }
 });
 
 afterEach(() => {
@@ -135,12 +78,7 @@ afterEach(() => {
   cleanup();
   globalThis.requestAnimationFrame = originalRaf;
   globalThis.cancelAnimationFrame = originalCaf;
-  vi.restoreAllMocks();
-  globalThis.ResizeObserver = originalResizeObserver as typeof ResizeObserver;
-  URL.createObjectURL = originalCreateObjectURL;
-  URL.revokeObjectURL = originalRevokeObjectURL;
-  restorePointerCapture?.();
-  restorePointerCapture = undefined;
+  restoreDomStubs();
 });
 
 describe("Timeline", () => {
@@ -157,12 +95,18 @@ describe("Timeline", () => {
         onSelect={vi.fn()}
       />,
     );
-    const bars = [...container.querySelectorAll(".rounded-sm")];
+    const bars = [
+      ...container.querySelectorAll('[data-testid="timeline-bar"]'),
+    ];
     // call@1 (400ms), call@2 (600ms), call@3 (10ms), call@4 (1000ms) — all
     // positive-duration, so all four actions get a bar.
     expect(bars).toHaveLength(4);
-    expect(bars.some((bar) => bar.className.includes("bg-fail"))).toBe(true);
-    expect(bars.some((bar) => bar.className.includes("bg-ring"))).toBe(true);
+    expect(bars.some((bar) => bar.getAttribute("data-status") === "fail")).toBe(
+      true,
+    );
+    expect(
+      bars.some((bar) => bar.getAttribute("data-selected") === "true"),
+    ).toBe(true);
   });
 
   it("renders filmstrip thumbnails fetched through the bridge", async () => {
@@ -199,7 +143,7 @@ describe("Timeline", () => {
         onSelect={onSelect}
       />,
     );
-    const strip = container.querySelector(".cursor-crosshair");
+    const strip = container.querySelector('[data-testid="timeline-strip"]');
     expect(strip).toBeTruthy();
     // rect is {left:0, width:800}; clientX=400 -> fraction 0.5 -> t = 1000 +
     // 0.5*4000 = 3000, whose active action (latest startTime <= 3000) is
@@ -360,7 +304,9 @@ describe("Timeline playback toolbar", () => {
     flushFrame(100); // t=1100 -> call@1 (next at 2000 is farther)
     flushFrame(950); // t=1950 -> snaps forward to call@2 (2000 is closer)
     // The moving playhead cursor is rendered while playing.
-    expect(container.querySelector(".w-px.bg-ring")).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="timeline-playhead"]'),
+    ).toBeTruthy();
     // The route-grouped call@3 (2050) is skipped — playback walks the
     // default-visible `filteredActions([])`, matching the action list.
     flushFrame(2100); // t=3100 -> call@4 (3000)
@@ -406,7 +352,7 @@ describe("Timeline playback toolbar", () => {
     );
     fireEvent.click(control(container, "Play"));
     expect(control(container, "Pause")).toBeTruthy();
-    const strip = container.querySelector(".cursor-crosshair");
+    const strip = container.querySelector('[data-testid="timeline-strip"]');
     fireEvent.pointerDown(strip!, { clientX: 400, pointerId: 1 });
     expect(control(container, "Play")).toBeTruthy();
   });
@@ -424,12 +370,32 @@ describe("Timeline hover preview placement", () => {
         onSelect={vi.fn()}
       />,
     );
-    const strip = container.querySelector(".cursor-crosshair");
+    const strip = container.querySelector('[data-testid="timeline-strip"]');
     fireEvent.pointerMove(strip!, { clientX: 400, pointerId: 1 });
-    const card = container.querySelector(".shadow-md");
+    const card = container.querySelector('[data-testid="timeline-preview"]');
     expect(card).toBeTruthy();
-    expect(card!.className).toContain("top-full");
-    expect(card!.className).not.toContain("bottom-full");
+    expect(card!.getAttribute("data-side")).toBe("bottom");
+  });
+
+  it("captions the preview with the action active at the hovered time", () => {
+    // clientX 400 of the 800-wide strip -> fraction 0.5 -> time 3000
+    // (startTime 1000 + 0.5 * 4000), where the `Expect "toHaveText"` action
+    // (startTime 3000, selector "#total") is active.
+    const model = makeModel();
+    const { container } = render(
+      <Timeline
+        model={model}
+        bridge={makeBridge()}
+        selectedCallId={undefined}
+        onSelect={vi.fn()}
+      />,
+    );
+    const strip = container.querySelector('[data-testid="timeline-strip"]');
+    fireEvent.pointerMove(strip!, { clientX: 400, pointerId: 1 });
+    const card = container.querySelector('[data-testid="timeline-preview"]');
+    expect(card).toBeTruthy();
+    expect(card!.textContent).toContain('Expect "toHaveText"');
+    expect(card!.textContent).toContain("#total");
   });
 
   it("keeps the preview card above the strip when there is room", () => {
@@ -455,11 +421,10 @@ describe("Timeline hover preview placement", () => {
         onSelect={vi.fn()}
       />,
     );
-    const strip = container.querySelector(".cursor-crosshair");
+    const strip = container.querySelector('[data-testid="timeline-strip"]');
     fireEvent.pointerMove(strip!, { clientX: 400, pointerId: 1 });
-    const card = container.querySelector(".shadow-md");
+    const card = container.querySelector('[data-testid="timeline-preview"]');
     expect(card).toBeTruthy();
-    expect(card!.className).toContain("bottom-full");
-    expect(card!.className).not.toContain("top-full");
+    expect(card!.getAttribute("data-side")).toBe("top");
   });
 });

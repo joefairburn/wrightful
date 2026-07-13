@@ -11,7 +11,6 @@
 // generated artifact, pinned to the installed playwright-core version and
 // regenerated whenever that version changes. Fails LOUDLY if the source layout
 // moves on a Playwright upgrade so a silent breakage can't ship.
-import { createRequire } from "node:module";
 import {
   cpSync,
   existsSync,
@@ -20,9 +19,9 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
+import { resolvePlaywrightCoreOrExit } from "./lib/playwright-core.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const at = (rel) => `${root}/${rel}`;
@@ -40,31 +39,10 @@ function fail(msg) {
   process.exit(1);
 }
 
-// `playwright-core` is a transitive dep (via @playwright/test) and isn't
-// directly resolvable under pnpm — hop through @playwright/test, which is.
-function resolvePlaywrightCoreDir() {
-  const req = createRequire(`${root}/`);
-  try {
-    return dirname(req.resolve("playwright-core/package.json"));
-  } catch {
-    // pnpm: resolve via the package that depends on it.
-  }
-  try {
-    const testPkg = req.resolve("@playwright/test/package.json");
-    const req2 = createRequire(testPkg);
-    return dirname(req2.resolve("playwright-core/package.json"));
-  } catch {
-    fail(
-      "could not resolve `playwright-core` (via @playwright/test). Is it installed? Run `pnpm install`.",
-    );
-  }
-  return "";
-}
-
-const coreDir = resolvePlaywrightCoreDir();
-const version = JSON.parse(
-  readFileSync(`${coreDir}/package.json`, "utf8"),
-).version;
+const { dir: coreDir, version } = resolvePlaywrightCoreOrExit(
+  import.meta.url,
+  "vendor-trace-viewer",
+);
 const src = `${coreDir}/lib/vite/traceViewer`;
 
 if (!existsSync(src)) {

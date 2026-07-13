@@ -1,4 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DetailTabs } from "@/trace-viewer/components/detail-tabs";
@@ -8,16 +16,21 @@ import {
   makeBridge,
   makeModel,
 } from "./trace-viewer-fixture";
+import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 
 // happy-dom gaps hit by the vendored Base UI ScrollArea / action-row ref:
 // getAnimations() isn't implemented (ScrollAreaViewport polls it on a
 // timer), and scrollIntoView isn't implemented either. Both are no-ops here.
-Element.prototype.getAnimations = function getAnimationsNoop() {
-  return [];
-};
-Element.prototype.scrollIntoView = function scrollIntoViewNoop() {
-  /* not implemented in happy-dom */
-};
+let restoreDomStubs: () => void;
+beforeAll(() => {
+  restoreDomStubs = installTraceViewerDomStubs({
+    getAnimations: true,
+    scrollIntoView: true,
+  });
+});
+afterAll(() => {
+  restoreDomStubs();
+});
 
 function tab(name: string): HTMLElement {
   const found = screen

@@ -1,21 +1,28 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Pause, Play, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
-import { sha1Path } from "../model";
+import { actionParamHint, actionTitle, sha1Path } from "../model";
+import { useElementSize } from "../use-element-size";
 import type { TraceBridge } from "../use-trace-model";
 import { useObjectUrl } from "../use-object-url";
 import type { PageEntry } from "../vendor/entries";
-import type { MultiTraceModel } from "../vendor/model-util";
+import type { TraceModel } from "../vendor/model-util";
+import {
+  lowerBoundByTime,
+  Playhead,
+  PlaybackControls,
+  usePlayback,
+  type TimelineAction,
+} from "./playback-controls";
 
 /**
- * Filmstrip + click-to-seek timeline strip below the snapshot pane, with a
- * playback control cluster (prev / play–pause / stop / next / speed) that
- * replays the trace like the official viewer: a requestAnimationFrame clock
- * advances a playhead from the selected action's startTime and selects the
- * nearest action as it passes.
+ * Filmstrip + click-to-seek timeline strip below the snapshot pane, plus the
+ * playback control cluster (prev / play–pause / stop / next / speed) — the
+ * playback engine itself (rAF clock, state model, moving playhead) lives in
+ * `playback-controls.tsx`; this file owns the strip: filmstrip sampling,
+ * action bars lane, hover preview, and click/drag seeking.
  *
  * Screencast frames are served by the trace-viewer service worker under
  * `sha1/<name>?trace=…`, and that route only answers fetches from the
@@ -23,12 +30,11 @@ import type { MultiTraceModel } from "../vendor/model-util";
  * plain `<img src="/trace-viewer/sha1/…">` from this (uncontrolled) dashboard
  * page would 404. So every thumbnail is fetched as a blob through
  * `bridge.fetchBlob` (via `useObjectUrl`) and rendered from an object URL
- * instead. Hooks can't be called in a loop, so each thumbnail is its own
- * child component (`FilmstripThumb`).
+ * instead. Hooks can't be called in a loop, so each thumbnail image is its
+ * own child component (`TraceFrameImage`).
  */
 
 type ScreencastFrame = PageEntry["screencastFrames"][number];
-type TimelineAction = MultiTraceModel["actions"][number];
 
 /**
  * Overall strip height: a ~16px axis/cursor row, an ~8px action-bars lane,
@@ -53,66 +59,33 @@ const PREVIEW_HEIGHT = 220;
  */
 const PREVIEW_CLEARANCE = PREVIEW_HEIGHT + 40;
 
-/** Playback speed presets, matching the official viewer's [.5, 1, 2]. */
-const SPEEDS = [0.5, 1, 2] as const;
-
 /** Binary search for the frame whose timestamp is closest to `t`. */
 function nearestFrameIndex(frames: ScreencastFrame[], t: number): number {
-  let lo = 0;
-  let hi = frames.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (frames[mid].timestamp < t) lo = mid + 1;
-    else hi = mid;
-  }
-  if (
-    lo > 0 &&
-    Math.abs(frames[lo - 1].timestamp - t) <= Math.abs(frames[lo].timestamp - t)
-  ) {
-    return lo - 1;
-  }
-  return lo;
+  const lb = lowerBoundByTime(frames, t, (f) => f.timestamp);
+  if (lb === 0) return 0;
+  if (lb === frames.length) return frames.length - 1;
+  return Math.abs(frames[lb - 1].timestamp - t) <=
+    Math.abs(frames[lb].timestamp - t)
+    ? lb - 1
+    : lb;
 }
 
 /**
- * The playback target at time `t`: binary search for the LAST action with
- * startTime <= t, then snap forward to the next action when its startTime is
- * closer to `t` — the official viewer's "nearest action" playback semantics.
- * Returns -1 only when there are no actions.
+ * The action active at time `t`: the latest-starting action with startTime
+ * <= t, falling back to the first action when `t` precedes every action.
+ * Undefined only when `actions` is empty.
  */
-function nearestActionIndex(actions: TimelineAction[], t: number): number {
-  if (actions.length === 0) return -1;
-  if (actions[0].startTime > t) return 0;
-  let lo = 0;
-  let hi = actions.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (actions[mid].startTime <= t) lo = mid;
-    else hi = mid - 1;
-  }
-  if (
-    lo + 1 < actions.length &&
-    actions[lo + 1].startTime - t < t - actions[lo].startTime
-  ) {
-    return lo + 1;
-  }
-  return lo;
-}
-
-/** The action active at time `t`: the latest-starting action with startTime <= t. */
 function actionActiveAt(
   actions: TimelineAction[],
   t: number,
 ): TimelineAction | undefined {
-  let candidate: TimelineAction | undefined;
-  for (const action of actions) {
-    if (action.startTime <= t) {
-      if (!candidate || action.startTime > candidate.startTime) {
-        candidate = action;
-      }
-    }
-  }
-  return candidate ?? actions[0];
+  if (actions.length === 0) return undefined;
+  const lb = lowerBoundByTime(actions, t, (a) => a.startTime);
+  // lb is the first action starting AT OR AFTER t — an exact startTime===t
+  // match is itself "active at t" and takes precedence over the last
+  // strictly-earlier action.
+  if (lb < actions.length && actions[lb].startTime === t) return actions[lb];
+  return lb === 0 ? actions[0] : actions[lb - 1];
 }
 
 export function Timeline({
@@ -122,25 +95,14 @@ export function Timeline({
   onSelect,
   className,
 }: {
-  model: MultiTraceModel;
+  model: TraceModel;
   bridge: TraceBridge;
   selectedCallId: string | undefined;
   onSelect: (callId: string) => void;
   className?: string;
 }): React.ReactElement | null {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setContainerWidth(entry.contentRect.width);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const containerWidth = useElementSize(containerRef)?.width ?? 0;
 
   const duration = model.endTime - model.startTime;
 
@@ -179,12 +141,16 @@ export function Timeline({
     [model, selectedCallId],
   );
 
-  const [hoverFraction, setHoverFraction] = useState<number | null>(null);
-  /** Flip the hover preview card below the strip when there's no room above. */
-  const [previewBelow, setPreviewBelow] = useState(false);
+  // A hover session is fraction (moves every pointermove) + below (whether
+  // the preview card flips under the strip) — `below` only changes with the
+  // Timeline's position in the viewport, which doesn't move mid-hover, so
+  // it's resolved once per session instead of on every pointermove.
+  const [hover, setHover] = useState<{
+    fraction: number;
+    below: boolean;
+  } | null>(null);
   const draggingRef = useRef(false);
 
-  // ---- Playback ----------------------------------------------------------
   // Playback, prev/next stepping, and click-to-seek walk the DEFAULT-VISIBLE
   // action set — `filteredActions([])` drops the noise groups (route/getter/
   // configuration) the action list hides by default. Selecting one of those
@@ -192,97 +158,26 @@ export function Timeline({
   // its tree entirely), so "Next" would appear to do nothing. The bars lane
   // below still renders every action.
   const playableActions = useMemo(() => model.filteredActions([]), [model]);
-  const [playing, setPlaying] = useState(false);
-  const [speedIndex, setSpeedIndex] = useState(1); // 1×
-  const [playheadTime, setPlayheadTime] = useState<number | null>(null);
-  /** The rAF clock's current position — a ref so ticks never re-close. */
-  const playheadRef = useRef(model.startTime);
-  /** Last callId this component itself selected, to dedupe onSelect calls. */
-  const lastSelectedRef = useRef<string | undefined>(undefined);
 
+  const playback = usePlayback({
+    traceStartTime: model.startTime,
+    playableActions,
+    selectedCallId,
+    selectedStartTime: selectedAction?.startTime,
+    onSelect,
+  });
+
+  // An attempt swap replaces `model` in place (the workbench stays mounted, see
+  // TraceViewer). The playhead's clock lives in the previous trace's time base,
+  // so playback that survives the swap would run from a stale, out-of-range
+  // position — stop it instead of letting it dead-play or instantly complete.
+  const { pause } = playback;
+  const playbackModelRef = useRef(model);
   useEffect(() => {
-    if (!playing) return;
-    const speed = SPEEDS[speedIndex];
-    let raf = 0;
-    let last: number | undefined;
-    const tick = (timestamp: number): void => {
-      // The first frame only baselines the clock — deltas start on frame 2.
-      if (last !== undefined) {
-        const next = Math.min(
-          model.endTime,
-          playheadRef.current + (timestamp - last) * speed,
-        );
-        playheadRef.current = next;
-        setPlayheadTime(next);
-        const index = nearestActionIndex(playableActions, next);
-        const action = index >= 0 ? playableActions[index] : undefined;
-        if (action && action.callId !== lastSelectedRef.current) {
-          lastSelectedRef.current = action.callId;
-          onSelect(action.callId);
-        }
-        if (next >= model.endTime) {
-          setPlaying(false);
-          return;
-        }
-      }
-      last = timestamp;
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [playing, speedIndex, model, playableActions, onSelect]);
-
-  const selectedIndex = playableActions.findIndex(
-    (a) => a.callId === selectedCallId,
-  );
-  const hasActions = playableActions.length > 0;
-  const lastAction = playableActions[playableActions.length - 1];
-
-  const togglePlay = (): void => {
-    if (!hasActions) return;
-    if (playing) {
-      setPlaying(false);
-      return;
-    }
-    const startFrom = selectedAction
-      ? selectedAction.startTime
-      : model.startTime;
-    if (lastAction && startFrom >= lastAction.startTime) {
-      // At/after the last action: restart from the top.
-      const first = playableActions[0];
-      lastSelectedRef.current = first.callId;
-      onSelect(first.callId);
-      playheadRef.current = model.startTime;
-      setPlayheadTime(model.startTime);
-    } else {
-      lastSelectedRef.current = selectedCallId;
-      playheadRef.current = startFrom;
-      setPlayheadTime(startFrom);
-    }
-    setPlaying(true);
-  };
-
-  const stopPlayback = (): void => {
-    setPlaying(false);
-    setPlayheadTime(null);
-    const first = playableActions[0];
-    if (first) {
-      lastSelectedRef.current = first.callId;
-      onSelect(first.callId);
-    }
-  };
-
-  const step = (delta: number): void => {
-    if (!hasActions) return;
-    const index =
-      selectedIndex === -1
-        ? 0
-        : Math.min(
-            playableActions.length - 1,
-            Math.max(0, selectedIndex + delta),
-          );
-    onSelect(playableActions[index].callId);
-  };
+    if (playbackModelRef.current === model) return;
+    playbackModelRef.current = model;
+    pause();
+  }, [model, pause]);
 
   if (duration <= 0) return null;
 
@@ -293,34 +188,45 @@ export function Timeline({
   };
 
   const seekToFraction = (fraction: number): void => {
+    // actionActiveAt only returns undefined for an empty action list — guard
+    // that once here instead of a per-call `if (action)` on every seek.
+    if (playableActions.length === 0) return;
     const t = model.startTime + fraction * duration;
-    const action = actionActiveAt(playableActions, t);
-    if (action) onSelect(action.callId);
+    onSelect(actionActiveAt(playableActions, t)!.callId);
+  };
+
+  const previewBelow = (): boolean => {
+    // The Timeline can sit at the very top of an overflow-hidden dialog, in
+    // which case an above-the-strip preview card would be clipped — measure
+    // the viewport space above and flip the card below when it won't fit.
+    const top = containerRef.current?.getBoundingClientRect().top ?? 0;
+    return top < PREVIEW_CLEARANCE;
   };
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
     event.currentTarget.setPointerCapture(event.pointerId);
     draggingRef.current = true;
     // Manual seeking takes over from playback.
-    setPlaying(false);
+    playback.pause();
     const fraction = fractionAtClientX(event.clientX);
-    setHoverFraction(fraction);
+    setHover((prev) => ({ fraction, below: prev?.below ?? previewBelow() }));
     seekToFraction(fraction);
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
     const fraction = fractionAtClientX(event.clientX);
-    setHoverFraction(fraction);
-    // The Timeline can sit at the very top of an overflow-hidden dialog, in
-    // which case an above-the-strip preview card would be clipped — measure
-    // the viewport space above and flip the card below when it won't fit.
-    const top = containerRef.current?.getBoundingClientRect().top ?? 0;
-    setPreviewBelow(top < PREVIEW_CLEARANCE);
+    setHover((prev) =>
+      prev
+        ? { fraction, below: prev.below }
+        : { fraction, below: previewBelow() },
+    );
     if (draggingRef.current) seekToFraction(fraction);
   };
 
   const onPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
-    draggingRef.current = false;
+    // Drag state is cleared in onLostPointerCapture (below), which fires for
+    // this release AND for a pointercancel (e.g. a touch turning into a scroll)
+    // where onPointerUp never runs — leaving draggingRef stuck otherwise.
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
@@ -334,6 +240,7 @@ export function Timeline({
   // The frame nearest the hovered TIME (not a slot sample) drives the hover
   // preview card. Keying/fetching by its sha1 means the card only refetches
   // when the cursor actually crosses into a new frame's window.
+  const hoverFraction = hover?.fraction ?? null;
   const hoverTime =
     hoverFraction !== null ? model.startTime + hoverFraction * duration : null;
   const previewFrame =
@@ -352,71 +259,44 @@ export function Timeline({
         )
       : 0;
 
-  const playheadFraction =
-    playing && playheadTime !== null
-      ? (playheadTime - model.startTime) / duration
-      : null;
+  // The action the click would land on at the hovered time — shown as the
+  // title + selector caption under the preview card, matching the official
+  // viewer. Same set (and same `actionActiveAt`) as `seekToFraction`, so the
+  // caption always names the action a click would actually select.
+  const hoverAction =
+    hoverTime !== null && playableActions.length > 0
+      ? actionActiveAt(playableActions, hoverTime)
+      : undefined;
 
   return (
     <div
       className={cn("flex w-full select-none", className)}
       style={{ height: TOTAL_HEIGHT }}
     >
-      {/* Playback control cluster: prev / play–pause / stop / next / speed.
-       * Lives BESIDE the strip (not inside it) so its clicks never collide
-       * with the strip's pointer-seek handlers. */}
-      <div className="flex shrink-0 items-center gap-0.5 border-r border-line-1 px-1.5">
-        <PlaybackButton
-          label="Previous action"
-          disabled={selectedIndex <= 0}
-          onClick={() => step(-1)}
-        >
-          <ChevronLeft className="size-3.5" />
-        </PlaybackButton>
-        <PlaybackButton
-          label={playing ? "Pause" : "Play"}
-          disabled={!hasActions}
-          onClick={togglePlay}
-        >
-          {playing ? (
-            <Pause className="size-3.5 fill-current" />
-          ) : (
-            <Play className="size-3.5 fill-current" />
-          )}
-        </PlaybackButton>
-        <PlaybackButton
-          label="Stop"
-          disabled={!hasActions || (selectedIndex <= 0 && !playing)}
-          onClick={stopPlayback}
-        >
-          <Square className="size-3 fill-current" />
-        </PlaybackButton>
-        <PlaybackButton
-          label="Next action"
-          disabled={!hasActions || selectedIndex === playableActions.length - 1}
-          onClick={() => step(1)}
-        >
-          <ChevronRight className="size-3.5" />
-        </PlaybackButton>
-        <button
-          type="button"
-          aria-label="Playback speed"
-          title="Playback speed"
-          onClick={() => setSpeedIndex((i) => (i + 1) % SPEEDS.length)}
-          className="flex h-6 min-w-8 items-center justify-center rounded px-1 font-mono text-11 text-fg-3 tabular-nums transition-colors hover:bg-bg-2 hover:text-fg-2"
-        >
-          {SPEEDS[speedIndex]}×
-        </button>
-      </div>
+      <PlaybackControls
+        playing={playback.playing}
+        hasActions={playback.hasActions}
+        selectedIndex={playback.selectedIndex}
+        actionsCount={playableActions.length}
+        speedIndex={playback.speedIndex}
+        onTogglePlay={playback.togglePlay}
+        onStop={playback.stopPlayback}
+        onStep={playback.step}
+        onCycleSpeed={playback.cycleSpeed}
+      />
 
       <div
         ref={containerRef}
+        data-testid="timeline-strip"
         className="relative min-w-0 flex-1 cursor-crosshair"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onLostPointerCapture={() => {
+          draggingRef.current = false;
+        }}
         onPointerLeave={() => {
-          if (!draggingRef.current) setHoverFraction(null);
+          if (!draggingRef.current) setHover(null);
         }}
       >
         {/* Action bars row: one slim bar per action (zero/negative-duration
@@ -438,6 +318,9 @@ export function Timeline({
             return (
               <div
                 key={action.callId}
+                data-testid="timeline-bar"
+                data-status={action.error ? "fail" : "ok"}
+                data-selected={isSelected ? "true" : "false"}
                 className={cn(
                   "absolute top-1/2 -translate-y-1/2 rounded-sm",
                   isSelected
@@ -459,13 +342,14 @@ export function Timeline({
           style={{ height: STRIP_HEIGHT }}
         >
           {slots.map((frame, i) => (
-            <FilmstripThumb
+            <TraceFrameImage
               key={`${frame.sha1}-${i}`}
               bridge={bridge}
               traceUri={model.traceUri}
               frame={frame}
               width={thumbWidth}
               height={STRIP_HEIGHT}
+              className="shrink-0"
             />
           ))}
         </div>
@@ -481,13 +365,20 @@ export function Timeline({
           />
         ) : null}
 
-        {/* Moving playhead while replaying — distinct from the hover cursor. */}
-        {playheadFraction !== null ? (
-          <div
-            className="pointer-events-none absolute inset-y-0 w-px bg-ring"
-            style={{
-              left: `${Math.min(1, Math.max(0, playheadFraction)) * 100}%`,
-            }}
+        {/* Moving playhead while replaying — distinct from the hover cursor.
+         * Owns its own rAF loop (see playback-controls.tsx); remounted via
+         * `key` each time a play session starts. */}
+        {playback.playing ? (
+          <Playhead
+            key={playback.session}
+            startTime={playback.playFrom}
+            traceStartTime={model.startTime}
+            traceEndTime={model.endTime}
+            speedIndex={playback.speedIndex}
+            playableActions={playableActions}
+            initialSelectedCallId={playback.initialSelectedCallId}
+            onSelect={onSelect}
+            onComplete={playback.pause}
           />
         ) : null}
 
@@ -504,13 +395,15 @@ export function Timeline({
             {previewFrame ? (
               <HoverPreview
                 key={previewFrame.sha1}
+                below={hover?.below ?? false}
                 bridge={bridge}
                 traceUri={model.traceUri}
                 frame={previewFrame}
                 label={formatTraceOffset(hoverTime ?? 0, model.startTime)}
+                title={hoverAction ? actionTitle(hoverAction) : undefined}
+                hint={hoverAction ? actionParamHint(hoverAction) : undefined}
                 left={previewLeft}
                 width={previewWidth}
-                below={previewBelow}
               />
             ) : (
               <div
@@ -538,37 +431,13 @@ export function Timeline({
   );
 }
 
-/** Small ghost icon button for the playback cluster. */
-function PlaybackButton({
-  label,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string;
-  disabled?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="flex size-6 shrink-0 items-center justify-center rounded text-fg-3 transition-colors hover:bg-bg-2 hover:text-fg-2 disabled:pointer-events-none disabled:opacity-40"
-    >
-      {children}
-    </button>
-  );
-}
-
 function HoverPreview({
   bridge,
   traceUri,
   frame,
   label,
+  title,
+  hint,
   left,
   width,
   below,
@@ -577,15 +446,19 @@ function HoverPreview({
   traceUri: string;
   frame: ScreencastFrame;
   label: string;
+  /** The action active at the hovered time (e.g. `Expect "toBeVisible"`). */
+  title?: string;
+  /** That action's selector/url/expression, dimmed under the title. */
+  hint?: string;
   left: number;
   width: number;
   /** Render under the strip when the viewport has no room above it. */
   below: boolean;
 }): React.ReactElement {
-  const { url } = useObjectUrl(bridge, sha1Path(traceUri, frame.sha1));
-
   return (
     <div
+      data-testid="timeline-preview"
+      data-side={below ? "bottom" : "top"}
       className={cn(
         // z-50: when flipped below, the card overlays the workbench panes
         // (snapshot iframes, detail tabs), which come later in DOM order and
@@ -595,19 +468,29 @@ function HoverPreview({
       )}
       style={{ left }}
     >
-      <div
-        className="overflow-hidden rounded-sm bg-bg-2"
-        style={{ width, height: PREVIEW_HEIGHT }}
-      >
-        {url ? (
-          <img
-            src={url}
-            alt=""
-            draggable={false}
-            className="size-full object-cover"
-          />
-        ) : null}
-      </div>
+      <TraceFrameImage
+        bridge={bridge}
+        traceUri={traceUri}
+        frame={frame}
+        width={width}
+        height={PREVIEW_HEIGHT}
+        className="rounded-sm"
+      />
+      {/* Action caption — title over its selector — mirrors the official
+       * viewer's hover popover. Constrained to the frame width so a long
+       * selector truncates instead of stretching the card. */}
+      {title ? (
+        <div className="mt-1 px-0.5" style={{ width }}>
+          <div className="truncate text-12 text-fg-2" title={title}>
+            {title}
+          </div>
+          {hint ? (
+            <div className="truncate font-mono text-11 text-fg-4" title={hint}>
+              {hint}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-1 whitespace-nowrap text-center font-mono text-11 text-fg-3">
         {label}
       </div>
@@ -615,23 +498,33 @@ function HoverPreview({
   );
 }
 
-function FilmstripThumb({
+/**
+ * A single screencast frame, fetched as a blob through the bridge and
+ * rendered from an object URL. Shared by the filmstrip row and the hover
+ * preview card — both are just a sized, overflow-hidden, object-cover box.
+ */
+function TraceFrameImage({
   bridge,
   traceUri,
   frame,
   width,
   height,
+  className,
 }: {
   bridge: TraceBridge;
   traceUri: string;
   frame: ScreencastFrame;
   width: number;
   height: number;
+  className?: string;
 }): React.ReactElement {
   const { url } = useObjectUrl(bridge, sha1Path(traceUri, frame.sha1));
 
   return (
-    <div className="shrink-0 overflow-hidden bg-bg-2" style={{ width, height }}>
+    <div
+      className={cn("overflow-hidden bg-bg-2", className)}
+      style={{ width, height }}
+    >
       {url ? (
         <img
           src={url}

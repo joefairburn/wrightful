@@ -1,6 +1,8 @@
+import { vi } from "vite-plus/test";
+import type { TraceTabProps } from "@/trace-viewer/model";
 import type { TraceBridge } from "@/trace-viewer/use-trace-model";
 import type { ContextEntry } from "@/trace-viewer/vendor/entries";
-import { MultiTraceModel } from "@/trace-viewer/vendor/model-util";
+import { TraceModel } from "@/trace-viewer/vendor/model-util";
 
 /**
  * Shared synthetic-trace fixture for trace-viewer unit/component tests
@@ -17,7 +19,10 @@ export const FIXTURE_TRACE_URL =
 
 type Action = ContextEntry["actions"][number];
 
-export function makeAction(over: Record<string, unknown>): Action {
+export function makeAction(over: Partial<Action>): Action {
+  // The defaults deliberately omit per-action required fields (callId,
+  // startTime, endTime) — callers always supply those — so the merged
+  // object needs one cast up to the full Action shape.
   return {
     type: "action",
     class: "Frame",
@@ -26,7 +31,7 @@ export function makeAction(over: Record<string, unknown>): Action {
     pageId: "page@1",
     log: [],
     ...over,
-  } as unknown as Action;
+  } as Action;
 }
 
 export function makeContext(over?: Partial<ContextEntry>): ContextEntry {
@@ -243,8 +248,28 @@ export function makeContext(over?: Partial<ContextEntry>): ContextEntry {
   };
 }
 
-export function makeModel(over?: Partial<ContextEntry>): MultiTraceModel {
-  return new MultiTraceModel(FIXTURE_TRACE_URL, [makeContext(over)]);
+export function makeModel(over?: Partial<ContextEntry>): TraceModel {
+  return new TraceModel(FIXTURE_TRACE_URL, [makeContext(over)]);
+}
+
+/**
+ * Default `TraceTabProps` for the detail-tab component suites: a fresh
+ * fixture model, no selection, an empty bridge, and a `vi.fn()` for
+ * `onSelectAction`. Pass overrides for whatever a test pins down (a shared
+ * `model` + its `selectedAction`, a seeded `bridge`, `scopeToSelected`…).
+ */
+export function makeTabProps(
+  overrides: Partial<TraceTabProps> = {},
+): TraceTabProps {
+  return {
+    model: makeModel(),
+    selectedAction: undefined,
+    onSelectAction: vi.fn(),
+    traceUrl: FIXTURE_TRACE_URL,
+    bridge: makeBridge(),
+    scopeToSelected: false,
+    ...overrides,
+  };
 }
 
 /**

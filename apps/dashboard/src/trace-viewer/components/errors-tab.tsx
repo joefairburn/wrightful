@@ -2,10 +2,11 @@
 
 import { Clipboard } from "lucide-react";
 import type React from "react";
+import { AnsiPre } from "@/components/ansi-pre";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ansiToHtml, stripAnsi } from "@/lib/ansi";
+import { stripAnsi } from "@/lib/ansi";
 import { useCopiedFlag } from "@/lib/use-copied-flag";
 import { actionTitle } from "../model";
 import type { TraceTabProps } from "../model";
@@ -100,13 +101,7 @@ export function ErrorsTab({
                 ) : null}
                 <CopyPromptButton descriptor={descriptor} />
               </div>
-              {/* biome-ignore lint/security/noDangerouslySetInnerHtml: ansiToHtml HTML-escapes before colourising */}
-              <pre
-                className="whitespace-pre-wrap break-words font-mono text-12"
-                dangerouslySetInnerHTML={{
-                  __html: ansiToHtml(descriptor.message),
-                }}
-              />
+              <AnsiPre text={descriptor.message} className="text-12" />
             </div>
           );
         })}

@@ -1,45 +1,11 @@
 "use client";
 
 import type React from "react";
-import { ansiToHtml } from "@/lib/ansi";
-import { formatDuration } from "@/lib/time-format";
-import { formatTraceOffset } from "../format";
+import { AnsiPre } from "@/components/ansi-pre";
+import { formatTraceDuration, formatTraceOffset } from "../format";
 import { actionTitle } from "../model";
 import type { TraceTabProps } from "../model";
-
-function Field({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-12 font-medium tracking-[0.1px] text-fg-3">
-        {label}
-      </dt>
-      <dd className="font-mono text-12 text-fg-2">{value}</dd>
-    </div>
-  );
-}
-
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="text-12 font-medium tracking-[0.1px] text-fg-3">
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
+import { Field, Section, TabNotice } from "./detail-shared";
 
 /** Compact JSON preview: single-line for primitives, pretty + capped for objects. */
 function renderJsonValue(value: unknown): React.ReactElement {
@@ -72,11 +38,7 @@ export function CallTab({
   selectedAction,
 }: TraceTabProps): React.ReactElement {
   if (!selectedAction) {
-    return (
-      <div className="px-3 py-4 text-12 text-fg-4">
-        Select an action to see its call details.
-      </div>
-    );
+    return <TabNotice>Select an action to see its call details.</TabNotice>;
   }
 
   const action = selectedAction;
@@ -110,9 +72,7 @@ export function CallTab({
             />
             <Field
               label="Duration"
-              value={formatDuration(
-                Math.max(0, Math.round(action.endTime - action.startTime)),
-              )}
+              value={formatTraceDuration(action.endTime - action.startTime)}
             />
             <Field label="Page" value={action.pageId ?? "—"} />
             <Field label="Call id" value={action.callId} />
@@ -123,12 +83,14 @@ export function CallTab({
           <Section title="Parameters">
             <dl className="flex flex-col gap-2">
               {paramEntries.map(([key, value]) => (
-                <div key={key} className="flex flex-col gap-0.5">
-                  <dt className="text-12 font-medium tracking-[0.1px] text-fg-3">
-                    {key}
-                  </dt>
-                  <dd>{renderJsonValue(value)}</dd>
-                </div>
+                // `className=""` replaces Field's default dd styling —
+                // `renderJsonValue` brings its own mono/size classes.
+                <Field
+                  key={key}
+                  label={key}
+                  value={renderJsonValue(value)}
+                  className=""
+                />
               ))}
             </dl>
           </Section>
@@ -136,21 +98,13 @@ export function CallTab({
 
         {hasResult ? (
           <Section title="Return value">
-            <pre className="max-h-40 overflow-auto break-words font-mono text-12">
-              {JSON.stringify(action.result, null, 2)}
-            </pre>
+            {renderJsonValue(action.result)}
           </Section>
         ) : null}
 
         {errorMessage ? (
           <Section title="Error">
-            {/* biome-ignore lint/security/noDangerouslySetInnerHtml: ansiToHtml HTML-escapes before colourising */}
-            <pre
-              className="whitespace-pre-wrap break-words font-mono text-12"
-              dangerouslySetInnerHTML={{
-                __html: ansiToHtml(errorMessage),
-              }}
-            />
+            <AnsiPre text={errorMessage} className="text-12" />
           </Section>
         ) : null}
       </div>

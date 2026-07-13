@@ -10,8 +10,13 @@
  * re-navigated during a scrub (each frame's `load` + a `MutationObserver`
  * per document). Every access is guarded — a cross-origin frame throws and
  * is skipped, and any failure degrades to the Dialog's own Escape/backdrop
- * handling. Idempotent (WeakSets guard re-binding); the returned cleanup
- * tears everything down.
+ * handling. Idempotent, keyed on `Document` rather than `Window`: a frame's
+ * `contentWindow` is a stable WindowProxy across same-origin navigations,
+ * but `keydown` listeners live on the per-navigation inner window/document —
+ * keying the guard on the window would silently stop re-binding after a
+ * nested frame's first navigation. `win.document` gives a fresh object per
+ * navigation, so a re-navigated frame gets a fresh listener. The returned
+ * cleanup tears everything down.
  *
  * (Moved verbatim from trace-viewer-dialog.tsx, where it used to guard the
  * old full-viewer iframe.)
@@ -21,7 +26,7 @@ export function bindEscapeAcrossFrames(
   onEscape: () => void,
 ): () => void {
   const cleanups: Array<() => void> = [];
-  const boundWindows = new WeakSet<Window>();
+  const boundDocs = new WeakSet<Document>();
   const boundFrames = new WeakSet<HTMLIFrameElement>();
   const observedDocs = new WeakSet<Document>();
 
@@ -30,14 +35,18 @@ export function bindEscapeAcrossFrames(
   };
 
   function bindWindow(win: Window): void {
-    if (boundWindows.has(win)) return;
-    boundWindows.add(win);
     let doc: Document;
     try {
-      win.addEventListener("keydown", onKey);
       doc = win.document;
     } catch {
       return; // cross-origin frame — unreachable, skip
+    }
+    if (boundDocs.has(doc)) return;
+    boundDocs.add(doc);
+    try {
+      win.addEventListener("keydown", onKey);
+    } catch {
+      return; // window already torn down mid-access
     }
     cleanups.push(() => {
       try {

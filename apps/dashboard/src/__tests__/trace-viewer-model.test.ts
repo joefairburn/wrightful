@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   collectSnapshots,
   defaultSelectedActionId,
@@ -9,40 +9,26 @@ import {
   snapshotInfoPath,
   snapshotViewport,
 } from "@/trace-viewer/model";
-import type { ContextEntry } from "@/trace-viewer/vendor/entries";
-import { MultiTraceModel } from "@/trace-viewer/vendor/model-util";
+import { TraceModel } from "@/trace-viewer/vendor/model-util";
+import {
+  FIXTURE_TRACE_URL,
+  makeAction,
+  makeContext,
+} from "./trace-viewer-fixture";
 
 /**
- * Minimal library-origin context mirroring the `contexts?trace=` JSON the
- * vendored SW serves (shape per vendor/entries.ts). Three actions:
- * a goto with before+after snapshots, a click with only an input snapshot,
- * and a failing expect with no snapshots.
+ * Exercises the vendored `TraceModel` adapter (`collectSnapshots`,
+ * `defaultSelectedActionId`, the sha1/snapshot URL builders) against the
+ * shared synthetic fixture (`trace-viewer-fixture.ts`), trimmed down to the
+ * three actions (a goto with before+after snapshots, a click with only an
+ * input snapshot, and a failing expect with no snapshots) these assertions
+ * need.
  */
-function fixtureContext(): ContextEntry {
-  const action = (
-    over: Record<string, unknown>,
-  ): ContextEntry["actions"][number] =>
-    ({
-      type: "action",
-      class: "Frame",
-      method: "goto",
-      params: {},
-      pageId: "page@1",
-      log: [],
-      ...over,
-    }) as unknown as ContextEntry["actions"][number];
 
-  return {
-    origin: "library",
-    startTime: 1000,
-    endTime: 2000,
-    browserName: "chromium",
-    wallTime: 1_700_000_000_000,
-    options: { viewport: { width: 1280, height: 720 } },
-    pages: [{ pageId: "page@1", screencastFrames: [] }],
-    resources: [],
+function fixtureContext() {
+  return makeContext({
     actions: [
-      action({
+      makeAction({
         callId: "call@1",
         method: "goto",
         startTime: 1000,
@@ -50,7 +36,7 @@ function fixtureContext(): ContextEntry {
         beforeSnapshot: "before@call@1",
         afterSnapshot: "after@call@1",
       }),
-      action({
+      makeAction({
         callId: "call@2",
         method: "click",
         startTime: 1200,
@@ -58,7 +44,7 @@ function fixtureContext(): ContextEntry {
         inputSnapshot: "input@call@2",
         point: { x: 10, y: 20 },
       }),
-      action({
+      makeAction({
         callId: "call@3",
         method: "expect",
         startTime: 1400,
@@ -66,18 +52,11 @@ function fixtureContext(): ContextEntry {
         error: { name: "Error", message: "expect failed" },
       }),
     ],
-    events: [],
-    stdio: [],
-    errors: [],
-    hasSource: false,
-    contextId: "ctx@1",
-  };
+  });
 }
 
-const TRACE_URL = "https://dash.example/api/artifacts/a1/download?t=tok";
-
 describe("trace-viewer model adapter", () => {
-  const model = new MultiTraceModel(TRACE_URL, [fixtureContext()]);
+  const model = new TraceModel(FIXTURE_TRACE_URL, [fixtureContext()]);
 
   it("vendored TraceModel builds from a contexts payload", () => {
     expect(model.actions.map((a) => a.callId)).toEqual([
@@ -115,7 +94,7 @@ describe("trace-viewer model adapter", () => {
 
   it("defaultSelectedActionId prefers the first failed action", () => {
     expect(defaultSelectedActionId(model)).toBe("call@3");
-    const passing = new MultiTraceModel(TRACE_URL, [
+    const passing = new TraceModel(FIXTURE_TRACE_URL, [
       {
         ...fixtureContext(),
         actions: fixtureContext().actions.slice(0, 2),
@@ -127,11 +106,11 @@ describe("trace-viewer model adapter", () => {
   it("snapshotIframeUrl targets the SW scope with trace/name/point params", () => {
     const snapshots = collectSnapshots(model.actions[1]);
     const url = new URL(
-      snapshotIframeUrl(TRACE_URL, snapshots.action!),
+      snapshotIframeUrl(FIXTURE_TRACE_URL, snapshots.action!),
       "https://dash.example",
     );
     expect(url.pathname).toBe("/trace-viewer/snapshot/page@1");
-    expect(url.searchParams.get("trace")).toBe(TRACE_URL);
+    expect(url.searchParams.get("trace")).toBe(FIXTURE_TRACE_URL);
     expect(url.searchParams.get("name")).toBe("input@call@2");
     expect(url.searchParams.get("pointX")).toBe("10");
     expect(url.searchParams.get("pointY")).toBe("20");
@@ -139,29 +118,34 @@ describe("trace-viewer model adapter", () => {
 
   it("sha1DownloadUrl carries download name and content type", () => {
     const url = new URL(
-      sha1DownloadUrl(TRACE_URL, "abc123", "screenshot.png", "image/png"),
+      sha1DownloadUrl(
+        FIXTURE_TRACE_URL,
+        "abc123",
+        "screenshot.png",
+        "image/png",
+      ),
       "https://dash.example",
     );
     expect(url.pathname).toBe("/trace-viewer/sha1/abc123");
     expect(url.searchParams.get("dn")).toBe("screenshot.png");
     expect(url.searchParams.get("dct")).toBe("image/png");
-    expect(url.searchParams.get("trace")).toBe(TRACE_URL);
+    expect(url.searchParams.get("trace")).toBe(FIXTURE_TRACE_URL);
   });
 
   it("bridge-proxy paths are scope-relative and carry the trace param", () => {
     // Bridge fetches resolve against /trace-viewer/bridge.html, so these
     // must be RELATIVE paths (no leading slash) with ?trace= for the SW.
     const info = snapshotInfoPath(
-      TRACE_URL,
+      FIXTURE_TRACE_URL,
       collectSnapshots(model.actions[1]).action!,
     );
     expect(info.startsWith("snapshotInfo/page@1?")).toBe(true);
-    expect(info).toContain(`trace=${encodeURIComponent(TRACE_URL)}`);
+    expect(info).toContain(`trace=${encodeURIComponent(FIXTURE_TRACE_URL)}`);
     expect(info).toContain("name=input%40call%402");
 
-    const sha1 = sha1Path(TRACE_URL, "src@abc.txt");
+    const sha1 = sha1Path(FIXTURE_TRACE_URL, "src@abc.txt");
     expect(sha1.startsWith("sha1/src@abc.txt?")).toBe(true);
-    expect(sha1).toContain(`trace=${encodeURIComponent(TRACE_URL)}`);
+    expect(sha1).toContain(`trace=${encodeURIComponent(FIXTURE_TRACE_URL)}`);
   });
 
   it("snapshotViewport reads the recorded context viewport", () => {

@@ -43,6 +43,21 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** Monkey-patches the iframe contentWindow's `postMessage` to capture the
+ * `id` of each outgoing bridge fetch request (the hook mints one per
+ * `fetchJson` call; a fetchResult reply must echo it back). No restore
+ * needed — the patched contentWindow dies with the hook's iframe. */
+function captureRequestId(iframe: HTMLIFrameElement): { id: number | null } {
+  const captured: { id: number | null } = { id: null };
+  const contentWindow = iframe.contentWindow!;
+  const originalPostMessage = contentWindow.postMessage.bind(contentWindow);
+  contentWindow.postMessage = ((data: unknown, ...rest: unknown[]) => {
+    captured.id = (data as { id?: number }).id ?? null;
+    return (originalPostMessage as (...a: unknown[]) => unknown)(data, ...rest);
+  }) as typeof contentWindow.postMessage;
+  return captured;
+}
+
 describe("useObjectUrl", () => {
   const originalCreateObjectURL = URL.createObjectURL.bind(URL);
   const originalRevokeObjectURL = URL.revokeObjectURL.bind(URL);
@@ -180,7 +195,9 @@ describe("useTraceModel — mount + protocol", () => {
     await waitFor(() =>
       expect(result.current.state).toEqual({
         status: "ready",
+        traceUrl: TRACE_URL,
         contextEntries: [],
+        switching: null,
       }),
     );
     unmount();
@@ -279,26 +296,17 @@ describe("useTraceModel — mount + protocol", () => {
     await flush();
     const iframe = document.querySelector("iframe") as HTMLIFrameElement;
 
-    let capturedId: number | null = null;
-    const contentWindow = iframe.contentWindow!;
-    const originalPostMessage = contentWindow.postMessage.bind(contentWindow);
-    contentWindow.postMessage = ((data: unknown, ...rest: unknown[]) => {
-      capturedId = (data as { id?: number }).id ?? null;
-      return (originalPostMessage as (...a: unknown[]) => unknown)(
-        data,
-        ...rest,
-      );
-    }) as typeof contentWindow.postMessage;
+    const captured = captureRequestId(iframe);
 
     const fetchPromise = result.current.bridge.fetchJson("sha1/x?trace=t");
     await flush();
-    expect(capturedId).not.toBeNull();
+    expect(captured.id).not.toBeNull();
 
     act(() => {
       postMessageFrom(iframe, {
         source: "wrightful-trace-bridge",
         method: "fetchResult",
-        params: { id: capturedId, ok: true, status: 200, body: { hi: 1 } },
+        params: { id: captured.id, ok: true, status: 200, body: { hi: 1 } },
       });
     });
 
@@ -311,16 +319,7 @@ describe("useTraceModel — mount + protocol", () => {
     await flush();
     const iframe = document.querySelector("iframe") as HTMLIFrameElement;
 
-    let capturedId: number | null = null;
-    const contentWindow = iframe.contentWindow!;
-    const originalPostMessage = contentWindow.postMessage.bind(contentWindow);
-    contentWindow.postMessage = ((data: unknown, ...rest: unknown[]) => {
-      capturedId = (data as { id?: number }).id ?? null;
-      return (originalPostMessage as (...a: unknown[]) => unknown)(
-        data,
-        ...rest,
-      );
-    }) as typeof contentWindow.postMessage;
+    const captured = captureRequestId(iframe);
 
     const fetchPromise = result.current.bridge.fetchJson(
       "sha1/missing?trace=t",
@@ -331,7 +330,7 @@ describe("useTraceModel — mount + protocol", () => {
       postMessageFrom(iframe, {
         source: "wrightful-trace-bridge",
         method: "fetchResult",
-        params: { id: capturedId, ok: false, status: 404 },
+        params: { id: captured.id, ok: false, status: 404 },
       });
     });
 
@@ -341,19 +340,23 @@ describe("useTraceModel — mount + protocol", () => {
 
   it("times out into an error state after 30s with no bridge response", () => {
     vi.useFakeTimers();
-    const { result, unmount } = renderHook(() => useTraceModel(TRACE_URL));
+    // try/finally so a failing expect can't leak fake timers into later tests.
+    try {
+      const { result, unmount } = renderHook(() => useTraceModel(TRACE_URL));
 
-    act(() => {
-      vi.advanceTimersByTime(30_000);
-    });
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
 
-    expect(result.current.state).toEqual({
-      status: "error",
-      error:
-        "Timed out loading the trace. The trace viewer's service worker may be blocked in this browser.",
-    });
-    unmount();
-    vi.useRealTimers();
+      expect(result.current.state).toEqual({
+        status: "error",
+        error:
+          "Timed out loading the trace. The trace viewer's service worker may be blocked in this browser.",
+      });
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("removes the iframe on unmount", () => {
@@ -381,5 +384,200 @@ describe("useTraceModel — mount + protocol", () => {
     await expect(
       result.current.bridge.fetchJson("sha1/x?trace=t"),
     ).rejects.toThrow("Trace bridge is not mounted.");
+  });
+});
+
+describe("useTraceModel — attempt switching (stale-while-loading)", () => {
+  const TRACE_A = "https://dash.test/api/artifacts/a1/download?t=tok1";
+  const TRACE_B = "https://dash.test/api/artifacts/a2/download?t=tok2";
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  /** Render on TRACE_A and drive it to ready. */
+  async function renderReady() {
+    const rendered = renderHook(
+      ({ url }: { url: string }) => useTraceModel(url),
+      {
+        initialProps: { url: TRACE_A },
+      },
+    );
+    await flush();
+    const iframeA = document.querySelector("iframe") as HTMLIFrameElement;
+    act(() => {
+      postMessageFrom(iframeA, {
+        source: "wrightful-trace-bridge",
+        method: "model",
+        params: { contextEntries: [] },
+      });
+    });
+    await waitFor(() =>
+      expect(rendered.result.current.state).toMatchObject({ status: "ready" }),
+    );
+    return { ...rendered, iframeA };
+  }
+
+  /** The bridge iframe mounted after {@link renderReady}'s (the pending load). */
+  function secondIframe(): HTMLIFrameElement {
+    const iframes = document.querySelectorAll("iframe");
+    expect(iframes).toHaveLength(2);
+    return iframes[1] as HTMLIFrameElement;
+  }
+
+  it("keeps the ready model (flagged switching) while the next trace loads in a second iframe", async () => {
+    const { result, rerender, iframeA, unmount } = await renderReady();
+
+    rerender({ url: TRACE_B });
+    await flush();
+
+    expect(result.current.state).toEqual({
+      status: "ready",
+      traceUrl: TRACE_A,
+      contextEntries: [],
+      switching: { progress: null },
+    });
+    const iframeB = secondIframe();
+    expect(document.body.contains(iframeA)).toBe(true);
+    expect(iframeB.getAttribute("src")).toBe(
+      `/trace-viewer/bridge.html?trace=${encodeURIComponent(TRACE_B)}`,
+    );
+    unmount();
+  });
+
+  it("surfaces the pending load's progress under switching.progress", async () => {
+    const { result, rerender, unmount } = await renderReady();
+
+    rerender({ url: TRACE_B });
+    await flush();
+
+    act(() => {
+      postMessageFrom(secondIframe(), {
+        source: "wrightful-trace-bridge",
+        method: "progress",
+        params: { done: 4, total: 8 },
+      });
+    });
+
+    await waitFor(() =>
+      expect(result.current.state).toEqual({
+        status: "ready",
+        traceUrl: TRACE_A,
+        contextEntries: [],
+        switching: { progress: { done: 4, total: 8 } },
+      }),
+    );
+    unmount();
+  });
+
+  it("swaps to the new model in place and retires the previous bridge iframe", async () => {
+    const { result, rerender, iframeA, unmount } = await renderReady();
+
+    rerender({ url: TRACE_B });
+    await flush();
+    const iframeB = secondIframe();
+
+    act(() => {
+      postMessageFrom(iframeB, {
+        source: "wrightful-trace-bridge",
+        method: "model",
+        params: { contextEntries: [] },
+      });
+    });
+
+    await waitFor(() =>
+      expect(result.current.state).toEqual({
+        status: "ready",
+        traceUrl: TRACE_B,
+        contextEntries: [],
+        switching: null,
+      }),
+    );
+    expect(document.body.contains(iframeA)).toBe(false);
+    expect(document.querySelectorAll("iframe")).toHaveLength(1);
+    unmount();
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
+  });
+
+  it("drops to the error state when the new attempt fails to load", async () => {
+    const { result, rerender, iframeA, unmount } = await renderReady();
+
+    rerender({ url: TRACE_B });
+    await flush();
+
+    act(() => {
+      postMessageFrom(secondIframe(), {
+        source: "wrightful-trace-bridge",
+        method: "error",
+        params: { error: "bad zip" },
+      });
+    });
+
+    await waitFor(() =>
+      expect(result.current.state).toEqual({
+        status: "error",
+        error: "bad zip",
+      }),
+    );
+    expect(document.body.contains(iframeA)).toBe(false);
+    unmount();
+  });
+
+  it("switching back to the active trace cancels the pending load without reloading", async () => {
+    const { result, rerender, iframeA, unmount } = await renderReady();
+
+    rerender({ url: TRACE_B });
+    await flush();
+    const iframeB = secondIframe();
+
+    rerender({ url: TRACE_A });
+    await flush();
+
+    expect(result.current.state).toEqual({
+      status: "ready",
+      traceUrl: TRACE_A,
+      contextEntries: [],
+      switching: null,
+    });
+    expect(document.body.contains(iframeB)).toBe(false);
+    expect(document.body.contains(iframeA)).toBe(true);
+    expect(document.querySelectorAll("iframe")).toHaveLength(1);
+    unmount();
+  });
+
+  it("still resolves bridge fetches through the PREVIOUS iframe mid-switch", async () => {
+    const { result, rerender, iframeA, unmount } = await renderReady();
+
+    rerender({ url: TRACE_B });
+    await flush();
+
+    // The fetch proxy must keep targeting the bridge that serves the visible
+    // (previous) model until the swap.
+    const captured = captureRequestId(iframeA);
+    const fetchPromise = result.current.bridge.fetchJson("sha1/x?trace=t");
+    await flush();
+    expect(captured.id).not.toBeNull();
+
+    act(() => {
+      postMessageFrom(iframeA, {
+        source: "wrightful-trace-bridge",
+        method: "fetchResult",
+        params: { id: captured.id, ok: true, status: 200, body: { hi: 1 } },
+      });
+    });
+
+    await expect(fetchPromise).resolves.toEqual({ hi: 1 });
+    unmount();
+  });
+
+  it("removes BOTH iframes when unmounted mid-switch", async () => {
+    const { rerender, unmount } = await renderReady();
+
+    rerender({ url: TRACE_B });
+    await flush();
+    expect(document.querySelectorAll("iframe")).toHaveLength(2);
+
+    unmount();
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
   });
 });

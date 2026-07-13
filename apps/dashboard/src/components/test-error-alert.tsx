@@ -1,4 +1,5 @@
 import type React from "react";
+import { AnsiPre } from "@/components/ansi-pre";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ansiToHtml } from "@/lib/ansi";
 
@@ -39,12 +40,7 @@ export function TestErrorAlert({
       </AlertTitle>
       {errorStack ? (
         <AlertDescription className="min-w-0">
-          <pre
-            className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs"
-            dangerouslySetInnerHTML={{
-              __html: ansiToHtml(errorStack),
-            }}
-          />
+          <AnsiPre text={errorStack} className="overflow-x-auto text-xs" />
         </AlertDescription>
       ) : null}
       {hasActions ? (

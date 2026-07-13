@@ -19,7 +19,11 @@ const r2DirectConfig = vi.fn();
 vi.mock("@/lib/config", () => ({ r2DirectConfig }));
 
 const verifyArtifactToken = vi.fn();
-vi.mock("@/lib/artifact-tokens", () => ({ verifyArtifactToken }));
+const ARTIFACT_TOKEN_TTL_SECONDS = 60 * 60;
+vi.mock("@/lib/artifact-tokens", () => ({
+  verifyArtifactToken,
+  ARTIFACT_TOKEN_TTL_SECONDS,
+}));
 
 const signGetUrl = vi.fn();
 vi.mock("@/lib/artifacts/presign", () => ({ signGetUrl }));
@@ -110,6 +114,27 @@ describe("download route — direct-R2 branch", () => {
     // default — a loose `<= 1000` alone wouldn't catch the cap being dropped.
     expect(opts.expiresIn).toBeGreaterThan(900);
     expect(opts.expiresIn).toBeLessThanOrEqual(1000);
+  });
+
+  it("caps the presigned URL to ARTIFACT_TOKEN_TTL_SECONDS for a long-lived (trace) token", async () => {
+    // An 8h trace token must NOT mint an 8h anonymous-read presigned R2 URL —
+    // the presign is capped to the standard 1h artifact-token life (the SW
+    // re-mints per range read, so a short ceiling doesn't cut the session).
+    verifyArtifactToken.mockResolvedValue({
+      r2Key: "k",
+      contentType: "image/png",
+      exp: Math.floor(Date.now() / 1000) + 8 * 60 * 60,
+    });
+    r2DirectConfig.mockReturnValue(CFG);
+
+    await handle(ctx("GET", URL_WITH_TOKEN));
+
+    const [, , opts] = signGetUrl.mock.calls[0] as [
+      unknown,
+      string,
+      { expiresIn: number },
+    ];
+    expect(opts.expiresIn).toBe(ARTIFACT_TOKEN_TTL_SECONDS);
   });
 
   it("keeps HEAD on the worker path even when ON (presigned URL is method-bound)", async () => {

@@ -22,10 +22,13 @@ export const ARTIFACT_TOKEN_TTL_SECONDS = 60 * 60;
  * artifacts). The Replay viewer's service worker range-reads the trace zip
  * LAZILY — scrubbing to a not-yet-cached snapshot re-reads bytes with the
  * token minted when the modal opened — so a debugging session longer than
- * the token would start failing quietly mid-scrub. Traces never take the
- * direct-R2 presign path (the embed is always self-hosted, see
- * `signArtifactRows`), so the longer life applies only to the worker-proxied
- * download of one object.
+ * the token would start failing quietly mid-scrub.
+ *
+ * In direct-R2 mode the SW's range-read GETs still hit `/api/artifacts/:id/
+ * download` and 302 to a presigned R2 URL, so the longer token DOES reach the
+ * presign path — but `download.ts` caps each presigned URL to
+ * `ARTIFACT_TOKEN_TTL_SECONDS`, not the token's full remaining life, so this
+ * longer token never mints an equally long-lived anonymous-read R2 URL.
  */
 export const TRACE_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 

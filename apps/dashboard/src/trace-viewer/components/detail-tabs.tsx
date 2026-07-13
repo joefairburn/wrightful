@@ -1,15 +1,17 @@
 "use client";
 
 import { Crosshair } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
-import { formatDuration } from "@/lib/time-format";
+import { formatTraceOffset } from "../format";
 import type { TraceTabProps } from "../model";
 import type { TraceBridge } from "../use-trace-model";
 import { AttachmentsTab } from "./attachments-tab";
 import { CallTab } from "./call-tab";
-import { ConsoleTab } from "./console-tab";
+import { ConsoleTab, isConsoleRow } from "./console-tab";
+import { TabNotice } from "./detail-shared";
 import { ErrorsTab } from "./errors-tab";
 import { MetadataTab } from "./metadata-tab";
 import { NetworkTab } from "./network-tab";
@@ -45,18 +47,11 @@ export function DetailTabs({
   bridge: TraceBridge;
 }): React.ReactElement {
   const errorCount = model.errorDescriptors.length;
-  const consoleCount = model.events.filter(
-    (e) =>
-      e.type === "console" || (e.type === "event" && e.method === "pageError"),
-  ).length;
+  const consoleCount = model.events.filter(isConsoleRow).length;
   const [tab, setTab] = useState<DetailTabId>(
     errorCount > 0 ? "errors" : "call",
   );
   const [scopeToSelected, setScopeToSelected] = useState(false);
-  // A new trace (model identity change) re-evaluates the default.
-  useEffect(() => {
-    setTab(model.errorDescriptors.length > 0 ? "errors" : "call");
-  }, [model]);
 
   const tabProps: TraceTabProps = {
     model,
@@ -82,14 +77,23 @@ export function DetailTabs({
     { id: "metadata", label: "Metadata" },
   ];
 
-  const scopable = tab === "console" || tab === "network";
+  // The workbench stays mounted across an attempt swap, so `tab` survives into
+  // the new model. A tab can disappear from the list (Source drops when the new
+  // attempt recorded no source) — fall back to the first tab so the body never
+  // renders a pane whose tab is no longer selectable.
+  const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
+  const scopable = activeTab === "console" || activeTab === "network";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-end justify-between gap-2 pr-2">
         <TabBar className="min-w-0 flex-1 px-2" role="tablist">
           {tabs.map(({ id, label, count }) => (
-            <TabBarTab key={id} active={tab === id} onSelect={() => setTab(id)}>
+            <TabBarTab
+              key={id}
+              active={activeTab === id}
+              onSelect={() => setTab(id)}
+            >
               {label}
               {count ? (
                 <span className="ml-1 text-11 text-fg-4 tabular-nums">
@@ -100,8 +104,9 @@ export function DetailTabs({
           ))}
         </TabBar>
         {scopable ? (
-          <button
-            type="button"
+          <Button
+            size="icon-xs"
+            variant="ghost"
             aria-pressed={scopeToSelected}
             title={
               scopeToSelected
@@ -109,28 +114,27 @@ export function DetailTabs({
                 : "Filter to the selected action's window"
             }
             onClick={() => setScopeToSelected((v) => !v)}
-            className={cn(
-              "mb-1 flex size-6 shrink-0 items-center justify-center rounded",
-              scopeToSelected
-                ? "bg-bg-3 text-fg-2"
-                : "text-fg-4 hover:text-fg-2",
-            )}
+            className={cn("mb-1", scopeToSelected && "bg-bg-3 text-fg-2")}
           >
-            <Crosshair className="size-3.5" />
-          </button>
+            <Crosshair />
+          </Button>
         ) : null}
       </div>
       <div className="min-h-0 flex-1">
-        {tab === "call" ? <CallTab {...tabProps} /> : null}
-        {tab === "log" ? (
+        {activeTab === "call" ? <CallTab {...tabProps} /> : null}
+        {activeTab === "log" ? (
           <LogTab selectedAction={selectedAction} startTime={model.startTime} />
         ) : null}
-        {tab === "errors" ? <ErrorsTab {...tabProps} /> : null}
-        {tab === "console" ? <ConsoleTab {...tabProps} /> : null}
-        {tab === "network" ? <NetworkTab {...tabProps} /> : null}
-        {tab === "source" ? <SourceTab {...tabProps} /> : null}
-        {tab === "attachments" ? <AttachmentsTab {...tabProps} /> : null}
-        {tab === "metadata" ? <MetadataTab {...tabProps} /> : null}
+        {activeTab === "errors" ? <ErrorsTab {...tabProps} /> : null}
+        {activeTab === "console" ? <ConsoleTab {...tabProps} /> : null}
+        {activeTab === "network" ? <NetworkTab {...tabProps} /> : null}
+        {activeTab === "source" ? (
+          // Keyed so a selection change remounts the tab — fresh default
+          // file + frame index for the new action's stack (see SourceTab).
+          <SourceTab key={selectedAction?.callId ?? ""} {...tabProps} />
+        ) : null}
+        {activeTab === "attachments" ? <AttachmentsTab {...tabProps} /> : null}
+        {activeTab === "metadata" ? <MetadataTab {...tabProps} /> : null}
       </div>
     </div>
   );
@@ -146,25 +150,27 @@ function LogTab({
   const log = selectedAction?.log ?? [];
   if (log.length === 0) {
     return (
-      <div className="px-3 py-4 text-12 text-fg-4">
+      <TabNotice>
         {selectedAction
           ? "No log entries for this action."
           : "Select an action to see its log."}
-      </div>
+      </TabNotice>
     );
   }
   return (
-    <div className="h-full overflow-y-auto overscroll-contain py-1">
+    // `max-content` first column sizes to the widest offset so the message
+    // column starts at one shared edge across every row.
+    <div className="grid h-full grid-cols-[max-content_minmax(0,1fr)] content-start gap-x-2 overflow-y-auto overscroll-contain py-1">
       {log.map((entry, i) => (
         <div
           key={i}
-          className="flex items-baseline gap-2 px-3 py-0.5 font-mono text-12"
+          className="col-span-full grid grid-cols-subgrid items-baseline px-3 py-0.5 font-mono text-12"
         >
-          <span className="shrink-0 text-fg-4 tabular-nums">
-            {formatDuration(Math.max(0, Math.round(entry.time - startTime)))}
+          <span className="text-right text-fg-4 tabular-nums">
+            {formatTraceOffset(entry.time, startTime, { signed: false })}
           </span>
-          <span className="min-w-0 whitespace-pre-wrap break-words text-fg-2">
-            {entry.message}
+          <span className="whitespace-pre-wrap break-words text-fg-2">
+            {entry.message.trim()}
           </span>
         </div>
       ))}

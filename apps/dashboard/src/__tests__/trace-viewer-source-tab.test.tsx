@@ -1,12 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SourceTab } from "@/trace-viewer/components/source-tab";
@@ -16,7 +9,9 @@ import {
   makeAction,
   makeBridge,
   makeModel,
+  makeTabProps,
 } from "./trace-viewer-fixture";
+import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 
 /**
  * Component tests for the Source tab: line-numbered rendering, the pure-lezer
@@ -45,41 +40,19 @@ const SPEC_CONTENT = [
 
 const HELPERS_CONTENT = "export function helper(): void {}";
 
-let restoreScrollIntoView: (() => void) | undefined;
+let restoreDomStubs: () => void;
 
 beforeEach(() => {
   // SourceLines scrollIntoView()s the target line on mount; happy-dom may or
   // may not ship the method, so stub either way (same pattern as the sibling
   // trace-viewer component suites).
-  if (typeof Element.prototype.scrollIntoView === "function") {
-    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
-  } else {
-    Element.prototype.scrollIntoView = vi.fn();
-    restoreScrollIntoView = () => {
-      // @ts-expect-error -- deleting a happy-dom-absent polyfill we added
-      delete Element.prototype.scrollIntoView;
-    };
-  }
+  restoreDomStubs = installTraceViewerDomStubs({ scrollIntoView: true });
 });
 
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
-  restoreScrollIntoView?.();
-  restoreScrollIntoView = undefined;
+  restoreDomStubs();
 });
-
-function baseProps(overrides: Partial<TraceTabProps> = {}): TraceTabProps {
-  return {
-    model: makeModel(),
-    selectedAction: undefined,
-    onSelectAction: vi.fn(),
-    traceUrl: FIXTURE_TRACE_URL,
-    bridge: makeBridge(),
-    scopeToSelected: false,
-    ...overrides,
-  };
-}
 
 /** Fixture model with both spec + helper source contents pre-seeded (skips
  * the sha1 fetch path) and `call@2` (whose stack spans both files) selected. */
@@ -88,7 +61,7 @@ function seededProps(): TraceTabProps {
   model.sources.get(SPEC_FILE)!.content = SPEC_CONTENT;
   model.sources.get(HELPERS_FILE)!.content = HELPERS_CONTENT;
   const selectedAction = model.actions.find((a) => a.callId === "call@2");
-  return baseProps({ model, selectedAction });
+  return makeTabProps({ model, selectedAction });
 }
 
 describe("SourceTab", () => {
@@ -131,7 +104,7 @@ describe("SourceTab", () => {
     model.sources.get(pyFile)!.content = "def add(a, b):\n    return a + b";
     const selectedAction = model.actions.find((a) => a.callId === "call@py");
     const { container } = render(
-      <SourceTab {...baseProps({ model, selectedAction })} />,
+      <SourceTab {...makeTabProps({ model, selectedAction })} />,
     );
     expect(screen.getByText("def add(a, b):")).toBeTruthy();
     expect(container.querySelector('[class*="tok-"]')).toBeNull();
@@ -167,7 +140,7 @@ describe("SourceTab", () => {
     const selectedAction = model.actions.find((a) => a.callId === "call@1");
     const sha1 = createHash("sha1").update(SPEC_FILE).digest("hex");
     const bridge = makeBridge({ [`sha1/src@${sha1}.txt`]: SPEC_CONTENT });
-    render(<SourceTab {...baseProps({ model, selectedAction, bridge })} />);
+    render(<SourceTab {...makeTabProps({ model, selectedAction, bridge })} />);
     // "42" is unique in the fixture content (unlike "const"), and arrives as
     // its own tok-number span once the fetched content is tokenized.
     expect(await screen.findByText("42")).toBeTruthy();

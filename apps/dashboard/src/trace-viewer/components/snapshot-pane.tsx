@@ -2,22 +2,26 @@
 
 import { ExternalLink, ImageIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import type {
+  ResolvedSnapshotInfo,
   Snapshot,
-  SnapshotInfo,
   SnapshotSet,
   SnapshotTabId,
 } from "../model";
 import {
   collectSnapshots,
+  parseSnapshotInfo,
   snapshotIframeUrl,
   snapshotInfoPath,
   snapshotPopoutUrl,
   snapshotViewport,
 } from "../model";
+import { useElementSize } from "../use-element-size";
+import { usePersistedFlag } from "../use-persisted-flag";
 import type { TraceBridge } from "../use-trace-model";
 import type { ActionTraceEventInContext } from "../vendor/model-util";
 import { bindEscapeAcrossFrames } from "./escape-frames";
@@ -33,37 +37,35 @@ const TAB_ORDER: SnapshotTabId[] = ["before", "action", "after"];
  * Persisted opt-in for repainting `<canvas>` content from the nearest
  * screencast frame (canvas pixels aren't captured in DOM snapshots — see
  * `snapshotIframeUrl`'s `populateCanvasFromScreenshot` option). Off by
- * default since the repaint is best-effort and sometimes imprecise. Read
- * lazily, same pattern as action-list's `readShownGroups` — the try/catch
- * also absorbs SSR (`window` undefined during the server render pass).
+ * default since the repaint is best-effort and sometimes imprecise.
  */
 const CANVAS_FROM_SCREENSHOT_KEY =
   "wrightful:trace-viewer:canvas-from-screenshot";
 
-function readCanvasFromScreenshot(): boolean {
-  try {
-    return window.localStorage.getItem(CANVAS_FROM_SCREENSHOT_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-/** Cache key for a snapshot's `snapshotInfo/` sidecar (page + name identify it). */
-function snapshotInfoKey(snapshot: Snapshot): string {
-  return `${snapshot.pageId}:${snapshot.snapshotName}`;
+/**
+ * Cache key for a snapshot's `snapshotInfo/` sidecar. The trace URL is part
+ * of the key: the pane stays mounted across an attempt swap (the workbench
+ * is deliberately un-keyed — see `trace-viewer.tsx`), and page ids /
+ * snapshot names recur across a test's attempts with different content.
+ */
+function snapshotInfoKey(traceUrl: string, snapshot: Snapshot): string {
+  return `${traceUrl}#${snapshot.pageId}:${snapshot.snapshotName}`;
 }
 
 /**
  * Center pane: the DOM snapshot scrubber. Up to three iframes (Before/Action/
  * After) are mounted at once, one per available snapshot in the action's
  * `SnapshotSet`, and tab switches merely toggle which is visible — this is
- * what makes scrubbing flash-free (the old single `key={url}` iframe
+ * what makes TAB switching flash-free (the old single `key={url}` iframe
  * remounted, and therefore reloaded, on every tab click). The iframe
  * navigates to the SW-rendered snapshot document
  * (`/trace-viewer/snapshot/<pageId>?…`) — a navigation request, so the SW
  * serves it even though this page itself is not SW-controlled. When the
- * selected ACTION changes the whole `SnapshotSet` (and therefore every
- * iframe's `src`) changes too, so a reload there is expected.
+ * selected ACTION (or, on an attempt swap, the whole trace) changes, each
+ * slot NAVIGATES its existing iframe in place (`location.replace`) instead
+ * of remounting it — the browser keeps the previous document painted until
+ * the next one commits, so scrubbing and attempt switches never show a
+ * blank iframe (see {@link SnapshotFrame}).
  */
 export function SnapshotPane({
   action,
@@ -75,15 +77,16 @@ export function SnapshotPane({
   traceUrl: string;
   onEscape?: () => void;
   /** Bridge proxy for the `snapshotInfo/` sidecar (URL bar + exact viewport). */
-  bridge?: TraceBridge;
+  bridge: TraceBridge;
 }): React.ReactElement {
   const snapshots: SnapshotSet = useMemo(
     () => collectSnapshots(action),
     [action],
   );
   const [tab, setTab] = useState<SnapshotTabId>("action");
-  const [canvasFromScreenshot, setCanvasFromScreenshot] = useState<boolean>(
-    readCanvasFromScreenshot,
+  const [canvasFromScreenshot, setCanvasFromScreenshot] = usePersistedFlag(
+    CANVAS_FROM_SCREENSHOT_KEY,
+    false,
   );
   const available = TAB_ORDER.filter((id) => snapshots[id]);
   const activeTab: SnapshotTabId | undefined = snapshots[tab]
@@ -95,26 +98,12 @@ export function SnapshotPane({
 
   const info = useSnapshotInfo(bridge, traceUrl, activeSnapshot);
 
-  const toggleCanvasFromScreenshot = (): void => {
-    setCanvasFromScreenshot((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage.setItem(
-          CANVAS_FROM_SCREENSHOT_KEY,
-          next ? "1" : "0",
-        );
-      } catch {
-        /* persistence is best-effort */
-      }
-      return next;
-    });
-  };
-
   // Absolute URL of the currently rendered snapshot iframe, resolved against
-  // the page origin for the popout shell — same client-only guard as
-  // `TestReplayContent`'s `absoluteTraceUrl` (null on SSR, set on hydrate).
+  // the page origin for the popout shell. `window` is safe here: this pane
+  // only ever mounts after the bridge posts a model, which requires a
+  // client-side effect — it never server-renders.
   const popoutHref = useMemo(() => {
-    if (typeof window === "undefined" || !activeSnapshot) return undefined;
+    if (!activeSnapshot) return undefined;
     const relativeUrl = snapshotIframeUrl(traceUrl, activeSnapshot, {
       populateCanvasFromScreenshot: canvasFromScreenshot,
     });
@@ -137,20 +126,16 @@ export function SnapshotPane({
           ))}
         </TabBar>
         <div className="mb-1 flex shrink-0 items-center gap-1">
-          <button
-            type="button"
+          <Button
+            size="icon-xs"
+            variant="ghost"
             aria-pressed={canvasFromScreenshot}
             title="Paint <canvas> content from the nearest screenshot (may be imprecise)"
-            onClick={toggleCanvasFromScreenshot}
-            className={cn(
-              "flex size-6 shrink-0 items-center justify-center rounded",
-              canvasFromScreenshot
-                ? "bg-bg-3 text-fg-2"
-                : "text-fg-4 hover:text-fg-2",
-            )}
+            onClick={() => setCanvasFromScreenshot(!canvasFromScreenshot)}
+            className={cn(canvasFromScreenshot && "bg-bg-3 text-fg-2")}
           >
-            <ImageIcon className="size-3.5" />
-          </button>
+            <ImageIcon />
+          </Button>
           {popoutHref ? (
             <a
               href={popoutHref}
@@ -164,7 +149,7 @@ export function SnapshotPane({
           ) : null}
         </div>
       </div>
-      {bridge ? <SnapshotUrlBar url={info?.url} /> : null}
+      <SnapshotUrlBar url={info?.url} />
       <div className="min-h-0 flex-1 bg-bg-2">
         {activeTab && activeSnapshot && action ? (
           <ScaledSnapshotStage
@@ -220,20 +205,20 @@ function SnapshotUrlBar({
  * callers fall back to the context viewport / hide the URL bar.
  */
 function useSnapshotInfo(
-  bridge: TraceBridge | undefined,
+  bridge: TraceBridge,
   traceUrl: string,
   snapshot: Snapshot | undefined,
-): SnapshotInfo | undefined {
-  const cacheRef = useRef(new Map<string, SnapshotInfo>());
+): ResolvedSnapshotInfo | undefined {
+  const cacheRef = useRef(new Map<string, ResolvedSnapshotInfo>());
   const [entry, setEntry] = useState<{
     key: string;
-    info: SnapshotInfo;
+    info: ResolvedSnapshotInfo;
   } | null>(null);
 
-  const key = snapshot ? snapshotInfoKey(snapshot) : undefined;
+  const key = snapshot ? snapshotInfoKey(traceUrl, snapshot) : undefined;
 
   useEffect(() => {
-    if (!bridge || !snapshot || !key) return;
+    if (!snapshot || !key) return;
     const cached = cacheRef.current.get(key);
     if (cached) {
       setEntry({ key, info: cached });
@@ -244,8 +229,9 @@ function useSnapshotInfo(
       .fetchJson(snapshotInfoPath(traceUrl, snapshot))
       .then((raw) => {
         if (cancelled) return;
-        const parsed = raw as SnapshotInfo;
-        if (parsed.error) return; // sidecar failed — fall back silently
+        const parsed = parseSnapshotInfo(raw);
+        // Malformed or error sidecar — fall back silently.
+        if (!parsed || "error" in parsed) return;
         cacheRef.current.set(key, parsed);
         setEntry({ key, info: parsed });
       })
@@ -275,36 +261,11 @@ function ScaledSnapshotStage({
   activeTab: SnapshotTabId;
   viewport: { width: number; height: number };
   onEscape?: () => void;
-  /** See `readCanvasFromScreenshot` — applies to every mounted iframe's src. */
+  /** See `CANVAS_FROM_SCREENSHOT_KEY` — applies to every mounted iframe's src. */
   canvasFromScreenshot: boolean;
 }): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState<{ width: number; height: number } | null>(
-    null,
-  );
-
-  // One escape-binding cleanup per mounted iframe, keyed the same way as the
-  // info cache. The old code kept a single cleanup ref, which only worked
-  // because there was only ever one iframe; now up to three can be loaded
-  // (and re-loaded, on action change) independently.
-  const escapeCleanupsRef = useRef(new Map<string, () => void>());
-  useEffect(() => {
-    const cleanups = escapeCleanupsRef.current;
-    return () => {
-      for (const cleanup of cleanups.values()) cleanup();
-      cleanups.clear();
-    };
-  }, []);
-
-  useEffect(() => {
-    const node = containerRef.current;
-    if (!node) return;
-    const observer = new ResizeObserver(() => {
-      setSize({ width: node.clientWidth, height: node.clientHeight });
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
+  const size = useElementSize(containerRef);
 
   const PADDING = 16;
   const scale = size
@@ -331,49 +292,161 @@ function ScaledSnapshotStage({
           {available.map((id) => {
             const snapshot = snapshots[id];
             if (!snapshot) return null;
-            const isActive = id === activeTab;
             const url = snapshotIframeUrl(traceUrl, snapshot, {
               populateCanvasFromScreenshot: canvasFromScreenshot,
             });
             return (
-              <iframe
-                // Keying on the url (not just `id`) forces a reload when the
-                // selected action changes the underlying snapshot for this
-                // tab slot, while leaving it mounted across tab switches.
-                key={`${id}:${url}`}
-                title={`DOM snapshot (${TAB_LABELS[id]})`}
-                src={url}
-                sandbox="allow-same-origin allow-scripts"
-                aria-hidden={!isActive}
-                inert={!isActive}
-                className={cn(
-                  "absolute inset-0 origin-top-left border-0",
-                  isActive ? "visible" : "invisible pointer-events-none",
-                )}
-                style={{
-                  width: viewport.width,
-                  height: viewport.height,
-                  transform: `scale(${scale})`,
-                }}
-                onLoad={(e) => {
-                  if (!onEscape) return;
-                  const cacheKey = snapshotInfoKey(snapshot);
-                  escapeCleanupsRef.current.get(cacheKey)?.();
-                  const win = e.currentTarget.contentWindow;
-                  if (win) {
-                    escapeCleanupsRef.current.set(
-                      cacheKey,
-                      bindEscapeAcrossFrames(win, onEscape),
-                    );
-                  } else {
-                    escapeCleanupsRef.current.delete(cacheKey);
-                  }
-                }}
+              <BufferedSnapshotFrame
+                key={id}
+                id={id}
+                url={url}
+                isActive={id === activeTab}
+                viewport={viewport}
+                scale={scale}
+                onEscape={onEscape}
               />
             );
           })}
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Double-buffers one tab slot's snapshot document. When the slot's target
+ * `url` changes (scrubbing to another action, or an attempt swap replacing
+ * the whole trace), the PREVIOUS document stays visible while the next one
+ * loads in a hidden sibling iframe; the loaded frame is then promoted in
+ * place — so the pane never shows a blank iframe mid-load. Frames are keyed
+ * by URL: promotion keeps the already-loaded element's key (no remount, no
+ * reload), while the retired front unmounts (running its escape-binding
+ * cleanup). A target that changes again mid-load replaces the back buffer
+ * (it's hidden, so its reload costs nothing visually), and a target that
+ * returns to the visible document just drops the back buffer.
+ */
+function BufferedSnapshotFrame({
+  id,
+  url,
+  isActive,
+  viewport,
+  scale,
+  onEscape,
+}: {
+  id: SnapshotTabId;
+  url: string;
+  isActive: boolean;
+  viewport: { width: number; height: number };
+  scale: number;
+  onEscape?: () => void;
+}): React.ReactElement {
+  const [buffer, setBuffer] = useState<{
+    front: string;
+    back: string | null;
+  }>({ front: url, back: null });
+
+  // Route a new target into the back buffer (render-time adjustment, so the
+  // front frame is never unmounted first — React re-renders immediately and
+  // discards this pass's output).
+  if (url === buffer.front) {
+    if (buffer.back !== null) setBuffer({ front: buffer.front, back: null });
+  } else if (url !== buffer.back) {
+    setBuffer({ front: buffer.front, back: url });
+  }
+
+  const promote = (): void => {
+    setBuffer((prev) =>
+      prev.back !== null ? { front: prev.back, back: null } : prev,
+    );
+  };
+
+  const frames =
+    buffer.back !== null && buffer.back !== buffer.front
+      ? [
+          { url: buffer.front, isFront: true },
+          { url: buffer.back, isFront: false },
+        ]
+      : [{ url: buffer.front, isFront: true }];
+
+  return (
+    <>
+      {frames.map((frame) => (
+        <SnapshotFrame
+          key={`${id}:${frame.url}`}
+          id={id}
+          url={frame.url}
+          isActive={isActive && frame.isFront}
+          viewport={viewport}
+          scale={scale}
+          onEscape={onEscape}
+          onLoaded={frame.isFront ? undefined : promote}
+        />
+      ))}
+    </>
+  );
+}
+
+/**
+ * One mounted snapshot iframe. Owns its own escape binding: (re-)bound in
+ * `onLoad`, released on unmount and before every re-bind. Because the parent
+ * keys each `SnapshotFrame` by `${id}:${url}`, a snapshot change or tab-slot
+ * change unmounts the old frame outright — its cleanup effect runs then, so
+ * there's no need for a manually keyed cleanup map spanning frames.
+ */
+function SnapshotFrame({
+  id,
+  url,
+  isActive,
+  viewport,
+  scale,
+  onEscape,
+  onLoaded,
+}: {
+  id: SnapshotTabId;
+  url: string;
+  isActive: boolean;
+  viewport: { width: number; height: number };
+  scale: number;
+  onEscape?: () => void;
+  /** Fires after the document loads (back-buffer promotion hook). */
+  onLoaded?: () => void;
+}): React.ReactElement {
+  const escapeCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      escapeCleanupRef.current?.();
+      escapeCleanupRef.current = null;
+    };
+  }, []);
+
+  return (
+    <iframe
+      title={`DOM snapshot (${TAB_LABELS[id]})`}
+      src={url}
+      sandbox="allow-same-origin allow-scripts"
+      aria-hidden={!isActive}
+      inert={!isActive}
+      className={cn(
+        "absolute inset-0 origin-top-left border-0",
+        isActive ? "visible" : "invisible pointer-events-none",
+      )}
+      style={{
+        width: viewport.width,
+        height: viewport.height,
+        transform: `scale(${scale})`,
+      }}
+      onLoad={(e) => {
+        escapeCleanupRef.current?.();
+        escapeCleanupRef.current = null;
+        if (onEscape) {
+          const win = e.currentTarget.contentWindow;
+          if (win) {
+            escapeCleanupRef.current = bindEscapeAcrossFrames(win, onEscape);
+          }
+        }
+        onLoaded?.();
+      }}
+    />
   );
 }

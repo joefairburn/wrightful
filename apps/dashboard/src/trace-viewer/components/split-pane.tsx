@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 /**
  * Minimal two-pane resizable split for the trace workbench (no split-pane
  * component exists in ui/ and pulling a dependency for one divider isn't
  * worth it). The first child gets `fraction` of the container, the second
- * the rest; the divider drags with pointer capture. Fraction is component
+ * the rest; the divider drags with pointer capture — capture routes all
+ * pointer events to the divider itself, so plain React handlers cover the
+ * whole drag, and `onLostPointerCapture` (which fires for both pointerup
+ * and pointercancel) is the single end-of-drag hook. Fraction is component
  * state only — not persisted.
  */
 export function SplitPane({
@@ -27,33 +30,9 @@ export function SplitPane({
   children: [React.ReactNode, React.ReactNode];
 }): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
   const [fraction, setFraction] = useState(initial);
   const horizontal = direction === "horizontal";
-
-  const onPointerDown = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      const divider = event.currentTarget;
-      divider.setPointerCapture(event.pointerId);
-
-      const onMove = (move: PointerEvent): void => {
-        const container = containerRef.current;
-        if (!container) return;
-        const rect = container.getBoundingClientRect();
-        const next = horizontal
-          ? (move.clientX - rect.left) / rect.width
-          : (move.clientY - rect.top) / rect.height;
-        setFraction(Math.min(max, Math.max(min, next)));
-      };
-      const onUp = (): void => {
-        divider.removeEventListener("pointermove", onMove);
-        divider.removeEventListener("pointerup", onUp);
-      };
-      divider.addEventListener("pointermove", onMove);
-      divider.addEventListener("pointerup", onUp);
-    },
-    [horizontal, min, max],
-  );
 
   return (
     <div
@@ -73,7 +52,24 @@ export function SplitPane({
       <div
         role="separator"
         aria-orientation={horizontal ? "vertical" : "horizontal"}
-        onPointerDown={onPointerDown}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          draggingRef.current = true;
+        }}
+        onPointerMove={(event) => {
+          if (!draggingRef.current) return;
+          const container = containerRef.current;
+          if (!container) return;
+          const rect = container.getBoundingClientRect();
+          const next = horizontal
+            ? (event.clientX - rect.left) / rect.width
+            : (event.clientY - rect.top) / rect.height;
+          setFraction(Math.min(max, Math.max(min, next)));
+        }}
+        onLostPointerCapture={() => {
+          draggingRef.current = false;
+        }}
         className={cn(
           "shrink-0 bg-line-1 transition-colors hover:bg-ring/60",
           horizontal ? "w-px cursor-col-resize px-0" : "h-px cursor-row-resize",

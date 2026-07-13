@@ -16,12 +16,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { AnsiPre } from "@/components/ansi-pre";
 import { TraceViewerDialog } from "@/components/trace-viewer-dialog";
 import { VisualDiffRailButton } from "@/components/visual-diff-dialog";
-import { ansiToHtml } from "@/lib/ansi";
 import { cn } from "@/lib/cn";
 import { useCopiedFlag } from "@/lib/use-copied-flag";
-import { warmTraceViewer } from "@/trace-viewer/warm";
 
 /**
  * Sticky right rail on the test detail page. Three optional sections:
@@ -140,9 +139,8 @@ function SectionLabel({
 
 /**
  * A captured stdout/stderr stream, rendered in the rail as a scrollable,
- * ANSI-aware monospace block. `ansiToHtml` HTML-escapes before colourising, so
- * test-controlled output is not an injection sink (same path as the error
- * stack). `stderr` is tinted so it reads as the error channel.
+ * ANSI-aware monospace block ({@link AnsiPre} — test-controlled output is not
+ * an injection sink). `stderr` is tinted so it reads as the error channel.
  */
 function RailLogBlock({
   label,
@@ -158,13 +156,12 @@ function RailLogBlock({
       <div className="text-micro font-mono uppercase tracking-wider text-fg-3 mb-1">
         {label}
       </div>
-      {/* biome-ignore lint/security/noDangerouslySetInnerHtml: ansiToHtml HTML-escapes before colourising */}
-      <pre
+      <AnsiPre
+        text={text}
         className={cn(
-          "max-h-64 overflow-auto rounded border border-line-1 bg-muted/40 p-2 text-xs font-mono whitespace-pre-wrap break-words",
+          "max-h-64 overflow-auto rounded border border-line-1 bg-muted/40 p-2 text-xs",
           tone === "error" ? "text-destructive" : "text-fg-1",
         )}
-        dangerouslySetInnerHTML={{ __html: ansiToHtml(text) }}
       />
     </div>
   );
@@ -220,18 +217,7 @@ function RailTraceButton({
 }): React.ReactElement {
   if (!artifact.traceViewerUrl) return <></>;
   return (
-    <TraceViewerDialog
-      artifact={artifact}
-      onTriggerPointerEnter={() => {
-        // Full prefetch (unlike the Tests-tab row, we already know the trace's
-        // download URL here) — the SW loads + parses it into cache so the
-        // modal opens near-instant.
-        if (typeof window === "undefined") return;
-        warmTraceViewer(
-          new URL(artifact.downloadHref, window.location.origin).href,
-        );
-      }}
-    >
+    <TraceViewerDialog artifact={artifact}>
       <RailIconLabel icon={<History />} label="Replay" />
       <ArrowRight className="opacity-50" aria-hidden />
     </TraceViewerDialog>

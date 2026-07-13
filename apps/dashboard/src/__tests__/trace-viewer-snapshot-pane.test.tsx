@@ -1,12 +1,5 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vite-plus/test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SnapshotPane } from "@/trace-viewer/components/snapshot-pane";
 import {
@@ -15,6 +8,7 @@ import {
   makeBridge,
   makeModel,
 } from "./trace-viewer-fixture";
+import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 
 /**
  * Component tests for the center snapshot-scrubber pane: Before/Action/After
@@ -27,101 +21,24 @@ import {
 const CANVAS_FROM_SCREENSHOT_KEY =
   "wrightful:trace-viewer:canvas-from-screenshot";
 
-let originalResizeObserver: typeof ResizeObserver | undefined;
-let originalCreateObjectURL: typeof URL.createObjectURL;
-let originalRevokeObjectURL: typeof URL.revokeObjectURL;
-let restoreScrollIntoView: (() => void) | undefined;
-let restorePointerCapture: (() => void) | undefined;
+let restoreDomStubs: () => void;
 
 beforeEach(() => {
   window.localStorage.clear();
-
-  originalResizeObserver = globalThis.ResizeObserver;
-  class ResizeObserverStub {
-    #callback: ResizeObserverCallback;
-    constructor(callback: ResizeObserverCallback) {
-      this.#callback = callback;
-    }
-    observe(target: Element): void {
-      this.#callback(
-        [
-          {
-            target,
-            contentRect: target.getBoundingClientRect(),
-          } as ResizeObserverEntry,
-        ],
-        this as unknown as ResizeObserver,
-      );
-    }
-    unobserve(): void {}
-    disconnect(): void {}
-  }
-  globalThis.ResizeObserver =
-    ResizeObserverStub as unknown as typeof ResizeObserver;
-
   // SnapshotPane's stage sizes itself off the container's clientWidth/Height
-  // (not getBoundingClientRect), but stub both — the fixed ~800×400 read
-  // is what lets `scale > 0` and the iframes actually mount.
-  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
-    width: 800,
-    height: 400,
-    left: 0,
-    top: 0,
-    right: 800,
-    bottom: 400,
-    x: 0,
-    y: 0,
-    toJSON() {
-      return {};
-    },
+  // (not getBoundingClientRect), but the shared stub mocks both — the fixed
+  // ~800×400 read is what lets `scale > 0` and the iframes actually mount.
+  restoreDomStubs = installTraceViewerDomStubs({
+    layout: true,
+    objectUrl: true,
+    scrollIntoView: true,
+    pointerCapture: true,
   });
-  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
-
-  originalCreateObjectURL = URL.createObjectURL.bind(URL);
-  originalRevokeObjectURL = URL.revokeObjectURL.bind(URL);
-  URL.createObjectURL = vi.fn(() => "blob:mock-url");
-  URL.revokeObjectURL = vi.fn();
-
-  if (typeof Element.prototype.scrollIntoView === "function") {
-    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
-  } else {
-    Element.prototype.scrollIntoView = vi.fn();
-    restoreScrollIntoView = () => {
-      // @ts-expect-error -- deleting a happy-dom-absent polyfill we added
-      delete Element.prototype.scrollIntoView;
-    };
-  }
-
-  if (typeof Element.prototype.setPointerCapture === "function") {
-    vi.spyOn(Element.prototype, "setPointerCapture").mockImplementation(
-      () => {},
-    );
-    vi.spyOn(Element.prototype, "releasePointerCapture").mockImplementation(
-      () => {},
-    );
-  } else {
-    Element.prototype.setPointerCapture = vi.fn();
-    Element.prototype.releasePointerCapture = vi.fn();
-    restorePointerCapture = () => {
-      // @ts-expect-error -- deleting happy-dom-absent polyfills we added
-      delete Element.prototype.setPointerCapture;
-      // @ts-expect-error -- deleting happy-dom-absent polyfills we added
-      delete Element.prototype.releasePointerCapture;
-    };
-  }
 });
 
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
-  globalThis.ResizeObserver = originalResizeObserver as typeof ResizeObserver;
-  URL.createObjectURL = originalCreateObjectURL;
-  URL.revokeObjectURL = originalRevokeObjectURL;
-  restoreScrollIntoView?.();
-  restoreScrollIntoView = undefined;
-  restorePointerCapture?.();
-  restorePointerCapture = undefined;
+  restoreDomStubs();
   window.localStorage.clear();
 });
 
@@ -201,6 +118,12 @@ describe("SnapshotPane", () => {
       ),
     );
     expect(window.localStorage.getItem(CANVAS_FROM_SCREENSHOT_KEY)).toBe("1");
+    // The src change double-buffers behind the old documents (same machinery
+    // as scrubbing/attempt swaps) — settle the pending loads so every slot
+    // resolves to its new src before asserting.
+    for (const frame of screen.getAllByTitle(/^DOM snapshot /)) {
+      fireEvent.load(frame);
+    }
     expect(
       iframeSrc("DOM snapshot (After)").searchParams.get(
         "shouldPopulateCanvasFromScreenshot",
@@ -224,12 +147,95 @@ describe("SnapshotPane", () => {
     );
   });
 
+  it("keeps the previous snapshot visible while a changed URL loads, then promotes it (double buffer)", () => {
+    const model = makeModel();
+    const action = model.actions.find((a) => a.callId === "call@1")!;
+    const OTHER_TRACE_URL = "https://dash.test/api/artifacts/a2/download?t=t2";
+    const { rerender } = render(
+      <SnapshotPane
+        action={action}
+        traceUrl={FIXTURE_TRACE_URL}
+        bridge={makeBridge()}
+      />,
+    );
+
+    // Attempt swap: same pane instance, new trace → every slot's URL changes.
+    rerender(
+      <SnapshotPane
+        action={action}
+        traceUrl={OTHER_TRACE_URL}
+        bridge={makeBridge()}
+      />,
+    );
+
+    // The Action slot (the active tab) now holds TWO iframes: the old
+    // document still visible, the new one loading hidden behind it.
+    const frames = screen.getAllByTitle("DOM snapshot (Action)");
+    expect(frames).toHaveLength(2);
+    const src = (el: Element): string | null =>
+      new URL(
+        el.getAttribute("src") ?? "",
+        "http://localhost",
+      ).searchParams.get("trace");
+    const front = frames.find((f) => f.getAttribute("aria-hidden") === "false");
+    const back = frames.find((f) => f.getAttribute("aria-hidden") === "true");
+    expect(front && src(front)).toBe(FIXTURE_TRACE_URL);
+    expect(back && src(back)).toBe(OTHER_TRACE_URL);
+
+    // New document finishes loading → promoted in place, old front retired.
+    fireEvent.load(back!);
+    const remaining = screen.getAllByTitle("DOM snapshot (Action)");
+    expect(remaining).toHaveLength(1);
+    expect(src(remaining[0]!)).toBe(OTHER_TRACE_URL);
+    expect(remaining[0]!.getAttribute("aria-hidden")).toBe("false");
+  });
+
+  it("drops the back buffer when the URL returns to the visible document mid-load", () => {
+    const model = makeModel();
+    const action = model.actions.find((a) => a.callId === "call@1")!;
+    const OTHER_TRACE_URL = "https://dash.test/api/artifacts/a2/download?t=t2";
+    const { rerender } = render(
+      <SnapshotPane
+        action={action}
+        traceUrl={FIXTURE_TRACE_URL}
+        bridge={makeBridge()}
+      />,
+    );
+
+    rerender(
+      <SnapshotPane
+        action={action}
+        traceUrl={OTHER_TRACE_URL}
+        bridge={makeBridge()}
+      />,
+    );
+    expect(screen.getAllByTitle("DOM snapshot (Action)")).toHaveLength(2);
+
+    // Swap back before the pending load ever finishes — the still-visible
+    // original must simply stay, with the abandoned buffer unmounted.
+    rerender(
+      <SnapshotPane
+        action={action}
+        traceUrl={FIXTURE_TRACE_URL}
+        bridge={makeBridge()}
+      />,
+    );
+    const frames = screen.getAllByTitle("DOM snapshot (Action)");
+    expect(frames).toHaveLength(1);
+    expect(
+      new URL(
+        frames[0]!.getAttribute("src") ?? "",
+        "http://localhost",
+      ).searchParams.get("trace"),
+    ).toBe(FIXTURE_TRACE_URL);
+  });
+
   it("shows the No snapshot empty state for an action that captured none", () => {
     // A standalone single-action model — collectSnapshots() would otherwise
     // walk sideways (previousActionByEndTime/nextActionByStartTime) and
     // borrow a neighboring action's before/after snapshot. Building this
     // through makeModel (rather than a bare makeAction()) still runs it
-    // through the real MultiTraceModel indexing pass, so those prev/next
+    // through the real TraceModel indexing pass, so those prev/next
     // links exist (as no-ops, being the only action) instead of being
     // symbol-absent — the same shape a real single-action trace would have.
     const noSnapshotAction = makeAction({

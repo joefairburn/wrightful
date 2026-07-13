@@ -1,5 +1,7 @@
 import {
+  afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -16,12 +18,17 @@ import {
 import userEvent from "@testing-library/user-event";
 import { ActionList } from "@/trace-viewer/components/action-list";
 import { makeAction, makeModel } from "./trace-viewer-fixture";
+import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 
-// happy-dom doesn't implement scrollIntoView; the selected-row ref callback
-// calls it unconditionally, so a no-op polyfill keeps render from throwing.
-Element.prototype.scrollIntoView = function scrollIntoViewNoop() {
-  /* not implemented in happy-dom */
-};
+// happy-dom doesn't implement scrollIntoView; the selected row calls it from
+// a selection-keyed useEffect, so a no-op polyfill keeps render from throwing.
+let restoreDomStubs: () => void;
+beforeAll(() => {
+  restoreDomStubs = installTraceViewerDomStubs({ scrollIntoView: true });
+});
+afterAll(() => {
+  restoreDomStubs();
+});
 
 const SHOWN_GROUPS_KEY = "wrightful:trace-viewer:shown-action-groups";
 
@@ -555,7 +562,7 @@ describe("ActionList — manual toggles survive group-chip changes", () => {
 });
 
 describe("ActionList — failure indicator", () => {
-  it("the failing action renders an error icon", () => {
+  it("the failing action's row is flagged data-status=fail", () => {
     render(
       <ActionList
         model={makeModel()}
@@ -563,10 +570,9 @@ describe("ActionList — failure indicator", () => {
         onSelect={noop}
       />,
     );
-    const row = optionRow('Expect "toHaveText"');
-    expect(row.querySelector("svg.text-fail")).not.toBeNull();
-    expect(
-      optionRow("Navigate to app").querySelector("svg.text-fail"),
-    ).toBeNull();
+    expect(optionRow('Expect "toHaveText"').getAttribute("data-status")).toBe(
+      "fail",
+    );
+    expect(optionRow("Navigate to app").getAttribute("data-status")).toBe("ok");
   });
 });

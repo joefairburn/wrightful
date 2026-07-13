@@ -30,10 +30,8 @@
 // This copy is otherwise a verbatim, faithful port:
 //   - Only the imports are repointed at sibling files in this vendor/
 //     folder instead of the monorepo's `@trace` / `@protocol` / relative
-//     `../` aliases (see below).
-//   - A `MultiTraceModel` alias export is added at the bottom (re-export
-//     only, zero logic) so callers written against the name in the task
-//     brief keep working; `TraceModel` remains the primary, faithful name.
+//     `../` aliases (see below). All app code uses the upstream name
+//     `TraceModel` directly.
 //
 // Import adaptation:
 //   '../protocolFormatter'        -> './protocol-formatter'
@@ -264,15 +262,6 @@ export class TraceModel {
       }));
   }
 }
-
-/**
- * VENDOR-NOTE (compat alias, not upstream): the task brief that motivated
- * vendoring this file referred to the exported class as `MultiTraceModel`
- * (its pre-refactor name in older Playwright versions). This is a
- * zero-logic re-export so code written against that name still resolves;
- * prefer `TraceModel` (the v1.61.1 upstream name) in new code.
- */
-export { TraceModel as MultiTraceModel };
 
 function indexModel(context: ContextEntry) {
   for (const page of context.pages) (page as any)[contextSymbol] = context;

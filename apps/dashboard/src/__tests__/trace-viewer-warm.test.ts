@@ -2,20 +2,24 @@ import { describe, expect, it } from "vite-plus/test";
 import { warmTraceViewer } from "@/trace-viewer/warm";
 
 /**
- * `warmTraceViewer` mounts a hidden bridge iframe per distinct URL and is
- * idempotent per URL via a MODULE-LEVEL `warmed` Set (see warm.ts) — there is
- * no reset hook. Each test below uses its own unique trace URL so tests don't
- * dedupe against each other; the one exception is the bare (no-arg) call,
- * which always targets the same src and is covered in a single self-contained
- * test (first-call-mounts + repeat-calls-are-no-ops) rather than split across
- * tests that would otherwise depend on run order.
+ * `warmTraceViewer` keeps at most ONE full-prefetch iframe alive (each pins a
+ * fully parsed trace in the SW), replacing it when a different artifact is
+ * warmed, and dedupes on the artifact path — not the exact signed URL, whose
+ * token rotates per page load. State is module-level with no reset hook, so
+ * each test below uses its own unique artifact path; the bare (no-arg)
+ * register-only call always targets the same src and is covered in a single
+ * self-contained test rather than split across order-dependent tests.
  */
 
+function prefetchIframes(): HTMLIFrameElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLIFrameElement>(
+      'iframe[src^="/trace-viewer/bridge.html?trace="]',
+    ),
+  );
+}
+
 describe("warmTraceViewer", () => {
-  // The bare (no-arg) call always targets the SAME src, so — unlike the
-  // per-trace-URL cases below — the "first call mounts" and "repeat calls are
-  // a no-op" assertions can't be split across tests without one depending on
-  // the other via the module-level `warmed` Set. Kept as one test instead.
   it("mounts exactly one iframe for the bare warm-mode call, and repeats are no-ops", () => {
     const before = document.querySelectorAll(
       'iframe[src="/trace-viewer/bridge.html"]',
@@ -44,29 +48,37 @@ describe("warmTraceViewer", () => {
     expect(iframes).toHaveLength(1);
   });
 
-  it("dedupes repeat calls with the SAME trace URL to a single iframe", () => {
-    const traceUrl = "https://dash.test/api/artifacts/warm-2/download?t=tok";
-    const expectedSrc = `/trace-viewer/bridge.html?trace=${encodeURIComponent(traceUrl)}`;
+  it("dedupes repeat warms of the same artifact even when the signed token rotates", () => {
+    const tokenA = "https://dash.test/api/artifacts/warm-2/download?t=tok-a";
+    const tokenB = "https://dash.test/api/artifacts/warm-2/download?t=tok-b";
 
-    warmTraceViewer(traceUrl);
-    warmTraceViewer(traceUrl);
-    warmTraceViewer(traceUrl);
+    warmTraceViewer(tokenA);
+    warmTraceViewer(tokenA);
+    warmTraceViewer(tokenB);
 
-    expect(
-      document.querySelectorAll(`iframe[src="${expectedSrc}"]`),
-    ).toHaveLength(1);
+    const matching = prefetchIframes().filter((iframe) =>
+      iframe.src.includes(encodeURIComponent("/artifacts/warm-2/")),
+    );
+    expect(matching).toHaveLength(1);
+    // The first mint won; the rotated token did not remount.
+    expect(matching[0]?.src).toContain(encodeURIComponent(tokenA));
   });
 
-  it("mounts a SEPARATE iframe per distinct trace URL", () => {
+  it("replaces the previous prefetch iframe when a DIFFERENT trace is warmed", () => {
     const urlA = "https://dash.test/api/artifacts/warm-3a/download?t=tok";
     const urlB = "https://dash.test/api/artifacts/warm-3b/download?t=tok";
-    const srcA = `/trace-viewer/bridge.html?trace=${encodeURIComponent(urlA)}`;
-    const srcB = `/trace-viewer/bridge.html?trace=${encodeURIComponent(urlB)}`;
 
     warmTraceViewer(urlA);
-    warmTraceViewer(urlB);
+    const mounted = prefetchIframes().find((iframe) =>
+      iframe.src.includes(encodeURIComponent(urlA)),
+    );
+    expect(mounted).toBeDefined();
 
-    expect(document.querySelectorAll(`iframe[src="${srcA}"]`)).toHaveLength(1);
-    expect(document.querySelectorAll(`iframe[src="${srcB}"]`)).toHaveLength(1);
+    warmTraceViewer(urlB);
+    // The old iframe is gone (its pinned trace released); only B remains.
+    expect(mounted?.isConnected).toBe(false);
+    const remaining = prefetchIframes();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.src).toContain(encodeURIComponent(urlB));
   });
 });
