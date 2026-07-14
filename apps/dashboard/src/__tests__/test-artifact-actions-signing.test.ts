@@ -3,14 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 /**
  * `signArtifactRows` (via the exported `loadAttemptArtifactGroups`) must ALWAYS
  * project a trace's `traceViewerUrl` to the SELF-HOSTED, same-origin viewer —
- * never `trace.playwright.dev` and never a bare presigned R2 URL. The rail
- * embeds this URL in an iframe, and our page CSP (`default-src 'self'`) frames
- * only same-origin documents, so a cross-origin viewer URL would render blank.
- * This invariant is unconditional now: the direct-R2 seam (ADR 0003) no longer
- * forks the embed — the viewer always wraps the same-origin worker download URL
- * (which, under direct-R2, 302s to R2 with the dashboard origin CORS-allowed).
- * `trace.playwright.dev` survives only as the dialog's "Public viewer" LINK
- * (a new tab, never framed), which this seam doesn't produce.
+ * never `trace.playwright.dev` and never a bare presigned R2 URL. This is the
+ * rail's "has a replayable trace" gate, and it keeps the trace bytes on our
+ * origin. The invariant is unconditional: under direct-R2 (ADR 0003) the viewer
+ * still wraps the same-origin worker download URL (which 302s to R2 with the
+ * dashboard origin CORS-allowed). `trace.playwright.dev` survives only as the
+ * dialog's "Public viewer" LINK (a new tab), which this seam doesn't produce.
  */
 
 let rows: unknown[] = [];
@@ -33,8 +31,8 @@ vi.mock("@/lib/artifact-tokens", () => ({
   TRACE_TOKEN_TTL_SECONDS: 8 * 60 * 60,
   signedDownloadHref: (id: string, t: string) =>
     `/api/artifacts/${id}/download?t=${t}`,
-  signedTraceViewerUrl: (o: string, id: string, t: string) =>
-    `/trace-viewer/index.html?trace=${o}:${id}:${t}`,
+  selfHostedTraceViewerUrl: (url: string) =>
+    `/trace-viewer/index.html?trace=${url}`,
 }));
 
 const { loadAttemptArtifactGroups } =
@@ -66,7 +64,7 @@ describe("signArtifactRows trace-viewer URL (via loadAttemptArtifactGroups)", ()
     const action = groups.get(0)?.media[0];
 
     expect(action?.traceViewerUrl).toBe(
-      "/trace-viewer/index.html?trace=https://dash.example.com:art-trace:TOKEN",
+      "/trace-viewer/index.html?trace=https://dash.example.com/api/artifacts/art-trace/download?t=TOKEN",
     );
     // The iframe-embedded URL must be same-origin: never trace.playwright.dev
     // (CSP-blocked in the frame) and never a bare presigned R2 URL (leaks r2Key).

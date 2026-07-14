@@ -15,7 +15,7 @@ const {
   signArtifactToken,
   verifyArtifactToken,
   signedDownloadHref,
-  signedTraceViewerUrl,
+  selfHostedTraceViewerUrl,
 } = await import("@/lib/artifact-tokens");
 
 const payload = {
@@ -67,9 +67,9 @@ describe("artifact download tokens", () => {
 
 /**
  * Guards the download-URL shape now owned by `signedDownloadHref` /
- * `signedTraceViewerUrl`. These are the single source of the
+ * `selfHostedTraceViewerUrl`. These are the single source of the
  * `/api/artifacts/:id/download?t=<token>` literal and the self-hosted
- * trace-viewer wrap — four call sites route through them, so a shape change
+ * trace-viewer wrap — the call sites route through them, so a shape change
  * here is caught once instead of drifting per caller.
  */
 describe("artifact download URL builders", () => {
@@ -79,27 +79,23 @@ describe("artifact download URL builders", () => {
     );
   });
 
-  it("wraps the absolute download URL in a self-hosted trace-viewer link", () => {
-    const href = signedTraceViewerUrl(
-      "https://wrightful.example",
-      "art_123",
-      "tok",
-    );
-    expect(href).toBe(
-      "/trace-viewer/index.html?trace=" +
-        encodeURIComponent(
-          "https://wrightful.example/api/artifacts/art_123/download?t=tok",
-        ),
+  it("wraps an absolute download URL in a same-origin self-hosted viewer link", () => {
+    const downloadUrl =
+      "https://wrightful.example/api/artifacts/art_123/download?t=tok";
+    expect(selfHostedTraceViewerUrl(downloadUrl)).toBe(
+      "https://wrightful.example/trace-viewer/index.html?trace=" +
+        encodeURIComponent(downloadUrl),
     );
   });
 
-  it("embeds the same download href the standalone builder produces", () => {
-    const origin = "https://wrightful.example";
-    const token = "abc";
-    const viewer = signedTraceViewerUrl(origin, "art_1", token);
-    expect(viewer).toContain(
-      encodeURIComponent(`${origin}${signedDownloadHref("art_1", token)}`),
+  it("keeps the viewer link on the download URL's own origin (never a third party)", () => {
+    const viewer = selfHostedTraceViewerUrl(
+      "https://wrightful.example/api/artifacts/art_1/download?t=abc",
     );
+    expect(viewer.startsWith("https://wrightful.example/trace-viewer/")).toBe(
+      true,
+    );
+    expect(viewer).not.toContain("trace.playwright.dev");
   });
 });
 

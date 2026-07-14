@@ -89,32 +89,21 @@ export function signedDownloadHref(artifactId: string, token: string): string {
 export const TRACE_VIEWER_PATH = "/trace-viewer/index.html";
 
 /**
- * Wrap a signed download URL in a self-hosted trace-viewer link. The viewer
- * fetches the trace from the `?trace=` URL with range requests, so it must be
- * the **absolute** same-origin download URL — hence the request `origin`. Pure
- * + exported alongside `signedDownloadHref` so the trace-viewer wrap lives next
- * to the download-URL shape it depends on (the viewer URL embeds the download
- * URL verbatim). Embedded in-app via an iframe (see `trace-viewer-dialog.tsx`).
+ * Wrap an ABSOLUTE signed download URL in our SELF-HOSTED trace-viewer link.
+ * Same-origin by construction: the viewer served from our origin range-reads
+ * the trace from the (same-origin) download URL, so the bytes stay on this
+ * dashboard and are never handed to the third-party trace.playwright.dev — the
+ * whole point of vendoring the viewer.
+ *
+ * The result is absolute (origin taken from the download URL), so it's a valid
+ * standalone link: the artifacts rail's "has a replayable trace" gate and the
+ * MCP `get_artifact` response both hand it out. The one place that deliberately
+ * opts into trace.playwright.dev is the dialog's "Public viewer" button, which
+ * builds that cross-origin URL itself.
  */
-export function signedTraceViewerUrl(
-  origin: string,
-  artifactId: string,
-  token: string,
-): string {
-  const downloadUrl = `${origin}${signedDownloadHref(artifactId, token)}`;
-  return `${TRACE_VIEWER_PATH}?trace=${encodeURIComponent(downloadUrl)}`;
-}
-
-/**
- * Wrap any absolute trace URL in a trace.playwright.dev link. Used by the
- * direct-R2 path (a presigned R2 GET URL embedded directly, so the cross-origin
- * trace viewer never has to follow a cross-origin 302; see
- * `test-artifact-actions.ts` and ADR 0003). The worker-proxy download path goes
- * through {@link signedTraceViewerUrl} instead, which wraps the same-origin
- * download URL in the self-hosted viewer (`TRACE_VIEWER_PATH`).
- */
-export function traceViewerUrlFor(absoluteTraceUrl: string): string {
-  return `https://trace.playwright.dev/?trace=${encodeURIComponent(absoluteTraceUrl)}`;
+export function selfHostedTraceViewerUrl(absoluteDownloadUrl: string): string {
+  const { origin } = new URL(absoluteDownloadUrl);
+  return `${origin}${TRACE_VIEWER_PATH}?trace=${encodeURIComponent(absoluteDownloadUrl)}`;
 }
 
 export async function signArtifactToken(

@@ -5,7 +5,7 @@ import {
   signArtifactToken,
   TRACE_TOKEN_TTL_SECONDS,
   signedDownloadHref,
-  signedTraceViewerUrl,
+  selfHostedTraceViewerUrl,
 } from "@/lib/artifact-tokens";
 import { childByTestResultWhere, type TenantScope } from "@/lib/scope";
 
@@ -201,6 +201,7 @@ async function signArtifactRows(
         },
         a.type === "trace" ? TRACE_TOKEN_TTL_SECONDS : undefined,
       );
+      const href = signedDownloadHref(a.id, token);
       return {
         id: a.id,
         type: a.type,
@@ -209,17 +210,16 @@ async function signArtifactRows(
         attempt: a.attempt,
         role: a.role,
         snapshotName: a.snapshotName,
-        href: signedDownloadHref(a.id, token),
-        // ALWAYS the self-hosted, same-origin viewer so it can be embedded in an
-        // iframe under our CSP (`default-src 'self'` frames only same-origin).
-        // `trace.playwright.dev` is never used here — it only appears as the
-        // explicit "Public viewer" LINK in the dialog (a new tab, never framed).
-        // Under the direct-R2 path (ADR 0003) the embed stays same-origin too:
-        // the viewer fetches the worker download URL, which 302s to R2 (the
-        // bucket's CORS must allow this origin — was `trace.playwright.dev`).
+        href,
+        // The self-hosted, same-origin viewer link (the rail's "has a
+        // replayable trace" gate). Trace bytes stay on our origin — never the
+        // third-party trace.playwright.dev, which only appears as the dialog's
+        // explicit "Public viewer" button (a new tab). Under direct-R2 (ADR
+        // 0003) the viewer fetches the worker download URL, which 302s to R2
+        // (the bucket's CORS must allow this origin).
         traceViewerUrl:
           a.type === "trace"
-            ? signedTraceViewerUrl(origin, a.id, token)
+            ? selfHostedTraceViewerUrl(`${origin}${href}`)
             : undefined,
       } satisfies SignedArtifact;
     }),

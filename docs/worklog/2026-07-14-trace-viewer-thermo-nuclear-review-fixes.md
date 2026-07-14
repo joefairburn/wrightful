@@ -58,11 +58,23 @@ hardcoded to hex on the branch).
   minted per-attempt but never read (the switcher/viewer use `downloadHref`).
   Dropped from `TestReplayResponse` and the dialog's `TestReplayAttempt`, which
   cascaded out the now-unused `origin`/`resolvePublicOrigin`/`env` in
-  `replay.ts`. **Kept** `signedTraceViewerUrl`/`TRACE_VIEWER_PATH` — the review
-  implied the self-hosted `/trace-viewer/index.html` SPA was dead, but the MCP
-  server (`traceViewerUrlFor`) hands users that link, and the artifacts-rail
-  gate still consumes `ArtifactAction.traceViewerUrl`. (`replay.ts`,
-  `trace-viewer-dialog.tsx`)
+  `replay.ts`. (`replay.ts`, `trace-viewer-dialog.tsx`)
+
+### Follow-up: MCP now links to our self-hosted viewer, not trace.playwright.dev
+
+Tracing the review's "the self-hosted SPA is dead" claim revealed the opposite
+problem: MCP's `get_artifact` was handing out a **`trace.playwright.dev`** link
+(`traceViewerUrlFor`) — shipping trace bytes to a third party, the exact leak the
+vendored viewer exists to avoid. Meanwhile the two helpers had diverged:
+`signedTraceViewerUrl` (rail, self-hosted, but used only as a boolean gate) vs
+`traceViewerUrlFor` (MCP, public). Unified both into one
+`selfHostedTraceViewerUrl(absoluteDownloadUrl)` (absolute, same-origin) and
+switched **MCP to it**, so an agent/user's viewer link now keeps the trace on
+this dashboard. The native React viewer can't serve MCP — it only opens as a
+tenant-scoped, auth-gated dialog; the self-hosted SPA works cold from a signed
+URL. (`artifact-tokens.ts`, `mcp/server.ts`, `test-artifact-actions.ts` +
+signing/token tests)
+
 - **`warm.ts`** gained `releaseWarmedTrace()`, called when the modal mounts its
   own authoritative bridge, so the hover-prewarm iframe stops pinning the trace
   for the whole session. Vendor-script header comments updated for the native-
