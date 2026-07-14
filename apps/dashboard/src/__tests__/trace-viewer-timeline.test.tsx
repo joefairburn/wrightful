@@ -13,13 +13,17 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   PlaybackControls,
   usePlayback,
 } from "@/trace-viewer/components/playback-controls";
 import { Timeline } from "@/trace-viewer/components/timeline";
-import { sha1Path } from "@/trace-viewer/model";
+import {
+  actionIntersectsRange,
+  sha1Path,
+  type TraceTimeRange,
+} from "@/trace-viewer/model";
 import type { TraceBridge } from "@/trace-viewer/use-trace-model";
 import type { TraceModel } from "@/trace-viewer/vendor/model-util";
 import { makeBridge, makeModel } from "./trace-viewer-fixture";
@@ -31,8 +35,9 @@ import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
  * filmstrip thumbnails, click-to-seek resolving to the action active at the
  * clicked time, the zero-duration no-op render, the playback toolbar
  * (prev/play–pause/stop/next/speed with a stubbed requestAnimationFrame
- * clock), and the boundary-aware hover-preview flip — against the shared
- * synthetic fixture (`trace-viewer-fixture.ts`).
+ * clock), the drag range-selection (click seeks, drag selects a window whose
+ * playback pauses at the window end), and the boundary-aware hover-preview
+ * flip — against the shared synthetic fixture (`trace-viewer-fixture.ts`).
  *
  * The playback controller (`usePlayback`) is owned by the workbench and shared
  * between the timeline strip (which draws the moving Playhead) and the snapshot
@@ -45,22 +50,34 @@ function Harness({
   bridge,
   selectedCallId,
   onSelect,
+  onSelectionChange,
   controls = true,
 }: {
   model: TraceModel;
   bridge: TraceBridge;
   selectedCallId: string | undefined;
   onSelect: (callId: string) => void;
+  /** Observation hook for the drag range-selection tests. */
+  onSelectionChange?: (range: TraceTimeRange) => void;
   /** Off for the zero-duration case, which asserts a null render. */
   controls?: boolean;
 }): React.ReactElement {
-  const playableActions = useMemo(() => model.filteredActions([]), [model]);
+  // Mirrors the workbench: the drag-selected window scopes the playable set,
+  // and playback's window follows the selection (or the whole trace).
+  const [selection, setSelection] = useState<TraceTimeRange | null>(null);
+  const playableActions = useMemo(() => {
+    const base = model.filteredActions([]);
+    return selection
+      ? base.filter((a) => actionIntersectsRange(a, selection))
+      : base;
+  }, [model, selection]);
   const selectedAction = useMemo(
     () => model.actions.find((a) => a.callId === selectedCallId),
     [model, selectedCallId],
   );
   const playback = usePlayback({
-    traceStartTime: model.startTime,
+    windowStartTime: selection?.start ?? model.startTime,
+    windowEndTime: selection?.end ?? model.endTime,
     playableActions,
     selectedCallId,
     selectedStartTime: selectedAction?.startTime,
@@ -88,6 +105,11 @@ function Harness({
         onSelect={onSelect}
         playback={playback}
         playableActions={playableActions}
+        selection={selection}
+        onSelectionChange={(range) => {
+          setSelection(range);
+          onSelectionChange?.(range);
+        }}
       />
     </>
   );
@@ -298,6 +320,101 @@ describe("Timeline", () => {
       />,
     );
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("Timeline range selection", () => {
+  it("drag past the threshold selects a time window and shows the selection overlay", () => {
+    const model = makeModel();
+    const onSelectionChange = vi.fn();
+    const { container } = render(
+      <Harness
+        model={model}
+        bridge={makeBridge()}
+        selectedCallId={undefined}
+        onSelect={vi.fn()}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+    const strip = container.querySelector('[data-testid="timeline-strip"]');
+    // rect is {left:0, width:800} over startTime 1000 / duration 4000:
+    // x=150 -> t=1750, x=450 -> t=3250.
+    fireEvent.pointerDown(strip!, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(strip!, { clientX: 450, pointerId: 1 });
+    expect(onSelectionChange).toHaveBeenLastCalledWith({
+      start: 1750,
+      end: 3250,
+    });
+    expect(
+      container.querySelector('[data-testid="timeline-selection"]'),
+    ).toBeTruthy();
+
+    // Dragging back left of the anchor keeps start <= end.
+    fireEvent.pointerMove(strip!, { clientX: 50, pointerId: 1 });
+    expect(onSelectionChange).toHaveBeenLastCalledWith({
+      start: 1250,
+      end: 1750,
+    });
+  });
+
+  it("a plain click seeks without creating a selection", () => {
+    const model = makeModel();
+    const onSelect = vi.fn();
+    const onSelectionChange = vi.fn();
+    const { container } = render(
+      <Harness
+        model={model}
+        bridge={makeBridge()}
+        selectedCallId={undefined}
+        onSelect={onSelect}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+    const strip = container.querySelector('[data-testid="timeline-strip"]');
+    fireEvent.pointerDown(strip!, { clientX: 400, pointerId: 1 });
+    // Sub-threshold jitter (4px) must not start a selection drag.
+    fireEvent.pointerMove(strip!, { clientX: 403, pointerId: 1 });
+    fireEvent.pointerUp(strip!, { clientX: 403, pointerId: 1 });
+    expect(onSelect).toHaveBeenCalledWith("call@4");
+    expect(onSelectionChange).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[data-testid="timeline-selection"]'),
+    ).toBeNull();
+  });
+
+  it("plays only the selected section and pauses at its end", () => {
+    const model = makeModel();
+    const onSelect = vi.fn();
+    const { container } = render(
+      <Harness
+        model={model}
+        bridge={makeBridge()}
+        selectedCallId="call@2"
+        onSelect={onSelect}
+      />,
+    );
+    const strip = container.querySelector('[data-testid="timeline-strip"]');
+    // Select t=1750..3250 — call@2 (2000–2600) and call@4 (3000–4000)
+    // intersect it; call@1 (1000–1400) falls outside the window.
+    fireEvent.pointerDown(strip!, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(strip!, { clientX: 450, pointerId: 1 });
+    fireEvent.pointerUp(strip!, { clientX: 450, pointerId: 1 });
+    fireEvent.lostPointerCapture(strip!, { pointerId: 1 });
+    onSelect.mockClear();
+
+    // Play starts from the selected action (call@2, startTime 2000 — inside
+    // the window) and the playhead's clock stops at the window end (3250),
+    // not the trace end (5000).
+    fireEvent.click(control(container, "Play"));
+    expect(control(container, "Pause")).toBeTruthy();
+    flushFrame(0); // baseline
+    flushFrame(1050); // t=3050 -> call@4 (nearest in the window's set)
+    expect(onSelect).toHaveBeenLastCalledWith("call@4");
+    flushFrame(1300); // t=3300, clamped to 3250 -> playback pauses
+    expect(control(container, "Play")).toBeTruthy();
+    expect(rafCallbacks.size).toBe(0);
+    // call@1 (outside the selection) was never selected during playback.
+    expect(onSelect.mock.calls.map((c) => c[0])).not.toContain("call@1");
   });
 });
 

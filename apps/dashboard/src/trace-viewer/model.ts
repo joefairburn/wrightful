@@ -313,6 +313,21 @@ export function defaultSelectedActionId(model: TraceModel): string | undefined {
   return target?.callId;
 }
 
+/** A drag-selected window of trace time (model-time ms, start <= end). */
+export type TraceTimeRange = { start: number; end: number };
+
+/**
+ * Whether an action overlaps a timeline selection — the official viewer's
+ * `selectedTime` predicate (start/end touching the window edges counts).
+ * Drives both the selection-scoped action list and the playable set.
+ */
+export function actionIntersectsRange(
+  action: ActionTraceEvent,
+  range: TraceTimeRange,
+): boolean {
+  return action.startTime <= range.end && action.endTime >= range.start;
+}
+
 const TRACE_VERSION_ERROR_SNIPPET = "created by a newer version of Playwright";
 
 /**

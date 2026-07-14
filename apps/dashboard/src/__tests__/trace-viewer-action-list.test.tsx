@@ -653,6 +653,85 @@ describe("ActionList — hover preview", () => {
   });
 });
 
+describe("ActionList — timeline selection scope", () => {
+  it("shows only actions intersecting the selection, with a Show all bar", () => {
+    // Fixture actions: call@1 (1000–1400), call@2 (2000–2600), call@4
+    // (3000–4000); a 1750–2800 window keeps only call@2.
+    render(
+      <ActionList
+        model={makeModel()}
+        selectedCallId={undefined}
+        onSelect={noop}
+        selection={{ start: 1750, end: 2800 }}
+        onClearSelection={noop}
+      />,
+    );
+    expect(optionRow("Click checkout")).toBeTruthy();
+    expect(screen.queryByText("Navigate to app")).toBeNull();
+    expect(screen.queryByText('Expect "toHaveText"')).toBeNull();
+    expect(screen.getByText("Timeline selection")).toBeTruthy();
+  });
+
+  it("includes actions that only partially overlap the window", () => {
+    // 1200–2100 overlaps call@1's tail (ends 1400) and call@2's head
+    // (starts 2000) — both stay; call@4 (starts 3000) is out.
+    render(
+      <ActionList
+        model={makeModel()}
+        selectedCallId={undefined}
+        onSelect={noop}
+        selection={{ start: 1200, end: 2100 }}
+        onClearSelection={noop}
+      />,
+    );
+    expect(optionRow("Navigate to app")).toBeTruthy();
+    expect(optionRow("Click checkout")).toBeTruthy();
+    expect(screen.queryByText('Expect "toHaveText"')).toBeNull();
+  });
+
+  it("Show all clears the selection via onClearSelection", () => {
+    const onClearSelection = vi.fn();
+    render(
+      <ActionList
+        model={makeModel()}
+        selectedCallId={undefined}
+        onSelect={noop}
+        selection={{ start: 1750, end: 2800 }}
+        onClearSelection={onClearSelection}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(onClearSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a selection-specific empty state when nothing intersects", () => {
+    render(
+      <ActionList
+        model={makeModel()}
+        selectedCallId={undefined}
+        onSelect={noop}
+        selection={{ start: 4500, end: 4900 }}
+        onClearSelection={noop}
+      />,
+    );
+    expect(
+      screen.getByText("No actions in the selected timeline range."),
+    ).toBeTruthy();
+  });
+
+  it("renders no scope bar without a selection", () => {
+    render(
+      <ActionList
+        model={makeModel()}
+        selectedCallId={undefined}
+        onSelect={noop}
+      />,
+    );
+    expect(screen.queryByText("Timeline selection")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show all" })).toBeNull();
+  });
+});
+
 describe("ActionList — failure indicator", () => {
   it("the failing action's row is flagged data-status=fail", () => {
     render(

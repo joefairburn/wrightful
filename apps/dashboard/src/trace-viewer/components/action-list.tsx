@@ -4,7 +4,12 @@ import { ChevronRight, CircleAlert, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/time-format";
-import { actionParamHint, actionTitle } from "../model";
+import {
+  actionIntersectsRange,
+  actionParamHint,
+  actionTitle,
+  type TraceTimeRange,
+} from "../model";
 import type { ActionGroup } from "../vendor/protocol-formatter";
 import type { ActionTreeItem, TraceModel } from "../vendor/model-util";
 import { buildActionTree, stats } from "../vendor/model-util";
@@ -93,19 +98,29 @@ export function ActionList({
   selectedCallId,
   onSelect,
   onHover,
+  selection,
+  onClearSelection,
 }: {
   model: TraceModel;
   selectedCallId: string | undefined;
   onSelect: (callId: string) => void;
   /** Preview-on-hover for the snapshot pane; selection is unaffected. */
   onHover?: (callId: string | undefined) => void;
+  /** Timeline drag-selection: scope the list to actions in this window. */
+  selection?: TraceTimeRange | null;
+  /** Clears the timeline selection (the "Show all" affordance). */
+  onClearSelection?: () => void;
 }): React.ReactElement {
   const [shownGroups, setShownGroups] =
     useState<ReadonlySet<ActionGroup>>(readShownGroups);
-  const { rootItem, itemMap } = useMemo(
-    () => buildActionTree(model.filteredActions([...shownGroups])),
-    [model, shownGroups],
-  );
+  const { rootItem, itemMap } = useMemo(() => {
+    const actions = model.filteredActions([...shownGroups]);
+    return buildActionTree(
+      selection
+        ? actions.filter((a) => actionIntersectsRange(a, selection))
+        : actions,
+    );
+  }, [model, shownGroups, selection]);
   // Groups start collapsed by default, except a subtree containing an error
   // (recomputed whenever the tree is rebuilt — new trace, new group filter).
   const defaultCollapsed = useMemo(
@@ -259,6 +274,23 @@ export function ActionList({
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
+      {/* Timeline-selection scope bar: while a time window is drag-selected on
+       * the strip, the list shows only intersecting actions and this bar is
+       * the escape hatch back to the full list. */}
+      {selection ? (
+        <div className="flex h-7 shrink-0 items-center justify-between gap-2 border-b border-line-1 bg-bg-2 pl-3 pr-1.5">
+          <span className="truncate text-caption text-fg-3">
+            Timeline selection
+          </span>
+          <button
+            type="button"
+            onClick={onClearSelection}
+            className="shrink-0 rounded px-1.5 py-0.5 text-caption font-medium text-fg-2 hover:bg-bg-3"
+          >
+            Show all
+          </button>
+        </div>
+      ) : null}
       {groupChips.length > 0 ? (
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line-1 px-2 py-1.5">
           {groupChips.map(({ group, count }) => {
@@ -321,7 +353,9 @@ export function ActionList({
         ))}
         {visible.length === 0 ? (
           <div className="px-3 py-6 text-center text-caption text-fg-4">
-            No actions recorded in this trace.
+            {selection
+              ? "No actions in the selected timeline range."
+              : "No actions recorded in this trace."}
           </div>
         ) : null}
       </div>

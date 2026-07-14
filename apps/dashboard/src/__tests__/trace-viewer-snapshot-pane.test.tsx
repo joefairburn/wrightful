@@ -24,6 +24,7 @@ const STUB_PLAYBACK: PlaybackController = {
   hasActions: true,
   session: 0,
   playFrom: 0,
+  playTo: 0,
   initialSelectedCallId: undefined,
   togglePlay: () => {},
   pause: () => {},

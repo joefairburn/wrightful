@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight, Pause, Play, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TraceModel } from "../vendor/model-util";
 
 /**
@@ -67,6 +68,11 @@ export interface PlaybackController {
   session: number;
   /** The model-time position the current play session's clock starts from. */
   playFrom: number;
+  /**
+   * Where the playhead's clock stops and pauses: the timeline selection's
+   * end when one is active, else the trace end.
+   */
+  playTo: number;
   /** The callId already selected when the current play session started. */
   initialSelectedCallId: string | undefined;
   togglePlay: () => void;
@@ -84,13 +90,21 @@ export interface PlaybackController {
 }
 
 export function usePlayback({
-  traceStartTime,
+  windowStartTime,
+  windowEndTime,
   playableActions,
   selectedCallId,
   selectedStartTime,
   onSelect,
 }: {
-  traceStartTime: number;
+  /**
+   * The play window: the timeline selection when one is active, else the
+   * whole trace. Playback starts no earlier than `windowStartTime` and the
+   * playhead pauses at `windowEndTime`; `playableActions` is expected to be
+   * pre-filtered to the same window by the workbench.
+   */
+  windowStartTime: number;
+  windowEndTime: number;
   playableActions: TimelineAction[];
   selectedCallId: string | undefined;
   selectedStartTime: number | undefined;
@@ -102,7 +116,7 @@ export function usePlayback({
   /** The rAF clock's start position + initial selection for the current
    * session — refs so re-renders between "Play" and the session's own
    * effect mounting never race on stale closures. */
-  const playFromRef = useRef(traceStartTime);
+  const playFromRef = useRef(windowStartTime);
   const initialSelectedRef = useRef<string | undefined>(undefined);
 
   const selectedIndex = playableActions.findIndex(
@@ -117,13 +131,20 @@ export function usePlayback({
       setPlaying(false);
       return;
     }
-    const startFrom = selectedStartTime ?? traceStartTime;
+    // A selection outside the window (a timeline selection was drawn while an
+    // out-of-range action was selected) starts from the window's beginning.
+    const startFrom =
+      selectedStartTime !== undefined &&
+      selectedStartTime >= windowStartTime &&
+      selectedStartTime < windowEndTime
+        ? selectedStartTime
+        : windowStartTime;
     if (lastAction && startFrom >= lastAction.startTime) {
-      // At/after the last action: restart from the top.
+      // At/after the last action: restart from the top of the window.
       const first = playableActions[0];
       initialSelectedRef.current = first.callId;
       onSelect(first.callId);
-      playFromRef.current = traceStartTime;
+      playFromRef.current = windowStartTime;
     } else {
       initialSelectedRef.current = selectedCallId;
       playFromRef.current = startFrom;
@@ -161,6 +182,7 @@ export function usePlayback({
     hasActions,
     session,
     playFrom: playFromRef.current,
+    playTo: windowEndTime,
     initialSelectedCallId: initialSelectedRef.current,
     togglePlay,
     pause,
@@ -186,6 +208,7 @@ export function usePlayback({
  */
 export function Playhead({
   startTime,
+  stopTime,
   traceStartTime,
   traceEndTime,
   speedIndex,
@@ -195,6 +218,12 @@ export function Playhead({
   onComplete,
 }: {
   startTime: number;
+  /**
+   * Where the clock stops and `onComplete` fires — the timeline selection's
+   * end when one is active, else `traceEndTime`. Positioning still maps over
+   * the full trace span, so the playhead pauses mid-strip at a selection end.
+   */
+  stopTime: number;
   traceStartTime: number;
   traceEndTime: number;
   speedIndex: number;
@@ -239,7 +268,7 @@ export function Playhead({
       // The first frame only baselines the clock — deltas start on frame 2.
       if (last !== undefined) {
         const next = Math.min(
-          traceEndTime,
+          stopTime,
           positionRef.current + (timestamp - last) * speedRef.current,
         );
         positionRef.current = next;
@@ -250,7 +279,7 @@ export function Playhead({
           lastSelectedRef.current = action.callId;
           onSelectRef.current(action.callId);
         }
-        if (next >= traceEndTime) {
+        if (next >= stopTime) {
           onCompleteRef.current();
           return;
         }
@@ -260,7 +289,7 @@ export function Playhead({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [traceStartTime, traceEndTime, duration, playableActions]);
+  }, [traceStartTime, stopTime, duration, playableActions]);
 
   const initialFraction =
     duration > 0
@@ -290,16 +319,22 @@ function PlaybackButton({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="flex size-6 shrink-0 items-center justify-center rounded text-fg-3 transition-colors hover:bg-bg-2 hover:text-fg-2 disabled:pointer-events-none disabled:opacity-40"
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            disabled={disabled}
+            onClick={onClick}
+            className="flex size-6 shrink-0 items-center justify-center rounded text-fg-3 transition-colors hover:bg-bg-2 hover:text-fg-2 disabled:pointer-events-none disabled:opacity-40"
+          >
+            {children}
+          </button>
+        }
+      />
+      <TooltipPopup>{label}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -366,15 +401,21 @@ export function PlaybackControls({
       >
         <ChevronRight className="size-3.5" />
       </PlaybackButton>
-      <button
-        type="button"
-        aria-label="Playback speed"
-        title="Playback speed"
-        onClick={onCycleSpeed}
-        className="flex h-6 min-w-8 items-center justify-center rounded px-1 font-mono text-micro text-fg-3 tabular-nums transition-colors hover:bg-bg-2 hover:text-fg-2"
-      >
-        {SPEEDS[speedIndex]}×
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label="Playback speed"
+              onClick={onCycleSpeed}
+              className="flex h-6 min-w-8 items-center justify-center rounded px-1 font-mono text-micro text-fg-3 tabular-nums transition-colors hover:bg-bg-2 hover:text-fg-2"
+            >
+              {SPEEDS[speedIndex]}×
+            </button>
+          }
+        />
+        <TooltipPopup>Playback speed</TooltipPopup>
+      </Tooltip>
     </div>
   );
 }

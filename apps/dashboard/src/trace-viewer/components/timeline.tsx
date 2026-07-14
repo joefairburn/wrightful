@@ -3,7 +3,12 @@
 import { useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
-import { actionParamHint, actionTitle, sha1Path } from "../model";
+import {
+  actionParamHint,
+  actionTitle,
+  sha1Path,
+  type TraceTimeRange,
+} from "../model";
 import { useElementSize } from "../use-element-size";
 import type { TraceBridge } from "../use-trace-model";
 import { useObjectUrl } from "../use-object-url";
@@ -22,7 +27,9 @@ import {
  * in `playback-controls.tsx`, and the `usePlayback` controller is owned one
  * level up in the workbench (its prev/play/stop/next/speed cluster is rendered
  * in the snapshot pane's nav) — this file owns the strip: filmstrip sampling,
- * action bars lane, hover preview, and click/drag seeking.
+ * action bars lane, hover preview, click seeking, and drag range-selection
+ * (a click seeks; a drag past a small threshold selects a time window, like
+ * the official viewer's timeline selection).
  *
  * Screencast frames are served by the trace-viewer service worker under
  * `sha1/<name>?trace=…`, and that route only answers fetches from the
@@ -50,6 +57,12 @@ const MAX_THUMBS = 60;
 
 /** Size of the hover thumbnail preview card (width follows the frame's aspect). */
 const PREVIEW_HEIGHT = 220;
+
+/**
+ * Pointer travel (px) before a press turns from a click-seek into a
+ * range-selection drag.
+ */
+const DRAG_THRESHOLD_PX = 4;
 
 /**
  * Vertical room the hover preview card needs when rendered above the strip:
@@ -95,6 +108,8 @@ export function Timeline({
   onSelect,
   playback,
   playableActions,
+  selection,
+  onSelectionChange,
   className,
 }: {
   model: TraceModel;
@@ -105,9 +120,17 @@ export function Timeline({
   playback: PlaybackController;
   /**
    * The default-visible action set playback + seeking walk — computed once in
-   * the workbench and shared with the snapshot pane's control cluster.
+   * the workbench and shared with the snapshot pane's control cluster. While
+   * a `selection` is active the workbench pre-filters it to that window.
    */
   playableActions: TimelineAction[];
+  /**
+   * The drag-selected time window, owned by the workbench (the action list
+   * scopes to it and clears it via "Show all").
+   */
+  selection: TraceTimeRange | null;
+  /** Fires continuously while a selection drag is in progress. */
+  onSelectionChange: (range: TraceTimeRange) => void;
   className?: string;
 }): React.ReactElement | null {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -158,7 +181,15 @@ export function Timeline({
     fraction: number;
     below: boolean;
   } | null>(null);
-  const draggingRef = useRef(false);
+  // A press starts as a click-seek; once the pointer travels past
+  // DRAG_THRESHOLD_PX it becomes a range-selection drag anchored at the
+  // press position (`selecting` latches — a drag never turns back into a
+  // click even if the pointer returns to the anchor).
+  const draggingRef = useRef<{
+    anchorClientX: number;
+    anchorFraction: number;
+    selecting: boolean;
+  } | null>(null);
 
   // The bars lane below renders every action; `playableActions` (the
   // default-visible set that playback + seeking walk) is provided by the
@@ -189,10 +220,14 @@ export function Timeline({
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
     event.currentTarget.setPointerCapture(event.pointerId);
-    draggingRef.current = true;
+    const fraction = fractionAtClientX(event.clientX);
+    draggingRef.current = {
+      anchorClientX: event.clientX,
+      anchorFraction: fraction,
+      selecting: false,
+    };
     // Manual seeking takes over from playback.
     playback.pause();
-    const fraction = fractionAtClientX(event.clientX);
     setHover((prev) => ({ fraction, below: prev?.below ?? previewBelow() }));
     seekToFraction(fraction);
   };
@@ -204,7 +239,19 @@ export function Timeline({
         ? { fraction, below: prev.below }
         : { fraction, below: previewBelow() },
     );
-    if (draggingRef.current) seekToFraction(fraction);
+    const drag = draggingRef.current;
+    if (!drag) return;
+    if (
+      !drag.selecting &&
+      Math.abs(event.clientX - drag.anchorClientX) > DRAG_THRESHOLD_PX
+    ) {
+      drag.selecting = true;
+    }
+    if (drag.selecting) {
+      const a = model.startTime + drag.anchorFraction * duration;
+      const b = model.startTime + fraction * duration;
+      onSelectionChange({ start: Math.min(a, b), end: Math.max(a, b) });
+    }
   };
 
   const onPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
@@ -219,6 +266,14 @@ export function Timeline({
     : null;
   const selectedEndFraction = selectedAction
     ? (selectedAction.endTime - model.startTime) / duration
+    : null;
+
+  const clampFraction = (f: number): number => Math.min(1, Math.max(0, f));
+  const selectionStartFraction = selection
+    ? clampFraction((selection.start - model.startTime) / duration)
+    : null;
+  const selectionEndFraction = selection
+    ? clampFraction((selection.end - model.startTime) / duration)
     : null;
 
   // The frame nearest the hovered TIME (not a slot sample) drives the hover
@@ -265,7 +320,7 @@ export function Timeline({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onLostPointerCapture={() => {
-          draggingRef.current = false;
+          draggingRef.current = null;
         }}
         onPointerLeave={() => {
           if (!draggingRef.current) setHover(null);
@@ -348,6 +403,33 @@ export function Timeline({
           />
         ) : null}
 
+        {/* Drag-selected time window: everything OUTSIDE the window is
+         * shrouded (the window itself stays clear so the filmstrip reads
+         * through it), with hairline edges marking the bounds — the official
+         * viewer's timeline-selection treatment. */}
+        {selectionStartFraction !== null && selectionEndFraction !== null ? (
+          <div
+            data-testid="timeline-selection"
+            className="pointer-events-none absolute inset-0"
+          >
+            <div
+              className="absolute inset-y-0 left-0 bg-bg-0/60"
+              style={{ width: `${selectionStartFraction * 100}%` }}
+            />
+            <div
+              className="absolute inset-y-0 right-0 bg-bg-0/60"
+              style={{ width: `${(1 - selectionEndFraction) * 100}%` }}
+            />
+            <div
+              className="absolute inset-y-0 border-x border-fg-3"
+              style={{
+                left: `${selectionStartFraction * 100}%`,
+                width: `${Math.max(0, selectionEndFraction - selectionStartFraction) * 100}%`,
+              }}
+            />
+          </div>
+        ) : null}
+
         {/* Moving playhead while replaying — distinct from the hover cursor.
          * Owns its own rAF loop (see playback-controls.tsx); remounted via
          * `key` each time a play session starts. */}
@@ -355,6 +437,7 @@ export function Timeline({
           <Playhead
             key={playback.session}
             startTime={playback.playFrom}
+            stopTime={playback.playTo}
             traceStartTime={model.startTime}
             traceEndTime={model.endTime}
             speedIndex={playback.speedIndex}

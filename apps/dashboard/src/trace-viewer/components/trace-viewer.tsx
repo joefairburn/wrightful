@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
-import { defaultSelectedActionId, describeTraceLoadError } from "../model";
+import {
+  actionIntersectsRange,
+  defaultSelectedActionId,
+  describeTraceLoadError,
+  type TraceTimeRange,
+} from "../model";
 import type { TraceBridge } from "../use-trace-model";
 import { useTraceModel } from "../use-trace-model";
 import type { ContextEntry } from "../vendor/entries";
@@ -185,6 +190,21 @@ function Workbench({
   // detail tab keys off `selectedAction` alone.
   const activeAction = hoveredAction ?? selectedAction;
 
+  // Drag-selected timeline window. Scopes the action list and the playable
+  // set to actions intersecting it; playback then plays just that section and
+  // pauses at its end. Stored WITH the model (same render-time reset as the
+  // selection above) — a time range from the previous attempt is meaningless
+  // against the new trace's time base.
+  const [timeRangeState, setTimeRangeState] = useState<{
+    model: TraceModel;
+    range: TraceTimeRange | null;
+  }>(() => ({ model, range: null }));
+  if (timeRangeState.model !== model) {
+    setTimeRangeState({ model, range: null });
+  }
+  const timeRange =
+    timeRangeState.model === model ? timeRangeState.range : null;
+
   // Playback (rAF clock + prev/play/stop/next/speed state) lives here, one
   // level above both the timeline strip (which draws the moving Playhead) and
   // the snapshot pane's nav (which renders the control cluster) — the two are
@@ -193,15 +213,30 @@ function Workbench({
   // DEFAULT-VISIBLE action set (`filteredActions([])` drops the route/getter/
   // configuration noise groups the action list hides by default) — selecting a
   // hidden action would land on a row that isn't in the list, so "Next" would
-  // appear to do nothing.
-  const playableActions = useMemo(() => model.filteredActions([]), [model]);
+  // appear to do nothing. A timeline selection narrows the same set further,
+  // so playback, stepping, and strip seeks all stay inside the selection.
+  const playableActions = useMemo(() => {
+    const base = model.filteredActions([]);
+    return timeRange
+      ? base.filter((a) => actionIntersectsRange(a, timeRange))
+      : base;
+  }, [model, timeRange]);
   const playback = usePlayback({
-    traceStartTime: model.startTime,
+    windowStartTime: timeRange?.start ?? model.startTime,
+    windowEndTime: timeRange?.end ?? model.endTime,
     playableActions,
     selectedCallId,
     selectedStartTime: selectedAction?.startTime,
     onSelect: setSelectedCallId,
   });
+
+  // Changing or clearing the window mid-play would silently retarget the
+  // playhead's clock — pause instead and let the user hit Play on the new
+  // window. `pause` is identity-stable (see PlaybackController).
+  const setTimeRange = (range: TraceTimeRange | null): void => {
+    playback.pause();
+    setTimeRangeState({ model, range });
+  };
 
   // An attempt swap replaces `model` in place (the workbench stays mounted, see
   // TraceViewer). The playhead's clock lives in the previous trace's time base,
@@ -224,6 +259,8 @@ function Workbench({
         onSelect={setSelectedCallId}
         playback={playback}
         playableActions={playableActions}
+        selection={timeRange}
+        onSelectionChange={setTimeRange}
         className="shrink-0 border-b border-line-1"
       />
       <SplitPane
@@ -238,6 +275,8 @@ function Workbench({
           selectedCallId={selectedCallId}
           onSelect={setSelectedCallId}
           onHover={setHoveredCallId}
+          selection={timeRange}
+          onClearSelection={() => setTimeRange(null)}
         />
         <SplitPane
           direction="vertical"
