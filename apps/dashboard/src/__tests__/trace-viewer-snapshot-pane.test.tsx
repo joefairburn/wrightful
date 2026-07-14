@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { PlaybackController } from "@/trace-viewer/components/playback-controls";
+import type { PlaybackController } from "@/trace-viewer/components/use-playback";
 import { SnapshotPane } from "@/trace-viewer/components/snapshot-pane";
 import {
   FIXTURE_TRACE_URL,

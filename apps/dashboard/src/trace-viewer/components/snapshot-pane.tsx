@@ -22,7 +22,8 @@ import {
 import { useBridgeFetch } from "../use-bridge-fetch";
 import type { TraceBridge } from "../use-trace-model";
 import type { ActionTraceEventInContext } from "../vendor/model-util";
-import { PlaybackControls, type PlaybackController } from "./playback-controls";
+import { PlaybackControls } from "./playback-controls";
+import type { PlaybackController } from "./use-playback";
 import { ScaledSnapshotStage, TAB_LABELS } from "./snapshot-stage";
 
 const TAB_ORDER: SnapshotTabId[] = ["before", "action", "after"];

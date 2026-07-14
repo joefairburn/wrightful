@@ -14,11 +14,9 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { useMemo, useState } from "react";
-import {
-  PlaybackControls,
-  usePlayback,
-} from "@/trace-viewer/components/playback-controls";
+import { PlaybackControls } from "@/trace-viewer/components/playback-controls";
 import { Timeline } from "@/trace-viewer/components/timeline";
+import { usePlayback } from "@/trace-viewer/components/use-playback";
 import {
   actionIntersectsRange,
   sha1Path,

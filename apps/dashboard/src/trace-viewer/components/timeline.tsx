@@ -14,12 +14,12 @@ import type { TraceBridge } from "../use-trace-model";
 import { useBufferedObjectUrl, useObjectUrl } from "../use-object-url";
 import type { PageEntry } from "../vendor/entries";
 import type { TraceModel } from "../vendor/model-util";
+import { Playhead } from "./playhead";
 import {
   lowerBoundByTime,
   type PlaybackController,
-  Playhead,
   type TimelineAction,
-} from "./playback-controls";
+} from "./use-playback";
 
 /**
  * Filmstrip + click-to-seek timeline strip below the snapshot pane. The

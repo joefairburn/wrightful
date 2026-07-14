@@ -11,7 +11,7 @@ import {
   actionTitle,
   type TraceTimeRange,
 } from "../model";
-import { useModelScopedState } from "../use-model-scoped-state";
+import { useActionTreeCollapse } from "../use-action-tree-collapse";
 import type { ActionGroup } from "../vendor/protocol-formatter";
 import type { ActionTreeItem, TraceModel } from "../vendor/model-util";
 import { buildActionTree, stats } from "../vendor/model-util";
@@ -38,58 +38,6 @@ function readShownGroups(): ReadonlySet<ActionGroup> {
 }
 
 /** True if this action, or any action nested under it, failed. */
-function hasErrorInSubtree(item: ActionTreeItem): boolean {
-  if (item.action.error?.message) return true;
-  return item.children.some((child) => hasErrorInSubtree(child));
-}
-
-/**
- * Action-tree groups start collapsed, except a group whose subtree contains
- * a failing action — that group (and every ancestor down to the failure)
- * stays expanded so the error is visible without the user having to dig
- * for it.
- */
-function computeDefaultCollapsed(
-  rootItem: ActionTreeItem,
-): ReadonlySet<string> {
-  const collapsed = new Set<string>();
-  const walk = (item: ActionTreeItem): void => {
-    for (const child of item.children) {
-      if (child.children.length > 0 && !hasErrorInSubtree(child)) {
-        collapsed.add(child.id);
-      }
-      walk(child);
-    }
-  };
-  walk(rootItem);
-  return collapsed;
-}
-
-/**
- * Whether an item is collapsed once the computed default is XOR'd against a
- * manual override — the override toggles the default rather than replacing
- * it, which is what lets a group chip toggle (rebuilding `defaultCollapsed`)
- * preserve a user's manual expand/collapse. Shared by the row-render collapse
- * check and the auto-reveal effect (which evaluates it against an in-progress
- * override set before committing).
- */
-function isEffectivelyCollapsed(
-  defaultCollapsed: ReadonlySet<string>,
-  overrides: ReadonlySet<string>,
-  id: string,
-): boolean {
-  return defaultCollapsed.has(id) !== overrides.has(id);
-}
-
-/** Ancestor chain from `item`'s parent up to (excluding) the synthetic root. */
-function ancestorChain(item: ActionTreeItem): ActionTreeItem[] {
-  const chain: ActionTreeItem[] = [];
-  for (let cur = item.parent; cur && cur.id !== ""; cur = cur.parent) {
-    chain.push(cur);
-  }
-  return chain;
-}
-
 /**
  * Left pane of the workbench: the merged test-runner/library action tree.
  * Selection is controlled by the workbench (snapshot pane + detail tabs key
@@ -123,56 +71,18 @@ export function ActionList({
         : actions,
     );
   }, [model, shownGroups, selection]);
-  // Groups start collapsed by default, except a subtree containing an error
-  // (recomputed whenever the tree is rebuilt — new trace, new group filter).
-  const defaultCollapsed = useMemo(
-    () => computeDefaultCollapsed(rootItem),
-    [rootItem],
-  );
-  // Manual toggles, keyed by callId, applied on top of the computed default via
-  // XOR — this is what lets a group chip toggle (which rebuilds `rootItem`/
-  // `defaultCollapsed`) preserve a user's manual expand/collapse instead of
-  // snapping every group back to its default. callId restarts per trace file,
-  // so these must NOT survive an attempt swap (the workbench stays mounted, see
-  // trace-viewer.tsx) — `useModelScopedState` resets them on the swap, else a
-  // stale `call@N` override would XOR against an unrelated group next attempt.
-  const [overrides, setOverrides] = useModelScopedState<
-    TraceModel,
-    ReadonlySet<string>
-  >(model, () => new Set());
   const [query, setQuery] = useState("");
   const searching = query.trim().length > 0;
 
-  const isCollapsed = (id: string): boolean =>
-    isEffectivelyCollapsed(defaultCollapsed, overrides, id);
-
-  // Auto-reveal: if selection moves (from outside — timeline seek, playback
-  // stepping) to an action hidden under a collapsed ancestor, expand just
-  // that ancestor chain so the row becomes visible. Never collapses
-  // anything, and leaves unrelated manual collapses untouched.
-  useEffect(() => {
-    if (!selectedCallId) return;
-    const item = itemMap.get(selectedCallId);
-    if (!item) return;
-    const ancestors = ancestorChain(item);
-    if (ancestors.length === 0) return;
-    setOverrides((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      for (const ancestor of ancestors) {
-        const effectivelyCollapsed = isEffectivelyCollapsed(
-          defaultCollapsed,
-          next,
-          ancestor.id,
-        );
-        if (!effectivelyCollapsed) continue;
-        if (next.has(ancestor.id)) next.delete(ancestor.id);
-        else next.add(ancestor.id);
-        changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, [selectedCallId, itemMap, defaultCollapsed]);
+  // The collapse/override/auto-reveal state machine + the flattened visible-row
+  // walk, all in one hook (see `use-action-tree-collapse`).
+  const { isCollapsed, toggle, visibleRows } = useActionTreeCollapse({
+    rootItem,
+    itemMap,
+    model,
+    selectedCallId,
+    query,
+  });
 
   const toggleGroup = (group: ActionGroup): void => {
     setShownGroups((prev) => {
@@ -196,60 +106,12 @@ export function ActionList({
     count: model.actionCounters.get(group) ?? 0,
   })).filter(({ count }) => count > 0);
 
-  const toggle = (id: string): void => {
-    setOverrides((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const visible = useMemo(() => {
-    const rows: Array<{ item: ActionTreeItem; depth: number }> = [];
-    const needle = query.trim().toLowerCase();
-
-    if (!needle) {
-      const walk = (item: ActionTreeItem, depth: number): void => {
-        for (const child of item.children) {
-          rows.push({ item: child, depth });
-          if (!isCollapsed(child.id)) walk(child, depth + 1);
-        }
-      };
-      walk(rootItem, 0);
-      return rows;
-    }
-
-    // Searching: keep matches and their ancestors, ignore collapse state so
-    // a match inside a collapsed group is still reachable.
-    const matches = (item: ActionTreeItem): boolean =>
-      `${actionTitle(item.action)} ${actionParamHint(item.action)}`
-        .toLowerCase()
-        .includes(needle);
-    const hasMatch = new Map<ActionTreeItem, boolean>();
-    const mark = (item: ActionTreeItem): boolean => {
-      let any = matches(item);
-      for (const child of item.children) any = mark(child) || any;
-      hasMatch.set(item, any);
-      return any;
-    };
-    for (const child of rootItem.children) mark(child);
-    const walk = (item: ActionTreeItem, depth: number): void => {
-      for (const child of item.children) {
-        if (!hasMatch.get(child)) continue;
-        rows.push({ item: child, depth });
-        walk(child, depth + 1);
-      }
-    };
-    walk(rootItem, 0);
-    return rows;
-  }, [rootItem, defaultCollapsed, overrides, query]);
-
   const moveSelection = (delta: number): void => {
-    const index = visible.findIndex(
+    const index = visibleRows.findIndex(
       ({ item }) => item.action.callId === selectedCallId,
     );
-    const next = visible[index + delta] ?? (index === -1 ? visible[0] : null);
+    const next =
+      visibleRows[index + delta] ?? (index === -1 ? visibleRows[0] : null);
     if (next) onSelect(next.item.action.callId);
   };
 
@@ -336,7 +198,7 @@ export function ActionList({
         }}
         onPointerLeave={() => onHover?.(undefined)}
       >
-        {visible.map(({ item, depth }) => (
+        {visibleRows.map(({ item, depth }) => (
           <ActionRow
             key={item.id}
             item={item}
@@ -352,7 +214,7 @@ export function ActionList({
             onHover={onHover}
           />
         ))}
-        {visible.length === 0 ? (
+        {visibleRows.length === 0 ? (
           <div className="px-3 py-6 text-center text-caption text-fg-4">
             {selection
               ? "No actions in the selected timeline range."

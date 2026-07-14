@@ -16,7 +16,7 @@ import type { ContextEntry } from "../vendor/entries";
 import { TraceModel } from "../vendor/model-util";
 import { ActionList } from "./action-list";
 import { DetailTabs } from "./detail-tabs";
-import { usePlayback } from "./playback-controls";
+import { usePlayback } from "./use-playback";
 import { SnapshotPane } from "./snapshot-pane";
 import { SplitPane } from "./split-pane";
 import { Timeline } from "./timeline";
