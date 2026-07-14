@@ -2,7 +2,6 @@
 
 import { ChevronRight, CircleAlert, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SearchFilterInput } from "@/components/search-filter-input";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/time-format";
 import { actionParamHint, actionTitle } from "../model";
@@ -242,12 +241,15 @@ export function ActionList({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* h-9 matches the snapshot pane's Before/Action/After nav
-       * (`snapshot-pane.tsx`) so the two panes' bottom dividers align across
-       * the split. */}
-      <div className="flex h-9 shrink-0 items-center border-b border-line-1 px-2">
-        <SearchFilterInput
-          className="w-full"
+      {/* Borderless, full-width filter row that IS the pane's top edge — the
+       * command-menu / filter-popover style (see `ComboboxFilterPopup`), not a
+       * boxed field. The `h-9` wrapper carries the hairline divider, matching
+       * the snapshot pane's Before/Action/After nav (`snapshot-pane.tsx`) so
+       * the two panes' dividers align across the split. */}
+      <div className="shrink-0 border-b border-line-1">
+        <input
+          type="search"
+          className="h-9 w-full bg-transparent px-3 text-base outline-none placeholder:text-fg-3/72 sm:text-sm [&::-webkit-search-cancel-button]:appearance-none"
           placeholder="Filter actions"
           aria-label="Filter actions"
           value={query}

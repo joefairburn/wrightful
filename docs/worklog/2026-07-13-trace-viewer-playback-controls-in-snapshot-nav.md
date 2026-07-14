@@ -59,11 +59,15 @@ full width; the active-tab underline still overhangs it (geometry unchanged).
 
 ### Follow-up: align the left/right pane header dividers
 
-The action-list filter header (`h-8` input + `py-1.5` ≈ 45px) was taller than
-the snapshot pane's Before/Action/After nav (tabs ≈ 36px), so the two panes'
-bottom dividers didn't line up across the split. Gave both header rows a shared
-`h-9` (36px): the nav keeps its bottom-aligned tabs, and the filter header now
-centers its input in the fixed height. Both dividers align.
+The action-list filter header (`h-8` boxed input + `py-1.5` ≈ 45px) was taller
+than the snapshot pane's Before/Action/After nav (tabs ≈ 36px), so the two
+panes' bottom dividers didn't line up across the split. Reworked the filter
+field into the borderless, full-width command-menu style (the same as
+`ComboboxFilterPopup`'s search row): the `<input>` itself IS the pane's top edge
+(`h-9 w-full bg-transparent`, no box), and the wrapper carries the hairline
+divider. That `h-9` matches the snapshot nav, so both dividers align — and the
+boxed input border is gone. Dropped the `SearchFilterInput` (magnifier box) from
+this pane; kept `type="search"` for the searchbox role.
 
 ## Files
 
