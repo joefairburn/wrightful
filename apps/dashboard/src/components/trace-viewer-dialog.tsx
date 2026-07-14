@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, ExternalLink, PlayCircle } from "lucide-react";
+import { Download, PlayCircle, Share2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { fetch } from "void/client";
 import type { ArtifactAction } from "@/components/artifact-actions";
@@ -34,7 +34,11 @@ const REPLAY_PARAM = "replay";
 export interface TestReplayAttempt {
   /** 0-based, as stored — displayed as `attempt + 1`. */
   attempt: number;
-  /** Self-hosted official-viewer URL (signed) — the "Official viewer" link. */
+  /**
+   * Signed self-hosted viewer URL. No longer surfaced as a link (the header
+   * opens the public trace.playwright.dev viewer instead), but still used by
+   * `TraceViewerDialog` as the "has a replayable trace" availability gate.
+   */
   traceViewerUrl: string;
   downloadHref: string;
 }
@@ -48,12 +52,11 @@ export interface TestReplayAttempt {
  * the trace bytes ever reaching the public trace.playwright.dev.
  *
  * The viewer mounts only while `open`, so the SW registration + trace
- * download defer to first use and a reopened dialog loads fresh. The
- * "Official viewer" link (the vendored OFFICIAL viewer at
- * `/trace-viewer/index.html?trace=…`) is kept as a new-tab fallback while our
- * viewer matures. When 2+ `attempts` are given, a compact switcher in the
- * header lets the retries be replayed individually — defaulting to the LAST
- * one.
+ * download defer to first use and a reopened dialog loads fresh. The header
+ * carries two icon actions (tooltip on hover): download the trace, or open it
+ * in the public Playwright viewer (trace.playwright.dev, new tab). When 2+
+ * `attempts` are given, a compact switcher in the header lets the retries be
+ * replayed individually — defaulting to the LAST one.
  */
 function TestReplayContent({
   title,
@@ -82,7 +85,6 @@ function TestReplayContent({
   // to the last attempt always resolves.
   const active =
     attempts.find((a) => a.attempt === selectedAttempt) ?? attempts.at(-1)!;
-  const activeViewerUrl = active.traceViewerUrl;
   const activeDownloadHref = active.downloadHref;
 
   // The SW resolves + range-reads the trace zip itself, so it needs the
@@ -129,38 +131,28 @@ function TestReplayContent({
               }))}
             />
           ) : null}
-          <Button
-            size="sm"
-            variant="ghost"
-            title="Opens this trace in the official Playwright viewer (self-hosted)"
-            render={
-              <a href={activeViewerUrl} target="_blank" rel="noreferrer" />
-            }
-          >
-            <ExternalLink />
-            Official viewer
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            render={<a href={activeDownloadHref} download />}
-          >
-            <Download />
-            Download
-          </Button>
           {publicViewerUrl ? (
             <Button
-              size="sm"
+              size="icon-sm"
               variant="ghost"
-              title="Opens the public Playwright viewer — sends this trace to trace.playwright.dev"
-              className="text-fg-3"
+              title="Open in the Playwright viewer — sends this trace to trace.playwright.dev"
+              aria-label="Open in the Playwright viewer"
               render={
                 <a href={publicViewerUrl} target="_blank" rel="noreferrer" />
               }
             >
-              Public viewer
+              <Share2 />
             </Button>
           ) : null}
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            title="Download trace"
+            aria-label="Download trace"
+            render={<a href={activeDownloadHref} download />}
+          >
+            <Download />
+          </Button>
         </div>
       </div>
       <div className="min-h-0 flex-1 bg-bg-0">

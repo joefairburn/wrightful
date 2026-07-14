@@ -69,6 +69,17 @@ divider. That `h-9` matches the snapshot nav, so both dividers align — and the
 boxed input border is gone. Dropped the `SearchFilterInput` (magnifier box) from
 this pane; kept `type="search"` for the searchbox role.
 
+### Follow-up: icon actions in the Replay dialog header
+
+The Replay dialog (`trace-viewer-dialog.tsx`) header had three text buttons:
+"Official viewer" (self-hosted official viewer), "Download", and "Public viewer"
+(trace.playwright.dev). Dropped "Official viewer" — the public viewer is the
+same viewer for the user's purposes — and turned the remaining two into
+icon-only buttons with hover tooltips: a `Share2` icon opening the public
+Playwright viewer, and a `Download` icon. The `traceViewerUrl` field stays on
+the wire contract (still used as `TraceViewerDialog`'s availability gate) but is
+no longer surfaced as a link.
+
 ## Files
 
 | File                                            | Change                                                                                                                                                                                      |
