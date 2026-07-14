@@ -87,24 +87,39 @@ signing/token tests)
   swapping `title=` for a visual `<Tooltip>`; added `aria-label`s and updated the
   two tests that queried them by title.
 
-## Deferred (documented, not done)
+## Follow-up: decompositions (all done)
 
-Pure file-decomposition / lower-value dedups intentionally left as follow-ups —
-the review prioritized code-judo over file-splitting, and all of that is done.
-The large components did shrink (e.g. `network-tab` lost `ResponseBodyPreview`),
-but none of these were pursued:
+The pure, behavior-preserving file-splits from the review's file-size axis,
+landed as separate commits after the code-judo pass:
 
-- Extract `useActionTreeCollapse` from `action-list.tsx`; collapse the
-  `ActionRow` chevron three-way branch; a `usePersistentGroupSet` hook.
-- Split `playback-controls.tsx` into engine / `playhead` / controls;
-  `useTimelineSeek` + presentational overlay components in `timeline.tsx`;
-  `snapshot-stage.tsx` out of `snapshot-pane.tsx`; `network-columns.ts` out of
-  `network-tab.tsx`.
-- `ScopedEmpty` empty-state / scoped-message consolidation across the tabs.
+- **`network-tab.tsx` 737 → 339** — pure column/sort/classification helpers to
+  `network-columns.ts` (unit-testable, no React); the request detail panel to
+  `network-detail-panel.tsx`.
+- **`snapshot-pane.tsx` 456 → 249** — the scale + double-buffer iframe stage to
+  `snapshot-stage.tsx`.
+- **`action-list.tsx` 489 → 351** — the collapse/override/auto-reveal state
+  machine + the visible-row walk to `use-action-tree-collapse.ts` (one scope,
+  one dependency set); `ActionRow` chevron rendered once (was a 3-way branch);
+  `usePersistentGroupSet` folds the localStorage read + write.
+- **`playback-controls.tsx` 426 → 119** — engine + time-search primitives to
+  `use-playback.ts`, the rAF line to `playhead.tsx`.
+- **`timeline.tsx`** — the click-seek / drag-select / hover pointer machine
+  lifted into a `useTimelineSeek` hook (the ~90-line render body now reads
+  measure → scale → seek-machine → derive → compose).
+- **`ScopedEmpty`** now owns the scope-vs-range message choice both windowed
+  tabs duplicated; a shared `TabEmpty` replaces hand-rolled `<Empty>` blocks.
+
+Not pursued (marginal): breaking the timeline's overlay JSX into presentational
+components (`timeScale` already made that geometry uniform).
+
+## Follow-up: MCP → self-hosted viewer (see the boundary section above)
+
+`get_artifact` now returns a same-origin self-hosted viewer link via the unified
+`selfHostedTraceViewerUrl`, replacing the third-party `trace.playwright.dev`.
 
 ## Verification
 
-- `pnpm check` — exit 0 (0 errors, 140 pre-existing warnings).
+- `pnpm check` — exit 0 (0 errors, 140 pre-existing warnings) after every commit.
 - Full node lane (`vp test run`) — 512 passed, 4 skipped.
 - Full workers lane (`vitest -c vitest.workers.config.ts`) — 1314 passed.
 - Trace-viewer suites specifically — 196 passed; the two pre-existing tooltip-

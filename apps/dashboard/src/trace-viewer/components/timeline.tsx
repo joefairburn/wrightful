@@ -131,6 +131,143 @@ function makeTimeScale(startTime: number, endTime: number): TimeScale {
   };
 }
 
+type TimelineHover = { fraction: number; below: boolean };
+
+/**
+ * The strip's pointer interaction as one unit: click-to-seek, the click→drag
+ * range-selection state machine (threshold + latch, tracked in a ref so a drag
+ * doesn't re-render per move), the hover cursor position, and the pointer-
+ * capture bookkeeping. Returns the current `hover` (for the component to derive
+ * the preview card from) plus the event `handlers` to spread onto the strip.
+ */
+function useTimelineSeek({
+  containerRef,
+  scale,
+  seekActions,
+  playback,
+  selection,
+  onSelect,
+  onSelectionChange,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  scale: TimeScale;
+  seekActions: TimelineAction[];
+  playback: PlaybackController;
+  selection: TraceTimeRange | null;
+  onSelect: (callId: string) => void;
+  onSelectionChange: (range: TraceTimeRange | null) => void;
+}): {
+  hover: TimelineHover | null;
+  handlers: {
+    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+    onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+    onLostPointerCapture: () => void;
+    onPointerLeave: () => void;
+  };
+} {
+  // A hover session is fraction (moves every pointermove) + below (whether the
+  // preview card flips under the strip) — `below` only changes with the
+  // Timeline's position in the viewport, which doesn't move mid-hover, so it's
+  // resolved once per session instead of on every pointermove.
+  const [hover, setHover] = useState<TimelineHover | null>(null);
+  // A press starts as a click-seek; once the pointer travels past
+  // DRAG_THRESHOLD_PX it becomes a range-selection drag anchored at the press
+  // position (`selecting` latches — a drag never turns back into a click even
+  // if the pointer returns to the anchor).
+  const draggingRef = useRef<{
+    anchorClientX: number;
+    anchorFraction: number;
+    selecting: boolean;
+  } | null>(null);
+
+  const fractionAtClientX = (clientX: number): number => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return 0;
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+  };
+
+  const seekToFraction = (fraction: number): void => {
+    // actionActiveAt only returns undefined for an empty action list — guard
+    // that once here instead of a per-call `if (action)` on every seek.
+    if (seekActions.length === 0) return;
+    const t = scale.timeAt(fraction);
+    onSelect(actionActiveAt(seekActions, t)!.callId);
+  };
+
+  const previewBelow = (): boolean => {
+    // The Timeline can sit at the very top of an overflow-hidden dialog, in
+    // which case an above-the-strip preview card would be clipped — measure
+    // the viewport space above and flip the card below when it won't fit.
+    const top = containerRef.current?.getBoundingClientRect().top ?? 0;
+    return top < PREVIEW_CLEARANCE;
+  };
+
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const fraction = fractionAtClientX(event.clientX);
+    draggingRef.current = {
+      anchorClientX: event.clientX,
+      anchorFraction: fraction,
+      selecting: false,
+    };
+    // Manual seeking takes over from playback.
+    playback.pause();
+    setHover((prev) => ({ fraction, below: prev?.below ?? previewBelow() }));
+    seekToFraction(fraction);
+  };
+
+  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const fraction = fractionAtClientX(event.clientX);
+    setHover((prev) =>
+      prev
+        ? { fraction, below: prev.below }
+        : { fraction, below: previewBelow() },
+    );
+    const drag = draggingRef.current;
+    if (!drag) return;
+    if (
+      !drag.selecting &&
+      Math.abs(event.clientX - drag.anchorClientX) > DRAG_THRESHOLD_PX
+    ) {
+      drag.selecting = true;
+    }
+    if (drag.selecting) {
+      const a = scale.timeAt(drag.anchorFraction);
+      const b = scale.timeAt(fraction);
+      onSelectionChange({ start: Math.min(a, b), end: Math.max(a, b) });
+    }
+  };
+
+  const onPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
+    // A press that never turned into a drag is a plain click: it already
+    // seeked on pointerdown (against the full `seekActions` set), and it also
+    // dismisses any active selection window. Read the drag state BEFORE
+    // releasing capture — releasing fires lostpointercapture, which nulls it.
+    const drag = draggingRef.current;
+    if (drag && !drag.selecting && selection) onSelectionChange(null);
+    // Drag state is cleared in onLostPointerCapture, which fires for this
+    // release AND for a pointercancel (e.g. a touch turning into a scroll)
+    // where onPointerUp never runs — leaving draggingRef stuck otherwise.
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  return {
+    hover,
+    handlers: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp,
+      onLostPointerCapture: () => {
+        draggingRef.current = null;
+      },
+      onPointerLeave: () => {
+        if (!draggingRef.current) setHover(null);
+      },
+    },
+  };
+}
+
 export function Timeline({
   model,
   bridge,
@@ -218,98 +355,20 @@ export function Timeline({
     [model, selectedCallId],
   );
 
-  // A hover session is fraction (moves every pointermove) + below (whether
-  // the preview card flips under the strip) — `below` only changes with the
-  // Timeline's position in the viewport, which doesn't move mid-hover, so
-  // it's resolved once per session instead of on every pointermove.
-  const [hover, setHover] = useState<{
-    fraction: number;
-    below: boolean;
-  } | null>(null);
-  // A press starts as a click-seek; once the pointer travels past
-  // DRAG_THRESHOLD_PX it becomes a range-selection drag anchored at the
-  // press position (`selecting` latches — a drag never turns back into a
-  // click even if the pointer returns to the anchor).
-  const draggingRef = useRef<{
-    anchorClientX: number;
-    anchorFraction: number;
-    selecting: boolean;
-  } | null>(null);
+  // Click-to-seek + drag-to-select-a-range + the hover cursor, as one machine.
+  const { hover, handlers } = useTimelineSeek({
+    containerRef,
+    scale,
+    seekActions,
+    playback,
+    selection,
+    onSelect,
+    onSelectionChange,
+  });
 
   // The bars lane below renders every action; the workbench provides the
   // sets playback (`playableActions`) and seeking (`seekActions`) walk.
   if (scale.duration <= 0) return null;
-
-  const fractionAtClientX = (clientX: number): number => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return 0;
-    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-  };
-
-  const seekToFraction = (fraction: number): void => {
-    // actionActiveAt only returns undefined for an empty action list — guard
-    // that once here instead of a per-call `if (action)` on every seek.
-    if (seekActions.length === 0) return;
-    const t = scale.timeAt(fraction);
-    onSelect(actionActiveAt(seekActions, t)!.callId);
-  };
-
-  const previewBelow = (): boolean => {
-    // The Timeline can sit at the very top of an overflow-hidden dialog, in
-    // which case an above-the-strip preview card would be clipped — measure
-    // the viewport space above and flip the card below when it won't fit.
-    const top = containerRef.current?.getBoundingClientRect().top ?? 0;
-    return top < PREVIEW_CLEARANCE;
-  };
-
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const fraction = fractionAtClientX(event.clientX);
-    draggingRef.current = {
-      anchorClientX: event.clientX,
-      anchorFraction: fraction,
-      selecting: false,
-    };
-    // Manual seeking takes over from playback.
-    playback.pause();
-    setHover((prev) => ({ fraction, below: prev?.below ?? previewBelow() }));
-    seekToFraction(fraction);
-  };
-
-  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const fraction = fractionAtClientX(event.clientX);
-    setHover((prev) =>
-      prev
-        ? { fraction, below: prev.below }
-        : { fraction, below: previewBelow() },
-    );
-    const drag = draggingRef.current;
-    if (!drag) return;
-    if (
-      !drag.selecting &&
-      Math.abs(event.clientX - drag.anchorClientX) > DRAG_THRESHOLD_PX
-    ) {
-      drag.selecting = true;
-    }
-    if (drag.selecting) {
-      const a = scale.timeAt(drag.anchorFraction);
-      const b = scale.timeAt(fraction);
-      onSelectionChange({ start: Math.min(a, b), end: Math.max(a, b) });
-    }
-  };
-
-  const onPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
-    // A press that never turned into a drag is a plain click: it already
-    // seeked on pointerdown (against the full `seekActions` set), and it also
-    // dismisses any active selection window. Read the drag state BEFORE
-    // releasing capture — releasing fires lostpointercapture, which nulls it.
-    const drag = draggingRef.current;
-    if (drag && !drag.selecting && selection) onSelectionChange(null);
-    // Drag state is cleared in onLostPointerCapture (below), which fires for
-    // this release AND for a pointercancel (e.g. a touch turning into a scroll)
-    // where onPointerUp never runs — leaving draggingRef stuck otherwise.
-    event.currentTarget.releasePointerCapture(event.pointerId);
-  };
 
   const selectedStartFraction = selectedAction
     ? scale.fractionAt(selectedAction.startTime)
@@ -364,15 +423,7 @@ export function Timeline({
         ref={containerRef}
         data-testid="timeline-strip"
         className="relative min-w-0 flex-1 cursor-crosshair"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onLostPointerCapture={() => {
-          draggingRef.current = null;
-        }}
-        onPointerLeave={() => {
-          if (!draggingRef.current) setHover(null);
-        }}
+        {...handlers}
       >
         {/* Action bars row: one slim bar per action (zero/negative-duration
          * actions skipped), failed actions in fail red and the rest neutral;
