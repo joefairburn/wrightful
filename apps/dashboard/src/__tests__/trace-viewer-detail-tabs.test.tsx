@@ -51,6 +51,7 @@ describe("DetailTabs — default tab", () => {
       <DetailTabs
         model={model}
         selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
         onSelectAction={vi.fn()}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
@@ -78,6 +79,7 @@ describe("DetailTabs — default tab", () => {
       <DetailTabs
         model={model}
         selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
         onSelectAction={vi.fn()}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
@@ -95,6 +97,7 @@ describe("DetailTabs — tab label counts", () => {
       <DetailTabs
         model={model}
         selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
         onSelectAction={vi.fn()}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
@@ -107,6 +110,25 @@ describe("DetailTabs — tab label counts", () => {
     // 3 raw attachments, 2 visible.
     expect(tab("Attachments").textContent).toBe("Attachments2");
   });
+
+  it("renders the Errors count as a Badge, not the plain muted span other tabs use", () => {
+    const model = makeModel();
+    render(
+      <DetailTabs
+        model={model}
+        selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
+        onSelectAction={vi.fn()}
+        traceUrl={FIXTURE_TRACE_URL}
+        bridge={makeBridge()}
+      />,
+    );
+    expect(
+      tab("Errors").querySelector('[data-slot="badge"]')?.textContent,
+    ).toBe("1");
+    expect(tab("Console").querySelector('[data-slot="badge"]')).toBeNull();
+    expect(tab("Network").querySelector('[data-slot="badge"]')).toBeNull();
+  });
 });
 
 describe("DetailTabs — Source tab presence", () => {
@@ -116,6 +138,7 @@ describe("DetailTabs — Source tab presence", () => {
       <DetailTabs
         model={model}
         selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
         onSelectAction={vi.fn()}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
@@ -132,6 +155,7 @@ describe("DetailTabs — Source tab presence", () => {
       <DetailTabs
         model={model}
         selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
         onSelectAction={vi.fn()}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
@@ -140,6 +164,57 @@ describe("DetailTabs — Source tab presence", () => {
     expect(
       screen.getAllByRole("tab").some((t) => t.textContent === "Source"),
     ).toBe(false);
+  });
+});
+
+describe("DetailTabs — Source tab follows activeAction, not selectedAction", () => {
+  it("renders the hovered action's source, not the selected action's, while it differs", async () => {
+    const user = userEvent.setup();
+    const SPEC_FILE = "/repo/tests/checkout.spec.ts";
+    const HELPERS_FILE = "/repo/tests/helpers.ts";
+    const model = makeModel({
+      actions: [
+        makeAction({
+          callId: "call@1",
+          method: "goto",
+          title: "Navigate to app",
+          startTime: 1000,
+          endTime: 1400,
+          stack: [{ file: SPEC_FILE, line: 5, column: 3 }],
+        }),
+        makeAction({
+          callId: "call@2",
+          method: "click",
+          title: "Click checkout",
+          params: { selector: "#checkout" },
+          startTime: 2000,
+          endTime: 2600,
+          stack: [{ file: HELPERS_FILE, line: 22, column: 5 }],
+        }),
+      ],
+    });
+    model.sources.get(SPEC_FILE)!.content = "const total = 42;";
+    model.sources.get(HELPERS_FILE)!.content =
+      "export function helper(): void {}";
+    const selectedAction = model.actions.find((a) => a.callId === "call@1");
+    const activeAction = model.actions.find((a) => a.callId === "call@2");
+
+    const { container } = render(
+      <DetailTabs
+        model={model}
+        selectedAction={selectedAction}
+        activeAction={activeAction}
+        onSelectAction={vi.fn()}
+        traceUrl={FIXTURE_TRACE_URL}
+        bridge={makeBridge()}
+      />,
+    );
+
+    await user.click(tab("Source"));
+
+    // Hovered action (call@2, helpers.ts) drives the Source pane…
+    expect(container.textContent).toContain("export function helper");
+    expect(container.textContent).not.toContain("const total = 42;");
   });
 });
 
@@ -154,6 +229,7 @@ describe("DetailTabs — crosshair scope toggle", () => {
       <DetailTabs
         model={model}
         selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
         onSelectAction={vi.fn()}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
@@ -169,6 +245,7 @@ describe("DetailTabs — crosshair scope toggle", () => {
       <DetailTabs
         model={model}
         selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
         onSelectAction={vi.fn()}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
@@ -194,6 +271,7 @@ describe("DetailTabs — panel switching", () => {
       <DetailTabs
         model={model}
         selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
         onSelectAction={vi.fn()}
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}

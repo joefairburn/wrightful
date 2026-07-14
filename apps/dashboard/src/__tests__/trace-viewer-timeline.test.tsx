@@ -19,6 +19,7 @@ import {
   usePlayback,
 } from "@/trace-viewer/components/playback-controls";
 import { Timeline } from "@/trace-viewer/components/timeline";
+import { sha1Path } from "@/trace-viewer/model";
 import type { TraceBridge } from "@/trace-viewer/use-trace-model";
 import type { TraceModel } from "@/trace-viewer/vendor/model-util";
 import { makeBridge, makeModel } from "./trace-viewer-fixture";
@@ -215,6 +216,67 @@ describe("Timeline", () => {
     // call@4 (startTime 3000).
     fireEvent.pointerDown(strip!, { clientX: 400, pointerId: 1 });
     expect(onSelect).toHaveBeenCalledWith("call@4");
+  });
+
+  it("keeps filmstrip thumbnails visible across an attempt swap while the new frames load", async () => {
+    // A deferred bridge: fetchBlob never resolves on its own — the test
+    // resolves individual paths explicitly, so it can inspect the DOM WHILE
+    // a fetch is still in flight (the moment the old flash bug was visible).
+    const resolvers = new Map<string, (blob: Blob) => void>();
+    const bridge: TraceBridge = {
+      fetchJson: () => Promise.reject(new Error("unused in this test")),
+      fetchBlob: (path: string) =>
+        new Promise<Blob>((resolve) => {
+          resolvers.set(path, resolve);
+        }),
+    };
+
+    const modelA = makeModel();
+    const { container, rerender } = render(
+      <Harness
+        model={modelA}
+        bridge={bridge}
+        selectedCallId={undefined}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      for (const frame of modelA.pages[0]!.screencastFrames) {
+        resolvers.get(sha1Path(modelA.traceUri, frame.sha1))?.(new Blob(["a"]));
+      }
+      await Promise.resolve();
+    });
+    const initialCount = container.querySelectorAll("img").length;
+    expect(initialCount).toBeGreaterThan(0);
+
+    // Attempt swap: same slot count, all-new sha1s, whose blobs are left
+    // unresolved — mirrors the workbench swapping the whole trace model in
+    // place (`trace-viewer.tsx`) while the new attempt's frames are still
+    // in flight through the bridge.
+    const modelB = makeModel({
+      pages: [
+        {
+          pageId: "page@1",
+          screencastFrames: modelA.pages[0]!.screencastFrames.map((f) => ({
+            ...f,
+            sha1: `swapped-${f.sha1}`,
+          })),
+        },
+      ],
+    });
+    rerender(
+      <Harness
+        model={modelB}
+        bridge={bridge}
+        selectedCallId={undefined}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    // The strip must still show the outgoing attempt's thumbnails — not
+    // blank boxes — until the new blobs resolve.
+    expect(container.querySelectorAll("img").length).toBe(initialCount);
   });
 
   it("renders nothing for a zero-duration trace", () => {

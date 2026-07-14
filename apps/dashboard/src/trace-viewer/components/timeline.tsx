@@ -308,20 +308,31 @@ export function Timeline({
         </div>
 
         {/* Filmstrip row. Falls back to a plain fill when the trace has no
-         * screencast frames — click-to-seek still works either way. */}
+         * screencast frames — click-to-seek still works either way.
+         *
+         * Slots are keyed by INDEX, not sha1: an attempt swap replaces the
+         * whole trace model in place (the workbench stays mounted — see
+         * `trace-viewer.tsx`), so every slot's frame gets a new sha1 at once.
+         * Keying by sha1 would remount every `TraceFrameImage`, and
+         * `keepPrevious` (below) only holds a previous object URL across
+         * *its own* re-render — it can't survive a remount. Keying by slot
+         * index instead reuses the same component instances, so
+         * `keepPrevious` can keep each slot showing the outgoing attempt's
+         * thumbnail until its replacement blob resolves. */}
         <div
           className="absolute inset-x-0 bottom-0 flex overflow-hidden bg-bg-2"
           style={{ height: STRIP_HEIGHT }}
         >
           {slots.map((frame, i) => (
             <TraceFrameImage
-              key={`${frame.sha1}-${i}`}
+              key={i}
               bridge={bridge}
               traceUri={model.traceUri}
               frame={frame}
               width={thumbWidth}
               height={STRIP_HEIGHT}
               className="shrink-0"
+              keepPrevious
             />
           ))}
         </div>
@@ -485,6 +496,7 @@ function TraceFrameImage({
   width,
   height,
   className,
+  keepPrevious,
 }: {
   bridge: TraceBridge;
   traceUri: string;
@@ -492,8 +504,18 @@ function TraceFrameImage({
   width: number;
   height: number;
   className?: string;
+  /**
+   * Keep showing the previously resolved frame in this slot until the new
+   * one loads, instead of going blank — see `useObjectUrl`'s `keepPrevious`
+   * option. Used by the filmstrip row (slots are keyed by index and outlive
+   * an attempt swap); the hover-preview card is keyed by sha1 per hover and
+   * leaves this off.
+   */
+  keepPrevious?: boolean;
 }): React.ReactElement {
-  const { url } = useObjectUrl(bridge, sha1Path(traceUri, frame.sha1));
+  const { url } = useObjectUrl(bridge, sha1Path(traceUri, frame.sha1), {
+    keepPrevious,
+  });
 
   return (
     <div

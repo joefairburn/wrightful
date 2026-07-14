@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import type { TraceTabProps } from "../model";
-import { sha1Path } from "../model";
+import { isRealSourceFile, sha1Path } from "../model";
 import { useBridgeFetch } from "../use-bridge-fetch";
 import type { StackFrame } from "../vendor/protocol-types";
 import { TabNotice } from "./detail-shared";
@@ -36,16 +36,23 @@ function basename(path: string): string {
 }
 
 /** Default file: the selected frame's file, else the first file carrying an
- * error, else whichever file the model saw first. */
+ * error, else whichever file the model saw first. Never picks a synthetic
+ * (non-real) file — e.g. Playwright's `project#<id>` fixture-pool location —
+ * even when it's the only source the model recorded. */
 function pickDefaultFile(
   frame: StackFrame | undefined,
   sources: TraceTabProps["model"]["sources"],
 ): string | undefined {
-  if (frame && sources.has(frame.file)) return frame.file;
-  for (const [file, source] of sources) {
-    if (source.errors.length > 0) return file;
+  if (frame && isRealSourceFile(frame.file) && sources.has(frame.file)) {
+    return frame.file;
   }
-  return sources.keys().next().value;
+  for (const [file, source] of sources) {
+    if (isRealSourceFile(file) && source.errors.length > 0) return file;
+  }
+  for (const file of sources.keys()) {
+    if (isRealSourceFile(file)) return file;
+  }
+  return undefined;
 }
 
 /**
@@ -56,7 +63,7 @@ function pickDefaultFile(
  */
 export function SourceTab(props: TraceTabProps): React.ReactElement {
   const { model, selectedAction, traceUrl, bridge } = props;
-  const files = Array.from(model.sources.keys());
+  const files = Array.from(model.sources.keys()).filter(isRealSourceFile);
   const [manualFile, setManualFile] = useState<string | undefined>(undefined);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState(0);
 
@@ -156,7 +163,8 @@ export function SourceTab(props: TraceTabProps): React.ReactElement {
  * scroll-highlights its line (via `targetLine` in the parent, which is driven
  * by the selected frame). Frames whose file never made it into
  * `model.sources` (e.g. library-internal frames the trace didn't capture
- * source for) render disabled.
+ * source for), or whose file is a Playwright-synthesized non-file location
+ * (`isRealSourceFile`), render disabled.
  */
 function FrameList({
   frames,
@@ -175,7 +183,8 @@ function FrameList({
       role="list"
     >
       {frames.map((frame, index) => {
-        const available = sources.has(frame.file);
+        const available =
+          isRealSourceFile(frame.file) && sources.has(frame.file);
         const active = index === selectedIndex;
         return (
           <button
@@ -326,7 +335,11 @@ function SourceLines({
             <div
               className={cn(
                 "flex gap-3 px-3",
-                isTarget && "bg-bg-2",
+                // Inset accent bar (not border-l) so the highlight doesn't
+                // shift the line's flex content. Error tint takes priority
+                // over the target tint when a line is both.
+                isTarget &&
+                  "bg-running-soft shadow-[inset_2px_0_0_var(--color-running)]",
                 errorMessage && "bg-fail-soft",
               )}
               ref={isTarget ? targetRef : undefined}

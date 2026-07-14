@@ -150,6 +150,80 @@ describe("useObjectUrl", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith(firstUrl);
     unmount();
   });
+
+  describe("keepPrevious", () => {
+    it("keeps returning the previous URL while the new path resolves, then swaps and revokes the old one", async () => {
+      stubObjectUrls();
+      const bridge = makeBridge({
+        "sha1/x": new Blob(["hi"]),
+        "sha1/y": new Blob(["yo"]),
+      });
+      const { result, rerender, unmount } = renderHook(
+        ({ path }: { path: string | null }) =>
+          useObjectUrl(bridge, path, { keepPrevious: true }),
+        { initialProps: { path: "sha1/x?trace=t" as string | null } },
+      );
+
+      await waitFor(() => expect(result.current.url).not.toBeNull());
+      const firstUrl = result.current.url;
+
+      rerender({ path: "sha1/y?trace=t" });
+      // The old URL is still displayed immediately after the path change —
+      // never a blank frame while the new blob is in flight.
+      expect(result.current).toEqual({ url: firstUrl, error: false });
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+
+      await waitFor(() => expect(result.current.url).not.toBe(firstUrl));
+      expect(result.current).toEqual({ url: "blob:test-2", error: false });
+      expect(revokeObjectURL).toHaveBeenCalledWith(firstUrl);
+      unmount();
+    });
+
+    it("revokes the displayed URL on unmount", async () => {
+      stubObjectUrls();
+      const bridge = makeBridge({ "sha1/x": new Blob(["hi"]) });
+      const { result, unmount } = renderHook(() =>
+        useObjectUrl(bridge, "sha1/x?trace=t", { keepPrevious: true }),
+      );
+
+      await waitFor(() => expect(result.current.url).not.toBeNull());
+      const url = result.current.url;
+      unmount();
+      expect(revokeObjectURL).toHaveBeenCalledWith(url);
+    });
+
+    it("never leaks a blob fetched for a path that's since been abandoned", async () => {
+      stubObjectUrls();
+      const bridge = makeBridge({
+        "sha1/x": new Blob(["hi"]),
+        "sha1/y": new Blob(["yo"]),
+        "sha1/z": new Blob(["zz"]),
+      });
+      const { result, rerender, unmount } = renderHook(
+        ({ path }: { path: string | null }) =>
+          useObjectUrl(bridge, path, { keepPrevious: true }),
+        { initialProps: { path: "sha1/x?trace=t" as string | null } },
+      );
+      await waitFor(() => expect(result.current.url).not.toBeNull());
+      const firstUrl = result.current.url;
+
+      // Switch through an intermediate path (y) and away again (z) before y's
+      // fetch has a chance to resolve — y's blob must never surface as an
+      // object URL (createObjectURL is only reached after the effect's own
+      // `cancelled` guard, which trips as soon as we move to z).
+      rerender({ path: "sha1/y?trace=t" });
+      rerender({ path: "sha1/z?trace=t" });
+
+      await waitFor(() => expect(result.current.url).not.toBe(firstUrl));
+      expect(result.current).toEqual({ url: "blob:test-2", error: false });
+      // Only two object URLs were ever minted: the first (x) and the one
+      // actually displayed (z) — y's fetch was abandoned before resolving.
+      expect(createObjectURL).toHaveBeenCalledTimes(2);
+      expect(revokeObjectURL).toHaveBeenCalledWith(firstUrl);
+      expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+      unmount();
+    });
+  });
 });
 
 describe("useTraceModel — mount + protocol", () => {

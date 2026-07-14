@@ -2,6 +2,7 @@
 
 import { Crosshair } from "lucide-react";
 import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
@@ -36,12 +37,22 @@ type DetailTabId =
 export function DetailTabs({
   model,
   selectedAction,
+  activeAction,
   onSelectAction,
   traceUrl,
   bridge,
 }: {
   model: TraceTabProps["model"];
   selectedAction: TraceTabProps["selectedAction"];
+  /**
+   * Hover-coalesced selection (`hoveredAction ?? selectedAction`, computed by
+   * the workbench) — used ONLY by the Source tab, to mirror the snapshot
+   * pane's hover-follow (upstream viewer parity: its workbench renders both
+   * snapshot and source from `highlightedAction || selectedAction`). Every
+   * other tab, plus the timeline/playback, deliberately stays on the real
+   * selection so a hover sweep can't yank filters or scroll positions.
+   */
+  activeAction: TraceTabProps["selectedAction"];
   onSelectAction: TraceTabProps["onSelectAction"];
   traceUrl: string;
   bridge: TraceBridge;
@@ -96,9 +107,19 @@ export function DetailTabs({
             >
               {label}
               {count ? (
-                <span className="ml-1 text-micro text-fg-4 tabular-nums">
-                  {count}
-                </span>
+                id === "errors" ? (
+                  <Badge
+                    variant="destructive"
+                    size="sm"
+                    className="tabular-nums"
+                  >
+                    {count}
+                  </Badge>
+                ) : (
+                  <span className="ml-1 text-micro text-fg-4 tabular-nums">
+                    {count}
+                  </span>
+                )
               ) : null}
             </TabBarTab>
           ))}
@@ -131,7 +152,13 @@ export function DetailTabs({
         {activeTab === "source" ? (
           // Keyed so a selection change remounts the tab — fresh default
           // file + frame index for the new action's stack (see SourceTab).
-          <SourceTab key={selectedAction?.callId ?? ""} {...tabProps} />
+          // Fed `activeAction` (not `selectedAction`) — see the prop comment
+          // above.
+          <SourceTab
+            key={activeAction?.callId ?? ""}
+            {...tabProps}
+            selectedAction={activeAction}
+          />
         ) : null}
         {activeTab === "attachments" ? <AttachmentsTab {...tabProps} /> : null}
         {activeTab === "metadata" ? <MetadataTab {...tabProps} /> : null}

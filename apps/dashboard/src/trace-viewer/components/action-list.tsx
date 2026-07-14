@@ -92,10 +92,13 @@ export function ActionList({
   model,
   selectedCallId,
   onSelect,
+  onHover,
 }: {
   model: TraceModel;
   selectedCallId: string | undefined;
   onSelect: (callId: string) => void;
+  /** Preview-on-hover for the snapshot pane; selection is unaffected. */
+  onHover?: (callId: string | undefined) => void;
 }): React.ReactElement {
   const [shownGroups, setShownGroups] =
     useState<ReadonlySet<ActionGroup>>(readShownGroups);
@@ -298,6 +301,7 @@ export function ActionList({
             moveSelection(-1);
           }
         }}
+        onPointerLeave={() => onHover?.(undefined)}
       >
         {visible.map(({ item, depth }) => (
           <ActionRow
@@ -312,6 +316,7 @@ export function ActionList({
             isCollapsed={searching ? false : isCollapsed(item.id)}
             onToggle={searching ? undefined : toggle}
             onSelect={onSelect}
+            onHover={onHover}
           />
         ))}
         {visible.length === 0 ? (
@@ -332,6 +337,7 @@ function ActionRow({
   isCollapsed,
   onToggle,
   onSelect,
+  onHover,
 }: {
   item: ActionTreeItem;
   depth: number;
@@ -341,6 +347,9 @@ function ActionRow({
   /** Undefined disables the disclosure toggle (e.g. while filtering). */
   onToggle?: (id: string) => void;
   onSelect: (callId: string) => void;
+  /** Fires synchronously on pointer enter — the snapshot pane double-buffers
+   * its iframes, so a sweep across rows is safe without debouncing. */
+  onHover?: (callId: string) => void;
 }): React.ReactElement {
   const action = item.action;
   const failed = Boolean(action.error?.message);
@@ -359,7 +368,14 @@ function ActionRow({
       aria-selected={selected}
       data-status={failed ? "fail" : "ok"}
       ref={rowRef}
-      onClick={() => onSelect(action.callId)}
+      onClick={() => {
+        onSelect(action.callId);
+        // Selecting a row also expands it — the chevron button handles the
+        // toggle-without-select case itself via stopPropagation, so this
+        // never double-toggles a chevron click.
+        if (item.children.length > 0 && onToggle) onToggle(item.id);
+      }}
+      onPointerEnter={() => onHover?.(action.callId)}
       className={cn(
         "flex h-7 cursor-pointer items-center gap-1.5 pr-2 text-body",
         selected ? "bg-bg-3" : "hover:bg-bg-2",

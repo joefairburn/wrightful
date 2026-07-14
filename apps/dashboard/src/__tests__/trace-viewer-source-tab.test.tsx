@@ -110,11 +110,16 @@ describe("SourceTab", () => {
     expect(container.querySelector('[class*="tok-"]')).toBeNull();
   });
 
-  it("highlights the selected frame's target line", () => {
+  it("highlights the selected frame's target line with the running-accent tint + inset bar", () => {
     // call@2's first stack frame is checkout.spec.ts:9.
     const { container } = render(<SourceTab {...seededProps()} />);
-    const highlighted = container.querySelector('pre [class*="bg-bg-2"]')!;
+    const highlighted = container.querySelector(
+      'pre [class*="bg-running-soft"]',
+    )!;
     expect(highlighted).toBeTruthy();
+    expect(highlighted.className).toContain(
+      "shadow-[inset_2px_0_0_var(--color-running)]",
+    );
     expect(highlighted.textContent).toContain("#checkout");
     expect(highlighted.textContent).toContain("9");
   });
@@ -133,6 +138,37 @@ describe("SourceTab", () => {
     expect(container.querySelector("pre")!.textContent).toContain(
       "function helper(): void",
     );
+  });
+
+  it("hides Playwright's synthetic project#<id> frame from tabs, default file, and frame picker", () => {
+    // Mirrors the fixture-pool location Playwright synthesizes for
+    // project-level `use` option overrides — never a real source file.
+    const SYNTHETIC_FILE = "project#abc123";
+    const action = makeAction({
+      callId: "call@synthetic",
+      startTime: 1000,
+      endTime: 1500,
+      stack: [
+        { file: SYNTHETIC_FILE, line: 1, column: 1 },
+        { file: SPEC_FILE, line: 9, column: 3 },
+      ],
+    });
+    const model = makeModel({ actions: [action] });
+    model.sources.get(SPEC_FILE)!.content = SPEC_CONTENT;
+    const selectedAction = model.actions.find(
+      (a) => a.callId === "call@synthetic",
+    );
+    render(<SourceTab {...makeTabProps({ model, selectedAction })} />);
+
+    // No tab for the synthetic file, and the real file was picked as default
+    // (skipping the synthetic frame at index 0) despite not being selected.
+    expect(screen.queryByText(SYNTHETIC_FILE)).toBeNull();
+    expect(screen.getByText("checkout.spec.ts")).toBeTruthy();
+
+    // The frame picker still lists the synthetic frame, but disabled.
+    const syntheticRow = screen.getByTitle(SYNTHETIC_FILE);
+    expect(syntheticRow.tagName).toBe("BUTTON");
+    expect((syntheticRow as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("lazily fetches unseeded content via sha1(src@…) through the bridge", async () => {

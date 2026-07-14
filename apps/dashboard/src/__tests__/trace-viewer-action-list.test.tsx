@@ -561,6 +561,98 @@ describe("ActionList — manual toggles survive group-chip changes", () => {
   });
 });
 
+describe("ActionList — row click toggles collapse", () => {
+  it("clicking a row with children selects it and toggles its collapse state", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <ActionList
+        model={nestedModelNoError()} // starts collapsed by default
+        selectedCallId={undefined}
+        onSelect={onSelect}
+      />,
+    );
+    expect(screen.queryByText("Click checkout")).toBeNull();
+
+    await user.click(screen.getByText("Checkout flow"));
+    expect(onSelect).toHaveBeenCalledWith("call@1");
+    expect(screen.getByText("Click checkout")).toBeTruthy();
+
+    await user.click(screen.getByText("Checkout flow"));
+    expect(onSelect).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Click checkout")).toBeNull();
+  });
+
+  it("clicking the chevron still toggles without selecting", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <ActionList
+        model={nestedModelNoError()}
+        selectedCallId={undefined}
+        onSelect={onSelect}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByText("Click checkout")).toBeTruthy();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("clicking a leaf row (no children) only selects, without touching a sibling's collapse", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <ActionList
+        model={makeModel()}
+        selectedCallId={undefined}
+        onSelect={onSelect}
+      />,
+    );
+    await user.click(screen.getByText("Click checkout"));
+    expect(onSelect).toHaveBeenCalledWith("call@2");
+  });
+});
+
+describe("ActionList — hover preview", () => {
+  it("reports the hovered row's callId immediately, and clears it when the pointer leaves the list", () => {
+    const onHover = vi.fn();
+    render(
+      <ActionList
+        model={makeModel()}
+        selectedCallId={undefined}
+        onSelect={noop}
+        onHover={onHover}
+      />,
+    );
+
+    fireEvent.pointerEnter(optionRow("Click checkout"));
+    expect(onHover).toHaveBeenCalledWith("call@2");
+
+    fireEvent.pointerLeave(screen.getByRole("listbox"));
+    expect(onHover).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("reports each row entered in order, with no debounce", () => {
+    const onHover = vi.fn();
+    render(
+      <ActionList
+        model={makeModel()}
+        selectedCallId={undefined}
+        onSelect={noop}
+        onHover={onHover}
+      />,
+    );
+
+    fireEvent.pointerEnter(optionRow("Navigate to app"));
+    fireEvent.pointerEnter(optionRow("Click checkout"));
+
+    expect(onHover).toHaveBeenCalledTimes(2);
+    expect(onHover).toHaveBeenNthCalledWith(1, "call@1");
+    expect(onHover).toHaveBeenNthCalledWith(2, "call@2");
+  });
+});
+
 describe("ActionList — failure indicator", () => {
   it("the failing action's row is flagged data-status=fail", () => {
     render(

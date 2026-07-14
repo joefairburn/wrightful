@@ -247,6 +247,19 @@ export function sha1DownloadUrl(
   return `${TRACE_VIEWER_SCOPE}sha1/${sha1}?${params.toString()}`;
 }
 
+/**
+ * Playwright synthesizes non-file stack locations for actions that don't
+ * originate from a test file on disk — e.g. `project#<projectId>` for
+ * project-level fixture option overrides (playwright v1.61.1,
+ * packages/playwright/src/common, `_buildTestTypePool`). Those synthetic
+ * frames land in fixture-setup actions' stacks alongside real ones; anything
+ * without a path separator is not a real source file and gets no tab/frame
+ * in the Source view.
+ */
+export function isRealSourceFile(file: string): boolean {
+  return file.includes("/") || file.includes("\\");
+}
+
 /** Human title for an action row ("locator.click" etc. + selector-ish hint). */
 export function actionTitle(action: ActionTraceEvent): string {
   return action.title || `${action.class}.${action.method}`;

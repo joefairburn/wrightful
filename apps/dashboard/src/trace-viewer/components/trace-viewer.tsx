@@ -161,6 +161,30 @@ function Workbench({
     [model, selectedCallId],
   );
 
+  // Hover preview for the snapshot canvas only — DetailTabs/Timeline/playback
+  // all key off `selectedCallId` and are untouched by hovering. Stored WITH
+  // the model it belongs to, same render-time reset as `selection` above, so
+  // a stale hover from the previous attempt can never render against the new
+  // model for even one frame.
+  const [hover, setHover] = useState<{
+    model: TraceModel;
+    callId: string | undefined;
+  }>(() => ({ model, callId: undefined }));
+  if (hover.model !== model) {
+    setHover({ model, callId: undefined });
+  }
+  const hoveredCallId = hover.model === model ? hover.callId : undefined;
+  const setHoveredCallId = (callId: string | undefined): void =>
+    setHover({ model, callId });
+  const hoveredAction = useMemo(
+    () => model.actions.find((a) => a.callId === hoveredCallId),
+    [model, hoveredCallId],
+  );
+  // Coalesced once and shared by the snapshot pane and the Source tab — the
+  // only two panels that follow hover (upstream viewer parity); every other
+  // detail tab keys off `selectedAction` alone.
+  const activeAction = hoveredAction ?? selectedAction;
+
   // Playback (rAF clock + prev/play/stop/next/speed state) lives here, one
   // level above both the timeline strip (which draws the moving Playhead) and
   // the snapshot pane's nav (which renders the control cluster) — the two are
@@ -213,6 +237,7 @@ function Workbench({
           model={model}
           selectedCallId={selectedCallId}
           onSelect={setSelectedCallId}
+          onHover={setHoveredCallId}
         />
         <SplitPane
           direction="vertical"
@@ -222,7 +247,7 @@ function Workbench({
           className="h-full"
         >
           <SnapshotPane
-            action={selectedAction}
+            action={activeAction}
             traceUrl={traceUrl}
             bridge={bridge}
             onEscape={onEscape}
@@ -232,6 +257,7 @@ function Workbench({
           <DetailTabs
             model={model}
             selectedAction={selectedAction}
+            activeAction={activeAction}
             onSelectAction={setSelectedCallId}
             traceUrl={traceUrl}
             bridge={bridge}
