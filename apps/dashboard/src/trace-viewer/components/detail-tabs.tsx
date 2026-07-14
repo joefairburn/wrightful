@@ -30,9 +30,10 @@ type DetailTabId =
 
 /**
  * Bottom pane: cross-cutting trace details. Counts on the tab labels are
- * whole-trace; the Log tab is scoped to the selected action; Console/Network
- * can optionally FILTER to the selected action's window (the crosshair
- * toggle) instead of only highlighting it.
+ * whole-trace; Call/Log/Source follow `activeAction` (hover-aware); Errors,
+ * Attachments and Metadata stay on `selectedAction`; Console/Network can
+ * optionally FILTER to the selected action's window (the crosshair toggle)
+ * instead of only highlighting it.
  */
 export function DetailTabs({
   model,
@@ -44,15 +45,8 @@ export function DetailTabs({
 }: {
   model: TraceTabProps["model"];
   selectedAction: TraceTabProps["selectedAction"];
-  /**
-   * Hover-coalesced selection (`hoveredAction ?? selectedAction`, computed by
-   * the workbench) — used ONLY by the Source tab, to mirror the snapshot
-   * pane's hover-follow (upstream viewer parity: its workbench renders both
-   * snapshot and source from `highlightedAction || selectedAction`). Every
-   * other tab, plus the timeline/playback, deliberately stays on the real
-   * selection so a hover sweep can't yank filters or scroll positions.
-   */
-  activeAction: TraceTabProps["selectedAction"];
+  /** See `TraceTabProps["activeAction"]` — hover-coalesced by the workbench. */
+  activeAction: TraceTabProps["activeAction"];
   onSelectAction: TraceTabProps["onSelectAction"];
   traceUrl: string;
   bridge: TraceBridge;
@@ -67,6 +61,7 @@ export function DetailTabs({
   const tabProps: TraceTabProps = {
     model,
     selectedAction,
+    activeAction,
     onSelectAction,
     traceUrl,
     bridge,
@@ -144,7 +139,7 @@ export function DetailTabs({
       <div className="min-h-0 flex-1">
         {activeTab === "call" ? <CallTab {...tabProps} /> : null}
         {activeTab === "log" ? (
-          <LogTab selectedAction={selectedAction} startTime={model.startTime} />
+          <LogTab action={activeAction} startTime={model.startTime} />
         ) : null}
         {activeTab === "errors" ? <ErrorsTab {...tabProps} /> : null}
         {activeTab === "console" ? <ConsoleTab {...tabProps} /> : null}
@@ -152,13 +147,7 @@ export function DetailTabs({
         {activeTab === "source" ? (
           // Keyed so a selection change remounts the tab — fresh default
           // file + frame index for the new action's stack (see SourceTab).
-          // Fed `activeAction` (not `selectedAction`) — see the prop comment
-          // above.
-          <SourceTab
-            key={activeAction?.callId ?? ""}
-            {...tabProps}
-            selectedAction={activeAction}
-          />
+          <SourceTab key={activeAction?.callId ?? ""} {...tabProps} />
         ) : null}
         {activeTab === "attachments" ? <AttachmentsTab {...tabProps} /> : null}
         {activeTab === "metadata" ? <MetadataTab {...tabProps} /> : null}
@@ -168,17 +157,17 @@ export function DetailTabs({
 }
 
 function LogTab({
-  selectedAction,
+  action,
   startTime,
 }: {
-  selectedAction: TraceTabProps["selectedAction"];
+  action: TraceTabProps["activeAction"];
   startTime: number;
 }): React.ReactElement {
-  const log = selectedAction?.log ?? [];
+  const log = action?.log ?? [];
   if (log.length === 0) {
     return (
       <TabNotice>
-        {selectedAction
+        {action
           ? "No log entries for this action."
           : "Select an action to see its log."}
       </TabNotice>

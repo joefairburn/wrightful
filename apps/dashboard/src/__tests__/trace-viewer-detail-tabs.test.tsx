@@ -218,6 +218,68 @@ describe("DetailTabs — Source tab follows activeAction, not selectedAction", (
   });
 });
 
+describe("DetailTabs — Call/Log tabs follow activeAction, not selectedAction", () => {
+  function renderWithDistinctActions() {
+    const model = makeModel({
+      actions: [
+        makeAction({
+          callId: "call@1",
+          method: "goto",
+          title: "Navigate to app",
+          params: { url: "https://app.example/" },
+          startTime: 1000,
+          endTime: 1400,
+          log: [{ time: 1000, message: "navigating to app" }],
+        }),
+        makeAction({
+          callId: "call@2",
+          method: "click",
+          title: "Click checkout",
+          params: { selector: "#checkout" },
+          startTime: 2000,
+          endTime: 2600,
+          log: [{ time: 2000, message: "clicking #checkout" }],
+        }),
+      ],
+    });
+    const selectedAction = model.actions.find((a) => a.callId === "call@1");
+    const activeAction = model.actions.find((a) => a.callId === "call@2");
+
+    render(
+      <DetailTabs
+        model={model}
+        selectedAction={selectedAction}
+        activeAction={activeAction}
+        onSelectAction={vi.fn()}
+        traceUrl={FIXTURE_TRACE_URL}
+        bridge={makeBridge()}
+      />,
+    );
+  }
+
+  it("Call tab renders the active (hovered) action's params, not the selected action's", () => {
+    renderWithDistinctActions();
+
+    // Active action (call@2, #checkout) drives the Call pane…
+    expect(screen.getByText("Click checkout")).toBeTruthy();
+    expect(screen.getByText('"#checkout"')).toBeTruthy();
+    // …not the selected action (call@1).
+    expect(screen.queryByText("Navigate to app")).toBeNull();
+  });
+
+  it("Log tab renders the active (hovered) action's log entries, not the selected action's", async () => {
+    const user = userEvent.setup();
+    renderWithDistinctActions();
+
+    await user.click(tab("Log"));
+
+    // Active action (call@2)'s log entry…
+    expect(screen.getByText("clicking #checkout")).toBeTruthy();
+    // …not the selected action's (call@1).
+    expect(screen.queryByText("navigating to app")).toBeNull();
+  });
+});
+
 describe("DetailTabs — crosshair scope toggle", () => {
   const scopeToggle = () =>
     screen.queryByRole("button", { pressed: false }) ??

@@ -257,13 +257,19 @@ export function makeModel(over?: Partial<ContextEntry>): TraceModel {
  * fixture model, no selection, an empty bridge, and a `vi.fn()` for
  * `onSelectAction`. Pass overrides for whatever a test pins down (a shared
  * `model` + its `selectedAction`, a seeded `bridge`, `scopeToSelected`…).
+ * `activeAction` defaults to mirror the effective `selectedAction` (so a
+ * caller overriding only `selectedAction` gets the same behavior as before
+ * `activeAction` existed) — pass an explicit `activeAction` to steer the
+ * hover-aware tabs (Call/Log/Source) independently of the selection.
  */
 export function makeTabProps(
   overrides: Partial<TraceTabProps> = {},
 ): TraceTabProps {
+  const selectedAction = overrides.selectedAction ?? undefined;
   return {
     model: makeModel(),
-    selectedAction: undefined,
+    selectedAction,
+    activeAction: selectedAction,
     onSelectAction: vi.fn(),
     traceUrl: FIXTURE_TRACE_URL,
     bridge: makeBridge(),

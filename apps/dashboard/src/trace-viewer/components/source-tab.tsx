@@ -56,18 +56,19 @@ function pickDefaultFile(
 }
 
 /**
- * Read-only source view for the selected action's stack frame, with a stack
- * frame picker alongside it. Keyed on the selected action by `DetailTabs`,
- * so a selection change remounts it (fresh default file + frame index)
- * instead of reconciling stale manual picks against a new stack.
+ * Read-only source view for the hover-aware active action's stack frame
+ * (`activeAction` — see `TraceTabProps`), with a stack frame picker
+ * alongside it. Keyed on `activeAction` by `DetailTabs`, so a change remounts
+ * it (fresh default file + frame index) instead of reconciling stale manual
+ * picks against a new stack.
  */
 export function SourceTab(props: TraceTabProps): React.ReactElement {
-  const { model, selectedAction, traceUrl, bridge } = props;
+  const { model, activeAction, traceUrl, bridge } = props;
   const files = Array.from(model.sources.keys()).filter(isRealSourceFile);
   const [manualFile, setManualFile] = useState<string | undefined>(undefined);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState(0);
 
-  const stack = selectedAction?.stack ?? [];
+  const stack = activeAction?.stack ?? [];
   const selectedFrame = stack[selectedFrameIndex];
 
   const file = manualFile ?? pickDefaultFile(selectedFrame, model.sources);

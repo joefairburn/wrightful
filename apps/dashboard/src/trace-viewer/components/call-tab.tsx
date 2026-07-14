@@ -32,16 +32,17 @@ function isNonEmptyResult(value: unknown): boolean {
   return true;
 }
 
-/** The "Call" detail tab: parameters, return value, timing and error for the selected action. */
+/** The "Call" detail tab: parameters, return value, timing and error for the
+ * hover-aware active action (`activeAction` — see `TraceTabProps`). */
 export function CallTab({
   model,
-  selectedAction,
+  activeAction,
 }: TraceTabProps): React.ReactElement {
-  if (!selectedAction) {
+  if (!activeAction) {
     return <TabNotice>Select an action to see its call details.</TabNotice>;
   }
 
-  const action = selectedAction;
+  const action = activeAction;
   const params: Record<string, unknown> = action.params ?? {};
   const paramEntries = Object.entries(params);
   const hasResult = isNonEmptyResult(action.result);

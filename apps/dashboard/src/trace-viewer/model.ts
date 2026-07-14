@@ -41,6 +41,17 @@ export type SnapshotSet = {
 export type TraceTabProps = {
   model: TraceModel;
   selectedAction: ActionTraceEventInContext | undefined;
+  /**
+   * The hover-aware action mirroring the snapshot canvas: the hovered
+   * action-list row while previewing, else `selectedAction` (the workbench
+   * computes `hoveredAction ?? selectedAction` once and shares it). Tabs that
+   * render ONE action's detail (Call/Log/Source) key on this, matching the
+   * official viewer's `highlightedAction || selectedAction`. Selection-scoped
+   * tabs deliberately stay on `selectedAction` instead — Console/Network's
+   * highlighting + `scopeToSelected` window, and Attachments — so a hover
+   * sweep can't yank filters or scroll positions.
+   */
+  activeAction: ActionTraceEventInContext | undefined;
   /** Select an action in the action list (e.g. from an error's link). */
   onSelectAction: (callId: string) => void;
   /** The absolute trace URL (drives SW-served attachment/resource links). */
