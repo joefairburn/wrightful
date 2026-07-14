@@ -108,6 +108,7 @@ export function Timeline({
   onSelect,
   playback,
   playableActions,
+  seekActions,
   selection,
   onSelectionChange,
   className,
@@ -119,18 +120,29 @@ export function Timeline({
   /** Shared playback controller (owned by the workbench). */
   playback: PlaybackController;
   /**
-   * The default-visible action set playback + seeking walk — computed once in
-   * the workbench and shared with the snapshot pane's control cluster. While
-   * a `selection` is active the workbench pre-filters it to that window.
+   * The action set the moving Playhead walks — the default-visible set,
+   * pre-filtered by the workbench to the `selection` window while one is
+   * active (shared with the snapshot pane's control cluster).
    */
   playableActions: TimelineAction[];
+  /**
+   * The FULL default-visible set, ignoring any selection window — what
+   * click-seeks and hover captions resolve against. A click clears the
+   * selection and lands on the action at that exact point, so it must never
+   * be clamped to the window; identical to `playableActions` when no
+   * selection is active.
+   */
+  seekActions: TimelineAction[];
   /**
    * The drag-selected time window, owned by the workbench (the action list
    * scopes to it and clears it via "Show all").
    */
   selection: TraceTimeRange | null;
-  /** Fires continuously while a selection drag is in progress. */
-  onSelectionChange: (range: TraceTimeRange) => void;
+  /**
+   * Fires continuously while a selection drag is in progress, and with
+   * `null` when a plain click (no drag) dismisses the active selection.
+   */
+  onSelectionChange: (range: TraceTimeRange | null) => void;
   className?: string;
 }): React.ReactElement | null {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -191,9 +203,8 @@ export function Timeline({
     selecting: boolean;
   } | null>(null);
 
-  // The bars lane below renders every action; `playableActions` (the
-  // default-visible set that playback + seeking walk) is provided by the
-  // workbench.
+  // The bars lane below renders every action; the workbench provides the
+  // sets playback (`playableActions`) and seeking (`seekActions`) walk.
   if (duration <= 0) return null;
 
   const fractionAtClientX = (clientX: number): number => {
@@ -205,9 +216,9 @@ export function Timeline({
   const seekToFraction = (fraction: number): void => {
     // actionActiveAt only returns undefined for an empty action list — guard
     // that once here instead of a per-call `if (action)` on every seek.
-    if (playableActions.length === 0) return;
+    if (seekActions.length === 0) return;
     const t = model.startTime + fraction * duration;
-    onSelect(actionActiveAt(playableActions, t)!.callId);
+    onSelect(actionActiveAt(seekActions, t)!.callId);
   };
 
   const previewBelow = (): boolean => {
@@ -255,6 +266,12 @@ export function Timeline({
   };
 
   const onPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
+    // A press that never turned into a drag is a plain click: it already
+    // seeked on pointerdown (against the full `seekActions` set), and it also
+    // dismisses any active selection window. Read the drag state BEFORE
+    // releasing capture — releasing fires lostpointercapture, which nulls it.
+    const drag = draggingRef.current;
+    if (drag && !drag.selecting && selection) onSelectionChange(null);
     // Drag state is cleared in onLostPointerCapture (below), which fires for
     // this release AND for a pointercancel (e.g. a touch turning into a scroll)
     // where onPointerUp never runs — leaving draggingRef stuck otherwise.
@@ -303,8 +320,8 @@ export function Timeline({
   // viewer. Same set (and same `actionActiveAt`) as `seekToFraction`, so the
   // caption always names the action a click would actually select.
   const hoverAction =
-    hoverTime !== null && playableActions.length > 0
-      ? actionActiveAt(playableActions, hoverTime)
+    hoverTime !== null && seekActions.length > 0
+      ? actionActiveAt(seekActions, hoverTime)
       : undefined;
 
   return (

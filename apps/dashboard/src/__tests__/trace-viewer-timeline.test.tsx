@@ -58,19 +58,22 @@ function Harness({
   selectedCallId: string | undefined;
   onSelect: (callId: string) => void;
   /** Observation hook for the drag range-selection tests. */
-  onSelectionChange?: (range: TraceTimeRange) => void;
+  onSelectionChange?: (range: TraceTimeRange | null) => void;
   /** Off for the zero-duration case, which asserts a null render. */
   controls?: boolean;
 }): React.ReactElement {
-  // Mirrors the workbench: the drag-selected window scopes the playable set,
-  // and playback's window follows the selection (or the whole trace).
+  // Mirrors the workbench: the drag-selected window scopes the playable set
+  // (playback/stepping), seeks keep the unscoped set, and playback's window
+  // follows the selection (or the whole trace).
   const [selection, setSelection] = useState<TraceTimeRange | null>(null);
-  const playableActions = useMemo(() => {
-    const base = model.filteredActions([]);
-    return selection
-      ? base.filter((a) => actionIntersectsRange(a, selection))
-      : base;
-  }, [model, selection]);
+  const allPlayableActions = useMemo(() => model.filteredActions([]), [model]);
+  const playableActions = useMemo(
+    () =>
+      selection
+        ? allPlayableActions.filter((a) => actionIntersectsRange(a, selection))
+        : allPlayableActions,
+    [allPlayableActions, selection],
+  );
   const selectedAction = useMemo(
     () => model.actions.find((a) => a.callId === selectedCallId),
     [model, selectedCallId],
@@ -105,6 +108,7 @@ function Harness({
         onSelect={onSelect}
         playback={playback}
         playableActions={playableActions}
+        seekActions={allPlayableActions}
         selection={selection}
         onSelectionChange={(range) => {
           setSelection(range);
@@ -377,6 +381,42 @@ describe("Timeline range selection", () => {
     fireEvent.pointerUp(strip!, { clientX: 403, pointerId: 1 });
     expect(onSelect).toHaveBeenCalledWith("call@4");
     expect(onSelectionChange).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[data-testid="timeline-selection"]'),
+    ).toBeNull();
+  });
+
+  it("a click dismisses the active selection and seeks the full action set", () => {
+    const model = makeModel();
+    const onSelect = vi.fn();
+    const onSelectionChange = vi.fn();
+    const { container } = render(
+      <Harness
+        model={model}
+        bridge={makeBridge()}
+        selectedCallId={undefined}
+        onSelect={onSelect}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+    const strip = container.querySelector('[data-testid="timeline-strip"]');
+    // Select t=1750..3250 (call@2 + call@4 intersect it).
+    fireEvent.pointerDown(strip!, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(strip!, { clientX: 450, pointerId: 1 });
+    fireEvent.pointerUp(strip!, { clientX: 450, pointerId: 1 });
+    fireEvent.lostPointerCapture(strip!, { pointerId: 1 });
+    expect(
+      container.querySelector('[data-testid="timeline-selection"]'),
+    ).toBeTruthy();
+    onSelect.mockClear();
+
+    // Click at x=50 -> t=1250, OUTSIDE the window. The seek must resolve
+    // against the FULL set (call@1, 1000–1400) — never clamp to the window's
+    // nearest action (call@2) — and the release dismisses the selection.
+    fireEvent.pointerDown(strip!, { clientX: 50, pointerId: 1 });
+    expect(onSelect).toHaveBeenLastCalledWith("call@1");
+    fireEvent.pointerUp(strip!, { clientX: 50, pointerId: 1 });
+    expect(onSelectionChange).toHaveBeenLastCalledWith(null);
     expect(
       container.querySelector('[data-testid="timeline-selection"]'),
     ).toBeNull();

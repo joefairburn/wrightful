@@ -213,14 +213,18 @@ function Workbench({
   // DEFAULT-VISIBLE action set (`filteredActions([])` drops the route/getter/
   // configuration noise groups the action list hides by default) — selecting a
   // hidden action would land on a row that isn't in the list, so "Next" would
-  // appear to do nothing. A timeline selection narrows the same set further,
-  // so playback, stepping, and strip seeks all stay inside the selection.
-  const playableActions = useMemo(() => {
-    const base = model.filteredActions([]);
-    return timeRange
-      ? base.filter((a) => actionIntersectsRange(a, timeRange))
-      : base;
-  }, [model, timeRange]);
+  // appear to do nothing. A timeline selection narrows the same set further
+  // for playback and stepping; strip click-seeks keep the UNSCOPED set
+  // (`allPlayableActions`) because a click dismisses the selection and lands
+  // on the action at that exact point.
+  const allPlayableActions = useMemo(() => model.filteredActions([]), [model]);
+  const playableActions = useMemo(
+    () =>
+      timeRange
+        ? allPlayableActions.filter((a) => actionIntersectsRange(a, timeRange))
+        : allPlayableActions,
+    [allPlayableActions, timeRange],
+  );
   const playback = usePlayback({
     windowStartTime: timeRange?.start ?? model.startTime,
     windowEndTime: timeRange?.end ?? model.endTime,
@@ -259,6 +263,7 @@ function Workbench({
         onSelect={setSelectedCallId}
         playback={playback}
         playableActions={playableActions}
+        seekActions={allPlayableActions}
         selection={timeRange}
         onSelectionChange={setTimeRange}
         className="shrink-0 border-b border-line-1"
