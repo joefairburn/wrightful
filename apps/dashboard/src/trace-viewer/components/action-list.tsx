@@ -242,8 +242,12 @@ export function ActionList({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-line-1 px-2 py-1.5">
+      {/* h-9 matches the snapshot pane's Before/Action/After nav
+       * (`snapshot-pane.tsx`) so the two panes' bottom dividers align across
+       * the split. */}
+      <div className="flex h-9 shrink-0 items-center border-b border-line-1 px-2">
         <SearchFilterInput
+          className="w-full"
           placeholder="Filter actions"
           aria-label="Filter actions"
           value={query}
