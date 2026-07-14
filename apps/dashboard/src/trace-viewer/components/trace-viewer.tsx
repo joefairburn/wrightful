@@ -305,6 +305,7 @@ function Workbench({
             onSelectAction={setSelectedCallId}
             traceUrl={traceUrl}
             bridge={bridge}
+            selection={timeRange}
           />
         </SplitPane>
       </SplitPane>

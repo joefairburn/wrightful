@@ -76,4 +76,28 @@ describe("ConsoleTab", () => {
       screen.getByText("No console output during this action."),
     ).toBeTruthy();
   });
+
+  it("filters rows to the timeline selection window", () => {
+    // Fixture console rows: "loading cart" (1200), "boom red" (2200),
+    // pageError "Uncaught kaboom" (3500) — only the middle one is in window.
+    render(
+      <ConsoleTab
+        {...makeTabProps({ selection: { start: 2000, end: 3000 } })}
+      />,
+    );
+    expect(screen.getByText("boom red")).toBeTruthy();
+    expect(screen.queryByText("loading cart")).toBeNull();
+    expect(screen.queryByText("Uncaught kaboom")).toBeNull();
+  });
+
+  it("shows a selection-empty message when the window has no console output", () => {
+    render(
+      <ConsoleTab
+        {...makeTabProps({ selection: { start: 4500, end: 4900 } })}
+      />,
+    );
+    expect(
+      screen.getByText("No console output in the selected timeline range."),
+    ).toBeTruthy();
+  });
 });

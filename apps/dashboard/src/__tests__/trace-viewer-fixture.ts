@@ -274,6 +274,7 @@ export function makeTabProps(
     traceUrl: FIXTURE_TRACE_URL,
     bridge: makeBridge(),
     scopeToSelected: false,
+    selection: null,
     ...overrides,
   };
 }

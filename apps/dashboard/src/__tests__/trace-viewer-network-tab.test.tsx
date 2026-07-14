@@ -95,6 +95,29 @@ describe("NetworkTab", () => {
     expect(screen.queryByText("checkout")).toBeNull();
   });
 
+  it("filters rows to the timeline selection window", () => {
+    // Fixture requests start at _monotonicTime 2100 (items) / 3600
+    // (checkout) — only the first falls inside the window.
+    render(
+      <NetworkTab
+        {...makeTabProps({ selection: { start: 2000, end: 3000 } })}
+      />,
+    );
+    expect(screen.getByText("items")).toBeTruthy();
+    expect(screen.queryByText("checkout")).toBeNull();
+  });
+
+  it("shows a selection-empty message when the window has no requests", () => {
+    render(
+      <NetworkTab
+        {...makeTabProps({ selection: { start: 4500, end: 4900 } })}
+      />,
+    );
+    expect(
+      screen.getByText("No requests in the selected timeline range."),
+    ).toBeTruthy();
+  });
+
   it("filters rows by URL substring via the search field", async () => {
     const user = userEvent.setup();
     render(<NetworkTab {...makeTabProps()} />);

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
+import { monotonicTime } from "../har-fields";
+import { timeInRange, type TraceTimeRange } from "../model";
 import type { TraceTabProps } from "../model";
 import type { TraceBridge } from "../use-trace-model";
 import { AttachmentsTab } from "./attachments-tab";
@@ -30,10 +32,12 @@ type DetailTabId =
 
 /**
  * Bottom pane: cross-cutting trace details. Counts on the tab labels are
- * whole-trace; Call/Log/Source follow `activeAction` (hover-aware); Errors,
- * Attachments and Metadata stay on `selectedAction`; Console/Network can
- * optionally FILTER to the selected action's window (the crosshair toggle)
- * instead of only highlighting it.
+ * whole-trace (narrowed to the timeline selection while one is active);
+ * Call/Log/Source follow `activeAction` (hover-aware); Errors, Attachments
+ * and Metadata stay on `selectedAction`; Console/Network can optionally
+ * FILTER to the selected action's window (the crosshair toggle) instead of
+ * only highlighting it, and always filter to the timeline `selection` window
+ * when one is drag-selected on the strip.
  */
 export function DetailTabs({
   model,
@@ -42,6 +46,7 @@ export function DetailTabs({
   onSelectAction,
   traceUrl,
   bridge,
+  selection = null,
 }: {
   model: TraceTabProps["model"];
   selectedAction: TraceTabProps["selectedAction"];
@@ -50,9 +55,20 @@ export function DetailTabs({
   onSelectAction: TraceTabProps["onSelectAction"];
   traceUrl: string;
   bridge: TraceBridge;
+  /** See `TraceTabProps["selection"]` — the timeline's drag-selected window. */
+  selection?: TraceTimeRange | null;
 }): React.ReactElement {
   const errorCount = model.errorDescriptors.length;
-  const consoleCount = model.events.filter(isConsoleRow).length;
+  // Console/Network tab-label counts track the timeline selection so the
+  // labels always match what the tab bodies show.
+  const consoleCount = model.events
+    .filter(isConsoleRow)
+    .filter((event) => !selection || timeInRange(event.time, selection)).length;
+  const networkCount = selection
+    ? model.resources.filter((entry) =>
+        timeInRange(monotonicTime(entry), selection),
+      ).length
+    : model.resources.length;
   const [tab, setTab] = useState<DetailTabId>(
     errorCount > 0 ? "errors" : "call",
   );
@@ -66,6 +82,7 @@ export function DetailTabs({
     traceUrl,
     bridge,
     scopeToSelected,
+    selection,
   };
 
   const tabs: Array<{ id: DetailTabId; label: string; count?: number }> = [
@@ -73,7 +90,7 @@ export function DetailTabs({
     { id: "log", label: "Log" },
     { id: "errors", label: "Errors", count: errorCount },
     { id: "console", label: "Console", count: consoleCount },
-    { id: "network", label: "Network", count: model.resources.length },
+    { id: "network", label: "Network", count: networkCount },
     ...(model.hasSource ? [{ id: "source" as const, label: "Source" }] : []),
     {
       id: "attachments",
@@ -139,7 +156,11 @@ export function DetailTabs({
       <div className="min-h-0 flex-1">
         {activeTab === "call" ? <CallTab {...tabProps} /> : null}
         {activeTab === "log" ? (
-          <LogTab action={activeAction} startTime={model.startTime} />
+          <LogTab
+            action={activeAction}
+            startTime={model.startTime}
+            selection={selection}
+          />
         ) : null}
         {activeTab === "errors" ? <ErrorsTab {...tabProps} /> : null}
         {activeTab === "console" ? <ConsoleTab {...tabProps} /> : null}
@@ -159,17 +180,25 @@ export function DetailTabs({
 function LogTab({
   action,
   startTime,
+  selection,
 }: {
   action: TraceTabProps["activeAction"];
   startTime: number;
+  /** Timeline selection: only log entries inside the window are shown. */
+  selection: TraceTimeRange | null;
 }): React.ReactElement {
-  const log = action?.log ?? [];
+  const allEntries = action?.log ?? [];
+  const log = selection
+    ? allEntries.filter((entry) => timeInRange(entry.time, selection))
+    : allEntries;
   if (log.length === 0) {
     return (
       <TabNotice>
-        {action
-          ? "No log entries for this action."
-          : "Select an action to see its log."}
+        {!action
+          ? "Select an action to see its log."
+          : allEntries.length > 0
+            ? "No log entries in the selected timeline range."
+            : "No log entries for this action."}
       </TabNotice>
     );
   }

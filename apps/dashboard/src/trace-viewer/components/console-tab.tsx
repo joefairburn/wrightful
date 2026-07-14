@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { stripAnsi } from "@/lib/ansi";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
+import { timeInRange } from "../model";
 import type { TraceTabProps } from "../model";
 import { eventsForAction } from "../vendor/model-util";
 import type {
@@ -51,8 +52,13 @@ export function ConsoleTab({
   model,
   selectedAction,
   scopeToSelected,
+  selection,
 }: TraceTabProps): React.ReactElement {
-  const allRows = model.events.filter(isConsoleRow);
+  // A timeline selection narrows the row universe first; the crosshair's
+  // action-window scoping (and highlighting) then applies within it.
+  const allRows = model.events
+    .filter(isConsoleRow)
+    .filter((event) => !selection || timeInRange(event.time, selection));
   const actionEvents = selectedAction
     ? new Set(eventsForAction(selectedAction))
     : undefined;
@@ -68,8 +74,12 @@ export function ConsoleTab({
   if (rows.length === 0) {
     return (
       <ScopedEmpty
-        scoped={scoped}
-        scopedMessage="No console output during this action."
+        scoped={scoped || selection !== null}
+        scopedMessage={
+          scoped
+            ? "No console output during this action."
+            : "No console output in the selected timeline range."
+        }
         title="No console output"
         description="This trace recorded no console messages or page errors."
       />

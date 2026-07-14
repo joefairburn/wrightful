@@ -111,6 +111,27 @@ describe("DetailTabs — tab label counts", () => {
     expect(tab("Attachments").textContent).toBe("Attachments2");
   });
 
+  it("narrows Console/Network counts to the timeline selection window", () => {
+    const model = makeModel();
+    render(
+      <DetailTabs
+        model={model}
+        selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
+        onSelectAction={vi.fn()}
+        traceUrl={FIXTURE_TRACE_URL}
+        bridge={makeBridge()}
+        selection={{ start: 2000, end: 3000 }}
+      />,
+    );
+    // In-window: the "boom red" console error (2200) and the items request
+    // (_monotonicTime 2100). Errors/Attachments counts stay whole-trace.
+    expect(tab("Console").textContent).toBe("Console1");
+    expect(tab("Network").textContent).toBe("Network1");
+    expect(tab("Errors").textContent).toBe("Errors1");
+    expect(tab("Attachments").textContent).toBe("Attachments2");
+  });
+
   it("renders the Errors count as a Badge, not the plain muted span other tabs use", () => {
     const model = makeModel();
     render(
@@ -277,6 +298,58 @@ describe("DetailTabs — Call/Log tabs follow activeAction, not selectedAction",
     expect(screen.getByText("clicking #checkout")).toBeTruthy();
     // …not the selected action's (call@1).
     expect(screen.queryByText("navigating to app")).toBeNull();
+  });
+});
+
+describe("DetailTabs — Log tab timeline selection", () => {
+  function renderLogWithSelection(selection: {
+    start: number;
+    end: number;
+  }): void {
+    const model = makeModel({
+      actions: [
+        makeAction({
+          callId: "call@1",
+          method: "click",
+          title: "Click checkout",
+          params: { selector: "#checkout" },
+          startTime: 2000,
+          endTime: 4000,
+          log: [
+            { time: 2100, message: "waiting for #checkout" },
+            { time: 3500, message: "performing click" },
+          ],
+        }),
+      ],
+    });
+    render(
+      <DetailTabs
+        model={model}
+        selectedAction={model.actions[0]}
+        activeAction={model.actions[0]}
+        onSelectAction={vi.fn()}
+        traceUrl={FIXTURE_TRACE_URL}
+        bridge={makeBridge()}
+        selection={selection}
+      />,
+    );
+  }
+
+  it("shows only log entries inside the selection window", async () => {
+    const user = userEvent.setup();
+    renderLogWithSelection({ start: 2000, end: 3000 });
+    await user.click(tab("Log"));
+    expect(screen.getByText("waiting for #checkout")).toBeTruthy();
+    expect(screen.queryByText("performing click")).toBeNull();
+  });
+
+  it("shows a selection-empty message when no entries fall in the window", async () => {
+    const user = userEvent.setup();
+    renderLogWithSelection({ start: 4500, end: 4900 });
+    await user.click(tab("Log"));
+    expect(
+      screen.getByText("No log entries in the selected timeline range."),
+    ).toBeTruthy();
   });
 });
 

@@ -63,6 +63,12 @@ export type TraceTabProps = {
    * action's window instead of merely highlighting it.
    */
   scopeToSelected: boolean;
+  /**
+   * The timeline's drag-selected time window. While active, the
+   * time-windowed tabs (Console/Network/Log) show only entries inside it —
+   * on top of (and independent from) the `scopeToSelected` action window.
+   */
+  selection: TraceTimeRange | null;
 };
 
 function createSnapshot(
@@ -326,6 +332,19 @@ export function actionIntersectsRange(
   range: TraceTimeRange,
 ): boolean {
   return action.startTime <= range.end && action.endTime >= range.start;
+}
+
+/**
+ * Whether a point-in-time entry (console event, network request start, log
+ * line) falls inside a timeline selection. The one predicate every
+ * time-windowed detail tab shares; `undefined` times (e.g. a HAR entry
+ * without `_monotonicTime`) are treated as outside any window.
+ */
+export function timeInRange(
+  time: number | undefined,
+  range: TraceTimeRange,
+): boolean {
+  return time !== undefined && time >= range.start && time <= range.end;
 }
 
 const TRACE_VERSION_ERROR_SNIPPET = "created by a newer version of Playwright";

@@ -24,7 +24,7 @@ import {
   transferSize,
   webSocketMessages,
 } from "../har-fields";
-import { sha1Path } from "../model";
+import { sha1Path, timeInRange } from "../model";
 import type { TraceTabProps } from "../model";
 import { useBridgeText } from "../use-bridge-fetch";
 import { useObjectUrl } from "../use-object-url";
@@ -490,6 +490,7 @@ export function NetworkTab({
   model,
   selectedAction,
   scopeToSelected,
+  selection,
   traceUrl,
   bridge,
 }: TraceTabProps): React.ReactElement {
@@ -505,6 +506,13 @@ export function NetworkTab({
           ? { key, dir: "desc" }
           : null,
     );
+  // A timeline selection narrows the entry universe first (by request start
+  // time); the crosshair's action-window scoping then applies within it.
+  const allEntries = selection
+    ? model.resources.filter((entry) =>
+        timeInRange(monotonicTime(entry), selection),
+      )
+    : model.resources;
   // Scoped: filter to the selected action's window. Unscoped: keep every
   // entry and merely highlight the ones in that window (today's behavior).
   const isWithinSelectedAction = (time: number | undefined): boolean =>
@@ -513,10 +521,8 @@ export function NetworkTab({
     time >= selectedAction.startTime &&
     time <= selectedAction.endTime;
   const scopedEntries = scoped
-    ? model.resources.filter((entry) =>
-        isWithinSelectedAction(monotonicTime(entry)),
-      )
-    : model.resources;
+    ? allEntries.filter((entry) => isWithinSelectedAction(monotonicTime(entry)))
+    : allEntries;
 
   const needle = query.trim().toLowerCase();
   const filtered = scopedEntries.filter(
@@ -547,8 +553,12 @@ export function NetworkTab({
   if (scopedEntries.length === 0) {
     return (
       <ScopedEmpty
-        scoped={scoped}
-        scopedMessage="No requests during this action."
+        scoped={scoped || selection !== null}
+        scopedMessage={
+          scoped
+            ? "No requests during this action."
+            : "No requests in the selected timeline range."
+        }
         title="No network activity"
         description="This trace recorded no network requests."
       />
