@@ -12,6 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSearchParam } from "@/lib/use-search-param";
 import { TraceViewer } from "@/trace-viewer/components/trace-viewer";
 import { warmTraceViewer } from "@/trace-viewer/warm";
@@ -132,27 +133,46 @@ function TestReplayContent({
             />
           ) : null}
           {publicViewerUrl ? (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              title="Open in the Playwright viewer — sends this trace to trace.playwright.dev"
-              aria-label="Open in the Playwright viewer"
-              render={
-                <a href={publicViewerUrl} target="_blank" rel="noreferrer" />
-              }
-            >
-              <Share2 />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Open in the Playwright viewer"
+                    render={
+                      <a
+                        href={publicViewerUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      />
+                    }
+                  >
+                    <Share2 />
+                  </Button>
+                }
+              />
+              <TooltipPopup>
+                Open in the Playwright viewer — sends this trace to
+                trace.playwright.dev
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            title="Download trace"
-            aria-label="Download trace"
-            render={<a href={activeDownloadHref} download />}
-          >
-            <Download />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Download trace"
+                  render={<a href={activeDownloadHref} download />}
+                >
+                  <Download />
+                </Button>
+              }
+            />
+            <TooltipPopup>Download trace</TooltipPopup>
+          </Tooltip>
         </div>
       </div>
       <div className="min-h-0 flex-1 bg-bg-0">

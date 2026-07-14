@@ -75,10 +75,11 @@ The Replay dialog (`trace-viewer-dialog.tsx`) header had three text buttons:
 "Official viewer" (self-hosted official viewer), "Download", and "Public viewer"
 (trace.playwright.dev). Dropped "Official viewer" — the public viewer is the
 same viewer for the user's purposes — and turned the remaining two into
-icon-only buttons with hover tooltips: a `Share2` icon opening the public
-Playwright viewer, and a `Download` icon. The `traceViewerUrl` field stays on
-the wire contract (still used as `TraceViewerDialog`'s availability gate) but is
-no longer surfaced as a link.
+icon-only buttons: a `Share2` icon opening the public Playwright viewer, and a
+`Download` icon — each wrapped in the app's styled `Tooltip` (Base UI, via
+`ui/tooltip`), not a native `title`. The `traceViewerUrl` field stays on the
+wire contract (still used as `TraceViewerDialog`'s availability gate) but is no
+longer surfaced as a link.
 
 ## Files
 
