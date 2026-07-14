@@ -11,7 +11,6 @@ import type React from "react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -23,6 +22,7 @@ import { useBridgeText } from "../use-bridge-fetch";
 import { useObjectUrl } from "../use-object-url";
 import type { TraceBridge } from "../use-trace-model";
 import type { Attachment } from "../vendor/model-util";
+import { TabEmpty } from "./detail-shared";
 
 /**
  * Attachments we can render an inline text preview for: any text-like type
@@ -343,12 +343,10 @@ export function AttachmentsTab({
 
   if (attachments.length === 0) {
     return (
-      <Empty className="h-full py-8">
-        <EmptyTitle>No attachments</EmptyTitle>
-        <EmptyDescription>
-          This trace has no visible attachments.
-        </EmptyDescription>
-      </Empty>
+      <TabEmpty
+        title="No attachments"
+        description="This trace has no visible attachments."
+      />
     );
   }
 

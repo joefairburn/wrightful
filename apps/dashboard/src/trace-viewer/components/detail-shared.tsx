@@ -90,29 +90,46 @@ export function TabNotice({
   return <div className="px-3 py-4 text-caption text-fg-4">{children}</div>;
 }
 
-/**
- * Dual empty state for time-windowed tabs (Console/Network): a compact
- * {@link TabNotice} when scoped to the selected action's (now-empty) window,
- * else the full-height `Empty` illustration for "nothing in the whole trace".
- * Only the wrapper is shared — each tab computes its own scoped/unscoped rows
- * with its own time-window predicate.
- */
-export function ScopedEmpty({
-  scoped,
-  scopedMessage,
+/** The full-height "nothing in the whole trace" empty state a tab shows when
+ * it has no rows and no active window. */
+export function TabEmpty({
   title,
   description,
 }: {
-  scoped: boolean;
-  scopedMessage: string;
   title: string;
   description: string;
 }): React.ReactElement {
-  if (scoped) return <TabNotice>{scopedMessage}</TabNotice>;
   return (
     <Empty className="h-full py-8">
       <EmptyTitle>{title}</EmptyTitle>
       <EmptyDescription>{description}</EmptyDescription>
     </Empty>
   );
+}
+
+/**
+ * Empty state for the time-windowed tabs (Console/Network): a compact
+ * {@link TabNotice} explaining why the active window is empty — the crosshair's
+ * action scope takes precedence over a timeline `selection` — else the
+ * full-height {@link TabEmpty} for "nothing in the whole trace". Owns the
+ * scope-vs-range message choice both call sites otherwise duplicate.
+ */
+export function ScopedEmpty({
+  scoped,
+  selection,
+  actionScopedMessage,
+  rangeScopedMessage,
+  title,
+  description,
+}: {
+  scoped: boolean;
+  selection: boolean;
+  actionScopedMessage: string;
+  rangeScopedMessage: string;
+  title: string;
+  description: string;
+}): React.ReactElement {
+  if (scoped) return <TabNotice>{actionScopedMessage}</TabNotice>;
+  if (selection) return <TabNotice>{rangeScopedMessage}</TabNotice>;
+  return <TabEmpty title={title} description={description} />;
 }

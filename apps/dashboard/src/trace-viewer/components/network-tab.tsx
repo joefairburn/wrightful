@@ -161,12 +161,10 @@ export function NetworkTab({
   if (scopedEntries.length === 0) {
     return (
       <ScopedEmpty
-        scoped={scoped || selection !== null}
-        scopedMessage={
-          scoped
-            ? "No requests during this action."
-            : "No requests in the selected timeline range."
-        }
+        scoped={scoped}
+        selection={selection !== null}
+        actionScopedMessage="No requests during this action."
+        rangeScopedMessage="No requests in the selected timeline range."
         title="No network activity"
         description="This trace recorded no network requests."
       />

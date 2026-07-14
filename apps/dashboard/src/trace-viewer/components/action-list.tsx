@@ -25,16 +25,40 @@ import { buildActionTree, stats } from "../vendor/model-util";
 const GROUPS: ActionGroup[] = ["route", "getter", "configuration"];
 const SHOWN_GROUPS_KEY = "wrightful:trace-viewer:shown-action-groups";
 
-function readShownGroups(): ReadonlySet<ActionGroup> {
-  try {
-    const raw = window.localStorage.getItem(SHOWN_GROUPS_KEY);
-    if (!raw) return new Set();
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(GROUPS.filter((g) => (parsed as unknown[]).includes(g)));
-  } catch {
-    return new Set();
-  }
+/**
+ * The persisted set of shown groups + its toggle, best-effort localStorage on
+ * both sides so the read that seeds initial state and the write can't drift out
+ * of the same serialization shape.
+ */
+function usePersistentGroupSet(
+  key: string,
+  groups: readonly ActionGroup[],
+): [ReadonlySet<ActionGroup>, (group: ActionGroup) => void] {
+  const [shown, setShown] = useState<ReadonlySet<ActionGroup>>(() => {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return new Set();
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(groups.filter((g) => (parsed as unknown[]).includes(g)));
+    } catch {
+      return new Set();
+    }
+  });
+  const toggle = (group: ActionGroup): void => {
+    setShown((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      try {
+        window.localStorage.setItem(key, JSON.stringify([...next]));
+      } catch {
+        /* persistence is best-effort */
+      }
+      return next;
+    });
+  };
+  return [shown, toggle];
 }
 
 /** True if this action, or any action nested under it, failed. */
@@ -61,8 +85,10 @@ export function ActionList({
   /** Clears the timeline selection (the "Show all" affordance). */
   onClearSelection?: () => void;
 }): React.ReactElement {
-  const [shownGroups, setShownGroups] =
-    useState<ReadonlySet<ActionGroup>>(readShownGroups);
+  const [shownGroups, toggleGroup] = usePersistentGroupSet(
+    SHOWN_GROUPS_KEY,
+    GROUPS,
+  );
   const { rootItem, itemMap } = useMemo(() => {
     const actions = model.filteredActions([...shownGroups]);
     return buildActionTree(
@@ -83,23 +109,6 @@ export function ActionList({
     selectedCallId,
     query,
   });
-
-  const toggleGroup = (group: ActionGroup): void => {
-    setShownGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(group)) next.delete(group);
-      else next.add(group);
-      try {
-        window.localStorage.setItem(
-          SHOWN_GROUPS_KEY,
-          JSON.stringify([...next]),
-        );
-      } catch {
-        /* persistence is best-effort */
-      }
-      return next;
-    });
-  };
 
   const groupChips = GROUPS.map((group) => ({
     group,
@@ -253,6 +262,18 @@ function ActionRow({
   const { errors, warnings } = stats(action);
   const duration = action.endTime - action.startTime;
   const paramHint = actionParamHint(action);
+  const hasChildren = item.children.length > 0;
+  // One chevron, wrapped interactively or not below; only the toggleable
+  // variant animates its rotation.
+  const chevron = (
+    <ChevronRight
+      className={cn(
+        "size-3.5",
+        onToggle && "transition-transform",
+        !isCollapsed && "rotate-90",
+      )}
+    />
+  );
 
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -270,7 +291,7 @@ function ActionRow({
         // Selecting a row also expands it — the chevron button handles the
         // toggle-without-select case itself via stopPropagation, so this
         // never double-toggles a chevron click.
-        if (item.children.length > 0 && onToggle) onToggle(item.id);
+        if (hasChildren && onToggle) onToggle(item.id);
       }}
       onPointerEnter={() => onHover?.(action.callId)}
       className={cn(
@@ -279,7 +300,9 @@ function ActionRow({
       )}
       style={{ paddingLeft: depth * 14 + 6 }}
     >
-      {item.children.length > 0 && onToggle ? (
+      {!hasChildren ? (
+        <span className="size-4 shrink-0" />
+      ) : onToggle ? (
         <button
           type="button"
           aria-label={isCollapsed ? "Expand" : "Collapse"}
@@ -289,21 +312,12 @@ function ActionRow({
           }}
           className="flex size-4 shrink-0 items-center justify-center rounded text-fg-4 hover:text-fg-2"
         >
-          <ChevronRight
-            className={cn(
-              "size-3.5 transition-transform",
-              !isCollapsed && "rotate-90",
-            )}
-          />
+          {chevron}
         </button>
-      ) : item.children.length > 0 ? (
-        <span className="flex size-4 shrink-0 items-center justify-center text-fg-4">
-          <ChevronRight
-            className={cn("size-3.5", !isCollapsed && "rotate-90")}
-          />
-        </span>
       ) : (
-        <span className="size-4 shrink-0" />
+        <span className="flex size-4 shrink-0 items-center justify-center text-fg-4">
+          {chevron}
+        </span>
       )}
       {failed ? <CircleAlert className="size-3.5 shrink-0 text-fail" /> : null}
       <span

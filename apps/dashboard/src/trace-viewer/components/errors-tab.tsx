@@ -4,13 +4,13 @@ import { Clipboard } from "lucide-react";
 import type React from "react";
 import { AnsiPre } from "@/components/ansi-pre";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { stripAnsi } from "@/lib/ansi";
 import { useCopiedFlag } from "@/lib/use-copied-flag";
 import { actionTitle } from "../model";
 import type { TraceTabProps } from "../model";
 import type { ErrorDescription } from "../vendor/model-util";
+import { TabEmpty } from "./detail-shared";
 
 /**
  * Plain-text LLM-debugging prompt for one error, matching the official
@@ -74,10 +74,10 @@ export function ErrorsTab({
 
   if (errors.length === 0) {
     return (
-      <Empty className="h-full py-8">
-        <EmptyTitle>No errors</EmptyTitle>
-        <EmptyDescription>This trace recorded no errors.</EmptyDescription>
-      </Empty>
+      <TabEmpty
+        title="No errors"
+        description="This trace recorded no errors."
+      />
     );
   }
 

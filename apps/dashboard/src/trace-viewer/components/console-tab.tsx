@@ -88,12 +88,10 @@ export function ConsoleTab({
   if (rows.length === 0) {
     return (
       <ScopedEmpty
-        scoped={scoped || selection !== null}
-        scopedMessage={
-          scoped
-            ? "No console output during this action."
-            : "No console output in the selected timeline range."
-        }
+        scoped={scoped}
+        selection={selection !== null}
+        actionScopedMessage="No console output during this action."
+        rangeScopedMessage="No console output in the selected timeline range."
         title="No console output"
         description="This trace recorded no console messages or page errors."
       />
