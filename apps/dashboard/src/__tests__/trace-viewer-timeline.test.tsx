@@ -92,8 +92,8 @@ function Harness({
         <PlaybackControls
           playing={playback.playing}
           hasActions={playback.hasActions}
-          selectedIndex={playback.selectedIndex}
-          actionsCount={playableActions.length}
+          atStart={playback.atStart}
+          atEnd={playback.atEnd}
           speedIndex={playback.speedIndex}
           onTogglePlay={playback.togglePlay}
           onStop={playback.stopPlayback}

@@ -20,7 +20,8 @@ import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 const STUB_PLAYBACK: PlaybackController = {
   playing: false,
   speedIndex: 1,
-  selectedIndex: 0,
+  atStart: true,
+  atEnd: false,
   hasActions: true,
   session: 0,
   playFrom: 0,
@@ -75,7 +76,6 @@ describe("SnapshotPane", () => {
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
     expect(iframeSrc("DOM snapshot (Before)").searchParams.get("name")).toBe(
@@ -95,7 +95,6 @@ describe("SnapshotPane", () => {
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
     const url = iframeSrc("DOM snapshot (Action)");
@@ -118,7 +117,6 @@ describe("SnapshotPane", () => {
         traceUrl={FIXTURE_TRACE_URL}
         bridge={bridge}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
     expect(await screen.findByText("https://app.example/cart")).toBeTruthy();
@@ -133,10 +131,11 @@ describe("SnapshotPane", () => {
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
-    const link = screen.getByTitle("Open snapshot in a new tab");
+    const link = screen.getByRole("link", {
+      name: "Open snapshot in a new tab",
+    });
     expect(link.getAttribute("href")).toContain(
       "/trace-viewer/snapshot.html?r=",
     );
@@ -152,7 +151,6 @@ describe("SnapshotPane", () => {
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
 
@@ -163,7 +161,6 @@ describe("SnapshotPane", () => {
         traceUrl={OTHER_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
 
@@ -199,7 +196,6 @@ describe("SnapshotPane", () => {
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
 
@@ -209,7 +205,6 @@ describe("SnapshotPane", () => {
         traceUrl={OTHER_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
     expect(screen.getAllByTitle("DOM snapshot (Action)")).toHaveLength(2);
@@ -222,7 +217,6 @@ describe("SnapshotPane", () => {
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
     const frames = screen.getAllByTitle("DOM snapshot (Action)");
@@ -257,7 +251,6 @@ describe("SnapshotPane", () => {
         traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
-        playableActionsCount={3}
       />,
     );
     expect(screen.getByText("No snapshot")).toBeTruthy();

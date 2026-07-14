@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { useObjectUrl } from "@/trace-viewer/use-object-url";
+import {
+  useBufferedObjectUrl,
+  useObjectUrl,
+} from "@/trace-viewer/use-object-url";
 import { useTraceModel } from "@/trace-viewer/use-trace-model";
 import { makeBridge } from "./trace-viewer-fixture";
 
@@ -151,7 +154,7 @@ describe("useObjectUrl", () => {
     unmount();
   });
 
-  describe("keepPrevious", () => {
+  describe("useBufferedObjectUrl", () => {
     it("keeps returning the previous URL while the new path resolves, then swaps and revokes the old one", async () => {
       stubObjectUrls();
       const bridge = makeBridge({
@@ -160,7 +163,7 @@ describe("useObjectUrl", () => {
       });
       const { result, rerender, unmount } = renderHook(
         ({ path }: { path: string | null }) =>
-          useObjectUrl(bridge, path, { keepPrevious: true }),
+          useBufferedObjectUrl(bridge, path),
         { initialProps: { path: "sha1/x?trace=t" as string | null } },
       );
 
@@ -183,7 +186,7 @@ describe("useObjectUrl", () => {
       stubObjectUrls();
       const bridge = makeBridge({ "sha1/x": new Blob(["hi"]) });
       const { result, unmount } = renderHook(() =>
-        useObjectUrl(bridge, "sha1/x?trace=t", { keepPrevious: true }),
+        useBufferedObjectUrl(bridge, "sha1/x?trace=t"),
       );
 
       await waitFor(() => expect(result.current.url).not.toBeNull());
@@ -201,7 +204,7 @@ describe("useObjectUrl", () => {
       });
       const { result, rerender, unmount } = renderHook(
         ({ path }: { path: string | null }) =>
-          useObjectUrl(bridge, path, { keepPrevious: true }),
+          useBufferedObjectUrl(bridge, path),
         { initialProps: { path: "sha1/x?trace=t" as string | null } },
       );
       await waitFor(() => expect(result.current.url).not.toBeNull());

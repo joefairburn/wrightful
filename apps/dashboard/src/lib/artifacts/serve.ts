@@ -1,3 +1,4 @@
+import { ARTIFACT_TOKEN_TTL_SECONDS } from "@/lib/artifact-tokens";
 import {
   artifactContentDisposition,
   buildArtifactResponse,
@@ -19,12 +20,15 @@ import { safeContentType } from "@/lib/content-types";
  *   - **Direct-R2 302** (`directConfig` present, GET only): mints a presigned
  *     R2 GET whose `response-content-type` / `response-content-disposition`
  *     overrides carry the SAME sanitised type + forced attachment, and whose
- *     expiry is capped to the SAME remaining token life.
+ *     expiry is capped to the token's remaining life — but never beyond the
+ *     standard `ARTIFACT_TOKEN_TTL_SECONDS`, so a long-lived TRACE token (8h)
+ *     can't mint an equally long-lived anonymous-read presigned R2 URL.
  *
- * Before this seam existed the 302 branch re-asserted those three invariants
- * inline in the download route — a second home for the policy that could
- * silently diverge. The route is now auth + translation only; both branches,
- * and therefore both flag states, are cross-checked by the single policy test
+ * Before this seam existed the 302 branch re-asserted those invariants inline
+ * in the download route — a second home for the policy that could silently
+ * diverge (and briefly did, on the presign cap). The route is now auth +
+ * translation only; both branches, and therefore both flag states, are
+ * cross-checked by the single policy test
  * (`src/__tests__/artifact-origin-safety.workers.test.ts`).
  */
 
@@ -45,10 +49,12 @@ export interface ServeArtifactBytesOptions {
   allowedOrigin: string;
   /**
    * Seconds of token life LEFT (≥1; the caller verifies the token non-expired).
-   * Caps BOTH capabilities that outlive this request to the token's remaining
-   * life so neither can be replayed past its expiry: the direct-R2 presigned
-   * URL, and the worker-proxy response's SHARED-cache (`s-maxage`) window in
-   * Cloudflare Workers Cache.
+   * Caps BOTH capabilities that outlive this request so neither can be replayed
+   * past its expiry: the worker-proxy response's SHARED-cache (`s-maxage`)
+   * window in Cloudflare Workers Cache uses this value directly, while the
+   * direct-R2 presigned URL is capped to `min(this, ARTIFACT_TOKEN_TTL_SECONDS)`
+   * so a long-lived TRACE token can't outlive the standard artifact-token life
+   * as an anonymous-read R2 URL.
    */
   remainingTokenSeconds: number;
   /** Direct-R2 S3 creds (ADR 0003), or `null` → worker-proxy branch. */
@@ -97,10 +103,13 @@ export async function serveArtifactBytes(
       // The same three origin-safety invariants the proxy branch applies via
       // `buildArtifactHeaders`, signed onto the presigned GET: sanitised type,
       // forced attachment, and an expiry capped to the token's remaining life
-      // so the R2 capability can't outlive the token that authorized it.
+      // — but never beyond the standard artifact-token TTL, so a long-lived
+      // TRACE token (8h) can't mint an equally long-lived anonymous-read R2 URL.
+      // The trace viewer's SW re-requests this endpoint per range read, minting
+      // a fresh presign each time, so a short ceiling doesn't cut the session.
       responseContentType: safeContentType(tokenContentType),
       responseContentDisposition: artifactContentDisposition(r2Key),
-      expiresIn: remainingTokenSeconds,
+      expiresIn: Math.min(remainingTokenSeconds, ARTIFACT_TOKEN_TTL_SECONDS),
     });
     return new Response(null, {
       status: 302,

@@ -4,9 +4,10 @@ import { CircleAlert, TriangleAlert } from "lucide-react";
 import type React from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { stripAnsi } from "@/lib/ansi";
+import { basename } from "@/lib/basename";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
-import { timeInRange } from "../model";
+import { timeInRange, type TraceTimeRange } from "../model";
 import type { TraceTabProps } from "../model";
 import { eventsForAction } from "../vendor/model-util";
 import type {
@@ -27,6 +28,21 @@ export function isConsoleRow(
   );
 }
 
+/**
+ * Console rows visible for a timeline `selection` (before the crosshair's
+ * action-window scoping). The single source of truth for both the tab body
+ * below and `DetailTabs`' tab-label count, so the badge can't disagree with
+ * the list.
+ */
+export function selectConsoleRows(
+  model: TraceTabProps["model"],
+  selection: TraceTimeRange | null,
+): ConsoleRow[] {
+  return model.events
+    .filter(isConsoleRow)
+    .filter((event) => !selection || timeInRange(event.time, selection));
+}
+
 function rowMessage(event: ConsoleRow): string {
   if (event.type === "console") return stripAnsi(event.text).trim();
   const raw: unknown = event.params?.error?.error?.message;
@@ -36,7 +52,7 @@ function rowMessage(event: ConsoleRow): string {
 
 function rowLocation(event: ConsoleRow): string | undefined {
   if (event.type !== "console" || !event.location.url) return undefined;
-  const last = event.location.url.split("/").pop() || event.location.url;
+  const last = basename(event.location.url) || event.location.url;
   return `${last}:${event.location.lineNumber}`;
 }
 
@@ -56,9 +72,7 @@ export function ConsoleTab({
 }: TraceTabProps): React.ReactElement {
   // A timeline selection narrows the row universe first; the crosshair's
   // action-window scoping (and highlighting) then applies within it.
-  const allRows = model.events
-    .filter(isConsoleRow)
-    .filter((event) => !selection || timeInRange(event.time, selection));
+  const allRows = selectConsoleRows(model, selection);
   const actionEvents = selectedAction
     ? new Set(eventsForAction(selectedAction))
     : undefined;

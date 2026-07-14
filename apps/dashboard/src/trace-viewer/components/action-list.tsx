@@ -2,6 +2,7 @@
 
 import { ChevronRight, CircleAlert, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/time-format";
 import {
@@ -10,6 +11,7 @@ import {
   actionTitle,
   type TraceTimeRange,
 } from "../model";
+import { useModelScopedState } from "../use-model-scoped-state";
 import type { ActionGroup } from "../vendor/protocol-formatter";
 import type { ActionTreeItem, TraceModel } from "../vendor/model-util";
 import { buildActionTree, stats } from "../vendor/model-util";
@@ -127,25 +129,19 @@ export function ActionList({
     () => computeDefaultCollapsed(rootItem),
     [rootItem],
   );
-  // Manual toggles, keyed by item id, applied on top of the computed
-  // default via XOR — this is what lets a group chip toggle (which rebuilds
-  // `rootItem`/`defaultCollapsed`) preserve a user's manual expand/collapse
-  // instead of snapping every group back to its default state.
-  const [overrides, setOverrides] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  // Manual toggles, keyed by callId, applied on top of the computed default via
+  // XOR — this is what lets a group chip toggle (which rebuilds `rootItem`/
+  // `defaultCollapsed`) preserve a user's manual expand/collapse instead of
+  // snapping every group back to its default. callId restarts per trace file,
+  // so these must NOT survive an attempt swap (the workbench stays mounted, see
+  // trace-viewer.tsx) — `useModelScopedState` resets them on the swap, else a
+  // stale `call@N` override would XOR against an unrelated group next attempt.
+  const [overrides, setOverrides] = useModelScopedState<
+    TraceModel,
+    ReadonlySet<string>
+  >(model, () => new Set());
   const [query, setQuery] = useState("");
   const searching = query.trim().length > 0;
-  // Manual collapse overrides are keyed by callId, which restarts per trace
-  // file — so they must NOT survive an attempt swap (the workbench stays
-  // mounted and only resets its own selection, see trace-viewer.tsx). Reset
-  // them when the model changes, or a stale `call@N` override would XOR
-  // against an unrelated group's default in the next attempt.
-  const [overridesModel, setOverridesModel] = useState(model);
-  if (overridesModel !== model) {
-    setOverridesModel(model);
-    setOverrides(new Set());
-  }
 
   const isCollapsed = (id: string): boolean =>
     isEffectivelyCollapsed(defaultCollapsed, overrides, id);
@@ -296,25 +292,30 @@ export function ActionList({
           {groupChips.map(({ group, count }) => {
             const shown = shownGroups.has(group);
             return (
-              <button
-                key={group}
-                type="button"
-                aria-pressed={shown}
-                title={
-                  shown
+              <Tooltip key={group}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-pressed={shown}
+                      onClick={() => toggleGroup(group)}
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-micro tabular-nums",
+                        shown
+                          ? "border-ring/40 bg-bg-3 text-fg-2"
+                          : "border-line-1 text-fg-4 hover:text-fg-2",
+                      )}
+                    >
+                      {group} {count}
+                    </button>
+                  }
+                />
+                <TooltipPopup>
+                  {shown
                     ? `Hide ${count} ${group} action${count === 1 ? "" : "s"}`
-                    : `Show ${count} ${group} action${count === 1 ? "" : "s"}`
-                }
-                onClick={() => toggleGroup(group)}
-                className={cn(
-                  "rounded-full border px-2 py-0.5 text-micro tabular-nums",
-                  shown
-                    ? "border-ring/40 bg-bg-3 text-fg-2"
-                    : "border-line-1 text-fg-4 hover:text-fg-2",
-                )}
-              >
-                {group} {count}
-              </button>
+                    : `Show ${count} ${group} action${count === 1 ? "" : "s"}`}
+                </TooltipPopup>
+              </Tooltip>
             );
           })}
         </div>

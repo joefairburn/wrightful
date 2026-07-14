@@ -11,7 +11,7 @@ import {
 } from "../model";
 import { useElementSize } from "../use-element-size";
 import type { TraceBridge } from "../use-trace-model";
-import { useObjectUrl } from "../use-object-url";
+import { useBufferedObjectUrl, useObjectUrl } from "../use-object-url";
 import type { PageEntry } from "../vendor/entries";
 import type { TraceModel } from "../vendor/model-util";
 import {
@@ -101,6 +101,36 @@ function actionActiveAt(
   return lb === 0 ? actions[0] : actions[lb - 1];
 }
 
+/**
+ * The strip's affine geometry: the one owner of the model-time ↔ strip-fraction
+ * ↔ CSS-percent maps, so every overlay and handler shares one convention
+ * instead of re-deriving `start + f*dur` / `(t-start)/dur` by hand (some
+ * clamped, some multiplied into a `%` string) at a dozen call sites.
+ */
+type TimeScale = {
+  duration: number;
+  /** Model-time at a 0..1 fraction of the strip. */
+  timeAt: (fraction: number) => number;
+  /** 0..1 fraction for a model-time; `clamp` bounds it to the strip [0,1]. */
+  fractionAt: (time: number, opts?: { clamp?: boolean }) => number;
+  /** 0..100 percent for a model-time (for `left`/`width` style strings). */
+  percentAt: (time: number) => number;
+};
+
+function makeTimeScale(startTime: number, endTime: number): TimeScale {
+  const duration = endTime - startTime;
+  const fractionAt = (time: number, opts?: { clamp?: boolean }): number => {
+    const f = (time - startTime) / duration;
+    return opts?.clamp ? Math.min(1, Math.max(0, f)) : f;
+  };
+  return {
+    duration,
+    timeAt: (fraction) => startTime + fraction * duration,
+    fractionAt,
+    percentAt: (time) => fractionAt(time) * 100,
+  };
+}
+
 export function Timeline({
   model,
   bridge,
@@ -148,7 +178,10 @@ export function Timeline({
   const containerRef = useRef<HTMLDivElement>(null);
   const containerWidth = useElementSize(containerRef)?.width ?? 0;
 
-  const duration = model.endTime - model.startTime;
+  const scale = useMemo(
+    () => makeTimeScale(model.startTime, model.endTime),
+    [model.startTime, model.endTime],
+  );
 
   const allFrames = useMemo<ScreencastFrame[]>(() => {
     const frames = model.pages.flatMap((p) => p.screencastFrames);
@@ -171,14 +204,14 @@ export function Timeline({
       : 0;
 
   const slots = useMemo<ScreencastFrame[]>(() => {
-    if (slotCount === 0 || duration <= 0) return [];
+    if (slotCount === 0 || scale.duration <= 0) return [];
     const result: ScreencastFrame[] = [];
     for (let i = 0; i < slotCount; i++) {
-      const t = model.startTime + ((i + 0.5) / slotCount) * duration;
+      const t = scale.timeAt((i + 0.5) / slotCount);
       result.push(allFrames[nearestFrameIndex(allFrames, t)]);
     }
     return result;
-  }, [allFrames, slotCount, duration, model.startTime]);
+  }, [allFrames, slotCount, scale]);
 
   const selectedAction = useMemo(
     () => model.actions.find((a) => a.callId === selectedCallId),
@@ -205,7 +238,7 @@ export function Timeline({
 
   // The bars lane below renders every action; the workbench provides the
   // sets playback (`playableActions`) and seeking (`seekActions`) walk.
-  if (duration <= 0) return null;
+  if (scale.duration <= 0) return null;
 
   const fractionAtClientX = (clientX: number): number => {
     const rect = containerRef.current?.getBoundingClientRect();
@@ -217,7 +250,7 @@ export function Timeline({
     // actionActiveAt only returns undefined for an empty action list — guard
     // that once here instead of a per-call `if (action)` on every seek.
     if (seekActions.length === 0) return;
-    const t = model.startTime + fraction * duration;
+    const t = scale.timeAt(fraction);
     onSelect(actionActiveAt(seekActions, t)!.callId);
   };
 
@@ -259,8 +292,8 @@ export function Timeline({
       drag.selecting = true;
     }
     if (drag.selecting) {
-      const a = model.startTime + drag.anchorFraction * duration;
-      const b = model.startTime + fraction * duration;
+      const a = scale.timeAt(drag.anchorFraction);
+      const b = scale.timeAt(fraction);
       onSelectionChange({ start: Math.min(a, b), end: Math.max(a, b) });
     }
   };
@@ -279,26 +312,24 @@ export function Timeline({
   };
 
   const selectedStartFraction = selectedAction
-    ? (selectedAction.startTime - model.startTime) / duration
+    ? scale.fractionAt(selectedAction.startTime)
     : null;
   const selectedEndFraction = selectedAction
-    ? (selectedAction.endTime - model.startTime) / duration
+    ? scale.fractionAt(selectedAction.endTime)
     : null;
 
-  const clampFraction = (f: number): number => Math.min(1, Math.max(0, f));
   const selectionStartFraction = selection
-    ? clampFraction((selection.start - model.startTime) / duration)
+    ? scale.fractionAt(selection.start, { clamp: true })
     : null;
   const selectionEndFraction = selection
-    ? clampFraction((selection.end - model.startTime) / duration)
+    ? scale.fractionAt(selection.end, { clamp: true })
     : null;
 
   // The frame nearest the hovered TIME (not a slot sample) drives the hover
   // preview card. Keying/fetching by its sha1 means the card only refetches
   // when the cursor actually crosses into a new frame's window.
   const hoverFraction = hover?.fraction ?? null;
-  const hoverTime =
-    hoverFraction !== null ? model.startTime + hoverFraction * duration : null;
+  const hoverTime = hoverFraction !== null ? scale.timeAt(hoverFraction) : null;
   const previewFrame =
     hoverTime !== null && allFrames.length > 0
       ? allFrames[nearestFrameIndex(allFrames, hoverTime)]
@@ -356,9 +387,8 @@ export function Timeline({
             const span = action.endTime - action.startTime;
             if (span <= 0) return null;
             const isSelected = action.callId === selectedCallId;
-            const left =
-              ((action.startTime - model.startTime) / duration) * 100;
-            const width = (span / duration) * 100;
+            const left = scale.percentAt(action.startTime);
+            const width = (span / scale.duration) * 100;
             return (
               <div
                 key={action.callId}
@@ -396,7 +426,7 @@ export function Timeline({
           style={{ height: STRIP_HEIGHT }}
         >
           {slots.map((frame, i) => (
-            <TraceFrameImage
+            <BufferedTraceFrameImage
               key={i}
               bridge={bridge}
               traceUri={model.traceUri}
@@ -404,7 +434,6 @@ export function Timeline({
               width={thumbWidth}
               height={STRIP_HEIGHT}
               className="shrink-0"
-              keepPrevious
             />
           ))}
         </div>
@@ -502,7 +531,7 @@ export function Timeline({
                 }}
               >
                 {formatTraceOffset(
-                  model.startTime + hoverFraction * duration,
+                  scale.timeAt(hoverFraction),
                   model.startTime,
                 )}
               </div>
@@ -589,34 +618,28 @@ function HoverPreview({
  * rendered from an object URL. Shared by the filmstrip row and the hover
  * preview card — both are just a sized, overflow-hidden, object-cover box.
  */
-function TraceFrameImage({
-  bridge,
-  traceUri,
-  frame,
-  width,
-  height,
-  className,
-  keepPrevious,
-}: {
+type TraceFrameImageProps = {
   bridge: TraceBridge;
   traceUri: string;
   frame: ScreencastFrame;
   width: number;
   height: number;
   className?: string;
-  /**
-   * Keep showing the previously resolved frame in this slot until the new
-   * one loads, instead of going blank — see `useObjectUrl`'s `keepPrevious`
-   * option. Used by the filmstrip row (slots are keyed by index and outlive
-   * an attempt swap); the hover-preview card is keyed by sha1 per hover and
-   * leaves this off.
-   */
-  keepPrevious?: boolean;
-}): React.ReactElement {
-  const { url } = useObjectUrl(bridge, sha1Path(traceUri, frame.sha1), {
-    keepPrevious,
-  });
+};
 
+/** Presentational box: a sized, overflow-hidden, object-cover frame image (or
+ * an empty box while the object URL resolves). */
+function FrameImageBox({
+  url,
+  width,
+  height,
+  className,
+}: {
+  url: string | null;
+  width: number;
+  height: number;
+  className?: string;
+}): React.ReactElement {
   return (
     <div
       className={cn("overflow-hidden bg-bg-2", className)}
@@ -632,4 +655,29 @@ function TraceFrameImage({
       ) : null}
     </div>
   );
+}
+
+/** The hover-preview frame: keyed by sha1 per hover, so a plain object URL that
+ * blanks between frames is fine. */
+function TraceFrameImage({
+  bridge,
+  traceUri,
+  frame,
+  ...box
+}: TraceFrameImageProps): React.ReactElement {
+  const { url } = useObjectUrl(bridge, sha1Path(traceUri, frame.sha1));
+  return <FrameImageBox url={url} {...box} />;
+}
+
+/** The filmstrip frame: slots are keyed by index and outlive an attempt swap,
+ * so each keeps showing the outgoing frame until the new one loads (buffered)
+ * instead of blanking the whole strip mid-swap. */
+function BufferedTraceFrameImage({
+  bridge,
+  traceUri,
+  frame,
+  ...box
+}: TraceFrameImageProps): React.ReactElement {
+  const { url } = useBufferedObjectUrl(bridge, sha1Path(traceUri, frame.sha1));
+  return <FrameImageBox url={url} {...box} />;
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Download, PlayCircle, Share2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { fetch } from "void/client";
@@ -15,7 +16,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSearchParam } from "@/lib/use-search-param";
 import { TraceViewer } from "@/trace-viewer/components/trace-viewer";
-import { warmTraceViewer } from "@/trace-viewer/warm";
+import { releaseWarmedTrace, warmTraceViewer } from "@/trace-viewer/warm";
 
 /**
  * URL param that drives the Replay modal so it's deep-linkable / shareable.
@@ -35,12 +36,8 @@ const REPLAY_PARAM = "replay";
 export interface TestReplayAttempt {
   /** 0-based, as stored — displayed as `attempt + 1`. */
   attempt: number;
-  /**
-   * Signed self-hosted viewer URL. No longer surfaced as a link (the header
-   * opens the public trace.playwright.dev viewer instead), but still used by
-   * `TraceViewerDialog` as the "has a replayable trace" availability gate.
-   */
-  traceViewerUrl: string;
+  /** Signed raw `trace.zip` download — the viewer's SW range-reads it, and the
+   * header's download/public-viewer actions point at it. */
   downloadHref: string;
 }
 
@@ -101,6 +98,12 @@ function TestReplayContent({
   const publicViewerUrl = absoluteTraceUrl
     ? `https://trace.playwright.dev/?trace=${encodeURIComponent(absoluteTraceUrl)}`
     : null;
+
+  // The modal is up and mounts its OWN authoritative bridge below — release the
+  // hover prewarm's iframe so it doesn't keep pinning the trace for the session.
+  useEffect(() => {
+    if (open) releaseWarmedTrace();
+  }, [open]);
 
   return (
     <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden p-0">
@@ -203,8 +206,9 @@ export function TraceViewerDialog({
   children: React.ReactNode;
 }): React.ReactElement {
   const [replay, setReplay] = useSearchParam(REPLAY_PARAM, "");
-  const traceViewerUrl = artifact.traceViewerUrl;
-  if (!traceViewerUrl) return <></>;
+  // `traceViewerUrl` (set only for trace artifacts in `test-artifact-actions`)
+  // is the rail's "has a replayable trace" availability gate.
+  if (!artifact.traceViewerUrl) return <></>;
 
   const open = replay === artifact.id;
   const close = (): void => setReplay("");
@@ -237,13 +241,7 @@ export function TraceViewerDialog({
         // Only the artifact resolved at SSR is known here — a single-element
         // array. The `attempt` number is only used for the switcher label,
         // which doesn't render for a single attempt.
-        attempts={[
-          {
-            attempt: 0,
-            traceViewerUrl,
-            downloadHref: artifact.downloadHref,
-          },
-        ]}
+        attempts={[{ attempt: 0, downloadHref: artifact.downloadHref }]}
         title={artifact.name}
         open={open}
         onClose={close}
@@ -306,47 +304,35 @@ export function ReplayModalHost({
   runId: string;
 }): React.ReactElement {
   const [replay, setReplay] = useSearchParam(REPLAY_PARAM, "");
-  const [resolved, setResolved] = useState<{
-    testResultId: string;
-    title: string;
-    attempts: TestReplayAttempt[];
-  } | null>(null);
 
+  const query = useQuery({
+    queryKey: ["test-replay", teamSlug, projectSlug, runId, replay],
+    queryFn: ({ signal }) =>
+      // Typed client: returns `TestReplayResponse`, so a contract change would
+      // break this at compile time.
+      fetch(
+        "/api/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId/replay",
+        {
+          params: { teamSlug, projectSlug, runId, testResultId: replay },
+          signal,
+        },
+      ),
+    enabled: replay !== "",
+    // A trace for a given testResultId is immutable — never refetch on remount.
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+  // No trace / transient failure — drop the param so the URL doesn't advertise
+  // a modal that can't open. Navigation side effect, so it can't run in render.
   useEffect(() => {
-    if (!replay) {
-      setResolved(null);
-      return;
-    }
-    if (resolved?.testResultId === replay) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        // Typed client: returns `TestReplayResponse`, so a contract change would
-        // break this at compile time.
-        const body = await fetch(
-          "/api/t/:teamSlug/p/:projectSlug/runs/:runId/tests/:testResultId/replay",
-          { params: { teamSlug, projectSlug, runId, testResultId: replay } },
-        );
-        if (!cancelled) {
-          setResolved({
-            testResultId: replay,
-            title: body.title,
-            attempts: body.attempts,
-          });
-        }
-      } catch {
-        // No trace / transient failure — drop the param so the URL doesn't
-        // advertise a modal that can't open.
-        if (!cancelled) setReplay("");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [replay, resolved?.testResultId, teamSlug, projectSlug, runId, setReplay]);
+    if (query.isError) setReplay("");
+  }, [query.isError, setReplay]);
 
   const close = (): void => setReplay("");
-  const open = Boolean(replay) && resolved?.testResultId === replay;
+  // Query key includes `replay`, so `data` is always for the current param
+  // (undefined while a new one loads) — no stale-attempt guard needed.
+  const resolved = query.data;
+  const open = Boolean(replay) && resolved !== undefined;
 
   return (
     <Dialog
@@ -355,7 +341,7 @@ export function ReplayModalHost({
         if (!next) close();
       }}
     >
-      {resolved && resolved.testResultId === replay ? (
+      {resolved ? (
         <TestReplayContent
           title={resolved.title}
           attempts={resolved.attempts}

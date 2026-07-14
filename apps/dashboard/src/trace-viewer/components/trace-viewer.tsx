@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -9,6 +9,7 @@ import {
   describeTraceLoadError,
   type TraceTimeRange,
 } from "../model";
+import { useModelScopedState } from "../use-model-scoped-state";
 import type { TraceBridge } from "../use-trace-model";
 import { useTraceModel } from "../use-trace-model";
 import type { ContextEntry } from "../vendor/entries";
@@ -143,44 +144,26 @@ function Workbench({
     () => new TraceModel(traceUrl, contextEntries),
     [traceUrl, contextEntries],
   );
-  // Selection is stored WITH the model it belongs to. The workbench stays
-  // mounted across an attempt swap (see TraceViewer), so when a new model
-  // arrives the stale callId is replaced during render — an effect-based
-  // reset would let one frame render the old selection against the new
-  // model, flashing the snapshot pane's empty state.
-  const [selection, setSelection] = useState<{
-    model: TraceModel;
-    callId: string | undefined;
-  }>(() => ({ model, callId: defaultSelectedActionId(model) }));
-  if (selection.model !== model) {
-    setSelection({ model, callId: defaultSelectedActionId(model) });
-  }
-  const selectedCallId =
-    selection.model === model
-      ? selection.callId
-      : defaultSelectedActionId(model);
-  const setSelectedCallId = (callId: string | undefined): void =>
-    setSelection({ model, callId });
+  // Selection, hover, and the timeline window all belong to the CURRENT model
+  // and reset the instant a new attempt swaps in (the workbench stays mounted
+  // across the swap — see TraceViewer). `useModelScopedState` owns that
+  // render-time reset so each of the three below is a plain state declaration.
+  const [selectedCallId, setSelectedCallId] = useModelScopedState(
+    model,
+    defaultSelectedActionId,
+  );
   const selectedAction = useMemo(
     () => model.actions.find((a) => a.callId === selectedCallId),
     [model, selectedCallId],
   );
 
-  // Hover preview for the snapshot canvas only — DetailTabs/Timeline/playback
-  // all key off `selectedCallId` and are untouched by hovering. Stored WITH
-  // the model it belongs to, same render-time reset as `selection` above, so
-  // a stale hover from the previous attempt can never render against the new
-  // model for even one frame.
-  const [hover, setHover] = useState<{
-    model: TraceModel;
-    callId: string | undefined;
-  }>(() => ({ model, callId: undefined }));
-  if (hover.model !== model) {
-    setHover({ model, callId: undefined });
-  }
-  const hoveredCallId = hover.model === model ? hover.callId : undefined;
-  const setHoveredCallId = (callId: string | undefined): void =>
-    setHover({ model, callId });
+  // Hover preview for the snapshot canvas + Source tab only — every other
+  // detail tab, the timeline, and playback key off `selectedCallId` and are
+  // untouched by hovering.
+  const [hoveredCallId, setHoveredCallId] = useModelScopedState<
+    TraceModel,
+    string | undefined
+  >(model, () => undefined);
   const hoveredAction = useMemo(
     () => model.actions.find((a) => a.callId === hoveredCallId),
     [model, hoveredCallId],
@@ -190,20 +173,14 @@ function Workbench({
   // detail tab keys off `selectedAction` alone.
   const activeAction = hoveredAction ?? selectedAction;
 
-  // Drag-selected timeline window. Scopes the action list and the playable
-  // set to actions intersecting it; playback then plays just that section and
-  // pauses at its end. Stored WITH the model (same render-time reset as the
-  // selection above) — a time range from the previous attempt is meaningless
-  // against the new trace's time base.
-  const [timeRangeState, setTimeRangeState] = useState<{
-    model: TraceModel;
-    range: TraceTimeRange | null;
-  }>(() => ({ model, range: null }));
-  if (timeRangeState.model !== model) {
-    setTimeRangeState({ model, range: null });
-  }
-  const timeRange =
-    timeRangeState.model === model ? timeRangeState.range : null;
+  // Drag-selected timeline window. Scopes the action list and the playable set
+  // to actions intersecting it; playback then plays just that section and
+  // pauses at its end. A range from the previous attempt is meaningless against
+  // the new trace's time base, so it resets on swap like the two above.
+  const [timeRange, setTimeRangeInternal] = useModelScopedState<
+    TraceModel,
+    TraceTimeRange | null
+  >(model, () => null);
 
   // Playback (rAF clock + prev/play/stop/next/speed state) lives here, one
   // level above both the timeline strip (which draws the moving Playhead) and
@@ -239,7 +216,7 @@ function Workbench({
   // window. `pause` is identity-stable (see PlaybackController).
   const setTimeRange = (range: TraceTimeRange | null): void => {
     playback.pause();
-    setTimeRangeState({ model, range });
+    setTimeRangeInternal(range);
   };
 
   // An attempt swap replaces `model` in place (the workbench stays mounted, see
@@ -296,7 +273,6 @@ function Workbench({
             bridge={bridge}
             onEscape={onEscape}
             playback={playback}
-            playableActionsCount={playableActions.length}
           />
           <DetailTabs
             model={model}

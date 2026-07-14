@@ -4,6 +4,7 @@ import { ExternalLink } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
 import type {
   ResolvedSnapshotInfo,
@@ -19,6 +20,7 @@ import {
   snapshotPopoutUrl,
   snapshotViewport,
 } from "../model";
+import { useBridgeFetch } from "../use-bridge-fetch";
 import { useElementSize } from "../use-element-size";
 import type { TraceBridge } from "../use-trace-model";
 import type { ActionTraceEventInContext } from "../vendor/model-util";
@@ -47,15 +49,13 @@ function snapshotInfoKey(traceUrl: string, snapshot: Snapshot): string {
  * After) are mounted at once, one per available snapshot in the action's
  * `SnapshotSet`, and tab switches merely toggle which is visible — this is
  * what makes TAB switching flash-free (the old single `key={url}` iframe
- * remounted, and therefore reloaded, on every tab click). The iframe
- * navigates to the SW-rendered snapshot document
- * (`/trace-viewer/snapshot/<pageId>?…`) — a navigation request, so the SW
- * serves it even though this page itself is not SW-controlled. When the
- * selected ACTION (or, on an attempt swap, the whole trace) changes, each
- * slot NAVIGATES its existing iframe in place (`location.replace`) instead
- * of remounting it — the browser keeps the previous document painted until
- * the next one commits, so scrubbing and attempt switches never show a
- * blank iframe (see {@link SnapshotFrame}).
+ * remounted, and therefore reloaded, on every tab click). Each iframe loads
+ * the SW-rendered snapshot document (`/trace-viewer/snapshot/<pageId>?…`) — a
+ * navigation request, so the SW serves it even though this page itself is not
+ * SW-controlled. When the selected ACTION (or, on an attempt swap, the whole
+ * trace) changes, each slot double-buffers the swap — the previous document
+ * stays painted while the next loads in a hidden sibling — so scrubbing and
+ * attempt switches never show a blank iframe (see {@link BufferedSnapshotFrame}).
  */
 export function SnapshotPane({
   action,
@@ -63,7 +63,6 @@ export function SnapshotPane({
   onEscape,
   bridge,
   playback,
-  playableActionsCount,
 }: {
   action: ActionTraceEventInContext | undefined;
   traceUrl: string;
@@ -72,8 +71,6 @@ export function SnapshotPane({
   bridge: TraceBridge;
   /** Shared playback controller (owned by the workbench). */
   playback: PlaybackController;
-  /** Size of the default-visible action set the controls step through. */
-  playableActionsCount: number;
 }): React.ReactElement {
   const snapshots: SnapshotSet = useMemo(
     () => collectSnapshots(action),
@@ -137,28 +134,44 @@ export function SnapshotPane({
           <PlaybackControls
             playing={playback.playing}
             hasActions={playback.hasActions}
-            selectedIndex={playback.selectedIndex}
-            actionsCount={playableActionsCount}
+            atStart={playback.atStart}
+            atEnd={playback.atEnd}
             speedIndex={playback.speedIndex}
             onTogglePlay={playback.togglePlay}
             onStop={playback.stopPlayback}
             onStep={playback.step}
             onCycleSpeed={playback.cycleSpeed}
           />
-          {popoutHref ? (
-            <>
-              <div className="mx-0.5 h-5 w-px shrink-0 bg-line-1" aria-hidden />
-              <a
-                href={popoutHref}
-                target="_blank"
-                rel="noreferrer"
-                title="Open snapshot in a new tab"
-                className="flex size-6 shrink-0 items-center justify-center rounded text-fg-4 hover:text-fg-2"
-              >
-                <ExternalLink className="size-3.5" />
-              </a>
-            </>
-          ) : null}
+          <div className="mx-0.5 h-5 w-px shrink-0 bg-line-1" aria-hidden />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                popoutHref ? (
+                  <a
+                    href={popoutHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Open snapshot in a new tab"
+                    className="flex size-6 shrink-0 items-center justify-center rounded text-fg-4 hover:text-fg-2"
+                  >
+                    <ExternalLink className="size-3.5" />
+                  </a>
+                ) : (
+                  // No rendered snapshot to open — disable rather than hide so
+                  // the control's slot stays put across action/tab switches.
+                  <button
+                    type="button"
+                    disabled
+                    aria-label="Open snapshot in a new tab"
+                    className="flex size-6 shrink-0 items-center justify-center rounded text-fg-4 disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <ExternalLink className="size-3.5" />
+                  </button>
+                )
+              }
+            />
+            <TooltipPopup>Open snapshot in a new tab</TooltipPopup>
+          </Tooltip>
         </div>
       </div>
       <SnapshotUrlBar url={info?.url} />
@@ -208,12 +221,13 @@ function SnapshotUrlBar({
 }
 
 /**
- * Resolve + cache the `snapshotInfo/` sidecar for a snapshot. Keyed by
- * `pageId:snapshotName` so re-selecting an already-visited tab is free.
- * Stale in-flight fetches (bridge/traceUrl/snapshot changed mid-request) are
- * dropped via the `cancelled` flag pattern (see `../use-object-url.ts`).
- * `info.error` (a sidecar the SW couldn't resolve) is treated as absent so
- * callers fall back to the context viewport / hide the URL bar.
+ * Resolve the `snapshotInfo/` sidecar for a snapshot, on the canonical
+ * {@link useBridgeFetch} lifecycle (keyed by `pageId:snapshotName`, stale
+ * in-flight fetches gated out). A malformed / error sidecar (one the SW
+ * couldn't resolve) is treated as absent so callers fall back to the context
+ * viewport / hide the URL bar. A tiny per-hook cache holds the last resolved
+ * sidecar for each key so re-selecting an already-visited tab renders its URL
+ * bar immediately instead of blanking for the refetch's one tick.
  */
 function useSnapshotInfo(
   bridge: TraceBridge,
@@ -221,40 +235,24 @@ function useSnapshotInfo(
   snapshot: Snapshot | undefined,
 ): ResolvedSnapshotInfo | undefined {
   const cacheRef = useRef(new Map<string, ResolvedSnapshotInfo>());
-  const [entry, setEntry] = useState<{
-    key: string;
-    info: ResolvedSnapshotInfo;
-  } | null>(null);
+  const key = snapshot ? snapshotInfoKey(traceUrl, snapshot) : null;
 
-  const key = snapshot ? snapshotInfoKey(traceUrl, snapshot) : undefined;
+  const { value } = useBridgeFetch(
+    bridge,
+    key,
+    async (activeKey): Promise<ResolvedSnapshotInfo | null> => {
+      if (!snapshot) return null;
+      const parsed = parseSnapshotInfo(
+        await bridge.fetchJson(snapshotInfoPath(traceUrl, snapshot)),
+      );
+      if (!parsed || "error" in parsed) return null;
+      cacheRef.current.set(activeKey, parsed);
+      return parsed;
+    },
+  );
 
-  useEffect(() => {
-    if (!snapshot || !key) return;
-    const cached = cacheRef.current.get(key);
-    if (cached) {
-      setEntry({ key, info: cached });
-      return;
-    }
-    let cancelled = false;
-    bridge
-      .fetchJson(snapshotInfoPath(traceUrl, snapshot))
-      .then((raw) => {
-        if (cancelled) return;
-        const parsed = parseSnapshotInfo(raw);
-        // Malformed or error sidecar — fall back silently.
-        if (!parsed || "error" in parsed) return;
-        cacheRef.current.set(key, parsed);
-        setEntry({ key, info: parsed });
-      })
-      .catch(() => {
-        /* fall back to the context viewport / hidden URL bar */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [bridge, traceUrl, snapshot, key]);
-
-  return key && entry?.key === key ? entry.info : undefined;
+  if (value) return value;
+  return key ? cacheRef.current.get(key) : undefined;
 }
 
 function ScaledSnapshotStage({

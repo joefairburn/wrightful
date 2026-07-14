@@ -5,19 +5,19 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
-import { monotonicTime } from "../har-fields";
 import { timeInRange, type TraceTimeRange } from "../model";
 import type { TraceTabProps } from "../model";
 import type { TraceBridge } from "../use-trace-model";
 import { AttachmentsTab } from "./attachments-tab";
 import { CallTab } from "./call-tab";
-import { ConsoleTab, isConsoleRow } from "./console-tab";
+import { ConsoleTab, selectConsoleRows } from "./console-tab";
 import { TabNotice } from "./detail-shared";
 import { ErrorsTab } from "./errors-tab";
 import { MetadataTab } from "./metadata-tab";
-import { NetworkTab } from "./network-tab";
+import { NetworkTab, selectNetworkEntries } from "./network-tab";
 import { SourceTab } from "./source-tab";
 
 type DetailTabId =
@@ -59,16 +59,10 @@ export function DetailTabs({
   selection?: TraceTimeRange | null;
 }): React.ReactElement {
   const errorCount = model.errorDescriptors.length;
-  // Console/Network tab-label counts track the timeline selection so the
-  // labels always match what the tab bodies show.
-  const consoleCount = model.events
-    .filter(isConsoleRow)
-    .filter((event) => !selection || timeInRange(event.time, selection)).length;
-  const networkCount = selection
-    ? model.resources.filter((entry) =>
-        timeInRange(monotonicTime(entry), selection),
-      ).length
-    : model.resources.length;
+  // Console/Network tab-label counts derive from the SAME selectors the tab
+  // bodies use, so a label can never disagree with the list it heads.
+  const consoleCount = selectConsoleRows(model, selection).length;
+  const networkCount = selectNetworkEntries(model, selection).length;
   const [tab, setTab] = useState<DetailTabId>(
     errorCount > 0 ? "errors" : "call",
   );
@@ -137,20 +131,27 @@ export function DetailTabs({
           ))}
         </TabBar>
         {scopable ? (
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-pressed={scopeToSelected}
-            title={
-              scopeToSelected
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-pressed={scopeToSelected}
+                  aria-label="Filter to the selected action's window"
+                  onClick={() => setScopeToSelected((v) => !v)}
+                  className={cn("mb-1", scopeToSelected && "bg-bg-3 text-fg-2")}
+                >
+                  <Crosshair />
+                </Button>
+              }
+            />
+            <TooltipPopup>
+              {scopeToSelected
                 ? "Showing only the selected action's window — click to show all"
-                : "Filter to the selected action's window"
-            }
-            onClick={() => setScopeToSelected((v) => !v)}
-            className={cn("mb-1", scopeToSelected && "bg-bg-3 text-fg-2")}
-          >
-            <Crosshair />
-          </Button>
+                : "Filter to the selected action's window"}
+            </TooltipPopup>
+          </Tooltip>
         ) : null}
       </div>
       <div className="min-h-0 flex-1">

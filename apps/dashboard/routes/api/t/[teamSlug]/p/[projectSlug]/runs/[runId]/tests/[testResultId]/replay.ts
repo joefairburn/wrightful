@@ -1,14 +1,11 @@
 import { defineHandler } from "void";
 import { and, asc, db, eq } from "void/db";
-import { env } from "void/env";
 import { artifacts, testResults } from "@schema";
 import {
   TRACE_TOKEN_TTL_SECONDS,
   signArtifactToken,
   signedDownloadHref,
-  signedTraceViewerUrl,
 } from "@/lib/artifact-tokens";
-import { resolvePublicOrigin } from "@/lib/config";
 import { childByTestResultWhere, childProjectScopeWhere } from "@/lib/scope";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 
@@ -17,14 +14,12 @@ export type TestReplayResponse = {
   title: string;
   /**
    * Every attempt that recorded a trace, ascending by `attempt` (0-based),
-   * non-empty. Drives the modal's attempt switcher when a test retried
-   * (the modal defaults to the LAST — final, authoritative — attempt); each
-   * entry's `traceViewerUrl` is the self-hosted viewer with a freshly-signed
-   * `?trace=` token and `downloadHref` the signed raw `trace.zip` download.
+   * non-empty. Drives the modal's attempt switcher when a test retried (the
+   * modal defaults to the LAST — final, authoritative — attempt); the viewer's
+   * service worker range-reads the signed `downloadHref` (`trace.zip`) itself.
    */
   attempts: Array<{
     attempt: number;
-    traceViewerUrl: string;
     downloadHref: string;
   }>;
 };
@@ -86,10 +81,6 @@ export const GET = defineHandler(async (c) => {
     )
     .limit(1);
 
-  // Canonical https origin: the self-hosted viewer (an https page) fetches this
-  // absolute trace URL, so an http one behind Cloudflare trips `connect-src 'self'`.
-  const origin = resolvePublicOrigin(env, new URL(c.req.url).origin);
-
   // One entry per recorded trace (rows are already ascending by attempt);
   // each attempt gets its own freshly-signed token.
   const attempts = await Promise.all(
@@ -100,7 +91,6 @@ export const GET = defineHandler(async (c) => {
       );
       return {
         attempt: row.attempt,
-        traceViewerUrl: signedTraceViewerUrl(origin, row.id, token),
         downloadHref: signedDownloadHref(row.id, token),
       };
     }),

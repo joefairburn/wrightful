@@ -52,3 +52,15 @@ export function warmTraceViewer(traceUrl?: string): void {
     // Best-effort only.
   }
 }
+
+/**
+ * Release the current prefetch iframe (and the trace it pins in the SW). The
+ * Replay modal calls this once it mounts its OWN authoritative bridge — the
+ * prewarm has done its job and no longer needs to hold the trace open, so it
+ * shouldn't linger for the rest of the client-side session.
+ */
+export function releaseWarmedTrace(): void {
+  if (typeof document === "undefined") return;
+  prefetch?.iframe.remove();
+  prefetch = null;
+}

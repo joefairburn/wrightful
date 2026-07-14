@@ -7,6 +7,7 @@ import { SearchFilterInput } from "@/components/search-filter-input";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -24,13 +25,13 @@ import {
   transferSize,
   webSocketMessages,
 } from "../har-fields";
-import { sha1Path, timeInRange } from "../model";
+import { baseMimeType } from "../mime";
+import { timeInRange, type TraceTimeRange } from "../model";
 import type { TraceTabProps } from "../model";
-import { useBridgeText } from "../use-bridge-fetch";
-import { useObjectUrl } from "../use-object-url";
 import type { TraceBridge } from "../use-trace-model";
 import type { Timings } from "../vendor/har";
 import type { ResourceEntry } from "../vendor/model-util";
+import { BridgeBodyPreview } from "./body-preview";
 import { GeneralRow, ScopedEmpty, Section, TabNotice } from "./detail-shared";
 
 function shortUrl(url: string): string {
@@ -118,7 +119,24 @@ function entrySize(entry: ResourceEntry): number {
 
 /** The Type column's value: response mime type without parameters. */
 function entryMimeType(entry: ResourceEntry): string {
-  return entry.response.content.mimeType.split(";")[0] ?? "";
+  return baseMimeType(entry.response.content.mimeType);
+}
+
+/**
+ * Network entries visible for a timeline `selection` (by request start time,
+ * before the crosshair's action-window scoping). The single source of truth
+ * for both the tab body and `DetailTabs`' tab-label count, so the badge can't
+ * disagree with the list.
+ */
+export function selectNetworkEntries(
+  model: TraceTabProps["model"],
+  selection: TraceTimeRange | null,
+): ResourceEntry[] {
+  return selection
+    ? model.resources.filter((entry) =>
+        timeInRange(monotonicTime(entry), selection),
+      )
+    : model.resources;
 }
 
 type SortKey = "status" | "method" | "name" | "type" | "size" | "duration";
@@ -177,33 +195,33 @@ function SortableHead({
       // header — not just the label text — is the click target.
       className="p-0"
     >
-      <button
-        type="button"
-        onClick={() => onToggle(sortKey)}
-        title={`Sort by ${label.toLowerCase()}`}
-        // Inset ring: the button is full-bleed inside a sticky header row, so
-        // an outward ring/outline would clip against the neighboring cells.
-        className="flex size-full items-center gap-0.5 px-2.5 outline-none hover:text-fg-1 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-      >
-        {label}
-        <span aria-hidden className="inline-flex size-3 items-center">
-          {dir === "asc" ? (
-            <ChevronUp className="size-3" />
-          ) : dir === "desc" ? (
-            <ChevronDown className="size-3" />
-          ) : null}
-        </span>
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              onClick={() => onToggle(sortKey)}
+              // Inset ring: the button is full-bleed inside a sticky header
+              // row, so an outward ring/outline would clip against the
+              // neighboring cells.
+              className="flex size-full items-center gap-0.5 px-2.5 outline-none hover:text-fg-1 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            >
+              {label}
+              <span aria-hidden className="inline-flex size-3 items-center">
+                {dir === "asc" ? (
+                  <ChevronUp className="size-3" />
+                ) : dir === "desc" ? (
+                  <ChevronDown className="size-3" />
+                ) : null}
+              </span>
+            </button>
+          }
+        />
+        <TooltipPopup>Sort by {label.toLowerCase()}</TooltipPopup>
+      </Tooltip>
     </TableHead>
   );
 }
-
-/**
- * Text-like response bodies at or under this size are fetched through the
- * bridge and rendered as a preview; larger ones (and any non-text body,
- * regardless of size) fall back to a "Preview not available" size note.
- */
-const TEXT_PREVIEW_MAX_BYTES = 200_000;
 
 /** Links each row's disclosure button (`aria-controls`) to the detail panel. */
 const DETAIL_PANEL_ID = "trace-network-request-details";
@@ -336,82 +354,6 @@ function HeaderRows({
   );
 }
 
-/**
- * Response body preview: fetched through the bridge by sha1. Images render
- * via `useObjectUrl`; small/text-like bodies are fetched and pretty-printed;
- * everything else falls back to a size note. Extracted so the fetch effect
- * is scoped per-selection instead of living in the parent's render.
- */
-function ResponseBodyPreview({
-  sha1,
-  content,
-  traceUrl,
-  bridge,
-}: {
-  /** The body's trace resource hash — the caller only renders this preview when present. */
-  sha1: string;
-  content: ResourceEntry["response"]["content"];
-  traceUrl: string;
-  bridge: TraceBridge;
-}): React.ReactElement {
-  const mimeType = content.mimeType.split(";")[0] ?? "";
-  const isImage = mimeType.startsWith("image/");
-  // Mime-based only — whether a body even *could* render as text. Whether we
-  // actually fetch + render it as text also depends on its size (below); a
-  // small binary body must not be fetched through `.text()`.
-  const isText =
-    !isImage &&
-    (mimeType.includes("json") ||
-      mimeType.includes("text") ||
-      mimeType.includes("javascript") ||
-      mimeType.includes("css") ||
-      mimeType.includes("html"));
-  const canPreviewText = isText && content.size <= TEXT_PREVIEW_MAX_BYTES;
-
-  const path = sha1Path(traceUrl, sha1);
-  const { url: imageUrl } = useObjectUrl(bridge, isImage ? path : null);
-  const { text, error: textError } = useBridgeText(
-    bridge,
-    !isImage && canPreviewText ? path : null,
-  );
-
-  if (isImage) {
-    if (!imageUrl) {
-      return <div className="text-caption text-fg-4">Loading preview…</div>;
-    }
-    return (
-      <img
-        src={imageUrl}
-        alt="Response body preview"
-        className="max-h-48 rounded border border-line-1 object-contain"
-      />
-    );
-  }
-
-  if (!canPreviewText) {
-    return (
-      <div className="text-caption text-fg-4">
-        Preview not available · {formatBytes(content.size)}
-      </div>
-    );
-  }
-
-  if (textError) {
-    return (
-      <div className="text-caption text-fg-4">Failed to load preview.</div>
-    );
-  }
-  if (text === undefined) {
-    return <div className="text-caption text-fg-4">Loading preview…</div>;
-  }
-
-  return (
-    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-caption">
-      {prettyPrintJson(text, mimeType)}
-    </pre>
-  );
-}
-
 function DetailPanel({
   entry,
   traceUrl,
@@ -466,9 +408,10 @@ function DetailPanel({
           ) : null}
           {responseSha1 ? (
             <Section title="Response body" className={NETWORK_SECTION_CLASSES}>
-              <ResponseBodyPreview
+              <BridgeBodyPreview
                 sha1={responseSha1}
-                content={entry.response.content}
+                mimeType={entry.response.content.mimeType}
+                size={entry.response.content.size}
                 traceUrl={traceUrl}
                 bridge={bridge}
               />
@@ -508,21 +451,20 @@ export function NetworkTab({
     );
   // A timeline selection narrows the entry universe first (by request start
   // time); the crosshair's action-window scoping then applies within it.
-  const allEntries = selection
-    ? model.resources.filter((entry) =>
-        timeInRange(monotonicTime(entry), selection),
-      )
-    : model.resources;
-  // Scoped: filter to the selected action's window. Unscoped: keep every
-  // entry and merely highlight the ones in that window (today's behavior).
-  const isWithinSelectedAction = (time: number | undefined): boolean =>
-    selectedAction != null &&
-    time != null &&
-    time >= selectedAction.startTime &&
-    time <= selectedAction.endTime;
-  const scopedEntries = scoped
-    ? allEntries.filter((entry) => isWithinSelectedAction(monotonicTime(entry)))
-    : allEntries;
+  const allEntries = selectNetworkEntries(model, selection);
+  // The selected action's window as a range — the timeline-selection filter
+  // above and the action-window scoping/highlighting here share one
+  // `timeInRange` predicate. Scoped: filter to it. Unscoped: keep every entry
+  // and merely highlight the ones inside it (below).
+  const actionRange: TraceTimeRange | null = selectedAction
+    ? { start: selectedAction.startTime, end: selectedAction.endTime }
+    : null;
+  const scopedEntries =
+    scoped && actionRange
+      ? allEntries.filter((entry) =>
+          timeInRange(monotonicTime(entry), actionRange),
+        )
+      : allEntries;
 
   const needle = query.trim().toLowerCase();
   const filtered = scopedEntries.filter(
@@ -629,7 +571,9 @@ export function NetworkTab({
         <TableBody>
           {entries.map((entry) => {
             const isHighlighted =
-              !scoped && isWithinSelectedAction(monotonicTime(entry));
+              !scoped &&
+              actionRange != null &&
+              timeInRange(monotonicTime(entry), actionRange);
             const isSelected = entry.id === selectedId;
             return (
               <TableRow

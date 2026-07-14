@@ -6,6 +6,7 @@ import {
   it,
   vi,
 } from "vite-plus/test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { fetch } from "void/client";
@@ -37,7 +38,10 @@ vi.mock("@/trace-viewer/components/trace-viewer", () => ({
 
 // Hover prewarm mounts hidden iframes — stubbed so the switcher's
 // hover-intent wiring is observable without booting bridge iframes.
-vi.mock("@/trace-viewer/warm", () => ({ warmTraceViewer: vi.fn() }));
+vi.mock("@/trace-viewer/warm", () => ({
+  warmTraceViewer: vi.fn(),
+  releaseWarmedTrace: vi.fn(),
+}));
 const warmMock = vi.mocked(warmTraceViewer);
 
 // `useSearchParam` needs Void's router context; the dialog's contract with it
@@ -50,6 +54,19 @@ vi.mock("@/lib/use-search-param", () => ({
 vi.mock("void/client", () => ({ fetch: vi.fn() }));
 const fetchMock = vi.mocked(fetch);
 
+/** ReplayModalHost uses react-query — render it under a fresh client (no
+ * retries, so the failure-path test resolves without backoff). */
+function renderHost(): ReturnType<typeof render> {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <ReplayModalHost {...HOST_PROPS} />
+    </QueryClientProvider>,
+  );
+}
+
 const HOST_PROPS = {
   teamSlug: "team",
   projectSlug: "proj",
@@ -58,12 +75,10 @@ const HOST_PROPS = {
 
 function replayAttempt(attempt: number): {
   attempt: number;
-  traceViewerUrl: string;
   downloadHref: string;
 } {
   return {
     attempt,
-    traceViewerUrl: `/trace-viewer/index.html?trace=a${attempt}`,
     downloadHref: `/api/artifacts/a${attempt}/download?token=t${attempt}`,
   };
 }
@@ -102,7 +117,7 @@ describe("ReplayModalHost", () => {
       attempts: [replayAttempt(0)],
     });
 
-    render(<ReplayModalHost {...HOST_PROPS} />);
+    renderHost();
 
     const viewer = await screen.findByTestId("trace-viewer");
     expect(viewer.getAttribute("data-trace-url")).toBe(absoluteHref(0));
@@ -117,7 +132,7 @@ describe("ReplayModalHost", () => {
       attempts: [replayAttempt(0), replayAttempt(1), replayAttempt(2)],
     });
 
-    render(<ReplayModalHost {...HOST_PROPS} />);
+    renderHost();
 
     // Defaults to the last (final, authoritative) attempt.
     const initial = await screen.findByTestId("trace-viewer");
@@ -142,7 +157,7 @@ describe("ReplayModalHost", () => {
       attempts: [replayAttempt(0), replayAttempt(1)],
     });
 
-    render(<ReplayModalHost {...HOST_PROPS} />);
+    renderHost();
     await screen.findByTestId("trace-viewer");
 
     // Selected (last) attempt: hover must NOT warm — its trace is already
@@ -159,7 +174,7 @@ describe("ReplayModalHost", () => {
     searchParam.value = "tr-missing";
     fetchMock.mockRejectedValue(new Error("404"));
 
-    render(<ReplayModalHost {...HOST_PROPS} />);
+    renderHost();
 
     await waitFor(() => {
       expect(searchParam.set).toHaveBeenCalledWith("");

@@ -3,6 +3,7 @@
 import { classHighlighter, highlightCode } from "@lezer/highlight";
 import { parser as jsParser } from "@lezer/javascript";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { basename } from "@/lib/basename";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import type { TraceTabProps } from "../model";
@@ -28,11 +29,6 @@ async function sha1Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-}
-
-function basename(path: string): string {
-  const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return idx === -1 ? path : path.slice(idx + 1);
 }
 
 /** Default file: the selected frame's file, else the first file carrying an

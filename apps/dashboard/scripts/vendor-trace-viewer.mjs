@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Vendor the official Playwright Trace Viewer bundle into `public/trace-viewer/`
-// so we can serve + embed it from our OWN origin (an iframe on the test-detail
-// page) instead of bouncing users — and their trace bytes — out to the public
+// so we serve its service worker + snapshot shell (and the standalone SPA) from
+// our OWN origin. Our native React trace viewer (`src/trace-viewer/`) drives
+// that SW through a hidden bridge iframe (`bridge.html`), so a test's trace
+// bytes replay in-dashboard and never bounce out to the public
 // trace.playwright.dev. The bundle ships inside `playwright-core` as a
 // position-independent Vite build (relative asset refs, a scope-relative service
 // worker), so a plain recursive copy into a subdir Just Works (see the worklog
@@ -28,9 +30,10 @@ const at = (rel) => `${root}/${rel}`;
 const TARGET = at("public/trace-viewer");
 const STAMP = `${TARGET}/.vendored-version`;
 
-// Files that MUST exist in the source bundle — our embed depends on each:
-//   index.html  — the viewer SPA entry the iframe loads
-//   sw.bundle.js — the snapshot-serving service worker (scope-relative)
+// Files that MUST exist in the source bundle — our replay surface depends on each:
+//   index.html   — the standalone SPA, served for the "open in the self-hosted
+//                  viewer" link (the MCP `traceViewerUrl`) + a layout canary
+//   sw.bundle.js  — the snapshot-serving service worker our bridge registers
 //   snapshot.html — the nested snapshot frame the SW hydrates
 const REQUIRED = ["index.html", "sw.bundle.js", "snapshot.html"];
 

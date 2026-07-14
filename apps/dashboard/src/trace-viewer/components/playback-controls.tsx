@@ -62,7 +62,11 @@ function nearestActionIndex(actions: TimelineAction[], t: number): number {
 export interface PlaybackController {
   playing: boolean;
   speedIndex: number;
-  selectedIndex: number;
+  /** The selection is at the first / last playable action (drives prev/next
+   * disabled state) — the controller owns the index math so callers don't
+   * re-thread the action count alongside it. */
+  atStart: boolean;
+  atEnd: boolean;
   hasActions: boolean;
   /** Bumped each time a play session starts — key the <Playhead> on it. */
   session: number;
@@ -178,7 +182,8 @@ export function usePlayback({
   return {
     playing,
     speedIndex,
-    selectedIndex,
+    atStart: selectedIndex <= 0,
+    atEnd: selectedIndex === playableActions.length - 1,
     hasActions,
     session,
     playFrom: playFromRef.current,
@@ -349,8 +354,8 @@ function PlaybackButton({
 export function PlaybackControls({
   playing,
   hasActions,
-  selectedIndex,
-  actionsCount,
+  atStart,
+  atEnd,
   speedIndex,
   onTogglePlay,
   onStop,
@@ -359,8 +364,8 @@ export function PlaybackControls({
 }: {
   playing: boolean;
   hasActions: boolean;
-  selectedIndex: number;
-  actionsCount: number;
+  atStart: boolean;
+  atEnd: boolean;
   speedIndex: number;
   onTogglePlay: () => void;
   onStop: () => void;
@@ -371,7 +376,7 @@ export function PlaybackControls({
     <div className="flex shrink-0 items-center gap-0.5">
       <PlaybackButton
         label="Previous action"
-        disabled={selectedIndex <= 0}
+        disabled={atStart}
         onClick={() => onStep(-1)}
       >
         <ChevronLeft className="size-3.5" />
@@ -389,14 +394,14 @@ export function PlaybackControls({
       </PlaybackButton>
       <PlaybackButton
         label="Stop"
-        disabled={!hasActions || (selectedIndex <= 0 && !playing)}
+        disabled={!hasActions || (atStart && !playing)}
         onClick={onStop}
       >
         <Square className="size-3 fill-current" />
       </PlaybackButton>
       <PlaybackButton
         label="Next action"
-        disabled={!hasActions || selectedIndex === actionsCount - 1}
+        disabled={!hasActions || atEnd}
         onClick={() => onStep(1)}
       >
         <ChevronRight className="size-3.5" />

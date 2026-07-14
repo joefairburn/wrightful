@@ -37,6 +37,20 @@ export function formatTraceDuration(ms: number): string {
   return formatDuration(Math.max(0, Math.round(ms)));
 }
 
+/**
+ * A trace wall-clock timestamp (epoch ms) in the user's locale — the
+ * time-of-day for a Call's start, or the full date-time (`withDate`) for the
+ * Metadata "Started" row. One home for the tabs' wall-clock rendering instead
+ * of scattered raw `toLocale*` calls.
+ */
+export function formatWallClock(
+  ms: number,
+  { withDate = false }: { withDate?: boolean } = {},
+): string {
+  const date = new Date(ms);
+  return withDate ? date.toLocaleString() : date.toLocaleTimeString();
+}
+
 /** Best-effort JSON pretty-print, gated on a content/mime type. Non-JSON and
  * unparsable-despite-the-type bodies pass through untouched. */
 export function prettyPrintJson(text: string, contentType: string): string {
@@ -46,6 +60,21 @@ export function prettyPrintJson(text: string, contentType: string): string {
   } catch {
     return text;
   }
+}
+
+/** Cap on a rendered text preview's length — huge bodies shouldn't hang the tab. */
+const TEXT_PREVIEW_MAX_CHARS = 50_000;
+
+/**
+ * A body/attachment text preview: pretty-printed (JSON, best-effort) and capped
+ * before rendering. Shared by the Network response-body panel and the
+ * Attachments row preview.
+ */
+export function formatPreviewText(raw: string, contentType: string): string {
+  const text = prettyPrintJson(raw, contentType);
+  return text.length > TEXT_PREVIEW_MAX_CHARS
+    ? `${text.slice(0, TEXT_PREVIEW_MAX_CHARS)}… truncated`
+    : text;
 }
 
 /**

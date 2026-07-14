@@ -2,23 +2,36 @@
 
 import type React from "react";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
+import { cn } from "@/lib/cn";
 
 /**
  * Small presentational primitives shared across the detail tabs (Call,
  * Metadata, Network). Kept intentionally thin — no "tab shell" abstraction —
- * the tab bodies themselves genuinely differ.
+ * the tab bodies themselves genuinely differ. Every `className` here MERGES
+ * onto the defaults via `cn()` (house convention); `Field` selects its value
+ * base with a `variant` rather than a replace-string.
  */
 
-/** dt/dd definition-list pair: micro-label + value. `className` fully replaces
- * the default `dd` styling rather than merging with it (Metadata's plain
- * `text-body` value needs to shed Call's `font-mono … text-fg-2`). */
+/** The `dd` value base for a {@link Field}, picked by `variant`. */
+const FIELD_VALUE_VARIANTS = {
+  /** Call's dense monospace value (the default). */
+  mono: "font-mono text-caption text-fg-2",
+  /** Metadata's plain prose value. */
+  plain: "text-body",
+  /** No base — the value node carries its own styling (e.g. a JSON preview). */
+  bare: "",
+} as const;
+
+/** dt/dd definition-list pair: micro-label + value. */
 export function Field({
   label,
   value,
+  variant = "mono",
   className,
 }: {
   label: string;
   value: React.ReactNode;
+  variant?: keyof typeof FIELD_VALUE_VARIANTS;
   className?: string;
 }): React.ReactElement {
   return (
@@ -26,15 +39,13 @@ export function Field({
       <dt className="text-caption font-medium tracking-[0.1px] text-fg-3">
         {label}
       </dt>
-      <dd className={className ?? "font-mono text-caption text-fg-2"}>
-        {value}
-      </dd>
+      <dd className={cn(FIELD_VALUE_VARIANTS[variant], className)}>{value}</dd>
     </div>
   );
 }
 
-/** A titled section: micro-label header + body. `className` fully replaces the
- * default wrapper styling (Network's bordered/padded rows vs Call's plain stack). */
+/** A titled section: micro-label header + body. `className` merges onto the
+ * default stack (Network passes its bordered/padded row deltas). */
 export function Section({
   title,
   children,
@@ -45,7 +56,7 @@ export function Section({
   className?: string;
 }): React.ReactElement {
   return (
-    <div className={className ?? "flex flex-col gap-1.5"}>
+    <div className={cn("flex flex-col gap-1.5", className)}>
       <h3 className="text-caption font-medium tracking-[0.1px] text-fg-3">
         {title}
       </h3>

@@ -60,7 +60,9 @@ describe("AttachmentsTab", () => {
     const user = userEvent.setup();
     const bridge = makeBridge({ "sha1/textsha1.json": '{"k":1}' });
     render(<AttachmentsTab {...makeTabProps({ bridge })} />);
-    await user.click(screen.getByTitle("Preview attachment contents"));
+    await user.click(
+      screen.getByRole("button", { name: "Preview attachment contents" }),
+    );
     expect(await screen.findByText(/"k":\s*1/)).toBeTruthy();
   });
 

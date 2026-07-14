@@ -14,7 +14,9 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
-import { prettyPrintJson } from "../format";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
+import { formatPreviewText } from "../format";
+import { isImageMime, isTextMime } from "../mime";
 import { sha1DownloadUrl, sha1Path } from "../model";
 import type { TraceTabProps } from "../model";
 import { useBridgeText } from "../use-bridge-fetch";
@@ -22,27 +24,16 @@ import { useObjectUrl } from "../use-object-url";
 import type { TraceBridge } from "../use-trace-model";
 import type { Attachment } from "../vendor/model-util";
 
-/** Cap on the text preview's rendered length — huge logs shouldn't hang the tab. */
-const TEXT_PREVIEW_MAX_CHARS = 50_000;
-
 /**
- * Attachments we can render an inline text preview for: plain text or JSON,
- * with bytes actually reachable (sha1 via the SW bridge, or inline base64).
+ * Attachments we can render an inline text preview for: any text-like type
+ * (see `isTextMime`), with bytes actually reachable (sha1 via the SW bridge,
+ * or inline base64).
  */
 function isTextPreviewable(attachment: Attachment): boolean {
-  const isTextLike =
-    attachment.contentType.startsWith("text/") ||
-    attachment.contentType === "application/json";
-  return isTextLike && Boolean(attachment.sha1 || attachment.base64);
-}
-
-/** Pretty-print JSON (best-effort) and cap the length before rendering. */
-function formatPreviewText(raw: string, contentType: string): string {
-  let text = prettyPrintJson(raw, contentType);
-  if (text.length > TEXT_PREVIEW_MAX_CHARS) {
-    text = `${text.slice(0, TEXT_PREVIEW_MAX_CHARS)}… truncated`;
-  }
-  return text;
+  return (
+    isTextMime(attachment.contentType) &&
+    Boolean(attachment.sha1 || attachment.base64)
+  );
 }
 
 /**
@@ -52,7 +43,7 @@ function formatPreviewText(raw: string, contentType: string): string {
  */
 function mediaKind(attachment: Attachment): "image" | "video" | null {
   if (!attachment.sha1 && !attachment.base64) return null;
-  if (attachment.contentType.startsWith("image/")) return "image";
+  if (isImageMime(attachment.contentType)) return "image";
   if (attachment.contentType.startsWith("video/")) return "video";
   return null;
 }
@@ -160,18 +151,25 @@ function AttachmentPreview({
   }
 
   return (
-    <button
-      type="button"
-      onClick={onView}
-      title="View full size"
-      className="shrink-0 cursor-pointer"
-    >
-      <img
-        src={previewUrl}
-        alt={attachment.name}
-        className="max-h-24 rounded border border-line-1 object-contain"
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            onClick={onView}
+            aria-label="View full size"
+            className="shrink-0 cursor-pointer"
+          >
+            <img
+              src={previewUrl}
+              alt={attachment.name}
+              className="max-h-24 rounded border border-line-1 object-contain"
+            />
+          </button>
+        }
       />
-    </button>
+      <TooltipPopup>View full size</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -247,17 +245,28 @@ function AttachmentRow({
     <div className="flex flex-col gap-1.5 px-3 py-2">
       <div className="flex items-center gap-2.5">
         {textPreviewable ? (
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-expanded={expanded}
-            title={
-              expanded ? "Collapse preview" : "Preview attachment contents"
-            }
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {expanded ? <ChevronDown /> : <ChevronRight />}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-expanded={expanded}
+                  aria-label={
+                    expanded
+                      ? "Collapse preview"
+                      : "Preview attachment contents"
+                  }
+                  onClick={() => setExpanded((v) => !v)}
+                >
+                  {expanded ? <ChevronDown /> : <ChevronRight />}
+                </Button>
+              }
+            />
+            <TooltipPopup>
+              {expanded ? "Collapse preview" : "Preview attachment contents"}
+            </TooltipPopup>
+          </Tooltip>
         ) : null}
         {kind === "image" ? (
           <AttachmentPreview

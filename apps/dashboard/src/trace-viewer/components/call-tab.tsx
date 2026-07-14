@@ -2,7 +2,11 @@
 
 import type React from "react";
 import { AnsiPre } from "@/components/ansi-pre";
-import { formatTraceDuration, formatTraceOffset } from "../format";
+import {
+  formatTraceDuration,
+  formatTraceOffset,
+  formatWallClock,
+} from "../format";
 import { actionTitle } from "../model";
 import type { TraceTabProps } from "../model";
 import { Field, Section, TabNotice } from "./detail-shared";
@@ -50,9 +54,7 @@ export function CallTab({
 
   const wallClock =
     model.wallTime !== undefined
-      ? new Date(
-          model.wallTime + (action.startTime - model.startTime),
-        ).toLocaleTimeString()
+      ? formatWallClock(model.wallTime + (action.startTime - model.startTime))
       : undefined;
 
   return (
@@ -84,13 +86,12 @@ export function CallTab({
           <Section title="Parameters">
             <dl className="flex flex-col gap-2">
               {paramEntries.map(([key, value]) => (
-                // `className=""` replaces Field's default dd styling —
-                // `renderJsonValue` brings its own mono/size classes.
+                // `bare`: renderJsonValue brings its own mono/size classes.
                 <Field
                   key={key}
                   label={key}
                   value={renderJsonValue(value)}
-                  className=""
+                  variant="bare"
                 />
               ))}
             </dl>
