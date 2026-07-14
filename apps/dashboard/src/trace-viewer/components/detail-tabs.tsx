@@ -17,7 +17,8 @@ import { ConsoleTab, selectConsoleRows } from "./console-tab";
 import { TabNotice } from "./detail-shared";
 import { ErrorsTab } from "./errors-tab";
 import { MetadataTab } from "./metadata-tab";
-import { NetworkTab, selectNetworkEntries } from "./network-tab";
+import { selectNetworkEntries } from "./network-columns";
+import { NetworkTab } from "./network-tab";
 import { SourceTab } from "./source-tab";
 
 type DetailTabId =
