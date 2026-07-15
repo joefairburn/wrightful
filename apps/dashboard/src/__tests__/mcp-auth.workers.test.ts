@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vite-plus/test";
 vi.mock("@/lib/api-key", () => ({
   validateApiKey: vi.fn(() => Promise.resolve(null)),
 }));
+vi.mock("void/env", () => ({
+  env: { WRIGHTFUL_PUBLIC_URL: "https://wrightful.test" },
+}));
 
 import { Hono } from "hono";
 import { validateApiKey } from "@/lib/api-key";
@@ -26,7 +29,8 @@ interface TokenRow {
   accessTokenExpiresAt: Date | string | null;
 }
 
-const ORIGIN = "https://wrightful.test";
+const PUBLIC_ORIGIN = "https://wrightful.test";
+const REQUEST_ORIGIN = "http://wrightful.test";
 
 function tokenRow(expiresAt: TokenRow["accessTokenExpiresAt"]): TokenRow {
   return {
@@ -79,7 +83,7 @@ async function gate(
 
   const headers = new Headers();
   if (header) headers.set("Authorization", header);
-  const res = await app.request(`${ORIGIN}/api/mcp`, {
+  const res = await app.request(`${REQUEST_ORIGIN}/api/mcp`, {
     method: "POST",
     headers,
   });
@@ -148,7 +152,7 @@ describe("requireMcpAuthOrResponse — credential resolution", () => {
       const { res } = await gate(row);
       expect(res.status).toBe(401);
       expect(res.headers.get("WWW-Authenticate")).toBe(
-        `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`,
+        `Bearer resource_metadata="${PUBLIC_ORIGIN}/.well-known/oauth-protected-resource"`,
       );
     }
   });

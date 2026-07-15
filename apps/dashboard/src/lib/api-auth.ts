@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { env } from "void/env";
 import { validateApiKey } from "@/lib/api-key";
 import { SUPPORTED_VERSIONS, WRIGHTFUL_VERSION_HEADER } from "@/lib/schemas";
 import type { ApiKey } from "@schema";
@@ -88,7 +89,10 @@ interface McpAccessTokenRow {
  * paths are rewritten onto the Better Auth plugin endpoints in `void.json`.
  */
 export function mcpUnauthorized(c: Context): Response {
-  const origin = new URL(c.req.url).origin;
+  // On direct Cloudflare deployments, the worker can observe the request URL
+  // as http:// even though the public dashboard is served over HTTPS. OAuth
+  // metadata must advertise the canonical external origin clients can reach.
+  const origin = new URL(env.WRIGHTFUL_PUBLIC_URL).origin;
   return c.json({ error: "Unauthorized" }, 401, {
     "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
   });
