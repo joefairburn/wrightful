@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 /**
- * `signArtifactRows` (via the exported `loadAttemptArtifactGroups`) must ALWAYS
- * project a trace's `traceViewerUrl` to the SELF-HOSTED, same-origin viewer —
- * never `trace.playwright.dev` and never a bare presigned R2 URL. This is the
- * rail's "has a replayable trace" gate, and it keeps the trace bytes on our
- * origin. The invariant is unconditional: under direct-R2 (ADR 0003) the viewer
- * still wraps the same-origin worker download URL (which 302s to R2 with the
- * dashboard origin CORS-allowed). `trace.playwright.dev` survives only as the
- * dialog's "Public viewer" LINK (a new tab), which this seam doesn't produce.
+ * `signArtifactRows` (via the exported `loadAttemptArtifactGroups`) mints a
+ * signed, token-authed WORKER download href per row — never the raw `r2Key`.
+ * Trace rows get the longer `TRACE_TOKEN_TTL_SECONDS` token (the Replay
+ * viewer's SW range-reads the zip lazily for the whole modal session).
+ *
+ * This seam does NOT mint a self-hosted trace-viewer URL. It used to (a
+ * `traceViewerUrl` field on `SignedArtifact`/`ArtifactAction`), but the
+ * field's only consumers — the rail button, the replay dialog — only ever
+ * checked its truthiness, which is exactly `type === "trace"`; callers that
+ * need the actual viewer LINK derive it client-side from `href` via
+ * `selfHostedTraceViewerUrl`. That helper's own URL shape (same-origin,
+ * never `trace.playwright.dev`) is covered directly in
+ * `artifact-tokens.workers.test.ts`, not here.
  */
 
 let rows: unknown[] = [];
@@ -26,13 +31,12 @@ vi.mock("void/env", () => ({ env: {} }));
 // is stubbed so the bare void/db mock doesn't need the and/eq operators.
 vi.mock("@/lib/scope", () => ({ childByTestResultWhere: () => ({}) }));
 
+const signArtifactTokenMock = vi.fn(async () => "TOKEN");
 vi.mock("@/lib/artifact-tokens", () => ({
-  signArtifactToken: vi.fn(async () => "TOKEN"),
+  signArtifactToken: signArtifactTokenMock,
   TRACE_TOKEN_TTL_SECONDS: 8 * 60 * 60,
   signedDownloadHref: (id: string, t: string) =>
     `/api/artifacts/${id}/download?t=${t}`,
-  selfHostedTraceViewerUrl: (url: string) =>
-    `/trace-viewer/index.html?trace=${url}`,
 }));
 
 const { loadAttemptArtifactGroups } =
@@ -52,33 +56,50 @@ const traceRow = {
 
 beforeEach(() => {
   rows = [traceRow];
+  signArtifactTokenMock.mockClear();
 });
 
-describe("signArtifactRows trace-viewer URL (via loadAttemptArtifactGroups)", () => {
-  it("projects a trace to the self-hosted viewer + worker download href (never a cross-origin URL)", async () => {
-    const groups = await loadAttemptArtifactGroups(
-      {} as never,
-      "tr-1",
-      "https://dash.example.com",
-    );
+describe("signArtifactRows (via loadAttemptArtifactGroups)", () => {
+  it("mints the token-authed worker download href, never the raw r2Key or a traceViewerUrl field", async () => {
+    const groups = await loadAttemptArtifactGroups({} as never, "tr-1");
     const action = groups.get(0)?.media[0];
 
-    expect(action?.traceViewerUrl).toBe(
-      "/trace-viewer/index.html?trace=https://dash.example.com/api/artifacts/art-trace/download?t=TOKEN",
-    );
-    // The iframe-embedded URL must be same-origin: never trace.playwright.dev
-    // (CSP-blocked in the frame) and never a bare presigned R2 URL (leaks r2Key).
-    expect(action?.traceViewerUrl).not.toContain("trace.playwright.dev");
-    expect(action?.traceViewerUrl?.startsWith("/trace-viewer/")).toBe(true);
-    // The in-page download href stays the token-authed worker route.
     expect(action?.downloadHref).toBe(
       "/api/artifacts/art-trace/download?t=TOKEN",
     );
+    expect(action?.downloadHref).not.toContain(traceRow.r2Key);
+    // Regression guard: `traceViewerUrl` used to be minted here and was only
+    // ever consumed as a truthiness gate equivalent to `type === "trace"` —
+    // it must not reappear on the produced action.
+    expect(action).not.toHaveProperty("traceViewerUrl");
   });
 
-  it("non-trace rows get no traceViewerUrl", async () => {
-    rows = [{ ...traceRow, id: "art-shot", type: "screenshot", name: "s.png" }];
-    const groups = await loadAttemptArtifactGroups({} as never, "tr-1", "o");
-    expect(groups.get(0)?.media[0]?.traceViewerUrl).toBeUndefined();
+  it("signs trace rows with the longer TRACE_TOKEN_TTL_SECONDS, other types with the default TTL", async () => {
+    rows = [
+      traceRow,
+      {
+        ...traceRow,
+        id: "art-shot",
+        type: "screenshot",
+        name: "s.png",
+        r2Key: "t/x/p/y/runs/r/tr-1/art-shot/s.png",
+      },
+    ];
+
+    await loadAttemptArtifactGroups({} as never, "tr-1");
+
+    expect(signArtifactTokenMock).toHaveBeenNthCalledWith(
+      1,
+      { r2Key: traceRow.r2Key, contentType: traceRow.contentType },
+      8 * 60 * 60,
+    );
+    expect(signArtifactTokenMock).toHaveBeenNthCalledWith(
+      2,
+      {
+        r2Key: "t/x/p/y/runs/r/tr-1/art-shot/s.png",
+        contentType: "application/zip",
+      },
+      undefined,
+    );
   });
 });

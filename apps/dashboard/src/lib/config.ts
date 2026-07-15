@@ -115,29 +115,6 @@ export function billingEnabled(source: {
   return Boolean(source.POLAR_ACCESS_TOKEN && source.POLAR_WEBHOOK_SECRET);
 }
 
-/**
- * The canonical public origin (scheme + host) for building the ABSOLUTE trace
- * URL the self-hosted Playwright Trace Viewer fetches (`/trace-viewer/…?trace=`).
- * The viewer page is served over https, so an `http://` trace URL is blocked as
- * mixed content / a `connect-src 'self'` CSP violation ("Could not load trace …
- * grant permission for Local Network Access").
- *
- * Prefers the deploy's declared `WRIGHTFUL_PUBLIC_URL` (a required `url()` in
- * env.ts) over the per-request origin, because behind Cloudflare
- * `new URL(c.req.url).origin` can surface `http://` even on an https deployment
- * (TLS terminated upstream) — exactly what breaks the trace viewer. Falls back
- * to the request origin when the env var is unset, keeping local dev / e2e (same
- * `http://localhost` origin) unchanged.
- */
-export function resolvePublicOrigin(
-  source: { WRIGHTFUL_PUBLIC_URL?: string | undefined },
-  requestOrigin: string,
-): string {
-  return source.WRIGHTFUL_PUBLIC_URL
-    ? new URL(source.WRIGHTFUL_PUBLIC_URL).origin
-    : requestOrigin;
-}
-
 /** The R2 S3-API credential bundle the presigner needs (see {@link r2DirectConfig}). */
 export interface R2DirectConfig {
   accountId: string;

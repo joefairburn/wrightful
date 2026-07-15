@@ -5,7 +5,6 @@ import {
   signArtifactToken,
   TRACE_TOKEN_TTL_SECONDS,
   signedDownloadHref,
-  selfHostedTraceViewerUrl,
 } from "@/lib/artifact-tokens";
 import { childByTestResultWhere, type TenantScope } from "@/lib/scope";
 
@@ -35,13 +34,15 @@ function compareByTypeThenName(
 }
 
 /**
- * An artifact row whose download capability has already been minted server-side
- * — `href` is the signed download URL, `traceViewerUrl` is set for traces (the
- * self-hosted viewer wrapping that same signed download URL). The pure
- * presentation transforms (`buildAttemptArtifactGroups`) operate on these so
- * token minting / DB access stays out of the orderable/groupable core. The raw
- * `r2Key` never appears as a field here, and neither `href` nor `traceViewerUrl`
- * embeds it — both go through the token-authed worker download route.
+ * An artifact row whose download capability has already been minted
+ * server-side — `href` is the signed download URL. The pure presentation
+ * transforms (`buildAttemptArtifactGroups`) operate on these so token minting
+ * / DB access stays out of the orderable/groupable core. The raw `r2Key`
+ * never appears as a field here, and `href` doesn't embed it — it goes
+ * through the token-authed worker download route. Consumers that need the
+ * self-hosted trace-viewer link (the rail button, the replay dialog) derive
+ * it from `href` + `type === "trace"` on demand rather than carrying a
+ * separate minted field that only ever gets used as a truthiness gate.
  */
 export interface SignedArtifact {
   id: string;
@@ -52,7 +53,6 @@ export interface SignedArtifact {
   role: string | null;
   snapshotName: string | null;
   href: string;
-  traceViewerUrl?: string;
 }
 
 /**
@@ -152,7 +152,6 @@ function signedToAction(a: SignedArtifact): ArtifactAction {
     name: a.name,
     contentType: a.contentType,
     downloadHref: a.href,
-    traceViewerUrl: a.traceViewerUrl,
   };
 }
 
@@ -184,11 +183,10 @@ type RawArtifactRow = {
 /**
  * Mint a download token per row and project it to a `SignedArtifact`. The raw
  * `r2Key` is consumed HERE (to sign the token) and dropped from the returned
- * shape — it never surfaces in the in-page `href` or the `traceViewerUrl`.
+ * shape — it never surfaces in the in-page `href`.
  */
 async function signArtifactRows(
   rows: readonly RawArtifactRow[],
-  origin: string,
 ): Promise<SignedArtifact[]> {
   return Promise.all(
     rows.map(async (a) => {
@@ -211,16 +209,6 @@ async function signArtifactRows(
         role: a.role,
         snapshotName: a.snapshotName,
         href,
-        // The self-hosted, same-origin viewer link (the rail's "has a
-        // replayable trace" gate). Trace bytes stay on our origin — never the
-        // third-party trace.playwright.dev, which only appears as the dialog's
-        // explicit "Public viewer" button (a new tab). Under direct-R2 (ADR
-        // 0003) the viewer fetches the worker download URL, which 302s to R2
-        // (the bucket's CORS must allow this origin).
-        traceViewerUrl:
-          a.type === "trace"
-            ? selfHostedTraceViewerUrl(`${origin}${href}`)
-            : undefined,
       } satisfies SignedArtifact;
     }),
   );
@@ -238,7 +226,6 @@ async function signArtifactRows(
 export async function loadAttemptArtifactGroups(
   scope: TenantScope,
   testResultId: string,
-  origin: string,
 ): Promise<Map<number, AttemptArtifactGroup>> {
   const rows = await db
     .select(ARTIFACT_PRESENTATION_COLUMNS)
@@ -246,6 +233,6 @@ export async function loadAttemptArtifactGroups(
     .where(childByTestResultWhere(artifacts, scope, testResultId))
     .orderBy(asc(artifacts.attempt));
 
-  const signed = await signArtifactRows(rows, origin);
+  const signed = await signArtifactRows(rows);
   return buildAttemptArtifactGroups(signed);
 }

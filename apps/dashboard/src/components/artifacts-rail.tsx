@@ -215,7 +215,10 @@ function RailTraceButton({
 }: {
   artifact: ArtifactAction;
 }): React.ReactElement {
-  if (!artifact.traceViewerUrl) return <></>;
+  // Only trace artifacts get a replayable viewer — `RailArtifactButton`
+  // already routes here by `artifact.type === "trace"`, but this guard keeps
+  // the check local in case that switch's cases drift.
+  if (artifact.type !== "trace") return <></>;
   return (
     <TraceViewerDialog artifact={artifact}>
       <RailIconLabel icon={<History />} label="Replay" />

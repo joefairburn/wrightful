@@ -193,10 +193,10 @@ function TestReplayContent({
 
 /**
  * Test-detail artifacts-rail entry point. The trace artifact already carries a
- * signed `traceViewerUrl` (minted in the page loader), so the dialog opens
- * directly. Open state lives in `?replay=<artifactId>` so a specific replay is
- * deep-linkable. `children` are the trigger's inner content so the rail keeps
- * ownership of the button's appearance.
+ * signed `downloadHref` (minted in the page loader), so the dialog opens
+ * directly on it. Open state lives in `?replay=<artifactId>` so a specific
+ * replay is deep-linkable. `children` are the trigger's inner content so the
+ * rail keeps ownership of the button's appearance.
  */
 export function TraceViewerDialog({
   artifact,
@@ -206,9 +206,9 @@ export function TraceViewerDialog({
   children: React.ReactNode;
 }): React.ReactElement {
   const [replay, setReplay] = useSearchParam(REPLAY_PARAM, "");
-  // `traceViewerUrl` (set only for trace artifacts in `test-artifact-actions`)
-  // is the rail's "has a replayable trace" availability gate.
-  if (!artifact.traceViewerUrl) return <></>;
+  // `type === "trace"` is the rail's "has a replayable trace" availability
+  // gate — only trace artifacts get a Replay entry point.
+  if (artifact.type !== "trace") return <></>;
 
   const open = replay === artifact.id;
   const close = (): void => setReplay("");
@@ -343,6 +343,11 @@ export function ReplayModalHost({
     >
       {resolved ? (
         <TestReplayContent
+          // Remount per test: with the query's `staleTime: Infinity`, swapping
+          // between two previously-opened `?replay=` deep links reuses the
+          // cached response WITHOUT unmounting this component, so the prior
+          // test's `selectedAttempt` state would otherwise silently carry over.
+          key={replay}
           title={resolved.title}
           attempts={resolved.attempts}
           open={open}

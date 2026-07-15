@@ -8,12 +8,17 @@ import {
 } from "@/lib/token-crypto";
 
 /**
- * Lifetime of an artifact-download token (1 hour). Exported so the direct-R2
- * trace-viewer embed can mint its presigned R2 URL with exactly the same
- * lifetime as the token minted alongside it — keeping the "a presigned
- * capability never outlives its authorizing token" invariant on both byte paths
- * (the 302 path caps to the token's *remaining* life; the trace embed mints both
- * together, so the token's *full* life applies).
+ * Lifetime of an artifact-download token (1 hour). Exported because two other
+ * places need this exact value: the default `ttlSeconds` for
+ * `signArtifactToken` below, and the presign cap in `serveArtifactBytes`
+ * (`apps/dashboard/src/lib/artifacts/serve.ts`), which mints a direct-R2
+ * presigned GET expiring at `min(remainingTokenSeconds,
+ * ARTIFACT_TOKEN_TTL_SECONDS)` — the single place enforcing that a longer-lived
+ * TRACE token (see below) can't mint an equally long-lived anonymous-read R2
+ * URL. Keeps the "a presigned capability never outlives its authorizing
+ * token" invariant on both byte paths (the worker-proxy path caps its shared
+ * cache to the token's *remaining* life; the direct-R2 path additionally caps
+ * to this standard ceiling).
  */
 export const ARTIFACT_TOKEN_TTL_SECONDS = 60 * 60;
 
@@ -26,7 +31,8 @@ export const ARTIFACT_TOKEN_TTL_SECONDS = 60 * 60;
  *
  * In direct-R2 mode the SW's range-read GETs still hit `/api/artifacts/:id/
  * download` and 302 to a presigned R2 URL, so the longer token DOES reach the
- * presign path — but `download.ts` caps each presigned URL to
+ * presign path — but `serveArtifactBytes` (the single home of the presign cap;
+ * `apps/dashboard/src/lib/artifacts/serve.ts`) caps every presigned URL to
  * `ARTIFACT_TOKEN_TTL_SECONDS`, not the token's full remaining life, so this
  * longer token never mints an equally long-lived anonymous-read R2 URL.
  */

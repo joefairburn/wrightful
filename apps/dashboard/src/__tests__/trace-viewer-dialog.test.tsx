@@ -55,11 +55,15 @@ vi.mock("void/client", () => ({ fetch: vi.fn() }));
 const fetchMock = vi.mocked(fetch);
 
 /** ReplayModalHost uses react-query — render it under a fresh client (no
- * retries, so the failure-path test resolves without backoff). */
-function renderHost(): ReturnType<typeof render> {
-  const client = new QueryClient({
+ * retries, so the failure-path test resolves without backoff). Accepts an
+ * external client so a test can pre-seed the cache (`client.setQueryData`)
+ * and later `rerender` the SAME provider instance to simulate navigating
+ * between two already-cached `?replay=` deep links without unmounting. */
+function renderHost(
+  client: QueryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  });
+  }),
+): ReturnType<typeof render> {
   return render(
     <QueryClientProvider client={client}>
       <ReplayModalHost {...HOST_PROPS} />
@@ -181,6 +185,60 @@ describe("ReplayModalHost", () => {
     });
     expect(screen.queryByTestId("trace-viewer")).toBeNull();
   });
+
+  it("remounts TestReplayContent per test, resetting the selected attempt, when swapping between two already-cached ?replay= deep links", async () => {
+    // With `staleTime: Infinity`, once a test's replay data is cached
+    // react-query hands it back synchronously — no loading gap — so swapping
+    // between two PREVIOUSLY-OPENED deep links must not silently keep the
+    // same TestReplayContent instance mounted with the departed test's
+    // `selectedAttempt` state.
+    fetchMock.mockRejectedValue(
+      new Error("unexpected fetch — both replay ids are pre-seeded"),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["test-replay", "team", "proj", "run-1", "tr-a"], {
+      title: "test A",
+      attempts: [replayAttempt(0), replayAttempt(1), replayAttempt(2)],
+    });
+    // Attempt 0 also exists in test B's attempts — chosen deliberately so a
+    // missing remount produces a WRONG-but-plausible attempt instead of one
+    // that fails safe via the `?? attempts.at(-1)!` fallback.
+    client.setQueryData(["test-replay", "team", "proj", "run-1", "tr-b"], {
+      title: "test B",
+      attempts: [replayAttempt(0), replayAttempt(1)],
+    });
+
+    searchParam.value = "tr-a";
+    const { rerender } = renderHost(client);
+
+    await screen.findByText("test A");
+    // Defaults to the last attempt (2); pick a different one.
+    await userEvent.click(screen.getByText("Attempt 1"));
+    expect(
+      (await screen.findByTestId("trace-viewer")).getAttribute(
+        "data-trace-url",
+      ),
+    ).toBe(absoluteHref(0));
+
+    // Same host, no unmount in between: navigate to a different test's
+    // already-cached deep link.
+    searchParam.value = "tr-b";
+    rerender(
+      <QueryClientProvider client={client}>
+        <ReplayModalHost {...HOST_PROPS} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("test B");
+    // Must default to test B's LAST attempt (1), not test A's selected 0.
+    expect(
+      (await screen.findByTestId("trace-viewer")).getAttribute(
+        "data-trace-url",
+      ),
+    ).toBe(absoluteHref(1));
+  });
 });
 
 describe("TraceViewerDialog (artifacts-rail entry)", () => {
@@ -190,7 +248,6 @@ describe("TraceViewerDialog (artifacts-rail entry)", () => {
     name: "trace.zip",
     contentType: "application/zip",
     downloadHref: "/api/artifacts/art-1/download?token=tok",
-    traceViewerUrl: "/trace-viewer/index.html?trace=art-1",
   };
 
   it("opens directly on the artifact's trace when ?replay= matches, without a switcher", () => {
@@ -205,9 +262,9 @@ describe("TraceViewerDialog (artifacts-rail entry)", () => {
     expect(screen.queryByText(/^Attempt /)).toBeNull();
   });
 
-  it("renders nothing for an artifact without a viewer URL", () => {
+  it("renders nothing for a non-trace artifact", () => {
     const { container } = render(
-      <TraceViewerDialog artifact={{ ...artifact, traceViewerUrl: undefined }}>
+      <TraceViewerDialog artifact={{ ...artifact, type: "screenshot" }}>
         Replay
       </TraceViewerDialog>,
     );
