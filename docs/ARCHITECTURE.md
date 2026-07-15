@@ -39,7 +39,7 @@ One **Postgres database** — over Cloudflare Hyperdrive in production, a direct
 
 **Tenant isolation is logical, not physical.** There is no per-team Durable Object boundary — every query against a run-scoped table must filter by `projectId` (and `teamId` where present). The branded `AuthorizedProjectId` / `AuthorizedTeamId` on `TenantScope` force the auth-checked ids through the type system so a query can't silently cross tenants.
 
-Schema changes are Drizzle migrations, committed under `apps/dashboard/db/migrations/`; `pnpm db:generate` (= `void db generate`) regenerates them from `db/schema.ts`. On `void deploy` they're applied automatically; for an own-account remote DB, `pnpm db:migrate:remote` applies them explicitly (`wrangler deploy` does **not** auto-apply migrations).
+Schema changes are Drizzle migrations, committed under `apps/dashboard/db/migrations/`; `pnpm --filter @wrightful/dashboard db:generate` (= `void db generate`) regenerates them from `db/schema.ts`. On `void deploy` they're applied automatically; for an own-account remote DB, `pnpm --filter @wrightful/dashboard db:migrate:remote` applies them explicitly (`wrangler deploy` does **not** auto-apply migrations).
 
 ## Auth
 

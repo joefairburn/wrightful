@@ -22,9 +22,9 @@ const PRESIGNED_PUT_TTL_SECONDS = 15 * 60;
  *
  * Auth + translate over `registerArtifacts` (see `@/lib/artifacts` for the
  * reserve-row + idempotency + worker-upload-URL pipeline and the orphan-row
- * invariant). The returned `uploadUrl` is a relative worker path
- * (`/api/artifacts/:id/upload`) — bytes are PUT through the worker into R2, not
- * to a presigned R2 host.
+ * invariant). By default `uploadUrl` is a relative worker path
+ * (`/api/artifacts/:id/upload`). When direct R2 is configured, registration
+ * replaces it with a short-lived SigV4-presigned R2 PUT URL.
  */
 export const POST = defineHandler.withValidator({
   body: RegisterArtifactsPayloadSchema,
