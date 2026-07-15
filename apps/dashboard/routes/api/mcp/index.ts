@@ -15,7 +15,9 @@ import { tenantScopeForApiKey } from "@/lib/scope";
  *      with no credentials; the first 401 carries a `WWW-Authenticate:
  *      Bearer resource_metadata=…` challenge, the client discovers the
  *      Better Auth authorization server via the root `/.well-known/*`
- *      documents (rewritten in void.json), dynamically registers, and runs
+ *      documents (rewritten onto `/api/auth/.well-known/*` in-worker by
+ *      `middleware/00.oauth-discovery.ts`, with a redundant `void.json`
+ *      `routing.rewrites` edge mapping), dynamically registers, and runs
  *      the browser authorize → login → consent flow. The resulting access
  *      token is USER-scoped: tools take team/project slugs, membership-checked
  *      per call (`McpAuthz` kind "user").
