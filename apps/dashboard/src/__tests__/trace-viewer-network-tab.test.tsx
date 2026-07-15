@@ -6,6 +6,7 @@ import {
   makeBridge,
   makeContext,
   makeModel,
+  makeResource,
   makeTabProps,
 } from "./trace-viewer-fixture";
 import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
@@ -138,32 +139,12 @@ describe("NetworkTab", () => {
     const user = userEvent.setup();
     const context = makeContext();
     // No _resourceType — classification must fall back to the CSS mime type.
-    const cssResource = {
-      pageref: "page@1",
+    const cssResource = makeResource({
+      url: "https://app.example/styles/site.css",
       startedDateTime: "2026-07-10T00:00:03.000Z",
       time: 3,
-      request: {
-        method: "GET",
-        url: "https://app.example/styles/site.css",
-        httpVersion: "HTTP/1.1",
-        cookies: [],
-        headers: [],
-        queryString: [],
-        headersSize: 50,
-        bodySize: 0,
-      },
-      response: {
-        status: 200,
-        statusText: "OK",
-        httpVersion: "HTTP/1.1",
-        cookies: [],
-        headers: [],
-        content: { size: 120, mimeType: "text/css" },
-        headersSize: 40,
-        bodySize: 120,
-        redirectURL: "",
-      },
-      cache: {},
+      mimeType: "text/css",
+      contentSize: 120,
       timings: {
         dns: -1,
         connect: -1,
@@ -172,9 +153,8 @@ describe("NetworkTab", () => {
         wait: 1,
         receive: 1,
       },
-      _frameref: "frame@1",
-      _monotonicTime: 4100,
-    } as unknown as (typeof context.resources)[number];
+      monotonicTime: 4100,
+    });
     const model = makeModel({
       resources: [...context.resources, cssResource],
     });
@@ -278,36 +258,13 @@ describe("NetworkTab", () => {
   it("never fetches a small non-text response body as text (mime, not size, decides text-eligibility)", async () => {
     const user = userEvent.setup();
     const context = makeContext();
-    const binaryResource = {
-      pageref: "page@1",
+    const binaryResource = makeResource({
+      url: "https://app.example/api/thumb.bin",
       startedDateTime: "2026-07-10T00:00:03.000Z",
       time: 5,
-      request: {
-        method: "GET",
-        url: "https://app.example/api/thumb.bin",
-        httpVersion: "HTTP/1.1",
-        cookies: [],
-        headers: [],
-        queryString: [],
-        headersSize: 50,
-        bodySize: 0,
-      },
-      response: {
-        status: 200,
-        statusText: "OK",
-        httpVersion: "HTTP/1.1",
-        cookies: [],
-        headers: [],
-        content: {
-          size: 32,
-          mimeType: "application/octet-stream",
-          _sha1: "binarysha1.bin",
-        },
-        headersSize: 40,
-        bodySize: 32,
-        redirectURL: "",
-      },
-      cache: {},
+      mimeType: "application/octet-stream",
+      contentSize: 32,
+      sha1: "binarysha1.bin",
       timings: {
         dns: -1,
         connect: -1,
@@ -316,10 +273,9 @@ describe("NetworkTab", () => {
         wait: 2,
         receive: 1,
       },
-      _frameref: "frame@1",
-      _monotonicTime: 4000,
-      _resourceType: "fetch",
-    } as unknown as (typeof context.resources)[number];
+      monotonicTime: 4000,
+      resourceType: "fetch",
+    });
     const model = makeModel({
       resources: [...context.resources, binaryResource],
     });

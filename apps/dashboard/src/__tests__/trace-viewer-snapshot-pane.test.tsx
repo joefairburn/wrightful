@@ -27,6 +27,7 @@ const STUB_PLAYBACK: PlaybackController = {
   playFrom: 0,
   playTo: 0,
   initialSelectedCallId: undefined,
+  playableActions: [],
   togglePlay: () => {},
   pause: () => {},
   stopPlayback: () => {},
@@ -73,7 +74,6 @@ describe("SnapshotPane", () => {
     render(
       <SnapshotPane
         action={action}
-        traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
       />,
@@ -92,7 +92,6 @@ describe("SnapshotPane", () => {
     render(
       <SnapshotPane
         action={action}
-        traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
       />,
@@ -112,12 +111,7 @@ describe("SnapshotPane", () => {
       },
     });
     render(
-      <SnapshotPane
-        action={action}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={bridge}
-        playback={STUB_PLAYBACK}
-      />,
+      <SnapshotPane action={action} bridge={bridge} playback={STUB_PLAYBACK} />,
     );
     expect(await screen.findByText("https://app.example/cart")).toBeTruthy();
   });
@@ -128,7 +122,6 @@ describe("SnapshotPane", () => {
     render(
       <SnapshotPane
         action={action}
-        traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
       />,
@@ -148,7 +141,6 @@ describe("SnapshotPane", () => {
     const { rerender } = render(
       <SnapshotPane
         action={action}
-        traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
       />,
@@ -158,8 +150,7 @@ describe("SnapshotPane", () => {
     rerender(
       <SnapshotPane
         action={action}
-        traceUrl={OTHER_TRACE_URL}
-        bridge={makeBridge()}
+        bridge={makeBridge({}, OTHER_TRACE_URL)}
         playback={STUB_PLAYBACK}
       />,
     );
@@ -193,7 +184,6 @@ describe("SnapshotPane", () => {
     const { rerender } = render(
       <SnapshotPane
         action={action}
-        traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
       />,
@@ -202,8 +192,7 @@ describe("SnapshotPane", () => {
     rerender(
       <SnapshotPane
         action={action}
-        traceUrl={OTHER_TRACE_URL}
-        bridge={makeBridge()}
+        bridge={makeBridge({}, OTHER_TRACE_URL)}
         playback={STUB_PLAYBACK}
       />,
     );
@@ -214,7 +203,6 @@ describe("SnapshotPane", () => {
     rerender(
       <SnapshotPane
         action={action}
-        traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
       />,
@@ -248,7 +236,6 @@ describe("SnapshotPane", () => {
     render(
       <SnapshotPane
         action={action}
-        traceUrl={FIXTURE_TRACE_URL}
         bridge={makeBridge()}
         playback={STUB_PLAYBACK}
       />,

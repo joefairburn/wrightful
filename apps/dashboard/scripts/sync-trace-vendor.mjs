@@ -66,7 +66,6 @@ const VP_BIN = at("node_modules/.bin/vp");
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
-const MAKE_PR = args.includes("--pr");
 // --manifest-only: skip the (network-bound) sync entirely and just rewrite
 // vendor-manifest.json from the CURRENT on-disk vendor files — the escape
 // hatch for (re)generating the manifest offline through the exact same code
@@ -621,79 +620,6 @@ async function main() {
   }
 
   ok(`vendor/ synced to playwright-core ${version}.`);
-
-  if (MAKE_PR) {
-    await openPr(version);
-  }
-}
-
-function git(gitArgs, opts = {}) {
-  return execFileSync("git", gitArgs, { cwd: root, encoding: "utf8", ...opts });
-}
-
-async function openPr(version) {
-  const status = git([
-    "status",
-    "--porcelain",
-    "--",
-    "src/trace-viewer/vendor",
-  ]);
-  if (!status.trim()) {
-    info(
-      "--pr requested but there are no vendor/ changes to commit — skipping.",
-    );
-    return;
-  }
-
-  const branch = `sync-trace-vendor-v${version}`;
-  const title = `chore(trace-viewer): sync vendor/ to playwright-core v${version}`;
-  const fileList = VERBATIM_FILES.map((f) => `- \`vendor/${f.local}\``).join(
-    "\n",
-  );
-  const body = `## Summary
-- Re-synced \`apps/dashboard/src/trace-viewer/vendor/\` from microsoft/playwright tag \`v${version}\` (matching the installed \`playwright-core\`).
-- Files re-pulled + import-rewritten:
-${fileList}
-- \`vendor/version.ts\` bumped to \`${version}\`.
-- \`vendor/protocol-types.ts\` and \`vendor/language.ts\` are hand-extracted subsets and were NOT touched — please re-verify them manually against the new tag.
-
-## Test plan
-- [ ] \`pnpm --filter @wrightful/dashboard test\`
-- [ ] \`pnpm --filter @wrightful/e2e test:dashboard\` (replay e2e)
-- [ ] Eyeball \`git diff\` for the vendor/ files above
-- [ ] Manually re-check \`vendor/protocol-types.ts\` / \`vendor/language.ts\` against upstream v${version}
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-`;
-
-  // Only the branch + commit are automated here — pushing and opening the
-  // PR are left to the operator (printed below) rather than run
-  // automatically, so there's no ambiguity about which step succeeded when
-  // something goes wrong (a push/gh failure used to reprint the checkout +
-  // commit commands too, even though those had already succeeded).
-  try {
-    git(["checkout", "-b", branch]);
-    git(["add", "src/trace-viewer/vendor"]);
-    git([
-      "commit",
-      "-m",
-      `${title}\n\nRe-synced the vendored trace-model source from microsoft/playwright's\nv${version} tag to match the installed playwright-core.\n`,
-    ]);
-  } catch (err) {
-    fail(
-      `--pr automation failed while creating branch "${branch}" / ` +
-        `committing (${errorMessage(err)}). Resolve the issue and re-run ` +
-        `with --pr, or finish the commit manually.`,
-    );
-  }
-
-  ok(`committed vendor/ sync to branch ${branch}. Push it and open the PR:`);
-  console.log(pc.dim(`  git push -u origin ${branch}`));
-  console.log(
-    pc.dim(
-      `  gh pr create --base main --title "${title}" --body-file <(cat <<'EOF'\n${body}\nEOF\n)`,
-    ),
-  );
 }
 
 if (MANIFEST_ONLY) {

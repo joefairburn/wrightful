@@ -77,35 +77,22 @@ function Harness({
     [model, selectedCallId],
   );
   const playback = usePlayback({
+    model,
     windowStartTime: selection?.start ?? model.startTime,
     windowEndTime: selection?.end ?? model.endTime,
     playableActions,
-    selectedCallId,
-    selectedStartTime: selectedAction?.startTime,
+    selectedAction,
     onSelect,
   });
   return (
     <>
-      {controls ? (
-        <PlaybackControls
-          playing={playback.playing}
-          hasActions={playback.hasActions}
-          atStart={playback.atStart}
-          atEnd={playback.atEnd}
-          speedIndex={playback.speedIndex}
-          onTogglePlay={playback.togglePlay}
-          onStop={playback.stopPlayback}
-          onStep={playback.step}
-          onCycleSpeed={playback.cycleSpeed}
-        />
-      ) : null}
+      {controls ? <PlaybackControls playback={playback} /> : null}
       <Timeline
         model={model}
         bridge={bridge}
-        selectedCallId={selectedCallId}
+        selectedAction={selectedAction}
         onSelect={onSelect}
         playback={playback}
-        playableActions={playableActions}
         seekActions={allPlayableActions}
         selection={selection}
         onSelectionChange={(range) => {
@@ -248,6 +235,7 @@ describe("Timeline", () => {
     // a fetch is still in flight (the moment the old flash bug was visible).
     const resolvers = new Map<string, (blob: Blob) => void>();
     const bridge: TraceBridge = {
+      ...makeBridge(),
       fetchJson: () => Promise.reject(new Error("unused in this test")),
       fetchBlob: (path: string) =>
         new Promise<Blob>((resolve) => {

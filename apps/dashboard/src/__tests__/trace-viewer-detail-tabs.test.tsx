@@ -5,17 +5,12 @@ import {
   describe,
   expect,
   it,
-  vi,
 } from "vite-plus/test";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DetailTabs } from "@/trace-viewer/components/detail-tabs";
-import {
-  FIXTURE_TRACE_URL,
-  makeAction,
-  makeBridge,
-  makeModel,
-} from "./trace-viewer-fixture";
+import type { TraceTabProps } from "@/trace-viewer/components/detail-tabs";
+import { makeAction, makeModel, makeTabProps } from "./trace-viewer-fixture";
 import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 
 // happy-dom gaps hit by the vendored Base UI ScrollArea / action-row ref:
@@ -40,6 +35,17 @@ function tab(name: string): HTMLElement {
   return found;
 }
 
+/**
+ * Renders `<DetailTabs>` from `makeTabProps` overrides — `bridge` and (when
+ * unset) `selection: null` come along for free, so a test only states the
+ * fields it actually pins down.
+ */
+function renderDetailTabs(
+  overrides: Partial<TraceTabProps> = {},
+): ReturnType<typeof render> {
+  return render(<DetailTabs {...makeTabProps(overrides)} />);
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -47,16 +53,11 @@ afterEach(() => {
 describe("DetailTabs — default tab", () => {
   it("defaults to Errors when the model has errors", () => {
     const model = makeModel();
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+    });
     expect(tab("Errors").getAttribute("aria-selected")).toBe("true");
   });
 
@@ -75,16 +76,11 @@ describe("DetailTabs — default tab", () => {
         }),
       ],
     });
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+    });
     expect(tab("Call").getAttribute("aria-selected")).toBe("true");
     expect(tab("Errors").getAttribute("aria-selected")).toBe("false");
   });
@@ -93,16 +89,11 @@ describe("DetailTabs — default tab", () => {
 describe("DetailTabs — tab label counts", () => {
   it("shows whole-trace counts on Errors, Console, Network and Attachments", () => {
     const model = makeModel();
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+    });
     expect(tab("Errors").textContent).toBe("Errors1");
     expect(tab("Console").textContent).toBe("Console3");
     expect(tab("Network").textContent).toBe("Network2");
@@ -113,17 +104,12 @@ describe("DetailTabs — tab label counts", () => {
 
   it("narrows Console/Network counts to the timeline selection window", () => {
     const model = makeModel();
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-        selection={{ start: 2000, end: 3000 }}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+      selection: { start: 2000, end: 3000 },
+    });
     // In-window: the "boom red" console error (2200) and the items request
     // (_monotonicTime 2100). Errors/Attachments counts stay whole-trace.
     expect(tab("Console").textContent).toBe("Console1");
@@ -134,16 +120,11 @@ describe("DetailTabs — tab label counts", () => {
 
   it("renders the Errors count as a Badge, not the plain muted span other tabs use", () => {
     const model = makeModel();
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+    });
     expect(
       tab("Errors").querySelector('[data-slot="badge"]')?.textContent,
     ).toBe("1");
@@ -155,16 +136,11 @@ describe("DetailTabs — tab label counts", () => {
 describe("DetailTabs — Source tab presence", () => {
   it("is present when the model has source", () => {
     const model = makeModel({ hasSource: true });
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+    });
     expect(
       screen.getAllByRole("tab").some((t) => t.textContent === "Source"),
     ).toBe(true);
@@ -172,16 +148,11 @@ describe("DetailTabs — Source tab presence", () => {
 
   it("is absent when the model has no source", () => {
     const model = makeModel({ hasSource: false });
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+    });
     expect(
       screen.getAllByRole("tab").some((t) => t.textContent === "Source"),
     ).toBe(false);
@@ -220,16 +191,11 @@ describe("DetailTabs — Source tab follows activeAction, not selectedAction", (
     const selectedAction = model.actions.find((a) => a.callId === "call@1");
     const activeAction = model.actions.find((a) => a.callId === "call@2");
 
-    const { container } = render(
-      <DetailTabs
-        model={model}
-        selectedAction={selectedAction}
-        activeAction={activeAction}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    const { container } = renderDetailTabs({
+      model,
+      selectedAction,
+      activeAction,
+    });
 
     await user.click(tab("Source"));
 
@@ -240,7 +206,7 @@ describe("DetailTabs — Source tab follows activeAction, not selectedAction", (
 });
 
 describe("DetailTabs — Call/Log tabs follow activeAction, not selectedAction", () => {
-  function renderWithDistinctActions() {
+  function renderWithDistinctActions(): void {
     const model = makeModel({
       actions: [
         makeAction({
@@ -266,16 +232,7 @@ describe("DetailTabs — Call/Log tabs follow activeAction, not selectedAction",
     const selectedAction = model.actions.find((a) => a.callId === "call@1");
     const activeAction = model.actions.find((a) => a.callId === "call@2");
 
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={selectedAction}
-        activeAction={activeAction}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({ model, selectedAction, activeAction });
   }
 
   it("Call tab renders the active (hovered) action's params, not the selected action's", () => {
@@ -322,17 +279,12 @@ describe("DetailTabs — Log tab timeline selection", () => {
         }),
       ],
     });
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-        selection={selection}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+      selection,
+    });
   }
 
   it("shows only log entries inside the selection window", async () => {
@@ -360,32 +312,22 @@ describe("DetailTabs — crosshair scope toggle", () => {
 
   it("is absent on Call and Errors", () => {
     const model = makeModel();
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+    });
     expect(scopeToggle()).toBeNull();
   });
 
   it("is present on Console and Network, and clicking sets aria-pressed", async () => {
     const user = userEvent.setup();
     const model = makeModel();
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+    });
 
     await user.click(tab("Console"));
     const consoleToggle = scopeToggle();
@@ -402,16 +344,11 @@ describe("DetailTabs — panel switching", () => {
   it("renders a distinctive panel for each tab", async () => {
     const user = userEvent.setup();
     const model = makeModel();
-    render(
-      <DetailTabs
-        model={model}
-        selectedAction={model.actions[0]}
-        activeAction={model.actions[0]}
-        onSelectAction={vi.fn()}
-        traceUrl={FIXTURE_TRACE_URL}
-        bridge={makeBridge()}
-      />,
-    );
+    renderDetailTabs({
+      model,
+      selectedAction: model.actions[0],
+      activeAction: model.actions[0],
+    });
 
     await user.click(tab("Call"));
     expect(screen.getByText("Navigate to app")).toBeTruthy();

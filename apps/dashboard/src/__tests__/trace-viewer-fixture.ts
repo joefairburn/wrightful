@@ -1,8 +1,12 @@
 import { vi } from "vite-plus/test";
-import type { TraceTabProps } from "@/trace-viewer/model";
+import type { TraceTabProps } from "@/trace-viewer/components/detail-tabs";
 import type { TraceBridge } from "@/trace-viewer/use-trace-model";
 import type { ContextEntry } from "@/trace-viewer/vendor/entries";
 import { TraceModel } from "@/trace-viewer/vendor/model-util";
+import type {
+  ConsoleMessageTraceEvent,
+  EventTraceEvent,
+} from "@/trace-viewer/vendor/trace";
 
 /**
  * Shared synthetic-trace fixture for trace-viewer unit/component tests
@@ -18,6 +22,7 @@ export const FIXTURE_TRACE_URL =
   "https://dash.test/api/artifacts/a1/download?t=tok";
 
 type Action = ContextEntry["actions"][number];
+type Resource = ContextEntry["resources"][number];
 
 export function makeAction(over: Partial<Action>): Action {
   // The defaults deliberately omit per-action required fields (callId,
@@ -32,6 +37,120 @@ export function makeAction(over: Partial<Action>): Action {
     log: [],
     ...over,
   } as Action;
+}
+
+/**
+ * A HAR entry (vendor/har.ts `Entry`, aliased `ResourceSnapshot`) with
+ * sensible defaults — override only the fields a test cares about. Unlike
+ * `makeAction`, the overrides are named fields rather than a `Partial<Resource>`
+ * spread: `Resource` nests `request`/`response`/`timings`, and a raw partial
+ * spread would force callers to restate an entire nested object just to
+ * change one field inside it. `resourceType` has no default (the key is
+ * omitted unless passed) so classification-fallback tests can produce an
+ * entry with no `_resourceType` at all.
+ */
+export function makeResource(
+  over: {
+    url?: string;
+    method?: string;
+    startedDateTime?: string;
+    time?: number;
+    status?: number;
+    statusText?: string;
+    mimeType?: string;
+    contentSize?: number;
+    bodySize?: number;
+    sha1?: string;
+    postData?: { mimeType: string; text: string };
+    timings?: Partial<Resource["timings"]>;
+    resourceType?: string;
+    monotonicTime?: number;
+    frameref?: string;
+  } = {},
+): Resource {
+  const status = over.status ?? 200;
+  const bodySize = over.bodySize ?? over.contentSize ?? 42;
+  return {
+    pageref: "page@1",
+    startedDateTime: over.startedDateTime ?? "2026-07-10T00:00:00.000Z",
+    time: over.time ?? 10,
+    request: {
+      method: over.method ?? "GET",
+      url: over.url ?? "https://app.example/api/resource",
+      httpVersion: "HTTP/1.1",
+      cookies: [],
+      headers: [],
+      queryString: [],
+      headersSize: 100,
+      bodySize: over.postData ? over.postData.text.length : 0,
+      ...(over.postData ? { postData: { params: [], ...over.postData } } : {}),
+    },
+    response: {
+      status,
+      statusText:
+        over.statusText ?? (status >= 400 ? "Internal Server Error" : "OK"),
+      httpVersion: "HTTP/1.1",
+      cookies: [],
+      headers: [],
+      content: {
+        size: over.contentSize ?? 42,
+        mimeType: over.mimeType ?? "application/json",
+        ...(over.sha1 ? { _sha1: over.sha1 } : {}),
+      },
+      headersSize: 80,
+      bodySize,
+      redirectURL: "",
+    },
+    cache: {},
+    timings: {
+      dns: 1,
+      connect: 2,
+      ssl: -1,
+      send: 0.5,
+      wait: 6,
+      receive: 3,
+      ...over.timings,
+    },
+    _frameref: over.frameref ?? "frame@1",
+    ...(over.monotonicTime !== undefined
+      ? { _monotonicTime: over.monotonicTime }
+      : {}),
+    ...(over.resourceType ? { _resourceType: over.resourceType } : {}),
+  };
+}
+
+/** A synthetic console-message trace event — override only what a test cares about. */
+export function makeConsoleEvent(
+  over: Partial<ConsoleMessageTraceEvent> &
+    Pick<ConsoleMessageTraceEvent, "text">,
+): ConsoleMessageTraceEvent {
+  return {
+    type: "console",
+    messageType: "log",
+    args: [],
+    location: {
+      url: "https://app.example/app.js",
+      lineNumber: 1,
+      columnNumber: 1,
+    },
+    time: 1000,
+    pageId: "page@1",
+    ...over,
+  };
+}
+
+/** A synthetic `pageError` trace event — override only what a test cares about. */
+export function makePageErrorEvent(
+  over: Partial<EventTraceEvent> = {},
+): EventTraceEvent {
+  return {
+    type: "event",
+    class: "Page",
+    method: "pageError",
+    params: { error: { error: { name: "Error", message: "Uncaught kaboom" } } },
+    time: 3500,
+    ...over,
+  };
 }
 
 export function makeContext(over?: Partial<ContextEntry>): ContextEntry {
@@ -59,77 +178,24 @@ export function makeContext(over?: Partial<ContextEntry>): ContextEntry {
       },
     ],
     resources: [
-      {
-        pageref: "page@1",
+      makeResource({
+        url: "https://app.example/api/items?limit=10",
         startedDateTime: "2026-07-10T00:00:01.000Z",
         time: 12.5,
-        request: {
-          method: "GET",
-          url: "https://app.example/api/items?limit=10",
-          httpVersion: "HTTP/1.1",
-          cookies: [],
-          headers: [{ name: "Accept", value: "application/json" }],
-          queryString: [],
-          headersSize: 100,
-          bodySize: 0,
-        },
-        response: {
-          status: 200,
-          statusText: "OK",
-          httpVersion: "HTTP/1.1",
-          cookies: [],
-          headers: [{ name: "Content-Type", value: "application/json" }],
-          content: {
-            size: 42,
-            mimeType: "application/json",
-            _sha1: "bodysha1.json",
-          },
-          headersSize: 80,
-          bodySize: 42,
-          redirectURL: "",
-          _transferSize: 130,
-        },
-        cache: {},
-        timings: {
-          dns: 1,
-          connect: 2,
-          ssl: -1,
-          send: 0.5,
-          wait: 6,
-          receive: 3,
-        },
-        serverIPAddress: "127.0.0.1",
-        _frameref: "frame@1",
-        _monotonicTime: 2100,
-        _resourceType: "fetch",
-      },
-      {
-        pageref: "page@1",
+        monotonicTime: 2100,
+        resourceType: "fetch",
+        sha1: "bodysha1.json",
+      }),
+      makeResource({
+        url: "https://app.example/api/checkout",
+        method: "POST",
         startedDateTime: "2026-07-10T00:00:02.000Z",
         time: 40,
-        request: {
-          method: "POST",
-          url: "https://app.example/api/checkout",
-          httpVersion: "HTTP/1.1",
-          cookies: [],
-          headers: [],
-          queryString: [],
-          headersSize: 90,
-          bodySize: 17,
-          postData: { mimeType: "application/json", text: '{"total": 12}' },
-        },
-        response: {
-          status: 500,
-          statusText: "Internal Server Error",
-          httpVersion: "HTTP/1.1",
-          cookies: [],
-          headers: [],
-          content: { size: -1, mimeType: "text/plain" },
-          headersSize: 60,
-          bodySize: 9,
-          redirectURL: "",
-        },
-        cache: {},
+        status: 500,
+        mimeType: "text/plain",
+        contentSize: -1,
+        bodySize: 9,
+        postData: { mimeType: "application/json", text: '{"total": 12}' },
         timings: {
           dns: -1,
           connect: -1,
@@ -138,11 +204,10 @@ export function makeContext(over?: Partial<ContextEntry>): ContextEntry {
           wait: 30,
           receive: 9,
         },
-        _frameref: "frame@1",
-        _monotonicTime: 3600,
-        _resourceType: "xhr",
-      },
-    ] as unknown as ContextEntry["resources"],
+        monotonicTime: 3600,
+        resourceType: "xhr",
+      }),
+    ],
     actions: [
       makeAction({
         callId: "call@1",
@@ -205,41 +270,27 @@ export function makeContext(over?: Partial<ContextEntry>): ContextEntry {
       }),
     ],
     events: [
-      {
-        type: "console",
-        messageType: "log",
+      makeConsoleEvent({
         text: "loading cart",
-        args: [],
         location: {
           url: "https://app.example/app.js",
           lineNumber: 3,
           columnNumber: 1,
         },
         time: 1200,
-        pageId: "page@1",
-      },
-      {
-        type: "console",
+      }),
+      makeConsoleEvent({
         messageType: "error",
         text: "boom [31mred[0m",
-        args: [],
         location: {
           url: "https://app.example/app.js",
           lineNumber: 9,
           columnNumber: 1,
         },
         time: 2200,
-        pageId: "page@1",
-      },
-      {
-        type: "event",
-        method: "pageError",
-        params: {
-          error: { error: { name: "Error", message: "Uncaught kaboom" } },
-        },
-        time: 3500,
-      },
-    ] as unknown as ContextEntry["events"],
+      }),
+      makePageErrorEvent(),
+    ],
     stdio: [],
     errors: [],
     hasSource: true,
@@ -271,7 +322,6 @@ export function makeTabProps(
     selectedAction,
     activeAction: selectedAction,
     onSelectAction: vi.fn(),
-    traceUrl: FIXTURE_TRACE_URL,
     bridge: makeBridge(),
     scopeToSelected: false,
     selection: null,
@@ -281,10 +331,13 @@ export function makeTabProps(
 
 /**
  * TraceBridge fake: `responses` maps a path PREFIX (before `?`) to a JSON
- * value or Blob. Unmatched paths reject like a 404 would.
+ * value or Blob. Unmatched paths reject like a 404 would. `traceUrl` defaults
+ * to {@link FIXTURE_TRACE_URL} — pass a different one to simulate the bridge
+ * an attempt switch hands back once the new trace's model lands.
  */
 export function makeBridge(
   responses: Record<string, unknown> = {},
+  traceUrl: string = FIXTURE_TRACE_URL,
 ): TraceBridge & { calls: string[] } {
   const calls: string[] = [];
   const lookup = (path: string): unknown => {
@@ -294,6 +347,7 @@ export function makeBridge(
   };
   return {
     calls,
+    traceUrl,
     fetchJson: (path: string) => {
       calls.push(path);
       return Promise.resolve().then(() => lookup(path));

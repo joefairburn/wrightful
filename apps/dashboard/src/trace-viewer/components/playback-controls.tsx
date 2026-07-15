@@ -1,10 +1,15 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, Pause, Play, Square } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { SPEEDS } from "./use-playback";
+import { SPEEDS, type PlaybackController } from "./use-playback";
 
-/** Small ghost icon button for the playback cluster. */
+/**
+ * Small ghost icon button for the playback cluster — `icon-xs` is the
+ * closest `ui/button` size to the cluster's 24px controls (7px on touch,
+ * 6px at `sm:`, same as the icon buttons in `detail-tabs.tsx`).
+ */
 function PlaybackButton({
   label,
   disabled,
@@ -20,15 +25,16 @@ function PlaybackButton({
     <Tooltip>
       <TooltipTrigger
         render={
-          <button
-            type="button"
+          <Button
             aria-label={label}
             disabled={disabled}
             onClick={onClick}
-            className="flex size-6 shrink-0 items-center justify-center rounded text-fg-3 transition-colors hover:bg-bg-2 hover:text-fg-2 disabled:pointer-events-none disabled:opacity-40"
+            size="icon-xs"
+            variant="ghost"
+            className="rounded text-fg-3 hover:bg-bg-2 hover:text-fg-2"
           >
             {children}
-          </button>
+          </Button>
         }
       />
       <TooltipPopup>{label}</TooltipPopup>
@@ -42,44 +48,30 @@ function PlaybackButton({
  * paint-`<canvas>` button) rather than inside the timeline strip, so its
  * clicks never collide with the strip's pointer-seek handlers. The playback
  * engine lives one level up in the workbench (see `usePlayback`) so this
- * cluster and the timeline's moving Playhead share a single controller.
+ * cluster and the timeline's moving Playhead share a single controller —
+ * `PlaybackController` IS this cluster's prop contract, so nothing here
+ * re-declares its fields.
  */
 export function PlaybackControls({
-  playing,
-  hasActions,
-  atStart,
-  atEnd,
-  speedIndex,
-  onTogglePlay,
-  onStop,
-  onStep,
-  onCycleSpeed,
+  playback,
 }: {
-  playing: boolean;
-  hasActions: boolean;
-  atStart: boolean;
-  atEnd: boolean;
-  speedIndex: number;
-  onTogglePlay: () => void;
-  onStop: () => void;
-  onStep: (delta: number) => void;
-  onCycleSpeed: () => void;
+  playback: PlaybackController;
 }): React.ReactElement {
   return (
     <div className="flex shrink-0 items-center gap-0.5">
       <PlaybackButton
         label="Previous action"
-        disabled={atStart}
-        onClick={() => onStep(-1)}
+        disabled={playback.atStart}
+        onClick={() => playback.step(-1)}
       >
         <ChevronLeft className="size-3.5" />
       </PlaybackButton>
       <PlaybackButton
-        label={playing ? "Pause" : "Play"}
-        disabled={!hasActions}
-        onClick={onTogglePlay}
+        label={playback.playing ? "Pause" : "Play"}
+        disabled={!playback.hasActions}
+        onClick={playback.togglePlay}
       >
-        {playing ? (
+        {playback.playing ? (
           <Pause className="size-3.5 fill-current" />
         ) : (
           <Play className="size-3.5 fill-current" />
@@ -87,15 +79,17 @@ export function PlaybackControls({
       </PlaybackButton>
       <PlaybackButton
         label="Stop"
-        disabled={!hasActions || (atStart && !playing)}
-        onClick={onStop}
+        disabled={
+          !playback.hasActions || (playback.atStart && !playback.playing)
+        }
+        onClick={playback.stopPlayback}
       >
         <Square className="size-3 fill-current" />
       </PlaybackButton>
       <PlaybackButton
         label="Next action"
-        disabled={!hasActions || atEnd}
-        onClick={() => onStep(1)}
+        disabled={!playback.hasActions || playback.atEnd}
+        onClick={() => playback.step(1)}
       >
         <ChevronRight className="size-3.5" />
       </PlaybackButton>
@@ -105,10 +99,10 @@ export function PlaybackControls({
             <button
               type="button"
               aria-label="Playback speed"
-              onClick={onCycleSpeed}
+              onClick={playback.cycleSpeed}
               className="flex h-6 min-w-8 items-center justify-center rounded px-1 font-mono text-micro text-fg-3 tabular-nums transition-colors hover:bg-bg-2 hover:text-fg-2"
             >
-              {SPEEDS[speedIndex]}×
+              {SPEEDS[playback.speedIndex]}×
             </button>
           }
         />

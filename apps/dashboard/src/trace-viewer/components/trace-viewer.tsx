@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
+import { Progress, ProgressIndicator } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/cn";
 import {
   actionIntersectsRange,
   defaultSelectedActionId,
@@ -20,6 +22,45 @@ import { usePlayback } from "./use-playback";
 import { SnapshotPane } from "./snapshot-pane";
 import { SplitPane } from "./split-pane";
 import { Timeline } from "./timeline";
+
+/** `done/total` → a 0–1 fraction, or `null` while the total isn't known yet
+ * (a zip download or SW-reported switch hasn't sent a first progress event). */
+function fractionOf(
+  progress: { done: number; total: number } | null,
+): number | null {
+  return progress && progress.total > 0 ? progress.done / progress.total : null;
+}
+
+/**
+ * Progress bar shared by the initial trace load and the attempt-switch strip
+ * — same aria wiring (`role="progressbar"` + value/indeterminate handling
+ * come from `ui/progress`'s Base UI primitive), different sizing/position
+ * per call site via `className`/`indicatorClassName`. `value={null}` is
+ * Base UI's indeterminate state: no `aria-valuenow` until a real fraction is
+ * known, which also drives the `data-indeterminate` pulse below.
+ */
+function TraceProgress({
+  value,
+  label,
+  className,
+  indicatorClassName,
+}: {
+  value: number | null;
+  label: string;
+  className?: string;
+  indicatorClassName?: string;
+}): React.ReactElement {
+  return (
+    <Progress aria-label={label} value={value} className={className}>
+      <ProgressIndicator
+        className={cn(
+          "h-full bg-ring transition-[width] data-indeterminate:w-full data-indeterminate:animate-pulse",
+          indicatorClassName,
+        )}
+      />
+    </Progress>
+  );
+}
 
 /**
  * Wrightful's own Playwright trace viewer ("Replay"). Loads the trace model
@@ -46,27 +87,18 @@ export function TraceViewer({
   const { state, bridge } = useTraceModel(traceUrl);
 
   if (state.status === "loading") {
-    const { progress } = state;
-    const fraction =
-      progress && progress.total > 0 ? progress.done / progress.total : null;
+    const fraction = fractionOf(state.progress);
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
         <Spinner className="size-5 text-fg-3" />
         <div className="text-body text-fg-3">Loading trace…</div>
         {fraction !== null ? (
-          <div
-            role="progressbar"
-            aria-label="Loading trace"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(fraction * 100)}
+          <TraceProgress
+            value={Math.round(fraction * 100)}
+            label="Loading trace"
             className="h-1 w-48 overflow-hidden rounded-full bg-bg-3"
-          >
-            <div
-              className="h-full rounded-full bg-ring transition-[width]"
-              style={{ width: `${Math.round(fraction * 100)}%` }}
-            />
-          </div>
+            indicatorClassName="rounded-full"
+          />
         ) : null}
       </div>
     );
@@ -83,44 +115,20 @@ export function TraceViewer({
     );
   }
 
-  const switchProgress = state.switching?.progress ?? null;
-  const switchFraction =
-    switchProgress && switchProgress.total > 0
-      ? switchProgress.done / switchProgress.total
-      : null;
+  const switchFraction = fractionOf(state.switching?.progress ?? null);
 
   return (
     <div aria-busy={state.switching !== null} className="relative h-full">
       {state.switching ? (
-        <div
-          role="progressbar"
-          aria-label="Loading attempt"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          // Indeterminate (no aria-valuenow) until the SW reports progress.
-          aria-valuenow={
-            switchFraction !== null
-              ? Math.round(switchFraction * 100)
-              : undefined
+        <TraceProgress
+          value={
+            switchFraction !== null ? Math.round(switchFraction * 100) : null
           }
+          label="Loading attempt"
           className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-bg-3"
-        >
-          <div
-            className={
-              switchFraction !== null
-                ? "h-full bg-ring transition-[width]"
-                : "h-full w-full animate-pulse bg-ring"
-            }
-            style={
-              switchFraction !== null
-                ? { width: `${Math.round(switchFraction * 100)}%` }
-                : undefined
-            }
-          />
-        </div>
+        />
       ) : null}
       <Workbench
-        traceUrl={state.traceUrl}
         contextEntries={state.contextEntries}
         bridge={bridge}
         onEscape={onEscape}
@@ -130,16 +138,18 @@ export function TraceViewer({
 }
 
 function Workbench({
-  traceUrl,
   contextEntries,
   bridge,
   onEscape,
 }: {
-  traceUrl: string;
   contextEntries: ContextEntry[];
   bridge: TraceBridge;
   onEscape?: () => void;
 }): React.ReactElement {
+  // `bridge.traceUrl` mirrors the `ready` model's `state.traceUrl` exactly
+  // (see `useTraceModel`) — reading it here instead of threading a second
+  // `traceUrl` prop keeps the two channels from drifting apart.
+  const traceUrl = bridge.traceUrl;
   const model = useMemo(
     () => new TraceModel(traceUrl, contextEntries),
     [traceUrl, contextEntries],
@@ -203,11 +213,11 @@ function Workbench({
     [allPlayableActions, timeRange],
   );
   const playback = usePlayback({
+    model,
     windowStartTime: timeRange?.start ?? model.startTime,
     windowEndTime: timeRange?.end ?? model.endTime,
     playableActions,
-    selectedCallId,
-    selectedStartTime: selectedAction?.startTime,
+    selectedAction,
     onSelect: setSelectedCallId,
   });
 
@@ -219,27 +229,14 @@ function Workbench({
     setTimeRangeInternal(range);
   };
 
-  // An attempt swap replaces `model` in place (the workbench stays mounted, see
-  // TraceViewer). The playhead's clock lives in the previous trace's time base,
-  // so playback that survives the swap would run from a stale, out-of-range
-  // position — stop it instead of letting it dead-play or instantly complete.
-  const { pause } = playback;
-  const playbackModelRef = useRef(model);
-  useEffect(() => {
-    if (playbackModelRef.current === model) return;
-    playbackModelRef.current = model;
-    pause();
-  }, [model, pause]);
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Timeline
         model={model}
         bridge={bridge}
-        selectedCallId={selectedCallId}
+        selectedAction={selectedAction}
         onSelect={setSelectedCallId}
         playback={playback}
-        playableActions={playableActions}
         seekActions={allPlayableActions}
         selection={timeRange}
         onSelectionChange={setTimeRange}
@@ -269,7 +266,6 @@ function Workbench({
         >
           <SnapshotPane
             action={activeAction}
-            traceUrl={traceUrl}
             bridge={bridge}
             onEscape={onEscape}
             playback={playback}
@@ -279,7 +275,6 @@ function Workbench({
             selectedAction={selectedAction}
             activeAction={activeAction}
             onSelectAction={setSelectedCallId}
-            traceUrl={traceUrl}
             bridge={bridge}
             selection={timeRange}
           />

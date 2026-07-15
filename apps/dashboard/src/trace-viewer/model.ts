@@ -1,4 +1,3 @@
-import type { TraceBridge } from "./use-trace-model";
 import type {
   ActionTraceEventInContext,
   TraceModel,
@@ -35,40 +34,6 @@ export type SnapshotSet = {
   action?: Snapshot;
   before?: Snapshot;
   after?: Snapshot;
-};
-
-/** Props shared by every detail tab in the workbench. */
-export type TraceTabProps = {
-  model: TraceModel;
-  selectedAction: ActionTraceEventInContext | undefined;
-  /**
-   * The hover-aware action mirroring the snapshot canvas: the hovered
-   * action-list row while previewing, else `selectedAction` (the workbench
-   * computes `hoveredAction ?? selectedAction` once and shares it). Tabs that
-   * render ONE action's detail (Call/Log/Source) key on this, matching the
-   * official viewer's `highlightedAction || selectedAction`. Selection-scoped
-   * tabs deliberately stay on `selectedAction` instead — Console/Network's
-   * highlighting + `scopeToSelected` window, and Attachments — so a hover
-   * sweep can't yank filters or scroll positions.
-   */
-  activeAction: ActionTraceEventInContext | undefined;
-  /** Select an action in the action list (e.g. from an error's link). */
-  onSelectAction: (callId: string) => void;
-  /** The absolute trace URL (drives SW-served attachment/resource links). */
-  traceUrl: string;
-  /** Fetch proxy into the SW-controlled bridge (sha1 bytes, snapshotInfo…). */
-  bridge: TraceBridge;
-  /**
-   * When set, time-windowed tabs (Console/Network) FILTER to the selected
-   * action's window instead of merely highlighting it.
-   */
-  scopeToSelected: boolean;
-  /**
-   * The timeline's drag-selected time window. While active, the
-   * time-windowed tabs (Console/Network/Log) show only entries inside it —
-   * on top of (and independent from) the `scopeToSelected` action window.
-   */
-  selection: TraceTimeRange | null;
 };
 
 function createSnapshot(
@@ -310,13 +275,15 @@ export function snapshotViewport(action: ActionTraceEventInContext): {
 }
 
 /**
- * Default selection for a freshly loaded trace: the first action that failed,
- * else the last action (the terminal state a user usually wants to see).
+ * Default selection for a freshly loaded trace: the innermost/last failed
+ * action (vendor `failedAction()` semantics — Playwright propagates errors
+ * onto wrapping `test.step` actions too, and those sort parent-first, so
+ * `findLast` picks the actual failing action rather than its outer step
+ * wrapper), else the last action (the terminal state a user usually wants to
+ * see).
  */
 export function defaultSelectedActionId(model: TraceModel): string | undefined {
-  const failed = model.actions.find((a) => a.error?.message);
-  const target = failed ?? model.actions[model.actions.length - 1];
-  return target?.callId;
+  return (model.failedAction() ?? model.actions.at(-1))?.callId;
 }
 
 /** A drag-selected window of trace time (model-time ms, start <= end). */

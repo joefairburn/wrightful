@@ -81,6 +81,23 @@ export function GeneralRow({
   );
 }
 
+/**
+ * `max-content` first-column grid for time-offset row lists (Log/Console) —
+ * sizes to the widest offset so the second column starts at one shared edge
+ * across every row.
+ */
+export const OFFSET_GRID_CLASSES =
+  "grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2";
+
+/** The offset cell of an {@link OFFSET_GRID_CLASSES} row. */
+export function OffsetCell({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return <span className="text-right text-fg-4 tabular-nums">{children}</span>;
+}
+
 /** Muted inline notice for empty/placeholder tab states. */
 export function TabNotice({
   children,

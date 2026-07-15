@@ -13,7 +13,9 @@ import type { TraceBridge } from "./use-trace-model";
  *
  * `load` is read through a ref: only `bridge`/`key` changes trigger a fetch,
  * and the loader captured is always the latest render's (so closing over
- * props like `bridge`/`traceUrl` inside it is safe).
+ * props like `bridge`/`traceUrl` inside it is safe) — which means the key
+ * must encode every input the loader reads, since nothing else ever
+ * triggers a refetch.
  */
 export function useBridgeFetch<T>(
   bridge: TraceBridge,

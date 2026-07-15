@@ -2,6 +2,7 @@
 
 import { ExternalLink } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -53,19 +54,19 @@ function snapshotInfoKey(traceUrl: string, snapshot: Snapshot): string {
  */
 export function SnapshotPane({
   action,
-  traceUrl,
   onEscape,
   bridge,
   playback,
 }: {
   action: ActionTraceEventInContext | undefined;
-  traceUrl: string;
   onEscape?: () => void;
-  /** Bridge proxy for the `snapshotInfo/` sidecar (URL bar + exact viewport). */
+  /** Bridge proxy for the `snapshotInfo/` sidecar (URL bar + exact viewport) —
+   * also carries the absolute trace URL (`bridge.traceUrl`). */
   bridge: TraceBridge;
   /** Shared playback controller (owned by the workbench). */
   playback: PlaybackController;
 }): React.ReactElement {
+  const traceUrl = bridge.traceUrl;
   const snapshots: SnapshotSet = useMemo(
     () => collectSnapshots(action),
     [action],
@@ -79,7 +80,7 @@ export function SnapshotPane({
     ? snapshots[activeTab]
     : undefined;
 
-  const info = useSnapshotInfo(bridge, traceUrl, activeSnapshot);
+  const info = useSnapshotInfo(bridge, activeSnapshot);
 
   // Absolute URL of the currently rendered snapshot iframe, resolved against
   // the page origin for the popout shell. `window` is safe here: this pane
@@ -125,43 +126,30 @@ export function SnapshotPane({
           )}
         </TabBar>
         <div className="mb-1 flex shrink-0 items-center gap-1">
-          <PlaybackControls
-            playing={playback.playing}
-            hasActions={playback.hasActions}
-            atStart={playback.atStart}
-            atEnd={playback.atEnd}
-            speedIndex={playback.speedIndex}
-            onTogglePlay={playback.togglePlay}
-            onStop={playback.stopPlayback}
-            onStep={playback.step}
-            onCycleSpeed={playback.cycleSpeed}
-          />
+          <PlaybackControls playback={playback} />
           <div className="mx-0.5 h-5 w-px shrink-0 bg-line-1" aria-hidden />
           <Tooltip>
             <TooltipTrigger
               render={
-                popoutHref ? (
-                  <a
-                    href={popoutHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="Open snapshot in a new tab"
-                    className="flex size-6 shrink-0 items-center justify-center rounded text-fg-4 hover:text-fg-2"
-                  >
-                    <ExternalLink className="size-3.5" />
-                  </a>
-                ) : (
-                  // No rendered snapshot to open — disable rather than hide so
-                  // the control's slot stays put across action/tab switches.
-                  <button
-                    type="button"
-                    disabled
-                    aria-label="Open snapshot in a new tab"
-                    className="flex size-6 shrink-0 items-center justify-center rounded text-fg-4 disabled:pointer-events-none disabled:opacity-40"
-                  >
-                    <ExternalLink className="size-3.5" />
-                  </button>
-                )
+                <Button
+                  // No rendered snapshot to open → disabled (rather than
+                  // hidden) so the control's slot stays put across
+                  // action/tab switches. The `render` prop swaps the
+                  // underlying element to an anchor once a href exists —
+                  // one Button, two arms.
+                  disabled={!popoutHref}
+                  aria-label="Open snapshot in a new tab"
+                  size="icon-xs"
+                  variant="ghost"
+                  className="text-fg-4 hover:bg-bg-2 hover:text-fg-2"
+                  render={
+                    popoutHref ? (
+                      <a href={popoutHref} target="_blank" rel="noreferrer" />
+                    ) : undefined
+                  }
+                >
+                  <ExternalLink className="size-3.5" />
+                </Button>
               }
             />
             <TooltipPopup>Open snapshot in a new tab</TooltipPopup>
@@ -225,11 +213,10 @@ function SnapshotUrlBar({
  */
 function useSnapshotInfo(
   bridge: TraceBridge,
-  traceUrl: string,
   snapshot: Snapshot | undefined,
 ): ResolvedSnapshotInfo | undefined {
   const cacheRef = useRef(new Map<string, ResolvedSnapshotInfo>());
-  const key = snapshot ? snapshotInfoKey(traceUrl, snapshot) : null;
+  const key = snapshot ? snapshotInfoKey(bridge.traceUrl, snapshot) : null;
 
   const { value } = useBridgeFetch(
     bridge,
@@ -237,7 +224,7 @@ function useSnapshotInfo(
     async (activeKey): Promise<ResolvedSnapshotInfo | null> => {
       if (!snapshot) return null;
       const parsed = parseSnapshotInfo(
-        await bridge.fetchJson(snapshotInfoPath(traceUrl, snapshot)),
+        await bridge.fetchJson(snapshotInfoPath(bridge.traceUrl, snapshot)),
       );
       if (!parsed || "error" in parsed) return null;
       cacheRef.current.set(activeKey, parsed);

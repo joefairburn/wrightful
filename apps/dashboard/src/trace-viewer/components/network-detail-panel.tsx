@@ -151,12 +151,10 @@ function HeaderRows({
  */
 export function DetailPanel({
   entry,
-  traceUrl,
   bridge,
   onClose,
 }: {
   entry: ResourceEntry;
-  traceUrl: string;
   bridge: TraceBridge;
   onClose: () => void;
 }): React.ReactElement {
@@ -207,7 +205,6 @@ export function DetailPanel({
                 sha1={responseSha1}
                 mimeType={entry.response.content.mimeType}
                 size={entry.response.content.size}
-                traceUrl={traceUrl}
                 bridge={bridge}
               />
             </Section>

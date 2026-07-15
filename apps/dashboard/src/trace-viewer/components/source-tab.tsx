@@ -1,55 +1,15 @@
 "use client";
 
-import { classHighlighter, highlightCode } from "@lezer/highlight";
-import { parser as jsParser } from "@lezer/javascript";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { basename } from "@/lib/basename";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
-import type { TraceTabProps } from "../model";
 import { isRealSourceFile, sha1Path } from "../model";
+import { pickDefaultFile, sha1Hex, tokenizeSource } from "../source-highlight";
 import { useBridgeFetch } from "../use-bridge-fetch";
 import type { StackFrame } from "../vendor/protocol-types";
 import { TabNotice } from "./detail-shared";
-
-/**
- * Playwright's own viewer resolves a stack frame's `file` to a trace resource
- * at `sha1/src@<sha1>.txt` where `<sha1>` is the SHA-1 (lower hex) of the RAW
- * `file` string itself — no path normalization. Verified against
- * microsoft/playwright tag v1.61.1,
- * packages/trace-viewer/src/ui/sourceTab.tsx (`calculateSha1` + its call site
- * in `useSources`), and empirically: sha1 of
- * "/tmp/pw-trace-test/tests/probe2.spec.ts" (the spec path recorded in that
- * trace's `0-trace.stacks`) equals `bf45fd7c3d5318ab34731eab199ac8d9f8c4a271`,
- * the exact resource file the trace shipped as `src@....txt`.
- */
-async function sha1Hex(text: string): Promise<string> {
-  const buffer = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-1", buffer);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-/** Default file: the selected frame's file, else the first file carrying an
- * error, else whichever file the model saw first. Never picks a synthetic
- * (non-real) file — e.g. Playwright's `project#<id>` fixture-pool location —
- * even when it's the only source the model recorded. */
-function pickDefaultFile(
-  frame: StackFrame | undefined,
-  sources: TraceTabProps["model"]["sources"],
-): string | undefined {
-  if (frame && isRealSourceFile(frame.file) && sources.has(frame.file)) {
-    return frame.file;
-  }
-  for (const [file, source] of sources) {
-    if (isRealSourceFile(file) && source.errors.length > 0) return file;
-  }
-  for (const file of sources.keys()) {
-    if (isRealSourceFile(file)) return file;
-  }
-  return undefined;
-}
+import type { TraceTabProps } from "./detail-tabs";
 
 /**
  * Read-only source view for the hover-aware active action's stack frame
@@ -59,7 +19,8 @@ function pickDefaultFile(
  * picks against a new stack.
  */
 export function SourceTab(props: TraceTabProps): React.ReactElement {
-  const { model, activeAction, traceUrl, bridge } = props;
+  const { model, activeAction, bridge } = props;
+  const traceUrl = bridge.traceUrl;
   const files = Array.from(model.sources.keys()).filter(isRealSourceFile);
   const [manualFile, setManualFile] = useState<string | undefined>(undefined);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState(0);
@@ -70,21 +31,27 @@ export function SourceTab(props: TraceTabProps): React.ReactElement {
   const file = manualFile ?? pickDefaultFile(selectedFrame, model.sources);
   const source = file ? model.sources.get(file) : undefined;
 
-  // Fetch keyed on `file`, so a file switch can never render the previous
-  // file's text under the new file's tab/dialect/error lines. The fetched
-  // text is cached on the shared model (mirroring the upstream viewer's
-  // lazy-fill of `SourceModel.content`), so later tab visits skip the fetch.
+  // Fetch keyed on `traceUrl` + `file` (mirroring `snapshotInfoKey` in
+  // snapshot-pane.tsx), so a file switch can never render the previous
+  // file's text under the new file's tab/dialect/error lines, AND an
+  // attempt swap (same file path, different trace) can never serve the
+  // prior trace's cached text — the loader below reads both `traceUrl` and
+  // `file`, and useBridgeFetch only ever refetches on a key change. The
+  // fetched text is cached on the shared model (mirroring the upstream
+  // viewer's lazy-fill of `SourceModel.content`), so later tab visits skip
+  // the fetch.
   const needsFetch = source !== undefined && source.content === undefined;
   const fetched = useBridgeFetch(
     bridge,
-    needsFetch && file ? file : null,
-    async (sourceFile) => {
-      const sha1 = await sha1Hex(sourceFile);
+    needsFetch && file ? `${traceUrl}#${file}` : null,
+    async () => {
+      if (!file) throw new Error("Source view is not available yet.");
+      const sha1 = await sha1Hex(file);
       const blob = await bridge.fetchBlob(
         sha1Path(traceUrl, `src@${sha1}.txt`),
       );
       const text = await blob.text();
-      const cached = model.sources.get(sourceFile);
+      const cached = model.sources.get(file);
       if (cached) cached.content = text;
       return text;
     },
@@ -219,71 +186,6 @@ function FrameList({
   );
 }
 
-type TokenSegment = { text: string; className: string | undefined };
-
-/** File extensions `@lezer/javascript` can parse, and the dialect flags each
- * one needs (mirrors `@codemirror/lang-javascript`'s own `configure` calls —
- * see node_modules/@codemirror/lang-javascript/dist/index.js). Anything else
- * (`.py`, `.json`, `.css`, …) falls back to unhighlighted text rather than
- * risk running the JS/TS grammar over the wrong language. */
-const JS_TS_DIALECTS: Record<string, string | undefined> = {
-  js: undefined,
-  mjs: undefined,
-  cjs: undefined,
-  jsx: "jsx",
-  ts: "ts",
-  mts: "ts",
-  cts: "ts",
-  tsx: "ts jsx",
-};
-
-function fileExtension(file: string): string | undefined {
-  const base = basename(file);
-  const dot = base.lastIndexOf(".");
-  return dot === -1 ? undefined : base.slice(dot + 1).toLowerCase();
-}
-
-/**
- * Tokenize `content` into `tok-*`-classed segments, one array per line
- * (mirroring `content.split("\n")`'s line count exactly, since
- * `highlightCode`'s `putBreak` fires once per `\n` and never bundles a
- * break into a text chunk). Returns `undefined` for extensions outside the
- * JS/TS family — callers should render plain text in that case rather than
- * run the wrong grammar over it.
- */
-function tokenizeSource(
-  content: string,
-  file: string,
-): TokenSegment[][] | undefined {
-  const ext = fileExtension(file);
-  if (ext === undefined || !(ext in JS_TS_DIALECTS)) return undefined;
-  const dialect = JS_TS_DIALECTS[ext];
-  try {
-    const langParser = dialect ? jsParser.configure({ dialect }) : jsParser;
-    const tree = langParser.parse(content);
-    const lines: TokenSegment[][] = [[]];
-    highlightCode(
-      content,
-      tree,
-      classHighlighter,
-      (text, classes) => {
-        lines[lines.length - 1]?.push({
-          text,
-          className: classes || undefined,
-        });
-      },
-      () => {
-        lines.push([]);
-      },
-    );
-    return lines;
-  } catch {
-    // Malformed/unexpected content — fall back to plain text rather than
-    // surface a parser error in a read-only source view.
-    return undefined;
-  }
-}
-
 /**
  * Line-numbered `<pre>` renderer: target line highlighted + scrolled into
  * view, error lines tinted with their message inline beneath. Line text is
@@ -339,9 +241,13 @@ function SourceLines({
                   "bg-running-soft shadow-[inset_2px_0_0_var(--color-running)]",
                 errorMessage && "bg-fail-soft",
               )}
+              data-current-line={isTarget ? "true" : undefined}
               ref={isTarget ? targetRef : undefined}
             >
-              <span className="w-8 shrink-0 select-none text-right tabular-nums text-fg-4">
+              <span
+                className="w-8 shrink-0 select-none text-right tabular-nums text-fg-4"
+                data-line-number={lineNumber}
+              >
                 {lineNumber}
               </span>
               <span className="whitespace-pre">

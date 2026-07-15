@@ -2,6 +2,7 @@
 
 import { ChevronRight, CircleAlert, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { FILTER_INPUT_CLASSES } from "@/components/filter-controls";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
 import { formatDuration } from "@/lib/time-format";
@@ -61,7 +62,6 @@ function usePersistentGroupSet(
   return [shown, toggle];
 }
 
-/** True if this action, or any action nested under it, failed. */
 /**
  * Left pane of the workbench: the merged test-runner/library action tree.
  * Selection is controlled by the workbench (snapshot pane + detail tabs key
@@ -79,11 +79,11 @@ export function ActionList({
   selectedCallId: string | undefined;
   onSelect: (callId: string) => void;
   /** Preview-on-hover for the snapshot pane; selection is unaffected. */
-  onHover?: (callId: string | undefined) => void;
+  onHover: (callId: string | undefined) => void;
   /** Timeline drag-selection: scope the list to actions in this window. */
-  selection?: TraceTimeRange | null;
+  selection: TraceTimeRange | null;
   /** Clears the timeline selection (the "Show all" affordance). */
-  onClearSelection?: () => void;
+  onClearSelection: () => void;
 }): React.ReactElement {
   const [shownGroups, toggleGroup] = usePersistentGroupSet(
     SHOWN_GROUPS_KEY,
@@ -127,14 +127,19 @@ export function ActionList({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Borderless, full-width filter row that IS the pane's top edge — the
-       * command-menu / filter-popover style (see `ComboboxFilterPopup`), not a
-       * boxed field. The `h-9` wrapper carries the hairline divider, matching
-       * the snapshot pane's Before/Action/After nav (`snapshot-pane.tsx`) so
-       * the two panes' dividers align across the split. */}
+       * same command-menu / filter-popover input as `ComboboxFilterPopup`
+       * (`FILTER_INPUT_CLASSES`), plus the native search-cancel-button reset
+       * this borderless context doesn't want. The `h-9` wrapper carries the
+       * hairline divider, matching the snapshot pane's Before/Action/After
+       * nav (`snapshot-pane.tsx`) so the two panes' dividers align across
+       * the split. */}
       <div className="shrink-0 border-b border-line-1">
         <input
           type="search"
-          className="h-9 w-full bg-transparent px-3 text-base outline-none placeholder:text-fg-3/72 sm:text-sm [&::-webkit-search-cancel-button]:appearance-none"
+          className={cn(
+            FILTER_INPUT_CLASSES,
+            "[&::-webkit-search-cancel-button]:appearance-none",
+          )}
           placeholder="Filter actions"
           aria-label="Filter actions"
           value={query}
@@ -205,7 +210,7 @@ export function ActionList({
             moveSelection(-1);
           }
         }}
-        onPointerLeave={() => onHover?.(undefined)}
+        onPointerLeave={() => onHover(undefined)}
       >
         {visibleRows.map(({ item, depth }) => (
           <ActionRow

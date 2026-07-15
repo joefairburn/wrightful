@@ -3,8 +3,8 @@
 import type React from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatTraceDuration, formatWallClock } from "../format";
-import type { TraceTabProps } from "../model";
 import { Field } from "./detail-shared";
+import type { TraceTabProps } from "./detail-tabs";
 
 /** Trace/context metadata as a dense two-column definition grid. Every value is
  * plain prose (`variant="plain"`), unlike Call's monospace fields. */

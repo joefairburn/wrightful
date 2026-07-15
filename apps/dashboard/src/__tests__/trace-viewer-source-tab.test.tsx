@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { TraceTabProps } from "@/trace-viewer/components/detail-tabs";
 import { SourceTab } from "@/trace-viewer/components/source-tab";
-import type { TraceTabProps } from "@/trace-viewer/model";
 import {
   FIXTURE_TRACE_URL,
   makeAction,
@@ -72,7 +72,7 @@ describe("SourceTab", () => {
     expect(pre.textContent).toContain("const total = 42;");
     expect(pre.textContent).toContain("line ten");
     const lineNumbers = Array.from(
-      pre.querySelectorAll('[class*="tabular-nums"]'),
+      pre.querySelectorAll("[data-line-number]"),
       (el) => el.textContent,
     );
     expect(lineNumbers).toEqual(
@@ -110,16 +110,13 @@ describe("SourceTab", () => {
     expect(container.querySelector('[class*="tok-"]')).toBeNull();
   });
 
-  it("highlights the selected frame's target line with the running-accent tint + inset bar", () => {
+  it("highlights the selected frame's target line", () => {
     // call@2's first stack frame is checkout.spec.ts:9.
     const { container } = render(<SourceTab {...seededProps()} />);
     const highlighted = container.querySelector(
-      'pre [class*="bg-running-soft"]',
+      'pre [data-current-line="true"]',
     )!;
     expect(highlighted).toBeTruthy();
-    expect(highlighted.className).toContain(
-      "shadow-[inset_2px_0_0_var(--color-running)]",
-    );
     expect(highlighted.textContent).toContain("#checkout");
     expect(highlighted.textContent).toContain("9");
   });

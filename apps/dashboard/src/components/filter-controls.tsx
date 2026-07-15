@@ -21,6 +21,16 @@ import { cn } from "@/lib/cn";
 export const FILTER_TRIGGER_CLASSES =
   "group h-8 sm:h-8 min-w-0 justify-start gap-2 rounded-md border border-line-1 bg-transparent px-2.5 font-normal text-fg-1 hover:bg-muted data-[has-value=true]:bg-muted data-[popup-open]:bg-muted";
 
+/**
+ * Borderless, command-menu-style filter input: transparent bg, no border, IS
+ * the top edge of its containing panel rather than a boxed field floating
+ * inside it. Shared by this popup's search row and the trace viewer's
+ * action-list filter (`trace-viewer/components/action-list.tsx`) so the two
+ * inputs can't drift apart.
+ */
+export const FILTER_INPUT_CLASSES =
+  "h-9 w-full bg-transparent px-3 text-base outline-none placeholder:text-fg-3/72 sm:text-sm";
+
 export function TrailingAction({
   hasValue,
   onClear,
@@ -121,7 +131,7 @@ export function ComboboxFilterPopup({
         <div className="border-b border-line-1">
           <ComboboxPrimitive.Input
             autoFocus
-            className="h-9 w-full bg-transparent px-3 text-base outline-none placeholder:text-fg-3/72 sm:text-sm"
+            className={FILTER_INPUT_CLASSES}
             placeholder={searchPlaceholder}
           />
         </div>

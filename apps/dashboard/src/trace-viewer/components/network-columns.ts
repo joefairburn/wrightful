@@ -1,3 +1,4 @@
+import { basename } from "@/lib/basename";
 import {
   harResourceType,
   monotonicTime,
@@ -5,8 +6,7 @@ import {
 } from "../har-fields";
 import { baseMimeType } from "../mime";
 import { timeInRange, type TraceTimeRange } from "../model";
-import type { TraceTabProps } from "../model";
-import type { ResourceEntry } from "../vendor/model-util";
+import type { ResourceEntry, TraceModel } from "../vendor/model-util";
 
 /**
  * Pure column/sort/classification helpers for the Network tab — the data layer
@@ -14,14 +14,19 @@ import type { ResourceEntry } from "../vendor/model-util";
  * unit-testable and the component file stays focused on rendering.
  */
 
-/** The Name column's value: the URL's last path segment (fallback to the URL). */
+/**
+ * The Name column's value: the URL's last path segment (fallback to the URL).
+ * Built on `basename` (the shared trailing-segment idiom) rather than
+ * hand-rolling it — a trailing slash is stripped first so `/api/items/`
+ * still yields `items` (matching `basename`'s own doc: callers that want
+ * the whole value back on a trailing-separator input do `basename(p) || p`,
+ * but here we want the last REAL segment, not the raw pathname).
+ */
 export function shortUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    return segments.length
-      ? (segments[segments.length - 1] ?? url)
-      : parsed.pathname || url;
+    const pathname = parsed.pathname.replace(/\/+$/, "");
+    return basename(pathname) || parsed.pathname || url;
   } catch {
     return url;
   }
@@ -112,7 +117,7 @@ export function entryMimeType(entry: ResourceEntry): string {
  * disagree with the list.
  */
 export function selectNetworkEntries(
-  model: TraceTabProps["model"],
+  model: TraceModel,
   selection: TraceTimeRange | null,
 ): ResourceEntry[] {
   return selection

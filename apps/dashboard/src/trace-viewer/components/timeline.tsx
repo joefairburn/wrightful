@@ -113,8 +113,21 @@ type TimeScale = {
   timeAt: (fraction: number) => number;
   /** 0..1 fraction for a model-time; `clamp` bounds it to the strip [0,1]. */
   fractionAt: (time: number, opts?: { clamp?: boolean }) => number;
-  /** 0..100 percent for a model-time (for `left`/`width` style strings). */
-  percentAt: (time: number) => number;
+  /**
+   * 0..100 percent for a model-time (for `left`/`width` style strings);
+   * `clamp` bounds it to the strip [0,100].
+   */
+  percentAt: (time: number, opts?: { clamp?: boolean }) => number;
+  /**
+   * 0..100 percent width of the [start, end] span (for a bar/overlay
+   * `width` style string), floored at 0 so a clamped or reversed span never
+   * goes negative.
+   */
+  spanPercent: (
+    start: number,
+    end: number,
+    opts?: { clamp?: boolean },
+  ) => number;
 };
 
 function makeTimeScale(startTime: number, endTime: number): TimeScale {
@@ -123,11 +136,15 @@ function makeTimeScale(startTime: number, endTime: number): TimeScale {
     const f = (time - startTime) / duration;
     return opts?.clamp ? Math.min(1, Math.max(0, f)) : f;
   };
+  const percentAt = (time: number, opts?: { clamp?: boolean }): number =>
+    fractionAt(time, opts) * 100;
   return {
     duration,
     timeAt: (fraction) => startTime + fraction * duration,
     fractionAt,
-    percentAt: (time) => fractionAt(time) * 100,
+    percentAt,
+    spanPercent: (start, end, opts) =>
+      Math.max(0, percentAt(end, opts) - percentAt(start, opts)),
   };
 }
 
@@ -271,10 +288,9 @@ function useTimelineSeek({
 export function Timeline({
   model,
   bridge,
-  selectedCallId,
+  selectedAction,
   onSelect,
   playback,
-  playableActions,
   seekActions,
   selection,
   onSelectionChange,
@@ -282,22 +298,18 @@ export function Timeline({
 }: {
   model: TraceModel;
   bridge: TraceBridge;
-  selectedCallId: string | undefined;
+  selectedAction: TimelineAction | undefined;
   onSelect: (callId: string) => void;
-  /** Shared playback controller (owned by the workbench). */
+  /**
+   * Shared playback controller (owned by the workbench) — also the source of
+   * the action set the moving Playhead walks (`playback.playableActions`).
+   */
   playback: PlaybackController;
   /**
-   * The action set the moving Playhead walks — the default-visible set,
-   * pre-filtered by the workbench to the `selection` window while one is
-   * active (shared with the snapshot pane's control cluster).
-   */
-  playableActions: TimelineAction[];
-  /**
-   * The FULL default-visible set, ignoring any selection window — what
-   * click-seeks and hover captions resolve against. A click clears the
+   * The FULL default-visible action set, ignoring any selection window —
+   * what click-seeks and hover captions resolve against. A click clears the
    * selection and lands on the action at that exact point, so it must never
-   * be clamped to the window; identical to `playableActions` when no
-   * selection is active.
+   * be clamped to the window (unlike `playback.playableActions`).
    */
   seekActions: TimelineAction[];
   /**
@@ -350,11 +362,6 @@ export function Timeline({
     return result;
   }, [allFrames, slotCount, scale]);
 
-  const selectedAction = useMemo(
-    () => model.actions.find((a) => a.callId === selectedCallId),
-    [model, selectedCallId],
-  );
-
   // Click-to-seek + drag-to-select-a-range + the hover cursor, as one machine.
   const { hover, handlers } = useTimelineSeek({
     containerRef,
@@ -366,53 +373,9 @@ export function Timeline({
     onSelectionChange,
   });
 
-  // The bars lane below renders every action; the workbench provides the
-  // sets playback (`playableActions`) and seeking (`seekActions`) walk.
+  // The bars lane below renders every action; playback and seeking each
+  // walk their own set (`playback.playableActions` vs `seekActions`).
   if (scale.duration <= 0) return null;
-
-  const selectedStartFraction = selectedAction
-    ? scale.fractionAt(selectedAction.startTime)
-    : null;
-  const selectedEndFraction = selectedAction
-    ? scale.fractionAt(selectedAction.endTime)
-    : null;
-
-  const selectionStartFraction = selection
-    ? scale.fractionAt(selection.start, { clamp: true })
-    : null;
-  const selectionEndFraction = selection
-    ? scale.fractionAt(selection.end, { clamp: true })
-    : null;
-
-  // The frame nearest the hovered TIME (not a slot sample) drives the hover
-  // preview card. Keying/fetching by its sha1 means the card only refetches
-  // when the cursor actually crosses into a new frame's window.
-  const hoverFraction = hover?.fraction ?? null;
-  const hoverTime = hoverFraction !== null ? scale.timeAt(hoverFraction) : null;
-  const previewFrame =
-    hoverTime !== null && allFrames.length > 0
-      ? allFrames[nearestFrameIndex(allFrames, hoverTime)]
-      : undefined;
-  const previewAspect = previewFrame
-    ? previewFrame.width / previewFrame.height
-    : aspect;
-  const previewWidth = Math.max(1, Math.round(PREVIEW_HEIGHT * previewAspect));
-  const previewLeft =
-    hoverFraction !== null && containerWidth > 0
-      ? Math.min(
-          Math.max(hoverFraction * containerWidth - previewWidth / 2, 0),
-          Math.max(0, containerWidth - previewWidth),
-        )
-      : 0;
-
-  // The action the click would land on at the hovered time — shown as the
-  // title + selector caption under the preview card, matching the official
-  // viewer. Same set (and same `actionActiveAt`) as `seekToFraction`, so the
-  // caption always names the action a click would actually select.
-  const hoverAction =
-    hoverTime !== null && seekActions.length > 0
-      ? actionActiveAt(seekActions, hoverTime)
-      : undefined;
 
   return (
     <div
@@ -437,9 +400,9 @@ export function Timeline({
           {model.actions.map((action) => {
             const span = action.endTime - action.startTime;
             if (span <= 0) return null;
-            const isSelected = action.callId === selectedCallId;
+            const isSelected = action.callId === selectedAction?.callId;
             const left = scale.percentAt(action.startTime);
-            const width = (span / scale.duration) * 100;
+            const width = scale.spanPercent(action.startTime, action.endTime);
             return (
               <div
                 key={action.callId}
@@ -490,12 +453,12 @@ export function Timeline({
         </div>
 
         {/* Selected-action window overlay, spanning the full strip height. */}
-        {selectedStartFraction !== null && selectedEndFraction !== null ? (
+        {selectedAction ? (
           <div
             className="pointer-events-none absolute inset-y-0 border-x border-ring bg-ring/20"
             style={{
-              left: `${selectedStartFraction * 100}%`,
-              width: `${Math.max(0, selectedEndFraction - selectedStartFraction) * 100}%`,
+              left: `${scale.percentAt(selectedAction.startTime)}%`,
+              width: `${scale.spanPercent(selectedAction.startTime, selectedAction.endTime)}%`,
             }}
           />
         ) : null}
@@ -504,24 +467,28 @@ export function Timeline({
          * shrouded (the window itself stays clear so the filmstrip reads
          * through it), with hairline edges marking the bounds — the official
          * viewer's timeline-selection treatment. */}
-        {selectionStartFraction !== null && selectionEndFraction !== null ? (
+        {selection ? (
           <div
             data-testid="timeline-selection"
             className="pointer-events-none absolute inset-0"
           >
             <div
               className="absolute inset-y-0 left-0 bg-bg-0/60"
-              style={{ width: `${selectionStartFraction * 100}%` }}
+              style={{
+                width: `${scale.percentAt(selection.start, { clamp: true })}%`,
+              }}
             />
             <div
               className="absolute inset-y-0 right-0 bg-bg-0/60"
-              style={{ width: `${(1 - selectionEndFraction) * 100}%` }}
+              style={{
+                width: `${100 - scale.percentAt(selection.end, { clamp: true })}%`,
+              }}
             />
             <div
               className="absolute inset-y-0 border-x border-fg-3"
               style={{
-                left: `${selectionStartFraction * 100}%`,
-                width: `${Math.max(0, selectionEndFraction - selectionStartFraction) * 100}%`,
+                left: `${scale.percentAt(selection.start, { clamp: true })}%`,
+                width: `${scale.spanPercent(selection.start, selection.end, { clamp: true })}%`,
               }}
             />
           </div>
@@ -538,59 +505,130 @@ export function Timeline({
             traceStartTime={model.startTime}
             traceEndTime={model.endTime}
             speedIndex={playback.speedIndex}
-            playableActions={playableActions}
+            playableActions={playback.playableActions}
             initialSelectedCallId={playback.initialSelectedCallId}
             onSelect={onSelect}
             onComplete={playback.pause}
           />
         ) : null}
 
-        {/* Hover cursor: a vertical line through the full height. When the
-         * trace has screencast frames, a floating preview card (thumbnail +
-         * time label) takes the place of the plain offset label; with no
-         * frames the plain mono label is unchanged. */}
-        {hoverFraction !== null ? (
-          <>
-            <div
-              className="pointer-events-none absolute inset-y-0 w-px bg-fg-3"
-              style={{ left: `${hoverFraction * 100}%` }}
-            />
-            {previewFrame ? (
-              <HoverPreview
-                key={previewFrame.sha1}
-                below={hover?.below ?? false}
-                bridge={bridge}
-                traceUri={model.traceUri}
-                frame={previewFrame}
-                label={formatTraceOffset(hoverTime ?? 0, model.startTime)}
-                title={hoverAction ? actionTitle(hoverAction) : undefined}
-                hint={hoverAction ? actionParamHint(hoverAction) : undefined}
-                left={previewLeft}
-                width={previewWidth}
-              />
-            ) : (
-              <div
-                className="pointer-events-none absolute top-0 whitespace-nowrap font-mono text-micro text-fg-3"
-                style={{
-                  left: `${hoverFraction * 100}%`,
-                  transform:
-                    hoverFraction > 0.9
-                      ? "translateX(-100%)"
-                      : hoverFraction < 0.1
-                        ? "translateX(0)"
-                        : "translateX(-50%)",
-                }}
-              >
-                {formatTraceOffset(
-                  scale.timeAt(hoverFraction),
-                  model.startTime,
-                )}
-              </div>
-            )}
-          </>
+        {/* Hover cursor: a vertical line through the full height, plus (when
+         * the trace has screencast frames) a floating preview card in place
+         * of the plain offset label. Only rendered once `hover` is
+         * established, so `HoverOverlay` receives it pre-narrowed instead of
+         * re-deriving null guards for every value that hangs off it. */}
+        {hover ? (
+          <HoverOverlay
+            hover={hover}
+            scale={scale}
+            allFrames={allFrames}
+            aspect={aspect}
+            containerWidth={containerWidth}
+            seekActions={seekActions}
+            bridge={bridge}
+            traceUri={model.traceUri}
+            startTime={model.startTime}
+          />
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The hover cursor line + preview card, rendered only once a hover session
+ * is active — owns every hover-derived value (frame lookup, preview sizing,
+ * caption action) off the one non-null `hover`, instead of the null-guarded
+ * intermediates and `??` fallbacks that used to shadow it in `Timeline`'s
+ * render body.
+ */
+function HoverOverlay({
+  hover,
+  scale,
+  allFrames,
+  aspect,
+  containerWidth,
+  seekActions,
+  bridge,
+  traceUri,
+  startTime,
+}: {
+  hover: TimelineHover;
+  scale: TimeScale;
+  allFrames: ScreencastFrame[];
+  /** Filmstrip aspect ratio — the preview card's fallback when the trace has
+   * no screencast frames at all. */
+  aspect: number;
+  containerWidth: number;
+  seekActions: TimelineAction[];
+  bridge: TraceBridge;
+  traceUri: string;
+  startTime: number;
+}): React.ReactElement {
+  // The frame nearest the hovered TIME (not a slot sample) drives the hover
+  // preview card. Keying/fetching by its sha1 means the card only refetches
+  // when the cursor actually crosses into a new frame's window.
+  const hoverTime = scale.timeAt(hover.fraction);
+  const hoverPercent = scale.percentAt(hoverTime);
+  const previewFrame =
+    allFrames.length > 0
+      ? allFrames[nearestFrameIndex(allFrames, hoverTime)]
+      : undefined;
+  const previewAspect = previewFrame
+    ? previewFrame.width / previewFrame.height
+    : aspect;
+  const previewWidth = Math.max(1, Math.round(PREVIEW_HEIGHT * previewAspect));
+  const previewLeft =
+    containerWidth > 0
+      ? Math.min(
+          Math.max(hover.fraction * containerWidth - previewWidth / 2, 0),
+          Math.max(0, containerWidth - previewWidth),
+        )
+      : 0;
+
+  // The action the click would land on at the hovered time — shown as the
+  // title + selector caption under the preview card, matching the official
+  // viewer. Same set (and same `actionActiveAt`) as `seekToFraction`, so the
+  // caption always names the action a click would actually select.
+  const hoverAction =
+    seekActions.length > 0 ? actionActiveAt(seekActions, hoverTime) : undefined;
+
+  return (
+    <>
+      <div
+        className="pointer-events-none absolute inset-y-0 w-px bg-fg-3"
+        style={{ left: `${hoverPercent}%` }}
+      />
+      {previewFrame ? (
+        <HoverPreview
+          key={previewFrame.sha1}
+          below={hover.below}
+          bridge={bridge}
+          traceUri={traceUri}
+          frame={previewFrame}
+          label={formatTraceOffset(hoverTime, startTime)}
+          title={hoverAction ? actionTitle(hoverAction) : undefined}
+          hint={hoverAction ? actionParamHint(hoverAction) : undefined}
+          left={previewLeft}
+          width={previewWidth}
+        />
+      ) : (
+        <div
+          className="pointer-events-none absolute top-0 whitespace-nowrap font-mono text-micro text-fg-3"
+          style={{
+            left: `${hoverPercent}%`,
+            transform:
+              hover.fraction > 0.9
+                ? "translateX(-100%)"
+                : hover.fraction < 0.1
+                  ? "translateX(0)"
+                  : "translateX(-50%)",
+          }}
+        >
+          {formatTraceOffset(hoverTime, startTime)}
+        </div>
+      )}
+    </>
   );
 }
 

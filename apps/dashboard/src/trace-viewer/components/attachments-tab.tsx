@@ -15,14 +15,47 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatPreviewText } from "../format";
-import { isImageMime, isTextMime } from "../mime";
+import { isImageMime, isTextMime, isVideoMime } from "../mime";
 import { sha1DownloadUrl, sha1Path } from "../model";
-import type { TraceTabProps } from "../model";
-import { useBridgeText } from "../use-bridge-fetch";
 import { useObjectUrl } from "../use-object-url";
 import type { TraceBridge } from "../use-trace-model";
 import type { Attachment } from "../vendor/model-util";
+import { PreviewPre, useSha1PreviewText } from "./body-preview";
 import { TabEmpty } from "./detail-shared";
+import type { TraceTabProps } from "./detail-tabs";
+
+/**
+ * An attachment's `data:` URL when its bytes are inline base64 — `null` for
+ * sha1-backed attachments, which resolve through the bridge instead. The one
+ * place that builds the `data:${contentType};base64,${base64}` literal;
+ * the download link, the lightbox, and the thumbnail all read through it.
+ */
+function attachmentDataUrl(attachment: Attachment): string | null {
+  return attachment.base64
+    ? `data:${attachment.contentType};base64,${attachment.base64}`
+    : null;
+}
+
+/**
+ * Resolve an attachment's renderable media URL: a base64 attachment decodes
+ * to a `data:` URL synchronously, a sha1 attachment fetches through the
+ * bridge once `enabled` and resolves to an object URL. `enabled` lets the
+ * lightbox defer its fetch until it opens while the always-visible thumbnail
+ * fetches immediately — the two call sites differ only in that gate.
+ */
+function useAttachmentMediaUrl(
+  attachment: Attachment,
+  bridge: TraceBridge,
+  enabled: boolean,
+): { url: string | null; error: boolean } {
+  const dataUrl = attachmentDataUrl(attachment);
+  const path =
+    enabled && !dataUrl && attachment.sha1
+      ? sha1Path(bridge.traceUrl, attachment.sha1)
+      : null;
+  const { url: fetchedUrl, error } = useObjectUrl(bridge, path);
+  return { url: dataUrl ?? fetchedUrl, error };
+}
 
 /**
  * Attachments we can render an inline text preview for: any text-like type
@@ -44,7 +77,7 @@ function isTextPreviewable(attachment: Attachment): boolean {
 function mediaKind(attachment: Attachment): "image" | "video" | null {
   if (!attachment.sha1 && !attachment.base64) return null;
   if (isImageMime(attachment.contentType)) return "image";
-  if (attachment.contentType.startsWith("video/")) return "video";
+  if (isVideoMime(attachment.contentType)) return "video";
   return null;
 }
 
@@ -61,25 +94,20 @@ function AttachmentLightbox({
   attachment,
   kind,
   bridge,
-  traceUrl,
   open,
   onOpenChange,
 }: {
   attachment: Attachment;
   kind: "image" | "video";
   bridge: TraceBridge;
-  traceUrl: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): React.ReactElement {
-  const path =
-    open && !attachment.base64 && attachment.sha1
-      ? sha1Path(traceUrl, attachment.sha1)
-      : null;
-  const { url: fetchedUrl, error } = useObjectUrl(bridge, path);
-  const mediaUrl = attachment.base64
-    ? `data:${attachment.contentType};base64,${attachment.base64}`
-    : fetchedUrl;
+  const { url: mediaUrl, error } = useAttachmentMediaUrl(
+    attachment,
+    bridge,
+    open,
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -128,19 +156,17 @@ function AttachmentLightbox({
 function AttachmentPreview({
   attachment,
   bridge,
-  traceUrl,
   onView,
 }: {
   attachment: Attachment;
   bridge: TraceBridge;
-  traceUrl: string;
   onView: () => void;
 }): React.ReactElement | null {
-  const path = attachment.sha1 ? sha1Path(traceUrl, attachment.sha1) : null;
-  const { url: fetchedUrl, error } = useObjectUrl(bridge, path);
-  const previewUrl = attachment.base64
-    ? `data:${attachment.contentType};base64,${attachment.base64}`
-    : fetchedUrl;
+  const { url: previewUrl, error } = useAttachmentMediaUrl(
+    attachment,
+    bridge,
+    true,
+  );
 
   if (error) return null;
 
@@ -182,22 +208,18 @@ function AttachmentPreview({
 function AttachmentRow({
   attachment,
   bridge,
-  traceUrl,
 }: {
   attachment: Attachment;
   bridge: TraceBridge;
-  traceUrl: string;
 }): React.ReactElement {
   const href = attachment.sha1
     ? sha1DownloadUrl(
-        traceUrl,
+        bridge.traceUrl,
         attachment.sha1,
         attachment.name,
         attachment.contentType,
       )
-    : attachment.base64
-      ? `data:${attachment.contentType};base64,${attachment.base64}`
-      : undefined;
+    : (attachmentDataUrl(attachment) ?? undefined);
   const kind = mediaKind(attachment);
   const textPreviewable = isTextPreviewable(attachment);
 
@@ -224,22 +246,18 @@ function AttachmentRow({
 
   // sha1-backed attachments need an actual fetch through the bridge — that's
   // the one genuinely async part, deferred until the row expands.
-  const fetched = useBridgeText(
+  const sha1PreviewPath =
+    expanded && textPreviewable && !attachment.base64
+      ? (attachment.sha1 ?? null)
+      : null;
+  const { text: fetchedText, error: fetchError } = useSha1PreviewText(
     bridge,
-    expanded && textPreviewable && !attachment.base64 && attachment.sha1
-      ? sha1Path(traceUrl, attachment.sha1)
-      : null,
+    sha1PreviewPath,
+    attachment.contentType,
   );
-  const formatted = useMemo(
-    () =>
-      fetched.text !== undefined
-        ? formatPreviewText(fetched.text, attachment.contentType)
-        : null,
-    [fetched.text, attachment.contentType],
-  );
-  const fetchedText = fetched.error ? "(unable to load attachment)" : formatted;
 
-  const text = base64Text ?? fetchedText;
+  const text =
+    base64Text ?? (fetchError ? "Failed to load preview." : fetchedText);
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2">
@@ -272,7 +290,6 @@ function AttachmentRow({
           <AttachmentPreview
             attachment={attachment}
             bridge={bridge}
-            traceUrl={traceUrl}
             onView={() => setViewerOpen(true)}
           />
         ) : null}
@@ -310,17 +327,12 @@ function AttachmentRow({
           </Button>
         ) : null}
       </div>
-      {expanded ? (
-        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-caption">
-          {text ?? "Loading…"}
-        </pre>
-      ) : null}
+      {expanded ? <PreviewPre>{text ?? "Loading preview…"}</PreviewPre> : null}
       {kind ? (
         <AttachmentLightbox
           attachment={attachment}
           kind={kind}
           bridge={bridge}
-          traceUrl={traceUrl}
           open={viewerOpen}
           onOpenChange={setViewerOpen}
         />
@@ -336,7 +348,6 @@ function AttachmentRow({
  */
 export function AttachmentsTab({
   model,
-  traceUrl,
   bridge,
 }: TraceTabProps): React.ReactElement {
   const attachments = model.visibleAttachments;
@@ -354,12 +365,7 @@ export function AttachmentsTab({
     <ScrollArea className="h-full">
       <div className="flex flex-col divide-y divide-line-1">
         {attachments.map((attachment, i) => (
-          <AttachmentRow
-            key={i}
-            attachment={attachment}
-            bridge={bridge}
-            traceUrl={traceUrl}
-          />
+          <AttachmentRow key={i} attachment={attachment} bridge={bridge} />
         ))}
       </div>
     </ScrollArea>

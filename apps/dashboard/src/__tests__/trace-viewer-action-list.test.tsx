@@ -217,6 +217,9 @@ describe("ActionList — grouped actions hidden by default", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     expect(screen.getByText("Navigate to app")).toBeTruthy();
@@ -231,6 +234,9 @@ describe("ActionList — grouped actions hidden by default", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     const chip = screen.getByRole("button", { name: /route 1/i });
@@ -245,6 +251,9 @@ describe("ActionList — grouped actions hidden by default", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     expect(screen.queryByText("Route.continue")).toBeNull();
@@ -272,6 +281,9 @@ describe("ActionList — selection", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={onSelect}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     await user.click(screen.getByText("Click checkout"));
@@ -284,6 +296,9 @@ describe("ActionList — selection", () => {
         model={makeModel()}
         selectedCallId="call@2"
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     expect(optionRow("Click checkout").getAttribute("aria-selected")).toBe(
@@ -301,6 +316,9 @@ describe("ActionList — selection", () => {
         model={makeModel()}
         selectedCallId="call@1"
         onSelect={onSelect}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     fireEvent.keyDown(screen.getByRole("listbox"), { key: "ArrowDown" });
@@ -319,6 +337,9 @@ describe("ActionList — search", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     await user.type(search(), "checkout");
@@ -334,6 +355,9 @@ describe("ActionList — search", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     await user.type(search(), "#checkout");
@@ -348,6 +372,9 @@ describe("ActionList — search", () => {
         model={nestedModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     await user.type(search(), "#checkout");
@@ -363,6 +390,9 @@ describe("ActionList — search", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     await user.type(search(), "checkout");
@@ -379,6 +409,9 @@ describe("ActionList — search", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     await user.type(search(), "no-such-action-zzz");
@@ -394,6 +427,9 @@ describe("ActionList — collapse", () => {
         model={nestedModel()} // error subtree → expanded by default
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     expect(screen.getByText("Click checkout")).toBeTruthy();
@@ -414,6 +450,9 @@ describe("ActionList — default collapse state", () => {
         model={nestedModelNoError()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     expect(screen.getByText("Checkout flow")).toBeTruthy();
@@ -428,6 +467,9 @@ describe("ActionList — default collapse state", () => {
         model={deeplyNestedModelWithError()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     // The whole ancestor chain above the error is open…
@@ -444,12 +486,26 @@ describe("ActionList — auto-reveal on external selection", () => {
   it("rerendering with a selectedCallId inside a collapsed group expands its ancestors", () => {
     const model = nestedModelNoError();
     const { rerender } = render(
-      <ActionList model={model} selectedCallId={undefined} onSelect={noop} />,
+      <ActionList
+        model={model}
+        selectedCallId={undefined}
+        onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
+      />,
     );
     expect(screen.queryByText("Click checkout")).toBeNull();
 
     rerender(
-      <ActionList model={model} selectedCallId="call@2" onSelect={noop} />,
+      <ActionList
+        model={model}
+        selectedCallId="call@2"
+        onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
+      />,
     );
 
     const row = optionRow("Click checkout");
@@ -460,7 +516,14 @@ describe("ActionList — auto-reveal on external selection", () => {
     const user = userEvent.setup();
     const model = deeplyNestedModelWithError();
     const { rerender } = render(
-      <ActionList model={model} selectedCallId={undefined} onSelect={noop} />,
+      <ActionList
+        model={model}
+        selectedCallId={undefined}
+        onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
+      />,
     );
     // Manually collapse the (default-expanded) error chain, innermost first,
     // so call@4 ends up hidden under TWO collapsed ancestors.
@@ -477,7 +540,14 @@ describe("ActionList — auto-reveal on external selection", () => {
     expect(screen.queryByText('Expect "toHaveText"')).toBeNull();
 
     rerender(
-      <ActionList model={model} selectedCallId="call@4" onSelect={noop} />,
+      <ActionList
+        model={model}
+        selectedCallId="call@4"
+        onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
+      />,
     );
 
     expect(screen.getByText("Charge card")).toBeTruthy();
@@ -495,6 +565,9 @@ describe("ActionList — manual toggles survive group-chip changes", () => {
         model={nestedModelNoErrorWithRoute()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     expect(screen.queryByText("Click checkout")).toBeNull();
@@ -548,6 +621,9 @@ describe("ActionList — manual toggles survive group-chip changes", () => {
         })}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     // Error subtree → expanded by default; collapse it manually.
@@ -570,6 +646,9 @@ describe("ActionList — row click toggles collapse", () => {
         model={nestedModelNoError()} // starts collapsed by default
         selectedCallId={undefined}
         onSelect={onSelect}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     expect(screen.queryByText("Click checkout")).toBeNull();
@@ -591,6 +670,9 @@ describe("ActionList — row click toggles collapse", () => {
         model={nestedModelNoError()}
         selectedCallId={undefined}
         onSelect={onSelect}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
 
@@ -607,6 +689,9 @@ describe("ActionList — row click toggles collapse", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={onSelect}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     await user.click(screen.getByText("Click checkout"));
@@ -623,6 +708,8 @@ describe("ActionList — hover preview", () => {
         selectedCallId={undefined}
         onSelect={noop}
         onHover={onHover}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
 
@@ -641,6 +728,8 @@ describe("ActionList — hover preview", () => {
         selectedCallId={undefined}
         onSelect={noop}
         onHover={onHover}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
 
@@ -664,6 +753,7 @@ describe("ActionList — timeline selection scope", () => {
         onSelect={noop}
         selection={{ start: 1750, end: 2800 }}
         onClearSelection={noop}
+        onHover={noop}
       />,
     );
     expect(optionRow("Click checkout")).toBeTruthy();
@@ -682,6 +772,7 @@ describe("ActionList — timeline selection scope", () => {
         onSelect={noop}
         selection={{ start: 1200, end: 2100 }}
         onClearSelection={noop}
+        onHover={noop}
       />,
     );
     expect(optionRow("Navigate to app")).toBeTruthy();
@@ -698,6 +789,7 @@ describe("ActionList — timeline selection scope", () => {
         onSelect={noop}
         selection={{ start: 1750, end: 2800 }}
         onClearSelection={onClearSelection}
+        onHover={noop}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
@@ -712,6 +804,7 @@ describe("ActionList — timeline selection scope", () => {
         onSelect={noop}
         selection={{ start: 4500, end: 4900 }}
         onClearSelection={noop}
+        onHover={noop}
       />,
     );
     expect(
@@ -725,6 +818,9 @@ describe("ActionList — timeline selection scope", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     expect(screen.queryByText("Timeline selection")).toBeNull();
@@ -739,6 +835,9 @@ describe("ActionList — failure indicator", () => {
         model={makeModel()}
         selectedCallId={undefined}
         onSelect={noop}
+        onHover={noop}
+        selection={null}
+        onClearSelection={noop}
       />,
     );
     expect(optionRow('Expect "toHaveText"').getAttribute("data-status")).toBe(

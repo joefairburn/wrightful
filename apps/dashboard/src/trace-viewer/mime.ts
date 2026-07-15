@@ -14,6 +14,11 @@ export function isImageMime(contentType: string): boolean {
   return baseMimeType(contentType).startsWith("image/");
 }
 
+/** Whether a content-type renders as a video (`<video>`-able). */
+export function isVideoMime(contentType: string): boolean {
+  return baseMimeType(contentType).startsWith("video/");
+}
+
 /**
  * Whether a content-type is previewable as text — plain text, JSON, and the
  * common web source types (JS/CSS/HTML/XML). The single definition the Network

@@ -8,9 +8,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { stripAnsi } from "@/lib/ansi";
 import { useCopiedFlag } from "@/lib/use-copied-flag";
 import { actionTitle } from "../model";
-import type { TraceTabProps } from "../model";
 import type { ErrorDescription } from "../vendor/model-util";
 import { TabEmpty } from "./detail-shared";
+import type { TraceTabProps } from "./detail-tabs";
 
 /**
  * Plain-text LLM-debugging prompt for one error, matching the official
@@ -18,7 +18,7 @@ import { TabEmpty } from "./detail-shared";
  * stripped — this goes to a clipboard, not a terminal), the failing action's
  * title, and the topmost stack frame, each omitted when absent.
  */
-export function buildErrorPrompt(descriptor: ErrorDescription): string {
+function buildErrorPrompt(descriptor: ErrorDescription): string {
   const details: string[] = [];
   if (descriptor.action) {
     details.push(`Failing action: ${actionTitle(descriptor.action)}`);

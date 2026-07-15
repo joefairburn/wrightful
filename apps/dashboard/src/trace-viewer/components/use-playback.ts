@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { TraceModel } from "../vendor/model-util";
+import { useModelScopedState } from "../use-model-scoped-state";
+import type {
+  ActionTraceEventInContext,
+  TraceModel,
+} from "../vendor/model-util";
 
 /**
  * Playback engine for the trace Timeline: the `usePlayback` state machine plus
@@ -12,7 +16,22 @@ import type { TraceModel } from "../vendor/model-util";
  * `playableActions`, `selectedCallId`, and `onSelect`.
  */
 
-export type TimelineAction = TraceModel["actions"][number];
+/** The action fields playback, the Timeline strip, and the Playhead touch —
+ * a structural slice of the vendor action type rather than an identity alias.
+ * `class`/`method`/`params`/`title`/`type` are read by the strip's hover
+ * caption (`actionTitle`/`actionParamHint`, which take the full vendor
+ * `ActionTraceEvent` shape); the rest by the time-search primitives below. */
+export type TimelineAction = Pick<
+  ActionTraceEventInContext,
+  | "callId"
+  | "startTime"
+  | "endTime"
+  | "class"
+  | "method"
+  | "params"
+  | "title"
+  | "type"
+>;
 
 /** Playback speed presets, matching the official viewer's [.5, 1, 2]. */
 export const SPEEDS = [0.5, 1, 2] as const;
@@ -77,6 +96,11 @@ export interface PlaybackController {
   playTo: number;
   /** The callId already selected when the current play session started. */
   initialSelectedCallId: string | undefined;
+  /** The action set playback and the moving Playhead walk — pre-filtered by
+   * the workbench to the timeline selection window when one is active.
+   * Exposed here so consumers (the Timeline, for the Playhead) read it off
+   * the controller instead of threading their own copy alongside it. */
+  playableActions: TimelineAction[];
   togglePlay: () => void;
   /**
    * Stop playing without touching the selection — manual strip seeks and
@@ -92,13 +116,19 @@ export interface PlaybackController {
 }
 
 export function usePlayback({
+  model,
   windowStartTime,
   windowEndTime,
   playableActions,
-  selectedCallId,
-  selectedStartTime,
+  selectedAction,
   onSelect,
 }: {
+  /**
+   * The current trace model. `playing` is scoped to it via
+   * `useModelScopedState` so an attempt swap stops playback in the same
+   * render as the model changes, rather than a frame later through an effect.
+   */
+  model: TraceModel;
   /**
    * The play window: the timeline selection when one is active, else the
    * whole trace. Playback starts no earlier than `windowStartTime` and the
@@ -108,11 +138,12 @@ export function usePlayback({
   windowStartTime: number;
   windowEndTime: number;
   playableActions: TimelineAction[];
-  selectedCallId: string | undefined;
-  selectedStartTime: number | undefined;
+  selectedAction: TimelineAction | undefined;
   onSelect: (callId: string) => void;
 }): PlaybackController {
-  const [playing, setPlaying] = useState(false);
+  const selectedCallId = selectedAction?.callId;
+  const selectedStartTime = selectedAction?.startTime;
+  const [playing, setPlaying] = useModelScopedState(model, () => false);
   const [speedIndex, setSpeedIndex] = useState(1); // 1×
   const [session, setSession] = useState(0);
   /** The rAF clock's start position + initial selection for the current
@@ -155,7 +186,7 @@ export function usePlayback({
     setPlaying(true);
   };
 
-  const pause = useCallback((): void => setPlaying(false), []);
+  const pause = useCallback((): void => setPlaying(false), [setPlaying]);
 
   const stopPlayback = (): void => {
     setPlaying(false);
@@ -187,6 +218,7 @@ export function usePlayback({
     playFrom: playFromRef.current,
     playTo: windowEndTime,
     initialSelectedCallId: initialSelectedRef.current,
+    playableActions,
     togglePlay,
     pause,
     stopPlayback,

@@ -1,7 +1,6 @@
 import type React from "react";
 import { AnsiPre } from "@/components/ansi-pre";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ansiToHtml } from "@/lib/ansi";
 
 /**
  * Renders a Playwright error (first line of message as title, optional stack
@@ -31,12 +30,7 @@ export function TestErrorAlert({
       className={hasActions ? "relative pr-28" : "relative"}
     >
       <AlertTitle>
-        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: anser output is HTML-escaped */}
-        <span
-          dangerouslySetInnerHTML={{
-            __html: ansiToHtml(firstLine),
-          }}
-        />
+        <AnsiPre text={firstLine} inline />
       </AlertTitle>
       {errorStack ? (
         <AlertDescription className="min-w-0">

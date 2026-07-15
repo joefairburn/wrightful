@@ -19,8 +19,8 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatTraceDuration } from "../format";
 import { monotonicTime } from "../har-fields";
 import { timeInRange, type TraceTimeRange } from "../model";
-import type { TraceTabProps } from "../model";
 import { ScopedEmpty, TabNotice } from "./detail-shared";
+import type { TraceTabProps } from "./detail-tabs";
 import { DETAIL_PANEL_ID, DetailPanel } from "./network-detail-panel";
 import {
   compareEntries,
@@ -89,6 +89,18 @@ function SortableHead({
   );
 }
 
+/** Column order for the request table header — the sort accessors themselves
+ * are table-driven in `network-columns.ts` (`SORT_ACCESSORS`); this is the
+ * matching label/key pairing for the header row. */
+const NETWORK_COLUMNS: { label: string; key: SortKey }[] = [
+  { label: "Name", key: "name" },
+  { label: "Status", key: "status" },
+  { label: "Method", key: "method" },
+  { label: "Type", key: "type" },
+  { label: "Size", key: "size" },
+  { label: "Duration", key: "duration" },
+];
+
 /**
  * HAR entries as a dense request table, highlighting the selected action's
  * window. A toolbar filters by URL substring and DevTools-style resource
@@ -100,7 +112,6 @@ export function NetworkTab({
   selectedAction,
   scopeToSelected,
   selection,
-  traceUrl,
   bridge,
 }: TraceTabProps): React.ReactElement {
   const scoped = scopeToSelected && selectedAction != null;
@@ -194,42 +205,15 @@ export function NetworkTab({
       <Table stickyHeader>
         <TableHeader className="sticky top-0 z-10 bg-bg-0">
           <TableRow>
-            <SortableHead
-              label="Name"
-              sortKey="name"
-              sort={sort}
-              onToggle={toggleSort}
-            />
-            <SortableHead
-              label="Status"
-              sortKey="status"
-              sort={sort}
-              onToggle={toggleSort}
-            />
-            <SortableHead
-              label="Method"
-              sortKey="method"
-              sort={sort}
-              onToggle={toggleSort}
-            />
-            <SortableHead
-              label="Type"
-              sortKey="type"
-              sort={sort}
-              onToggle={toggleSort}
-            />
-            <SortableHead
-              label="Size"
-              sortKey="size"
-              sort={sort}
-              onToggle={toggleSort}
-            />
-            <SortableHead
-              label="Duration"
-              sortKey="duration"
-              sort={sort}
-              onToggle={toggleSort}
-            />
+            {NETWORK_COLUMNS.map(({ label, key }) => (
+              <SortableHead
+                key={key}
+                label={label}
+                sortKey={key}
+                sort={sort}
+                onToggle={toggleSort}
+              />
+            ))}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -319,7 +303,6 @@ export function NetworkTab({
           <div className="min-h-0 min-w-0 flex-1">
             <DetailPanel
               entry={selectedEntry}
-              traceUrl={traceUrl}
               bridge={bridge}
               onClose={closeDetailPanel}
             />

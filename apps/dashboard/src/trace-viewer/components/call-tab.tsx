@@ -8,8 +8,8 @@ import {
   formatWallClock,
 } from "../format";
 import { actionTitle } from "../model";
-import type { TraceTabProps } from "../model";
 import { Field, Section, TabNotice } from "./detail-shared";
+import type { TraceTabProps } from "./detail-tabs";
 
 /** Compact JSON preview: single-line for primitives, pretty + capped for objects. */
 function renderJsonValue(value: unknown): React.ReactElement {

@@ -1,13 +1,15 @@
 "use client";
 
+import { TRACE_VIEWER_SCOPE } from "./model";
+
 /**
- * Where the SW bridge document lives (inside the /trace-viewer/ service-worker
- * scope — see `bridge.html` for why the dashboard page itself must never be
- * the SW-controlled client). Single source of truth for the bridge location,
- * shared by the viewer's own bridge (`use-trace-model.ts`) and the hover
- * prewarm (`warm.ts`).
+ * Where the SW bridge document lives (inside the service-worker scope owned
+ * by `TRACE_VIEWER_SCOPE` — see `bridge.html` for why the dashboard page
+ * itself must never be the SW-controlled client). Single source of truth for
+ * the bridge location, shared by the viewer's own bridge
+ * (`use-trace-model.ts`) and the hover prewarm (`warm.ts`).
  */
-export const BRIDGE_PATH = "/trace-viewer/bridge.html";
+export const BRIDGE_PATH = `${TRACE_VIEWER_SCOPE}bridge.html`;
 
 /**
  * Create + mount the hidden bridge iframe. With a `traceUrl` the bridge loads

@@ -436,6 +436,59 @@ describe("useTraceModel — mount + protocol", () => {
     }
   });
 
+  it("defers the 30s deadline on progress (a silence watchdog, not a total-time one), but still fires on true silence", async () => {
+    vi.useFakeTimers();
+    // try/finally so a failing expect can't leak fake timers into later tests.
+    try {
+      const { result, unmount } = renderHook(() => useTraceModel(TRACE_URL));
+
+      // Let the iframe's contentWindow populate — same macrotask the other
+      // message-driven tests wait out via `flush()`, just via the fake clock.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+
+      // 25s of silence — under the 30s deadline, still loading.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(25_000);
+      });
+      expect(result.current.state.status).toBe("loading");
+
+      // A progress message resets the watchdog's clock.
+      act(() => {
+        postMessageFrom(iframe, {
+          source: "wrightful-trace-bridge",
+          method: "progress",
+          params: { done: 1, total: 10 },
+        });
+      });
+
+      // Another 25s (50s since mount, but only 25s since the last message) —
+      // a total-time watchdog would've fired by now; a silence one hasn't.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(25_000);
+      });
+      expect(result.current.state).toEqual({
+        status: "loading",
+        progress: { done: 1, total: 10 },
+      });
+
+      // 30s of true silence past the last progress message — now it fires.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(result.current.state).toEqual({
+        status: "error",
+        error:
+          "Timed out loading the trace. The trace viewer's service worker may be blocked in this browser.",
+      });
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("removes the iframe on unmount", () => {
     const { unmount } = renderHook(() => useTraceModel(TRACE_URL));
     expect(document.querySelectorAll("iframe")).toHaveLength(1);

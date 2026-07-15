@@ -4,7 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { mountBridgeIframe } from "./bridge-iframe";
 import type { ContextEntry } from "./vendor/entries";
 
-/** Bail out if the bridge never reports back (SW blocked, bundle missing…). */
+/**
+ * Silence watchdog: bail out if the loading iframe's bridge goes this long
+ * without sending ANY message (SW blocked, bundle missing…). Reset on every
+ * valid message it sends — `progress` included — so it bounds gaps between
+ * messages rather than total load time; a large trace that keeps streaming
+ * progress on a slow connection won't get killed mid-load.
+ */
 const BRIDGE_TIMEOUT_MS = 30_000;
 
 /** Per-request ceiling for proxied fetches (sha1 blobs, snapshotInfo…). */
@@ -38,12 +44,19 @@ export type TraceModelState =
  * answers `snapshotInfo/*` / `sha1/*` fetches from a controlled client, so
  * the dashboard funnels them through the bridge over postMessage. Paths are
  * relative to the SW scope (e.g. `sha1/<hash>?trace=…`). Methods reject on
- * HTTP failure, proxy error, or timeout. Stable identity for the lifetime of
- * the hook — safe to list in effect dependencies.
+ * HTTP failure, proxy error, or timeout.
+ *
+ * `traceUrl` is the absolute trace URL this bridge instance serves — the
+ * SAME string as the `ready` model's `traceUrl` (see {@link TraceModelState}),
+ * so callers no longer need to thread a separate `traceUrl` alongside the
+ * bridge. Its identity changes only when a switched-to attempt's model lands
+ * (mirroring `state.traceUrl`'s own lag during a switch) — never on the
+ * unrelated re-renders in between.
  */
 export type TraceBridge = {
   fetchJson: (path: string) => Promise<unknown>;
   fetchBlob: (path: string) => Promise<Blob>;
+  readonly traceUrl: string;
 };
 
 type BridgeMessage =
@@ -62,7 +75,8 @@ type BridgeMessage =
       };
     };
 
-function isBridgeMessage(data: unknown): data is BridgeMessage {
+/** Envelope check for every message the bridge document posts (see bridge.html). */
+export function isBridgeMessage(data: unknown): data is BridgeMessage {
   return (
     typeof data === "object" &&
     data !== null &&
@@ -75,6 +89,20 @@ type PendingFetch = {
   reject: (err: Error) => void;
   timeout: number;
 };
+
+/** Reject every in-flight fetch-proxy request, clearing its timeout first.
+ * Shared by the persistent-effect teardown and `becomeActive`'s bridge
+ * retirement — both are "this map's promises can never resolve now" cases. */
+function rejectAllPending(
+  pending: Map<number, PendingFetch>,
+  reason: string,
+): void {
+  for (const [, entry] of pending) {
+    window.clearTimeout(entry.timeout);
+    entry.reject(new Error(reason));
+  }
+  pending.clear();
+}
 
 /**
  * Load a Playwright trace's parsed model via the vendored trace-viewer
@@ -116,8 +144,16 @@ export function useTraceModel(traceUrl: string): {
   const pendingRef = useRef(new Map<number, PendingFetch>());
   const nextIdRef = useRef(1);
 
-  // Stable across renders and trace changes; requests are matched by id, and
-  // pending ones are rejected when the bridge remounts.
+  // The trace URL the ACTIVE bridge iframe serves — mirrors `state.traceUrl`
+  // (only present in the `ready` shape), so it only changes when a switch
+  // completes, not on every intermediate progress/switching update.
+  const readyTraceUrl = state.status === "ready" ? state.traceUrl : null;
+
+  // requests are matched by id, and pending ones are rejected when the
+  // bridge remounts. Recomputed (new identity) only when `readyTraceUrl`
+  // changes — request/fetchJson/fetchBlob close over refs, so recreating
+  // them is cheap and behaviorally identical; the new identity is what lets
+  // consumers keyed on `bridge` react to an attempt swap.
   const bridge = useMemo<TraceBridge>(() => {
     const request = (path: string, as: "json" | "blob"): Promise<unknown> =>
       new Promise((resolve, reject) => {
@@ -140,21 +176,15 @@ export function useTraceModel(traceUrl: string): {
     return {
       fetchJson: (path) => request(path, "json"),
       fetchBlob: (path) => request(path, "blob") as Promise<Blob>,
+      traceUrl: readyTraceUrl ?? "",
     };
-  }, []);
+  }, [readyTraceUrl]);
 
   // Persistent fetch-proxy plumbing. Lives OUTSIDE the per-trace effect so
   // replies from the previous attempt's bridge keep landing during a switch
   // (that effect's listener is already torn down by then).
   useEffect(() => {
     const pending = pendingRef.current;
-    const rejectAllPending = (reason: string): void => {
-      for (const [, entry] of pending) {
-        window.clearTimeout(entry.timeout);
-        entry.reject(new Error(reason));
-      }
-      pending.clear();
-    };
 
     const onMessage = (event: MessageEvent): void => {
       if (event.origin !== window.location.origin) return;
@@ -181,7 +211,7 @@ export function useTraceModel(traceUrl: string): {
       activeIframeRef.current?.remove();
       activeIframeRef.current = null;
       activeTraceUrlRef.current = null;
-      rejectAllPending("Trace bridge unmounted.");
+      rejectAllPending(pending, "Trace bridge unmounted.");
     };
   }, []);
 
@@ -214,12 +244,7 @@ export function useTraceModel(traceUrl: string): {
       const previous = activeIframeRef.current;
       if (previous && previous !== iframe) {
         previous.remove();
-        const pending = pendingRef.current;
-        for (const [, entry] of pending) {
-          window.clearTimeout(entry.timeout);
-          entry.reject(new Error("Trace bridge unmounted."));
-        }
-        pending.clear();
+        rejectAllPending(pendingRef.current, "Trace bridge unmounted.");
       }
       activeIframeRef.current = iframe;
     };
@@ -237,18 +262,27 @@ export function useTraceModel(traceUrl: string): {
       setState({ status: "error", error });
     };
 
-    const timeout = window.setTimeout(() => {
-      if (done) return;
-      fail(
-        "Timed out loading the trace. The trace viewer's service worker may be blocked in this browser.",
-      );
-    }, BRIDGE_TIMEOUT_MS);
+    // Silence watchdog — see BRIDGE_TIMEOUT_MS. `armWatchdog` is (re)called on
+    // every valid message from the loading iframe below, so the timer measures
+    // the gap since the LAST message, not time since the load started.
+    let watchdog = 0;
+    const armWatchdog = (): void => {
+      window.clearTimeout(watchdog);
+      watchdog = window.setTimeout(() => {
+        if (done) return;
+        fail(
+          "Timed out loading the trace. The trace viewer's service worker may be blocked in this browser.",
+        );
+      }, BRIDGE_TIMEOUT_MS);
+    };
+    armWatchdog();
 
     const onMessage = (event: MessageEvent): void => {
       if (event.origin !== window.location.origin) return;
       if (event.source !== iframe.contentWindow) return;
       if (!isBridgeMessage(event.data)) return;
       const message = event.data;
+      if (!done) armWatchdog();
       // `model` / `error` are the only TERMINAL transitions, and each lands
       // at most once (a stray second one is ignored rather than re-running
       // the transition). The default arm matters: `isBridgeMessage` only
@@ -272,7 +306,7 @@ export function useTraceModel(traceUrl: string): {
         case "model":
           if (done) return;
           done = true;
-          window.clearTimeout(timeout);
+          window.clearTimeout(watchdog);
           becomeActive();
           activeTraceUrlRef.current = traceUrl;
           setState({
@@ -284,7 +318,7 @@ export function useTraceModel(traceUrl: string): {
           return;
         case "error":
           if (done) return;
-          window.clearTimeout(timeout);
+          window.clearTimeout(watchdog);
           fail(message.params.error);
           return;
         default:
@@ -296,7 +330,7 @@ export function useTraceModel(traceUrl: string): {
 
     return () => {
       done = true;
-      window.clearTimeout(timeout);
+      window.clearTimeout(watchdog);
       window.removeEventListener("message", onMessage);
       // Only tear down a load that never finished (superseded or unmounted
       // mid-flight). Once active, the iframe's removal belongs to the next

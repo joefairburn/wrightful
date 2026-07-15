@@ -34,7 +34,14 @@ vi.mock("@/trace-viewer/use-trace-model", async (importOriginal) => ({
 const useTraceModelMock = vi.mocked(useTraceModel);
 
 function mockState(state: TraceModelState): void {
-  useTraceModelMock.mockReturnValue({ state, bridge: makeBridge() });
+  // Mirrors the real hook's invariant: the bridge's `traceUrl` is the same
+  // string as the ready model's `state.traceUrl` (see `useTraceModel`).
+  const traceUrl =
+    state.status === "ready" ? state.traceUrl : FIXTURE_TRACE_URL;
+  useTraceModelMock.mockReturnValue({
+    state,
+    bridge: makeBridge({}, traceUrl),
+  });
 }
 
 function readyState(

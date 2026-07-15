@@ -8,18 +8,26 @@ import { basename } from "@/lib/basename";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
 import { timeInRange, type TraceTimeRange } from "../model";
-import type { TraceTabProps } from "../model";
 import { eventsForAction } from "../vendor/model-util";
 import type {
   ConsoleMessageTraceEvent,
   EventTraceEvent,
 } from "../vendor/trace";
-import { ScopedEmpty } from "./detail-shared";
+import { OFFSET_GRID_CLASSES, OffsetCell, ScopedEmpty } from "./detail-shared";
+import type { TraceTabProps } from "./detail-tabs";
 
-type ConsoleRow = ConsoleMessageTraceEvent | EventTraceEvent;
+/**
+ * A console message or an uncaught-page-error event. The `method: "pageError"`
+ * narrowing (rather than the guard parameter's full union) is what makes
+ * `rowMessage`/`rowSeverity`'s `type === "event"` branches — which assume
+ * `pageError` — compiler-checked instead of merely convention.
+ */
+type ConsoleRow =
+  | ConsoleMessageTraceEvent
+  | (EventTraceEvent & { method: "pageError" });
 
 /** Console messages + uncaught page errors — shared with `DetailTabs`' tab-label count. */
-export function isConsoleRow(
+function isConsoleRow(
   event: EventTraceEvent | ConsoleMessageTraceEvent,
 ): event is ConsoleRow {
   return (
@@ -100,9 +108,7 @@ export function ConsoleTab({
 
   return (
     <ScrollArea className="h-full">
-      {/* `max-content` first column sizes to the widest offset so the
-          message column starts at one shared edge across every row. */}
-      <div className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 divide-y divide-line-1">
+      <div className={cn(OFFSET_GRID_CLASSES, "divide-y divide-line-1")}>
         {rows.map((event, i) => {
           const severity = rowSeverity(event);
           const location = rowLocation(event);
@@ -114,11 +120,11 @@ export function ConsoleTab({
                 highlighted?.has(event) && "bg-bg-2",
               )}
             >
-              <span className="text-right tabular-nums text-fg-4">
+              <OffsetCell>
                 {formatTraceOffset(event.time, model.startTime, {
                   signed: false,
                 })}
-              </span>
+              </OffsetCell>
               <span className="flex min-w-0 items-start gap-2">
                 {severity === "error" ? (
                   <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-fail" />

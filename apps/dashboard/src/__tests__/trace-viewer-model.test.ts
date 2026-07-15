@@ -92,7 +92,7 @@ describe("trace-viewer model adapter", () => {
     expect(collectSnapshots(undefined)).toEqual({});
   });
 
-  it("defaultSelectedActionId prefers the first failed action", () => {
+  it("defaultSelectedActionId prefers the last failed action", () => {
     expect(defaultSelectedActionId(model)).toBe("call@3");
     const passing = new TraceModel(FIXTURE_TRACE_URL, [
       {
@@ -101,6 +101,35 @@ describe("trace-viewer model adapter", () => {
       },
     ]);
     expect(defaultSelectedActionId(passing)).toBe("call@2");
+  });
+
+  it("defaultSelectedActionId picks the innermost failed action for a nested test.step", () => {
+    // Playwright propagates a step's descendant error onto the wrapping
+    // test.step action too, and those sort parent-first — so the outer step
+    // action (call@step) appears before the inner failing action (call@inner)
+    // in `model.actions`. `failedAction()` (vendor) is a `findLast`, so it
+    // must resolve to the innermost/last one, not the outer step wrapper.
+    const nested = new TraceModel(FIXTURE_TRACE_URL, [
+      makeContext({
+        actions: [
+          makeAction({
+            callId: "call@step",
+            method: "step",
+            startTime: 1000,
+            endTime: 1500,
+            error: { name: "Error", message: "step failed" },
+          }),
+          makeAction({
+            callId: "call@inner",
+            method: "click",
+            startTime: 1100,
+            endTime: 1200,
+            error: { name: "Error", message: "click failed" },
+          }),
+        ],
+      }),
+    ]);
+    expect(defaultSelectedActionId(nested)).toBe("call@inner");
   });
 
   it("snapshotIframeUrl targets the SW scope with trace/name/point params", () => {
