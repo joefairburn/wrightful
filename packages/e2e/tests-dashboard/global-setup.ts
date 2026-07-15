@@ -89,24 +89,6 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     // explicitly drop storageState in their own `test.use({...})`.
     const browser = await chromium.launch();
     const context = await browser.newContext();
-    const cookies = fixture.sessionCookies
-      .map((raw) => {
-        const eq = raw.indexOf("=");
-        if (eq < 0) return null;
-        return {
-          name: raw.slice(0, eq),
-          value: raw.slice(eq + 1),
-          domain: "localhost",
-          path: "/",
-          httpOnly: true,
-          secure: false,
-          sameSite: "Lax" as const,
-          expires: -1,
-        };
-      })
-      .filter((c): c is NonNullable<typeof c> => c !== null);
-    await context.addCookies(cookies);
-    await context.storageState({ path: STORAGE_STATE_PATH });
 
     // Serially warm the dev server's SSR module graph before any parallel
     // workers start. Vite evaluates modules on demand, and the workerd module
@@ -131,8 +113,31 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
       return res.text();
     };
 
+    // Warm auth pages while this context is still anonymous. Once the seeded
+    // session cookies are installed, both loaders redirect to `/` and their
+    // page modules remain cold for the anonymous specs to race later.
     await warm("/login");
     await warm("/signup");
+
+    const cookies = fixture.sessionCookies
+      .map((raw) => {
+        const eq = raw.indexOf("=");
+        if (eq < 0) return null;
+        return {
+          name: raw.slice(0, eq),
+          value: raw.slice(eq + 1),
+          domain: "localhost",
+          path: "/",
+          httpOnly: true,
+          secure: false,
+          sameSite: "Lax" as const,
+          expires: -1,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+    await context.addCookies(cookies);
+    await context.storageState({ path: STORAGE_STATE_PATH });
+
     const runsListHtml = await warm(projectBase);
     // A real seeded runId (any run works — the page module is what we're
     // warming). The tests/:id route 404s on the phantom id below, which still

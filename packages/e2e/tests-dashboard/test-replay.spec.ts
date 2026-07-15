@@ -64,7 +64,11 @@ test.describe("Test Replay (embedded trace viewer)", () => {
   test("run test-list Replay button opens the native workbench, deep-links, and closes on Escape", async ({
     page,
     openSeededRun,
-  }) => {
+  }, testInfo) => {
+    // Three 40s workbench outcomes, two dialog remounts, and the later snapshot
+    // and cold deep-link checks must all fit when both recovery attempts fire.
+    testInfo.setTimeout(240_000);
+
     await openSeededRun(FAILURES_BRANCH);
 
     // The button renders only for rows whose test has a trace (the row's
