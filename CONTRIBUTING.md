@@ -83,7 +83,7 @@ of detail. Architectural decisions also get an ADR under `docs/adr/`.
 
 ## Reporting bugs & security issues
 
-- Bugs / feature requests: open a [GitHub issue](https://github.com/joefairburn/greenroom/issues).
+- Bugs / feature requests: open a [GitHub issue](https://github.com/joefairburn/wrightful/issues).
 - Security vulnerabilities: **do not** open a public issue — see
   [`SECURITY.md`](./SECURITY.md).
 
