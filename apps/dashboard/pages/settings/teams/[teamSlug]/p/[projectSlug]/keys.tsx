@@ -21,6 +21,7 @@ import {
 } from "@/components/settings/settings-primitives";
 import { cn } from "@/lib/cn";
 import { formatRelativeTime } from "@/lib/time-format";
+import { useHydrated } from "@/lib/hooks/use-hydrated";
 import type { Props } from "./keys.server";
 
 interface MintKeyResponse {
@@ -50,6 +51,7 @@ export default function SettingsProjectKeysPage({
   codeownersError,
 }: Props) {
   const router = useRouter();
+  const hydrated = useHydrated();
   const here = `/settings/teams/${project.teamSlug}/p/${project.slug}/keys`;
   // One-click CSV of this project's run history. Plain <a download>, not <Link>:
   // the server returns a text/csv attachment, so the SPA router must NOT
@@ -185,7 +187,7 @@ export default function SettingsProjectKeysPage({
             />
           </div>
           <Button
-            disabled={mintKey.isPending}
+            disabled={!hydrated || mintKey.isPending}
             loading={mintKey.isPending}
             type="submit"
           >

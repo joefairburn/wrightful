@@ -18,6 +18,7 @@
  */
 import { type ChildProcess, execSync, spawn } from "node:child_process";
 import {
+  appendFileSync,
   existsSync,
   readFileSync,
   renameSync,
@@ -331,8 +332,17 @@ export async function bootDashboard(
       env: childEnv,
     });
     let serverLog = "";
-    devServer.stdout?.on("data", (d) => (serverLog += d.toString()));
-    devServer.stderr?.on("data", (d) => (serverLog += d.toString()));
+    // Optional tee to disk: without it the buffered output is lost unless the
+    // process exits mid-run, which makes persistent-500 states (server alive,
+    // every render failing) undiagnosable after the fact.
+    const serverLogPath = process.env.WRIGHTFUL_E2E_SERVER_LOG;
+    const captureServerOutput = (d: Buffer | string): void => {
+      const text = d.toString();
+      serverLog += text;
+      if (serverLogPath) appendFileSync(serverLogPath, text);
+    };
+    devServer.stdout?.on("data", captureServerOutput);
+    devServer.stderr?.on("data", captureServerOutput);
     // A dev server that dies MID-RUN otherwise fails every remaining spec with
     // an opaque ERR_CONNECTION_REFUSED and takes its output with it. Surface
     // the exit cause + last output the moment it happens. `expectedExit` is

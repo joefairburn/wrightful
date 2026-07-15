@@ -107,6 +107,54 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
       .filter((c): c is NonNullable<typeof c> => c !== null);
     await context.addCookies(cookies);
     await context.storageState({ path: STORAGE_STATE_PATH });
+
+    // Serially warm the dev server's SSR module graph before any parallel
+    // workers start. Vite evaluates modules on demand, and the workerd module
+    // runner does not tolerate CONCURRENT first evaluations of a shared module:
+    // two cold renders racing the same import chain can cache a half-initialized
+    // namespace (seen as `createAuthClient is not a function` from void/client),
+    // after which EVERY later render of routes importing it 500s until restart.
+    // One serial GET per page family leaves nothing cold for workers to race.
+    console.log("[playwright] Warming SSR module graph (serial, per route)");
+    const { teamSlug, projectSlug } = fixture;
+    const projectBase = `/t/${teamSlug}/p/${projectSlug}`;
+    const settingsBase = `/settings/teams/${teamSlug}`;
+    const warm = async (path: string, okStatuses = [200]): Promise<string> => {
+      const res = await context.request.get(`${fixture.url}${path}`);
+      if (!okStatuses.includes(res.status())) {
+        throw new Error(
+          `SSR warm-up GET ${path} returned ${res.status()} — the dashboard ` +
+            "cannot render this route; aborting before the suite burns " +
+            "minutes failing every spec that visits it",
+        );
+      }
+      return res.text();
+    };
+
+    await warm("/login");
+    await warm("/signup");
+    const runsListHtml = await warm(projectBase);
+    // A real seeded runId (any run works — the page module is what we're
+    // warming). The tests/:id route 404s on the phantom id below, which still
+    // evaluates the page module; navigation.spec also 404s deliberately, so
+    // warm the not-found page the same way.
+    const runId = runsListHtml.match(/\/runs\/([0-9A-HJKMNP-TV-Z]{26})/)?.[1];
+    if (!runId) throw new Error("SSR warm-up: no run link on the runs list");
+    await warm(`${projectBase}/runs/${runId}`);
+    await warm(
+      `${projectBase}/runs/${runId}/tests/01HZZZZZZZZZZZZZZZZZZZZZZZ`,
+      [200, 404],
+    );
+    await warm(`${projectBase}/monitors`);
+    await warm(`${projectBase}/monitors/new`);
+    await warm(settingsBase);
+    await warm(`${settingsBase}/groups`);
+    await warm(`${settingsBase}/billing`);
+    await warm(`${settingsBase}/p/${projectSlug}/keys`);
+    // Same shape navigation.spec's 404 test uses (unknown project slug) —
+    // warms the NotFoundPage module.
+    await warm(`/t/${teamSlug}/p/does-not-exist`, [404]);
+
     await browser.close();
 
     // Stash fixture metadata for teardown + spec consumption (the fixture

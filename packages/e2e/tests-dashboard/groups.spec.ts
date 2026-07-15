@@ -50,10 +50,6 @@ test.describe("Member groups (team settings)", () => {
     await groupsPage.goto();
 
     await groupsPage.create(name);
-    // A second group with the same name hits the unique (teamId, name) index;
-    // the action redirects back with `?groupsError=…`, surfaced as an alert.
-    // (The original card stays visible, so `create`'s success wait still passes.)
-    await groupsPage.create(name);
-    await expect(groupsPage.page.getByText(/already exists/i)).toBeVisible();
+    await groupsPage.createExpectingDuplicate(name);
   });
 });

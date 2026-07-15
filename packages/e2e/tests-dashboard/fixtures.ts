@@ -1,5 +1,6 @@
 import { test as base } from "@playwright/test";
 
+import { FAILURES_BRANCH } from "./global-setup";
 import { ApiKeysPage } from "./pages/api-keys.page";
 import { GroupsPage } from "./pages/groups.page";
 import { LoginPage } from "./pages/login.page";
@@ -29,9 +30,14 @@ export interface DashboardFixtures {
   monitorsPage: MonitorsPage;
   groupsPage: GroupsPage;
   /**
-   * Navigate to the detail page of the newest seeded run (optionally
-   * branch-filtered) and return its runId. Collapses the
-   * `runsListPage.goto()` → `firstRunId()` → `runDetailPage.goto()` preamble.
+   * Navigate to the detail page of a seeded run and return its runId.
+   * Collapses the `runsListPage.goto()` → `firstRunId()` → `runDetailPage.goto()`
+   * preamble. Defaults to the failures-scenario branch rather than the
+   * project's newest run: with parallel workers, realtime.spec and
+   * monitors.spec create fresh runs in this same project mid-suite, so
+   * "newest run" is non-deterministic. The branch filter pins the target to
+   * a run only global-setup writes (monitor stub runs carry `branch: null`
+   * and realtime's branches are unique-per-test, so neither can match).
    */
   openSeededRun: (branch?: string) => Promise<string>;
 }
@@ -79,13 +85,9 @@ export const test = base.extend<
     await use(new GroupsPage(page, ctx.teamSlug));
   },
 
-  // Optional branch filter (e.g. `FAILURES_BRANCH`) for specs that need a
-  // specific seeded run rather than the newest one.
   openSeededRun: async ({ runsListPage, runDetailPage }, use) => {
-    await use(async (branch?: string) => {
-      await runsListPage.goto(
-        branch ? `branch=${encodeURIComponent(branch)}` : undefined,
-      );
+    await use(async (branch: string = FAILURES_BRANCH) => {
+      await runsListPage.goto(`branch=${encodeURIComponent(branch)}`);
       const runId = await runsListPage.firstRunId();
       await runDetailPage.goto(runId);
       return runId;

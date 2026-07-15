@@ -37,26 +37,20 @@ const dashboardReporter: ReporterDescription = ["@wrightful/reporter"];
 export default defineConfig({
   testDir: "./tests-dashboard",
   testMatch: /.*\.spec\.ts/,
+  // File-level parallelism only: tests within a spec keep their order on one
+  // worker, while different spec files run concurrently. Every file already
+  // isolates its writes (timestamped resource names, per-pid tenants,
+  // throwaway sessions, unique branches), and readers of the shared runs list
+  // pin to the seeded failures branch — see fixtures.ts `openSeededRun`.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  // File-level parallelism only (`fullyParallel: false`). Specs are
-  // parallel-safe at the file boundary because resources are timestamped
-  // (api-key labels, signup emails, runIds, filter queries) and project
-  // DOs serialize their own writes. logout.spec mints its own session row
-  // so signing out doesn't invalidate the shared `storageState.json`
-  // session that every other worker holds.
-  // One shared dev server (single miniflare + vite + Better Auth on a local
-  // D1) backs the whole suite. Under parallel load it gets slow enough that the
-  // client-side auth calls and live-update propagation blow their timeouts and
-  // flip pass↔fail. Run serially locally so each test hits a responsive server.
-  // CI ran 3 workers for throughput, but on a resource-starved runner that
-  // tipped the shared server over a cliff — one run came in at 1 failed / 3
-  // flaky, the next (same commit) at 18 failed, all pure websocket/navigation/
-  // getAttribute timeouts. Dropping to 2 workers gives the server ~33% more
-  // headroom and keeps retries:2 to absorb residual flake; the timeout bumps
-  // below let a merely-slow (not dead) server still pass.
-  workers: process.env.CI ? 2 : 1,
+  // All workers share one Void server, database, and seeded tenant. Kept low
+  // in CI: the 2-core runner hosts the dev server plus every Chromium, and
+  // the pre-hardening suite showed genuine server saturation at 2 workers
+  // (see docs/worklog/2026-07-15-playwright-flake-hardening.md). Local
+  // machines have the cores to go wider.
+  workers: process.env.CI ? 2 : 4,
   reporter: isMinimalReporter
     ? [["line"], ["html", { open: "never" }], dashboardReporter]
     : [["list"], dashboardReporter],

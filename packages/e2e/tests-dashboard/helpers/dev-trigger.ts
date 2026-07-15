@@ -55,6 +55,7 @@ export async function triggerScheduled(
     },
     data: { cron, scheduledTime: Date.now() },
     failOnStatusCode: false,
+    timeout: 30_000,
   });
   await assertOk(res, "/__void/scheduled");
 }
@@ -80,6 +81,7 @@ export async function triggerQueue<T = unknown>(
     },
     data: { queue, messages },
     failOnStatusCode: false,
+    timeout: 30_000,
   });
   await assertOk(res, "/__void/queue");
   return (await res.json()) as QueueDecisions;

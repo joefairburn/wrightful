@@ -145,6 +145,7 @@ export function RunHistoryBarTrigger(props: Props): React.ReactElement {
             className={className}
             onFocus={prefetch}
             onPointerEnter={prefetch}
+            role="img"
             tabIndex={0}
           />
         )
