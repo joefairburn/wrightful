@@ -21,9 +21,9 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
-import { resolvePlaywrightCoreOrExit } from "./lib/playwright-core.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const at = (rel) => `${root}/${rel}`;
@@ -42,10 +42,15 @@ function fail(msg) {
   process.exit(1);
 }
 
-const { dir: coreDir, version } = resolvePlaywrightCoreOrExit(
-  import.meta.url,
-  "vendor-trace-viewer",
+const packagePath = fileURLToPath(
+  import.meta.resolve("playwright-core/package.json"),
 );
+const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
+if (typeof packageJson.version !== "string") {
+  fail(`${packagePath} does not contain a string version.`);
+}
+const coreDir = dirname(packagePath);
+const version = packageJson.version;
 const src = `${coreDir}/lib/vite/traceViewer`;
 
 if (!existsSync(src)) {

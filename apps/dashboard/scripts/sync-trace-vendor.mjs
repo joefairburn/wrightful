@@ -56,7 +56,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
-import { resolvePlaywrightCoreOrExit } from "./lib/playwright-core.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const at = (rel) => `${root}/${rel}`;
@@ -532,10 +531,14 @@ function writeVersionFile(newVersion) {
 }
 
 async function main() {
-  const { version } = resolvePlaywrightCoreOrExit(
-    import.meta.url,
-    "sync-trace-vendor",
+  const packagePath = fileURLToPath(
+    import.meta.resolve("playwright-core/package.json"),
   );
+  const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
+  if (typeof packageJson.version !== "string") {
+    fail(`${packagePath} does not contain a string version.`);
+  }
+  const version = packageJson.version;
   const oldVersion = readVersionFile();
   info(
     `installed playwright-core ${version} (vendor/ currently pinned to ${oldVersion})`,
@@ -558,10 +561,6 @@ async function main() {
 
       const changed = formatted !== existingRaw;
       results.push({ file: file.local, changed, formatted });
-
-      if (!DRY_RUN) {
-        writeFileSync(localPath(file.local), formatted);
-      }
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
@@ -569,6 +568,14 @@ async function main() {
 
   let versionBumped = false;
   if (!DRY_RUN) {
+    // Plan-then-apply: every upstream download, import rewrite, precision patch,
+    // and formatter run above must succeed before the first managed file is
+    // touched. A failure on file N therefore leaves vendor/ byte-for-byte
+    // unchanged instead of committing files 1..N-1 with a stale version and
+    // manifest. The writes below are the deliberately small apply phase.
+    for (const result of results) {
+      writeFileSync(localPath(result.file), result.formatted);
+    }
     versionBumped = writeVersionFile(version);
     // Re-hash the just-written files so the drift canary in
     // trace-viewer-vendor.test.ts agrees with the new bytes.

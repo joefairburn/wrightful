@@ -341,6 +341,13 @@ function AttachmentRow({
   );
 }
 
+/** Stable row identity within one immutable trace model. The surrounding tab
+ * remounts on `bridge.traceUrl`, while this key prevents an insertion/reorder
+ * inside a model from moving expand/lightbox state to a different attachment. */
+function attachmentKey(attachment: Attachment, index: number): string {
+  return `${attachment.callId}:${attachment.name}:${attachment.sha1 ?? attachment.path ?? `inline-${index}`}`;
+}
+
 /**
  * Visible test attachments. Images and videos open full-size in an in-viewer
  * lightbox, text/JSON expand inline, and everything with reachable bytes is
@@ -364,8 +371,12 @@ export function AttachmentsTab({
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col divide-y divide-line-1">
-        {attachments.map((attachment, i) => (
-          <AttachmentRow key={i} attachment={attachment} bridge={bridge} />
+        {attachments.map((attachment, index) => (
+          <AttachmentRow
+            key={attachmentKey(attachment, index)}
+            attachment={attachment}
+            bridge={bridge}
+          />
         ))}
       </div>
     </ScrollArea>

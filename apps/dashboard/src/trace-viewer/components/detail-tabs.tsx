@@ -239,7 +239,13 @@ export function DetailTabs({
           </Tooltip>
         ) : null}
       </div>
-      <div className="min-h-0 flex-1">{activeEntry.render()}</div>
+      {/* Keep the chosen tab + crosshair preference across attempts, but remount
+          the active panel when the model changes. Leaf state such as Network's
+          query/selected request and Attachments' open preview belongs to one
+          trace and must never reconcile onto the next attempt's data. */}
+      <div key={bridge.traceUrl} className="min-h-0 flex-1">
+        {activeEntry.render()}
+      </div>
     </div>
   );
 }

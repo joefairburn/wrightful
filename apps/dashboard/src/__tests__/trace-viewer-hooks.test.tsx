@@ -23,11 +23,6 @@ import { makeBridge } from "./trace-viewer-fixture";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
-// The hidden iframe's `src` triggers a real happy-dom navigation/fetch
-// attempt (to a non-existent localhost:3000), which logs a noisy but
-// harmless ECONNREFUSED to stderr for every mounted hook in this file — the
-// hook itself never awaits that fetch, so it doesn't affect any assertion.
-
 function postMessageFrom(
   iframe: HTMLIFrameElement,
   data: Record<string, unknown>,
@@ -368,6 +363,24 @@ describe("useTraceModel — mount + protocol", () => {
     unmount();
   });
 
+  it("ignores bridge-tagged messages whose method payload is malformed", async () => {
+    const { result, unmount } = renderHook(() => useTraceModel(TRACE_URL));
+    await flush();
+    const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+
+    act(() => {
+      postMessageFrom(iframe, {
+        source: "wrightful-trace-bridge",
+        method: "model",
+        params: { contextEntries: "not-an-array" },
+      });
+    });
+
+    await flush();
+    expect(result.current.state).toEqual({ status: "loading", progress: null });
+    unmount();
+  });
+
   it("resolves bridge.fetchJson via a fetchResult round-trip", async () => {
     const { result, unmount } = renderHook(() => useTraceModel(TRACE_URL));
     await flush();
@@ -412,6 +425,59 @@ describe("useTraceModel — mount + protocol", () => {
     });
 
     await expect(fetchPromise).rejects.toThrow("Trace fetch failed (404).");
+    unmount();
+  });
+
+  it("resolves bridge.fetchBlob only from a Blob fetchResult body", async () => {
+    const { result, unmount } = renderHook(() => useTraceModel(TRACE_URL));
+    await flush();
+    const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+    const captured = captureRequestId(iframe);
+
+    const fetchPromise = result.current.bridge.fetchBlob("sha1/x?trace=t");
+    await flush();
+    expect(captured.id).not.toBeNull();
+
+    act(() => {
+      postMessageFrom(iframe, {
+        source: "wrightful-trace-bridge",
+        method: "fetchResult",
+        params: {
+          id: captured.id,
+          ok: true,
+          status: 200,
+          body: new Blob(["hello"]),
+        },
+      });
+    });
+
+    await expect(fetchPromise.then((blob) => blob.text())).resolves.toBe(
+      "hello",
+    );
+    unmount();
+  });
+
+  it("rejects bridge.fetchBlob when the bridge returns a non-Blob body", async () => {
+    const { result, unmount } = renderHook(() => useTraceModel(TRACE_URL));
+    await flush();
+    const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+    const captured = captureRequestId(iframe);
+
+    const fetchPromise = result.current.bridge.fetchBlob("sha1/x?trace=t");
+    await flush();
+    expect(captured.id).not.toBeNull();
+
+    act(() => {
+      postMessageFrom(iframe, {
+        source: "wrightful-trace-bridge",
+        method: "fetchResult",
+        params: { id: captured.id, ok: true, status: 200, body: { hi: 1 } },
+      });
+    });
+
+    await expect(fetchPromise).rejects.toThrow(
+      "Trace bridge returned a non-Blob fetch body.",
+    );
     unmount();
   });
 

@@ -10,7 +10,12 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DetailTabs } from "@/trace-viewer/components/detail-tabs";
 import type { TraceTabProps } from "@/trace-viewer/components/detail-tabs";
-import { makeAction, makeModel, makeTabProps } from "./trace-viewer-fixture";
+import {
+  makeAction,
+  makeBridge,
+  makeModel,
+  makeTabProps,
+} from "./trace-viewer-fixture";
 import { installTraceViewerDomStubs } from "./trace-viewer-test-env";
 
 // happy-dom gaps hit by the vendored Base UI ScrollArea / action-row ref:
@@ -341,6 +346,50 @@ describe("DetailTabs — crosshair scope toggle", () => {
 });
 
 describe("DetailTabs — panel switching", () => {
+  it("keeps the chosen tab but resets panel-local state when the trace model changes", async () => {
+    const user = userEvent.setup();
+    const firstModel = makeModel();
+    const firstProps = makeTabProps({
+      model: firstModel,
+      selectedAction: firstModel.actions[0],
+      activeAction: firstModel.actions[0],
+    });
+    const { rerender } = render(<DetailTabs {...firstProps} />);
+
+    await user.click(tab("Network"));
+    const filter = screen.getByRole("searchbox", { name: "Filter requests" });
+    await user.type(filter, "checkout");
+    expect(screen.queryByText("items")).toBeNull();
+
+    const nextModel = makeModel();
+    rerender(
+      <DetailTabs
+        {...makeTabProps({
+          model: nextModel,
+          selectedAction: nextModel.actions[0],
+          activeAction: nextModel.actions[0],
+          bridge: makeBridge(
+            {},
+            "https://dash.test/api/artifacts/a2/download?t=next",
+          ),
+        })}
+      />,
+    );
+
+    // The outer DetailTabs state survives, so Network remains selected; the
+    // keyed panel subtree is fresh, so attempt A's filter cannot hide attempt
+    // B's requests.
+    expect(tab("Network").getAttribute("aria-selected")).toBe("true");
+    expect(
+      (
+        screen.getByRole("searchbox", {
+          name: "Filter requests",
+        }) as HTMLInputElement
+      ).value,
+    ).toBe("");
+    expect(screen.getByText("items")).toBeTruthy();
+  });
+
   it("renders a distinctive panel for each tab", async () => {
     const user = userEvent.setup();
     const model = makeModel();

@@ -3,14 +3,26 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
-import { resolvePlaywrightCore } from "../../scripts/lib/playwright-core.mjs";
 import { VENDORED_PLAYWRIGHT_VERSION } from "@/trace-viewer/vendor/version";
 
-// Resolve playwright-core the same way scripts/vendor-trace-viewer.mjs and
-// scripts/sync-trace-vendor.mjs do — it's a transitive dep (via
-// @playwright/test), not directly resolvable under pnpm from this package.
+// `playwright-core` is a direct dashboard dependency because both build scripts
+// consume its private trace-viewer assets. Resolve that declared contract
+// directly; pnpm now enforces its presence instead of us reaching through
+// @playwright/test's transitive node_modules tree.
 function installedPlaywrightCoreVersion(): string {
-  return resolvePlaywrightCore(import.meta.url).version;
+  const packagePath = fileURLToPath(
+    import.meta.resolve("playwright-core/package.json"),
+  );
+  const parsed: unknown = JSON.parse(readFileSync(packagePath, "utf8"));
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("version" in parsed) ||
+    typeof parsed.version !== "string"
+  ) {
+    throw new Error(`${packagePath} does not contain a string version.`);
+  }
+  return parsed.version;
 }
 
 // Dashboard package root (this file lives at src/__tests__/). Under vitest's

@@ -75,13 +75,48 @@ type BridgeMessage =
       };
     };
 
-/** Envelope check for every message the bridge document posts (see bridge.html). */
-export function isBridgeMessage(data: unknown): data is BridgeMessage {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isProgress(value: unknown): value is Progress {
   return (
-    typeof data === "object" &&
-    data !== null &&
-    (data as { source?: unknown }).source === "wrightful-trace-bridge"
+    isRecord(value) &&
+    typeof value.done === "number" &&
+    Number.isFinite(value.done) &&
+    typeof value.total === "number" &&
+    Number.isFinite(value.total)
   );
+}
+
+/** Validate the complete postMessage protocol boundary owned by bridge.html.
+ * Checking only the source tag would make `method`/`params` an unchecked cast
+ * and turn a stale bridge asset into render-time exceptions. */
+export function isBridgeMessage(data: unknown): data is BridgeMessage {
+  if (!isRecord(data) || data.source !== "wrightful-trace-bridge") return false;
+  const params = data.params;
+  switch (data.method) {
+    case "progress":
+      return isProgress(params);
+    case "model":
+      return isRecord(params) && Array.isArray(params.contextEntries);
+    case "error":
+      return isRecord(params) && typeof params.error === "string";
+    case "warm":
+      return isRecord(params);
+    case "fetchResult":
+      return (
+        isRecord(params) &&
+        typeof params.id === "number" &&
+        Number.isInteger(params.id) &&
+        typeof params.ok === "boolean" &&
+        typeof params.status === "number" &&
+        Number.isFinite(params.status) &&
+        (params.error === undefined || typeof params.error === "string")
+      );
+    default:
+      return false;
+  }
 }
 
 type PendingFetch = {
@@ -155,7 +190,11 @@ export function useTraceModel(traceUrl: string): {
   // them is cheap and behaviorally identical; the new identity is what lets
   // consumers keyed on `bridge` react to an attempt swap.
   const bridge = useMemo<TraceBridge>(() => {
-    const request = (path: string, as: "json" | "blob"): Promise<unknown> =>
+    const request = <T>(
+      path: string,
+      as: "json" | "blob",
+      decode: (body: unknown) => T,
+    ): Promise<T> =>
       new Promise((resolve, reject) => {
         const target = activeIframeRef.current?.contentWindow;
         if (!target) {
@@ -167,15 +206,31 @@ export function useTraceModel(traceUrl: string): {
           pendingRef.current.delete(id);
           reject(new Error("Timed out fetching from the trace."));
         }, BRIDGE_FETCH_TIMEOUT_MS);
-        pendingRef.current.set(id, { resolve, reject, timeout });
+        pendingRef.current.set(id, {
+          resolve: (body) => {
+            try {
+              resolve(decode(body));
+            } catch (error) {
+              reject(error instanceof Error ? error : new Error(String(error)));
+            }
+          },
+          reject,
+          timeout,
+        });
         target.postMessage(
           { source: "wrightful-trace-host", method: "fetch", id, path, as },
           window.location.origin,
         );
       });
     return {
-      fetchJson: (path) => request(path, "json"),
-      fetchBlob: (path) => request(path, "blob") as Promise<Blob>,
+      fetchJson: (path) => request(path, "json", (body) => body),
+      fetchBlob: (path) =>
+        request(path, "blob", (body) => {
+          if (!(body instanceof Blob)) {
+            throw new Error("Trace bridge returned a non-Blob fetch body.");
+          }
+          return body;
+        }),
       traceUrl: readyTraceUrl ?? "",
     };
   }, [readyTraceUrl]);
@@ -285,12 +340,11 @@ export function useTraceModel(traceUrl: string): {
       if (!done) armWatchdog();
       // `model` / `error` are the only TERMINAL transitions, and each lands
       // at most once (a stray second one is ignored rather than re-running
-      // the transition). The default arm matters: `isBridgeMessage` only
-      // vouches for the envelope, and bridge.html is a separately served
-      // asset — a method this build doesn't know (protocol skew) must be
-      // ignored, never treated as terminal. `fetchResult` is handled by the
-      // persistent listener above (it targets the ACTIVE iframe, not this
-      // loading one).
+      // the transition). `isBridgeMessage` validates the full discriminated
+      // protocol, so an unknown method or malformed payload from a stale
+      // bridge asset is ignored before it can re-arm this watchdog.
+      // `fetchResult` is handled by the persistent listener above (it targets
+      // the ACTIVE iframe, not this loading one).
       switch (message.method) {
         case "fetchResult":
         case "warm":

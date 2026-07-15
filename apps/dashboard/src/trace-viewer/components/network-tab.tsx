@@ -154,11 +154,11 @@ export function NetworkTab({
     ? [...filtered].sort((a, b) => compareEntries(a, b, sort))
     : filtered;
 
-  // Model identity is fixed for the lifetime of a mount (the parent
-  // Workbench remounts per trace via `key={traceUrl}`), so no reset-on-model
-  // effect is needed here. A scoped-out or filtered-out selection simply
-  // isn't found below (`selectedEntry` is undefined) and the detail panel
-  // hides — it reappears if the scope/filter is relaxed again.
+  // DetailTabs keys its panel boundary by `bridge.traceUrl`, so this state is
+  // scoped to one model even though the surrounding Workbench deliberately
+  // stays mounted across an attempt swap. A scoped-out or filtered-out
+  // selection simply isn't found below (`selectedEntry` is undefined) and the
+  // detail panel hides — it reappears if the scope/filter is relaxed again.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedEntry = entries.find((entry) => entry.id === selectedId);
   // The selected row's disclosure button — closing the panel via its X would
