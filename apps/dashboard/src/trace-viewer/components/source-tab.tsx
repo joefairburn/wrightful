@@ -7,19 +7,30 @@ import { cn } from "@/lib/cn";
 import { isRealSourceFile, sha1Path } from "../model";
 import { pickDefaultFile, sha1Hex, tokenizeSource } from "../source-highlight";
 import { useBridgeFetch } from "../use-bridge-fetch";
+import type { TraceBridge } from "../use-trace-model";
+import type {
+  ActionTraceEventInContext,
+  TraceModel,
+} from "../vendor/model-util";
 import type { StackFrame } from "../vendor/protocol-types";
 import { TabNotice } from "./detail-shared";
-import type { TraceTabProps } from "./detail-tabs";
 
 /**
  * Read-only source view for the hover-aware active action's stack frame
- * (`activeAction` — see `TraceTabProps`), with a stack frame picker
+ * (`activeAction`), with a stack frame picker
  * alongside it. Keyed on `activeAction` by `DetailTabs`, so a change remounts
  * it (fresh default file + frame index) instead of reconciling stale manual
  * picks against a new stack.
  */
-export function SourceTab(props: TraceTabProps): React.ReactElement {
-  const { model, activeAction, bridge } = props;
+export function SourceTab({
+  model,
+  activeAction,
+  bridge,
+}: {
+  model: TraceModel;
+  activeAction: ActionTraceEventInContext | undefined;
+  bridge: TraceBridge;
+}): React.ReactElement {
   const traceUrl = bridge.traceUrl;
   const files = Array.from(model.sources.keys()).filter(isRealSourceFile);
   const [manualFile, setManualFile] = useState<string | undefined>(undefined);
@@ -138,7 +149,7 @@ function FrameList({
 }: {
   frames: StackFrame[];
   selectedIndex: number;
-  sources: TraceTabProps["model"]["sources"];
+  sources: TraceModel["sources"];
   onSelect: (index: number) => void;
 }): React.ReactElement {
   return (

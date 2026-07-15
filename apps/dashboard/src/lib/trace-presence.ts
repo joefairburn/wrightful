@@ -1,6 +1,7 @@
 import { and, db, eq, inArray } from "void/db";
 import { artifacts } from "@schema";
 import { childProjectScopeWhere, type TenantScope } from "@/lib/scope";
+import { REPLAY_TRACE_ARTIFACT_NAMES } from "@/lib/trace-artifacts";
 import type { RunProgressTest } from "@/realtime/run-progress";
 
 /**
@@ -30,6 +31,7 @@ export async function attachHasTrace(
           and(
             childProjectScopeWhere(artifacts.projectId, scope),
             eq(artifacts.type, "trace"),
+            inArray(artifacts.name, REPLAY_TRACE_ARTIFACT_NAMES),
             inArray(artifacts.testResultId, ids),
           ),
         )

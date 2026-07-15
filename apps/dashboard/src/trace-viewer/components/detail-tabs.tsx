@@ -23,8 +23,9 @@ import { selectNetworkEntries } from "./network-columns";
 import { NetworkTab } from "./network-tab";
 import { SourceTab } from "./source-tab";
 
-/** Props shared by every detail tab in the workbench. */
-export type TraceTabProps = {
+/** Inputs owned by the detail-tab coordinator. Leaf tabs receive only the
+ * subset they actually use. */
+export type DetailTabsProps = {
   model: TraceModel;
   selectedAction: ActionTraceEventInContext | undefined;
   /**
@@ -44,11 +45,6 @@ export type TraceTabProps = {
    * also carries the absolute trace URL (`bridge.traceUrl`) that drives
    * SW-served attachment/resource links. */
   bridge: TraceBridge;
-  /**
-   * When set, time-windowed tabs (Console/Network) FILTER to the selected
-   * action's window instead of merely highlighting it.
-   */
-  scopeToSelected: boolean;
   /**
    * The timeline's drag-selected time window. While active, the
    * time-windowed tabs (Console/Network/Log) show only entries inside it —
@@ -93,7 +89,7 @@ export function DetailTabs({
   onSelectAction,
   bridge,
   selection,
-}: Omit<TraceTabProps, "scopeToSelected">): React.ReactElement {
+}: DetailTabsProps): React.ReactElement {
   const errorCount = model.errorDescriptors.length;
   // Console/Network tab-label counts derive from the SAME selectors the tab
   // bodies use, so a label can never disagree with the list it heads.
@@ -104,21 +100,15 @@ export function DetailTabs({
   );
   const [scopeToSelected, setScopeToSelected] = useState(false);
 
-  const tabProps: TraceTabProps = {
-    model,
-    selectedAction,
-    activeAction,
-    onSelectAction,
-    bridge,
-    scopeToSelected,
-    selection,
-  };
-
   // The single place the tab set is enumerated — the tab bar, the active
   // panel, and the crosshair's `scopable` gate all read from this one array
   // instead of separately re-listing the eight tabs.
   const tabs: TabConfig[] = [
-    { id: "call", label: "Call", render: () => <CallTab {...tabProps} /> },
+    {
+      id: "call",
+      label: "Call",
+      render: () => <CallTab model={model} activeAction={activeAction} />,
+    },
     {
       id: "log",
       label: "Log",
@@ -134,21 +124,36 @@ export function DetailTabs({
       id: "errors",
       label: "Errors",
       count: errorCount,
-      render: () => <ErrorsTab {...tabProps} />,
+      render: () => <ErrorsTab model={model} onSelectAction={onSelectAction} />,
     },
     {
       id: "console",
       label: "Console",
       count: consoleCount,
       scopable: true,
-      render: () => <ConsoleTab {...tabProps} />,
+      render: () => (
+        <ConsoleTab
+          model={model}
+          selectedAction={selectedAction}
+          scopeToSelected={scopeToSelected}
+          selection={selection}
+        />
+      ),
     },
     {
       id: "network",
       label: "Network",
       count: networkCount,
       scopable: true,
-      render: () => <NetworkTab {...tabProps} />,
+      render: () => (
+        <NetworkTab
+          model={model}
+          selectedAction={selectedAction}
+          scopeToSelected={scopeToSelected}
+          selection={selection}
+          bridge={bridge}
+        />
+      ),
     },
     // Source drops from the tab set entirely when the attempt recorded no
     // source, rather than rendering an empty pane.
@@ -160,7 +165,12 @@ export function DetailTabs({
             render: () => (
               // Keyed so a selection change remounts the tab — fresh default
               // file + frame index for the new action's stack (see SourceTab).
-              <SourceTab key={activeAction?.callId ?? ""} {...tabProps} />
+              <SourceTab
+                key={activeAction?.callId ?? ""}
+                model={model}
+                activeAction={activeAction}
+                bridge={bridge}
+              />
             ),
           },
         ]
@@ -169,12 +179,12 @@ export function DetailTabs({
       id: "attachments",
       label: "Attachments",
       count: model.visibleAttachments.length,
-      render: () => <AttachmentsTab {...tabProps} />,
+      render: () => <AttachmentsTab model={model} bridge={bridge} />,
     },
     {
       id: "metadata",
       label: "Metadata",
-      render: () => <MetadataTab {...tabProps} />,
+      render: () => <MetadataTab model={model} />,
     },
   ];
 

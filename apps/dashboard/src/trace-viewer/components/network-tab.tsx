@@ -19,8 +19,12 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatTraceDuration } from "../format";
 import { monotonicTime } from "../har-fields";
 import { timeInRange, type TraceTimeRange } from "../model";
+import type { TraceBridge } from "../use-trace-model";
+import type {
+  ActionTraceEventInContext,
+  TraceModel,
+} from "../vendor/model-util";
 import { ScopedEmpty, TabNotice } from "./detail-shared";
-import type { TraceTabProps } from "./detail-tabs";
 import { DETAIL_PANEL_ID, DetailPanel } from "./network-detail-panel";
 import {
   compareEntries,
@@ -113,7 +117,13 @@ export function NetworkTab({
   scopeToSelected,
   selection,
   bridge,
-}: TraceTabProps): React.ReactElement {
+}: {
+  model: TraceModel;
+  selectedAction: ActionTraceEventInContext | undefined;
+  scopeToSelected: boolean;
+  selection: TraceTimeRange | null;
+  bridge: TraceBridge;
+}): React.ReactElement {
   const scoped = scopeToSelected && selectedAction != null;
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<ResourceTypeFilter>("all");

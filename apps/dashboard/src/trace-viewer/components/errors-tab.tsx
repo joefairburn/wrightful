@@ -8,9 +8,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { stripAnsi } from "@/lib/ansi";
 import { useCopiedFlag } from "@/lib/use-copied-flag";
 import { actionTitle } from "../model";
-import type { ErrorDescription } from "../vendor/model-util";
+import type { ErrorDescription, TraceModel } from "../vendor/model-util";
 import { TabEmpty } from "./detail-shared";
-import type { TraceTabProps } from "./detail-tabs";
 
 /**
  * Plain-text LLM-debugging prompt for one error, matching the official
@@ -69,7 +68,10 @@ function CopyPromptButton({
 export function ErrorsTab({
   model,
   onSelectAction,
-}: TraceTabProps): React.ReactElement {
+}: {
+  model: TraceModel;
+  onSelectAction: (callId: string) => void;
+}): React.ReactElement {
   const errors = model.errorDescriptors;
 
   if (errors.length === 0) {

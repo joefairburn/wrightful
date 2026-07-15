@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSearchParam } from "@/lib/use-search-param";
+import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
 import { TraceViewer } from "@/trace-viewer/components/trace-viewer";
 import { releaseWarmedTrace, warmTraceViewer } from "@/trace-viewer/warm";
 
@@ -206,9 +207,7 @@ export function TraceViewerDialog({
   children: React.ReactNode;
 }): React.ReactElement {
   const [replay, setReplay] = useSearchParam(REPLAY_PARAM, "");
-  // `type === "trace"` is the rail's "has a replayable trace" availability
-  // gate — only trace artifacts get a Replay entry point.
-  if (artifact.type !== "trace") return <></>;
+  if (!isReplayTraceArtifact(artifact)) return <></>;
 
   const open = replay === artifact.id;
   const close = (): void => setReplay("");
@@ -318,8 +317,10 @@ export function ReplayModalHost({
         },
       ),
     enabled: replay !== "",
-    // A trace for a given testResultId is immutable — never refetch on remount.
-    staleTime: Number.POSITIVE_INFINITY,
+    // Refetch on open because downloadHref is an expiring signed URL.
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // No trace / transient failure — drop the param so the URL doesn't advertise
@@ -329,9 +330,8 @@ export function ReplayModalHost({
   }, [query.isError, setReplay]);
 
   const close = (): void => setReplay("");
-  // Query key includes `replay`, so `data` is always for the current param
-  // (undefined while a new one loads) — no stale-attempt guard needed.
-  const resolved = query.data;
+  // Do not render a cached signed URL while its replacement is loading.
+  const resolved = query.fetchStatus === "fetching" ? undefined : query.data;
   const open = Boolean(replay) && resolved !== undefined;
 
   return (
@@ -343,10 +343,6 @@ export function ReplayModalHost({
     >
       {resolved ? (
         <TestReplayContent
-          // Remount per test: with the query's `staleTime: Infinity`, swapping
-          // between two previously-opened `?replay=` deep links reuses the
-          // cached response WITHOUT unmounting this component, so the prior
-          // test's `selectedAttempt` state would otherwise silently carry over.
           key={replay}
           title={resolved.title}
           attempts={resolved.attempts}

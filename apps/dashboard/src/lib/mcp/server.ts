@@ -15,6 +15,7 @@ import {
   signArtifactToken,
   signedDownloadHref,
 } from "@/lib/artifact-tokens";
+import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
 import { loadRunsListPage } from "@/lib/export";
 import {
   ERROR_MESSAGE_SNIPPET_CHARS,
@@ -157,7 +158,7 @@ function artifactMeta(
     downloadUrl,
     downloadUrlExpiresInSeconds: 3600,
   };
-  if (artifact.type === "trace") {
+  if (isReplayTraceArtifact(artifact)) {
     // Our SELF-HOSTED viewer (same-origin) — the trace stays on this dashboard,
     // never the third-party trace.playwright.dev.
     meta.traceViewerUrl = selfHostedTraceViewerUrl(downloadUrl);

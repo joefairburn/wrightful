@@ -19,10 +19,9 @@ import { isImageMime, isTextMime, isVideoMime } from "../mime";
 import { sha1DownloadUrl, sha1Path } from "../model";
 import { useObjectUrl } from "../use-object-url";
 import type { TraceBridge } from "../use-trace-model";
-import type { Attachment } from "../vendor/model-util";
+import type { Attachment, TraceModel } from "../vendor/model-util";
 import { PreviewPre, useSha1PreviewText } from "./body-preview";
 import { TabEmpty } from "./detail-shared";
-import type { TraceTabProps } from "./detail-tabs";
 
 /**
  * An attachment's `data:` URL when its bytes are inline base64 — `null` for
@@ -356,7 +355,10 @@ function attachmentKey(attachment: Attachment, index: number): string {
 export function AttachmentsTab({
   model,
   bridge,
-}: TraceTabProps): React.ReactElement {
+}: {
+  model: TraceModel;
+  bridge: TraceBridge;
+}): React.ReactElement {
   const attachments = model.visibleAttachments;
 
   if (attachments.length === 0) {

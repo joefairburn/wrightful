@@ -8,8 +8,11 @@ import {
   formatWallClock,
 } from "../format";
 import { actionTitle } from "../model";
+import type {
+  ActionTraceEventInContext,
+  TraceModel,
+} from "../vendor/model-util";
 import { Field, Section, TabNotice } from "./detail-shared";
-import type { TraceTabProps } from "./detail-tabs";
 
 /** Compact JSON preview: single-line for primitives, pretty + capped for objects. */
 function renderJsonValue(value: unknown): React.ReactElement {
@@ -37,11 +40,14 @@ function isNonEmptyResult(value: unknown): boolean {
 }
 
 /** The "Call" detail tab: parameters, return value, timing and error for the
- * hover-aware active action (`activeAction` — see `TraceTabProps`). */
+ * hover-aware active action. */
 export function CallTab({
   model,
   activeAction,
-}: TraceTabProps): React.ReactElement {
+}: {
+  model: TraceModel;
+  activeAction: ActionTraceEventInContext | undefined;
+}): React.ReactElement {
   if (!activeAction) {
     return <TabNotice>Select an action to see its call details.</TabNotice>;
   }

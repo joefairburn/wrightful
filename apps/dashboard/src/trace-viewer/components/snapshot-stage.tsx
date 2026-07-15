@@ -13,6 +13,37 @@ export const TAB_LABELS: Record<SnapshotTabId, string> = {
   after: "After",
 };
 
+type SnapshotFrameTarget = {
+  url: string;
+  viewport: { width: number; height: number };
+};
+
+type StageSize = { width: number; height: number };
+
+const STAGE_PADDING = 16;
+
+function scaleToFit(
+  viewport: SnapshotFrameTarget["viewport"],
+  size: StageSize,
+): number {
+  return Math.min(
+    (size.width - STAGE_PADDING) / viewport.width,
+    (size.height - STAGE_PADDING) / viewport.height,
+    1,
+  );
+}
+
+function sameTarget(
+  a: SnapshotFrameTarget | null,
+  b: SnapshotFrameTarget,
+): boolean {
+  return (
+    a?.url === b.url &&
+    a.viewport.width === b.viewport.width &&
+    a.viewport.height === b.viewport.height
+  );
+}
+
 /**
  * The DOM-snapshot iframe stage: scales the recorded viewport to fit the pane
  * and double-buffers the swap so scrubbing/attempt switches never flash a blank
@@ -38,46 +69,27 @@ export function ScaledSnapshotStage({
   const containerRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(containerRef);
 
-  const PADDING = 16;
-  const scale = size
-    ? Math.min(
-        (size.width - PADDING) / viewport.width,
-        (size.height - PADDING) / viewport.height,
-        1,
-      )
-    : 0;
-
   return (
-    <div
-      ref={containerRef}
-      className="flex h-full w-full items-center justify-center overflow-hidden"
-    >
-      {size && scale > 0 ? (
-        <div
-          className="relative overflow-hidden rounded-[6px] border border-line-1 bg-white shadow-sm"
-          style={{
-            width: viewport.width * scale,
-            height: viewport.height * scale,
-          }}
-        >
-          {available.map((id) => {
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden">
+      {size
+        ? available.map((id) => {
             const snapshot = snapshots[id];
             if (!snapshot) return null;
-            const url = snapshotIframeUrl(traceUrl, snapshot);
             return (
               <BufferedSnapshotFrame
                 key={id}
                 id={id}
-                url={url}
+                target={{
+                  url: snapshotIframeUrl(traceUrl, snapshot),
+                  viewport,
+                }}
                 isActive={id === activeTab}
-                viewport={viewport}
-                scale={scale}
+                size={size}
                 onEscape={onEscape}
               />
             );
-          })}
-        </div>
-      ) : null}
+          })
+        : null}
     </div>
   );
 }
@@ -96,31 +108,33 @@ export function ScaledSnapshotStage({
  */
 function BufferedSnapshotFrame({
   id,
-  url,
+  target,
   isActive,
-  viewport,
-  scale,
+  size,
   onEscape,
 }: {
   id: SnapshotTabId;
-  url: string;
+  target: SnapshotFrameTarget;
   isActive: boolean;
-  viewport: { width: number; height: number };
-  scale: number;
+  size: StageSize;
   onEscape?: () => void;
 }): React.ReactElement {
   const [buffer, setBuffer] = useState<{
-    front: string;
-    back: string | null;
-  }>({ front: url, back: null });
+    front: SnapshotFrameTarget;
+    back: SnapshotFrameTarget | null;
+  }>({ front: target, back: null });
 
-  // Route a new target into the back buffer (render-time adjustment, so the
-  // front frame is never unmounted first — React re-renders immediately and
-  // discards this pass's output).
-  if (url === buffer.front) {
-    if (buffer.back !== null) setBuffer({ front: buffer.front, back: null });
-  } else if (url !== buffer.back) {
-    setBuffer({ front: buffer.front, back: url });
+  // Buffer the complete render target, not just its URL. The front document
+  // keeps its own viewport/scale while the replacement loads, so an attempt
+  // recorded at a different viewport cannot distort the still-visible frame.
+  // A viewport refinement for the SAME URL (snapshotInfo resolving) updates in
+  // place without reloading the iframe.
+  if (target.url === buffer.front.url) {
+    if (buffer.back !== null || !sameTarget(buffer.front, target)) {
+      setBuffer({ front: target, back: null });
+    }
+  } else if (!sameTarget(buffer.back, target)) {
+    setBuffer({ front: buffer.front, back: target });
   }
 
   const promote = (): void => {
@@ -132,26 +146,73 @@ function BufferedSnapshotFrame({
   const frames =
     buffer.back !== null && buffer.back !== buffer.front
       ? [
-          { url: buffer.front, isFront: true },
-          { url: buffer.back, isFront: false },
+          { target: buffer.front, isFront: true },
+          { target: buffer.back, isFront: false },
         ]
-      : [{ url: buffer.front, isFront: true }];
+      : [{ target: buffer.front, isFront: true }];
 
   return (
     <>
       {frames.map((frame) => (
-        <SnapshotFrame
-          key={`${id}:${frame.url}`}
+        <ScaledSnapshotFrame
+          key={`${id}:${frame.target.url}`}
           id={id}
-          url={frame.url}
+          target={frame.target}
           isActive={isActive && frame.isFront}
-          viewport={viewport}
-          scale={scale}
+          size={size}
           onEscape={onEscape}
           onLoaded={frame.isFront ? undefined : promote}
         />
       ))}
     </>
+  );
+}
+
+/** One buffered target's complete presentation boundary. Front and back frames
+ * calculate layout from their own viewport, so promotion swaps document and
+ * geometry together. */
+function ScaledSnapshotFrame({
+  id,
+  target,
+  isActive,
+  size,
+  onEscape,
+  onLoaded,
+}: {
+  id: SnapshotTabId;
+  target: SnapshotFrameTarget;
+  isActive: boolean;
+  size: StageSize;
+  onEscape?: () => void;
+  onLoaded?: () => void;
+}): React.ReactElement | null {
+  const scale = scaleToFit(target.viewport, size);
+  if (scale <= 0) return null;
+  return (
+    <div
+      className={cn(
+        "absolute inset-0 flex items-center justify-center",
+        isActive ? "visible" : "invisible pointer-events-none",
+      )}
+    >
+      <div
+        className="relative overflow-hidden rounded-[6px] border border-line-1 bg-white shadow-sm"
+        style={{
+          width: target.viewport.width * scale,
+          height: target.viewport.height * scale,
+        }}
+      >
+        <SnapshotFrame
+          id={id}
+          url={target.url}
+          isActive={isActive}
+          viewport={target.viewport}
+          scale={scale}
+          onEscape={onEscape}
+          onLoaded={onLoaded}
+        />
+      </div>
+    </div>
   );
 }
 

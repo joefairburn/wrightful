@@ -21,58 +21,18 @@ import {
   type TimelineAction,
 } from "./use-playback";
 
-/**
- * Filmstrip + click-to-seek timeline strip below the snapshot pane. The
- * playback engine itself (rAF clock, state model) and the moving Playhead live
- * in `playback-controls.tsx`, and the `usePlayback` controller is owned one
- * level up in the workbench (its prev/play/stop/next/speed cluster is rendered
- * in the snapshot pane's nav) — this file owns the strip: filmstrip sampling,
- * action bars lane, hover preview, click seeking, and drag range-selection
- * (a click seeks; a drag past a small threshold selects a time window, like
- * the official viewer's timeline selection).
- *
- * Screencast frames are served by the trace-viewer service worker under
- * `sha1/<name>?trace=…`, and that route only answers fetches from the
- * SW-CONTROLLED bridge client (see `use-trace-model.ts` / `bridge.html`) — a
- * plain `<img src="/trace-viewer/sha1/…">` from this (uncontrolled) dashboard
- * page would 404. So every thumbnail is fetched as a blob through
- * `bridge.fetchBlob` (via `useObjectUrl`) and rendered from an object URL
- * instead. Hooks can't be called in a loop, so each thumbnail image is its
- * own child component (`TraceFrameImage`).
- */
-
 type ScreencastFrame = PageEntry["screencastFrames"][number];
 
-/**
- * Overall strip height: a ~16px axis/cursor row, an ~8px action-bars lane,
- * then the filmstrip row.
- */
 const AXIS_HEIGHT = 16;
 const BARS_HEIGHT = 8;
 const STRIP_HEIGHT = 56;
 const TOTAL_HEIGHT = AXIS_HEIGHT + BARS_HEIGHT + STRIP_HEIGHT;
 
-/** Never render more thumbnails than this, however wide the container. */
 const MAX_THUMBS = 60;
-
-/** Size of the hover thumbnail preview card (width follows the frame's aspect). */
 const PREVIEW_HEIGHT = 220;
-
-/**
- * Pointer travel (px) before a press turns from a click-seek into a
- * range-selection drag.
- */
 const DRAG_THRESHOLD_PX = 4;
-
-/**
- * Vertical room the hover preview card needs when rendered above the strip:
- * PREVIEW_HEIGHT + card padding + time-label row + mb-2 margin. When the
- * viewport space above the strip is smaller than this (e.g. the Timeline sits
- * at the very top of an overflow-hidden dialog), the card flips below instead.
- */
 const PREVIEW_CLEARANCE = PREVIEW_HEIGHT + 40;
 
-/** Binary search for the frame whose timestamp is closest to `t`. */
 function nearestFrameIndex(frames: ScreencastFrame[], t: number): number {
   const lb = lowerBoundByTime(frames, t, (f) => f.timestamp);
   if (lb === 0) return 0;
@@ -83,46 +43,21 @@ function nearestFrameIndex(frames: ScreencastFrame[], t: number): number {
     : lb;
 }
 
-/**
- * The action active at time `t`: the latest-starting action with startTime
- * <= t, falling back to the first action when `t` precedes every action.
- * Undefined only when `actions` is empty.
- */
 function actionActiveAt(
   actions: TimelineAction[],
   t: number,
 ): TimelineAction | undefined {
   if (actions.length === 0) return undefined;
   const lb = lowerBoundByTime(actions, t, (a) => a.startTime);
-  // lb is the first action starting AT OR AFTER t — an exact startTime===t
-  // match is itself "active at t" and takes precedence over the last
-  // strictly-earlier action.
   if (lb < actions.length && actions[lb].startTime === t) return actions[lb];
   return lb === 0 ? actions[0] : actions[lb - 1];
 }
 
-/**
- * The strip's affine geometry: the one owner of the model-time ↔ strip-fraction
- * ↔ CSS-percent maps, so every overlay and handler shares one convention
- * instead of re-deriving `start + f*dur` / `(t-start)/dur` by hand (some
- * clamped, some multiplied into a `%` string) at a dozen call sites.
- */
 type TimeScale = {
   duration: number;
-  /** Model-time at a 0..1 fraction of the strip. */
   timeAt: (fraction: number) => number;
-  /** 0..1 fraction for a model-time; `clamp` bounds it to the strip [0,1]. */
   fractionAt: (time: number, opts?: { clamp?: boolean }) => number;
-  /**
-   * 0..100 percent for a model-time (for `left`/`width` style strings);
-   * `clamp` bounds it to the strip [0,100].
-   */
   percentAt: (time: number, opts?: { clamp?: boolean }) => number;
-  /**
-   * 0..100 percent width of the [start, end] span (for a bar/overlay
-   * `width` style string), floored at 0 so a clamped or reversed span never
-   * goes negative.
-   */
   spanPercent: (
     start: number,
     end: number,
@@ -150,13 +85,6 @@ function makeTimeScale(startTime: number, endTime: number): TimeScale {
 
 type TimelineHover = { fraction: number; below: boolean };
 
-/**
- * The strip's pointer interaction as one unit: click-to-seek, the click→drag
- * range-selection state machine (threshold + latch, tracked in a ref so a drag
- * doesn't re-render per move), the hover cursor position, and the pointer-
- * capture bookkeeping. Returns the current `hover` (for the component to derive
- * the preview card from) plus the event `handlers` to spread onto the strip.
- */
 function useTimelineSeek({
   containerRef,
   scale,
@@ -183,15 +111,7 @@ function useTimelineSeek({
     onPointerLeave: () => void;
   };
 } {
-  // A hover session is fraction (moves every pointermove) + below (whether the
-  // preview card flips under the strip) — `below` only changes with the
-  // Timeline's position in the viewport, which doesn't move mid-hover, so it's
-  // resolved once per session instead of on every pointermove.
   const [hover, setHover] = useState<TimelineHover | null>(null);
-  // A press starts as a click-seek; once the pointer travels past
-  // DRAG_THRESHOLD_PX it becomes a range-selection drag anchored at the press
-  // position (`selecting` latches — a drag never turns back into a click even
-  // if the pointer returns to the anchor).
   const draggingRef = useRef<{
     anchorClientX: number;
     anchorFraction: number;
@@ -205,17 +125,12 @@ function useTimelineSeek({
   };
 
   const seekToFraction = (fraction: number): void => {
-    // actionActiveAt only returns undefined for an empty action list — guard
-    // that once here instead of a per-call `if (action)` on every seek.
     if (seekActions.length === 0) return;
     const t = scale.timeAt(fraction);
     onSelect(actionActiveAt(seekActions, t)!.callId);
   };
 
   const previewBelow = (): boolean => {
-    // The Timeline can sit at the very top of an overflow-hidden dialog, in
-    // which case an above-the-strip preview card would be clipped — measure
-    // the viewport space above and flip the card below when it won't fit.
     const top = containerRef.current?.getBoundingClientRect().top ?? 0;
     return top < PREVIEW_CLEARANCE;
   };
@@ -228,7 +143,6 @@ function useTimelineSeek({
       anchorFraction: fraction,
       selecting: false,
     };
-    // Manual seeking takes over from playback.
     playback.pause();
     setHover((prev) => ({ fraction, below: prev?.below ?? previewBelow() }));
     seekToFraction(fraction);
@@ -257,15 +171,9 @@ function useTimelineSeek({
   };
 
   const onPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
-    // A press that never turned into a drag is a plain click: it already
-    // seeked on pointerdown (against the full `seekActions` set), and it also
-    // dismisses any active selection window. Read the drag state BEFORE
-    // releasing capture — releasing fires lostpointercapture, which nulls it.
+    // Releasing capture clears draggingRef through onLostPointerCapture.
     const drag = draggingRef.current;
     if (drag && !drag.selecting && selection) onSelectionChange(null);
-    // Drag state is cleared in onLostPointerCapture, which fires for this
-    // release AND for a pointercancel (e.g. a touch turning into a scroll)
-    // where onPointerUp never runs — leaving draggingRef stuck otherwise.
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
@@ -300,27 +208,9 @@ export function Timeline({
   bridge: TraceBridge;
   selectedAction: TimelineAction | undefined;
   onSelect: (callId: string) => void;
-  /**
-   * Shared playback controller (owned by the workbench) — also the source of
-   * the action set the moving Playhead walks (`playback.playableActions`).
-   */
   playback: PlaybackController;
-  /**
-   * The FULL default-visible action set, ignoring any selection window —
-   * what click-seeks and hover captions resolve against. A click clears the
-   * selection and lands on the action at that exact point, so it must never
-   * be clamped to the window (unlike `playback.playableActions`).
-   */
   seekActions: TimelineAction[];
-  /**
-   * The drag-selected time window, owned by the workbench (the action list
-   * scopes to it and clears it via "Show all").
-   */
   selection: TraceTimeRange | null;
-  /**
-   * Fires continuously while a selection drag is in progress, and with
-   * `null` when a plain click (no drag) dismisses the active selection.
-   */
   onSelectionChange: (range: TraceTimeRange | null) => void;
   className?: string;
 }): React.ReactElement | null {
@@ -338,9 +228,6 @@ export function Timeline({
     return frames;
   }, [model]);
 
-  // A uniform slot width (all thumbs share one aspect ratio, taken from the
-  // first frame) is what lets evenly-time-spaced slots also land evenly
-  // spaced in pixels — the strip is a plain flex row, no per-thumb math.
   const aspect =
     allFrames.length > 0 ? allFrames[0].width / allFrames[0].height : 16 / 9;
   const thumbWidth = Math.max(1, Math.round(STRIP_HEIGHT * aspect));
@@ -362,7 +249,6 @@ export function Timeline({
     return result;
   }, [allFrames, slotCount, scale]);
 
-  // Click-to-seek + drag-to-select-a-range + the hover cursor, as one machine.
   const { hover, handlers } = useTimelineSeek({
     containerRef,
     scale,
@@ -373,8 +259,6 @@ export function Timeline({
     onSelectionChange,
   });
 
-  // The bars lane below renders every action; playback and seeking each
-  // walk their own set (`playback.playableActions` vs `seekActions`).
   if (scale.duration <= 0) return null;
 
   return (
@@ -388,11 +272,6 @@ export function Timeline({
         className="relative min-w-0 flex-1 cursor-crosshair"
         {...handlers}
       >
-        {/* Action bars row: one slim bar per action (zero/negative-duration
-         * actions skipped), failed actions in fail red and the rest neutral;
-         * the selected action's bar is brighter and taller. Purely decorative
-         * — pointer-events-none so the strip-level handlers above still own
-         * click/drag seeking. */}
         <div
           className="pointer-events-none absolute inset-x-0"
           style={{ top: AXIS_HEIGHT, height: BARS_HEIGHT }}
@@ -423,22 +302,11 @@ export function Timeline({
           })}
         </div>
 
-        {/* Filmstrip row. Falls back to a plain fill when the trace has no
-         * screencast frames — click-to-seek still works either way.
-         *
-         * Slots are keyed by INDEX, not sha1: an attempt swap replaces the
-         * whole trace model in place (the workbench stays mounted — see
-         * `trace-viewer.tsx`), so every slot's frame gets a new sha1 at once.
-         * Keying by sha1 would remount every `TraceFrameImage`, and
-         * `keepPrevious` (below) only holds a previous object URL across
-         * *its own* re-render — it can't survive a remount. Keying by slot
-         * index instead reuses the same component instances, so
-         * `keepPrevious` can keep each slot showing the outgoing attempt's
-         * thumbnail until its replacement blob resolves. */}
         <div
           className="absolute inset-x-0 bottom-0 flex overflow-hidden bg-bg-2"
           style={{ height: STRIP_HEIGHT }}
         >
+          {/* Index keys preserve buffered slots across attempt changes. */}
           {slots.map((frame, i) => (
             <BufferedTraceFrameImage
               key={i}
@@ -452,7 +320,6 @@ export function Timeline({
           ))}
         </div>
 
-        {/* Selected-action window overlay, spanning the full strip height. */}
         {selectedAction ? (
           <div
             className="pointer-events-none absolute inset-y-0 border-x border-ring bg-ring/20"
@@ -463,10 +330,6 @@ export function Timeline({
           />
         ) : null}
 
-        {/* Drag-selected time window: everything OUTSIDE the window is
-         * shrouded (the window itself stays clear so the filmstrip reads
-         * through it), with hairline edges marking the bounds — the official
-         * viewer's timeline-selection treatment. */}
         {selection ? (
           <div
             data-testid="timeline-selection"
@@ -494,9 +357,6 @@ export function Timeline({
           </div>
         ) : null}
 
-        {/* Moving playhead while replaying — distinct from the hover cursor.
-         * Owns its own rAF loop (see playback-controls.tsx); remounted via
-         * `key` each time a play session starts. */}
         {playback.playing ? (
           <Playhead
             key={playback.session}
@@ -512,11 +372,6 @@ export function Timeline({
           />
         ) : null}
 
-        {/* Hover cursor: a vertical line through the full height, plus (when
-         * the trace has screencast frames) a floating preview card in place
-         * of the plain offset label. Only rendered once `hover` is
-         * established, so `HoverOverlay` receives it pre-narrowed instead of
-         * re-deriving null guards for every value that hangs off it. */}
         {hover ? (
           <HoverOverlay
             hover={hover}
@@ -535,13 +390,6 @@ export function Timeline({
   );
 }
 
-/**
- * The hover cursor line + preview card, rendered only once a hover session
- * is active — owns every hover-derived value (frame lookup, preview sizing,
- * caption action) off the one non-null `hover`, instead of the null-guarded
- * intermediates and `??` fallbacks that used to shadow it in `Timeline`'s
- * render body.
- */
 function HoverOverlay({
   hover,
   scale,
@@ -556,8 +404,6 @@ function HoverOverlay({
   hover: TimelineHover;
   scale: TimeScale;
   allFrames: ScreencastFrame[];
-  /** Filmstrip aspect ratio — the preview card's fallback when the trace has
-   * no screencast frames at all. */
   aspect: number;
   containerWidth: number;
   seekActions: TimelineAction[];
@@ -565,9 +411,6 @@ function HoverOverlay({
   traceUri: string;
   startTime: number;
 }): React.ReactElement {
-  // The frame nearest the hovered TIME (not a slot sample) drives the hover
-  // preview card. Keying/fetching by its sha1 means the card only refetches
-  // when the cursor actually crosses into a new frame's window.
   const hoverTime = scale.timeAt(hover.fraction);
   const hoverPercent = scale.percentAt(hoverTime);
   const previewFrame =
@@ -586,10 +429,6 @@ function HoverOverlay({
         )
       : 0;
 
-  // The action the click would land on at the hovered time — shown as the
-  // title + selector caption under the preview card, matching the official
-  // viewer. Same set (and same `actionActiveAt`) as `seekToFraction`, so the
-  // caption always names the action a click would actually select.
   const hoverAction =
     seekActions.length > 0 ? actionActiveAt(seekActions, hoverTime) : undefined;
 
@@ -647,13 +486,10 @@ function HoverPreview({
   traceUri: string;
   frame: ScreencastFrame;
   label: string;
-  /** The action active at the hovered time (e.g. `Expect "toBeVisible"`). */
   title?: string;
-  /** That action's selector/url/expression, dimmed under the title. */
   hint?: string;
   left: number;
   width: number;
-  /** Render under the strip when the viewport has no room above it. */
   below: boolean;
 }): React.ReactElement {
   return (
@@ -661,9 +497,6 @@ function HoverPreview({
       data-testid="timeline-preview"
       data-side={below ? "bottom" : "top"}
       className={cn(
-        // z-50: when flipped below, the card overlays the workbench panes
-        // (snapshot iframes, detail tabs), which come later in DOM order and
-        // would otherwise paint on top of it.
         "pointer-events-none absolute z-50 rounded border border-line-1 bg-bg-0 p-1 shadow-md",
         below ? "top-full mt-2" : "bottom-full mb-2",
       )}
@@ -677,9 +510,6 @@ function HoverPreview({
         height={PREVIEW_HEIGHT}
         className="rounded-sm"
       />
-      {/* Action caption — title over its selector — mirrors the official
-       * viewer's hover popover. Constrained to the frame width so a long
-       * selector truncates instead of stretching the card. */}
       {title ? (
         <div className="mt-1 px-0.5" style={{ width }}>
           <div className="truncate text-caption text-fg-2" title={title}>
@@ -702,11 +532,6 @@ function HoverPreview({
   );
 }
 
-/**
- * A single screencast frame, fetched as a blob through the bridge and
- * rendered from an object URL. Shared by the filmstrip row and the hover
- * preview card — both are just a sized, overflow-hidden, object-cover box.
- */
 type TraceFrameImageProps = {
   bridge: TraceBridge;
   traceUri: string;
@@ -716,8 +541,6 @@ type TraceFrameImageProps = {
   className?: string;
 };
 
-/** Presentational box: a sized, overflow-hidden, object-cover frame image (or
- * an empty box while the object URL resolves). */
 function FrameImageBox({
   url,
   width,
@@ -746,8 +569,6 @@ function FrameImageBox({
   );
 }
 
-/** The hover-preview frame: keyed by sha1 per hover, so a plain object URL that
- * blanks between frames is fine. */
 function TraceFrameImage({
   bridge,
   traceUri,
@@ -758,9 +579,6 @@ function TraceFrameImage({
   return <FrameImageBox url={url} {...box} />;
 }
 
-/** The filmstrip frame: slots are keyed by index and outlive an attempt swap,
- * so each keeps showing the outgoing frame until the new one loads (buffered)
- * instead of blanking the whole strip mid-swap. */
 function BufferedTraceFrameImage({
   bridge,
   traceUri,

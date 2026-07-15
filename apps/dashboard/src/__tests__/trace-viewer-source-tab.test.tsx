@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { TraceTabProps } from "@/trace-viewer/components/detail-tabs";
 import { SourceTab } from "@/trace-viewer/components/source-tab";
 import {
   FIXTURE_TRACE_URL,
@@ -56,7 +55,7 @@ afterEach(() => {
 
 /** Fixture model with both spec + helper source contents pre-seeded (skips
  * the sha1 fetch path) and `call@2` (whose stack spans both files) selected. */
-function seededProps(): TraceTabProps {
+function seededProps(): ReturnType<typeof makeTabProps> {
   const model = makeModel();
   model.sources.get(SPEC_FILE)!.content = SPEC_CONTENT;
   model.sources.get(HELPERS_FILE)!.content = HELPERS_CONTENT;

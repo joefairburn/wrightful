@@ -8,6 +8,7 @@ import {
 } from "@/lib/artifact-tokens";
 import { childByTestResultWhere, childProjectScopeWhere } from "@/lib/scope";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
+import { selectReplayTracesByAttempt } from "@/lib/trace-artifacts";
 
 export type TestReplayResponse = {
   /** The test's title, so a deep-linked modal can render its header. */
@@ -51,6 +52,8 @@ export const GET = defineHandler(async (c) => {
   const rows = await db
     .select({
       id: artifacts.id,
+      name: artifacts.name,
+      type: artifacts.type,
       r2Key: artifacts.r2Key,
       contentType: artifacts.contentType,
       attempt: artifacts.attempt,
@@ -64,7 +67,9 @@ export const GET = defineHandler(async (c) => {
     )
     .orderBy(asc(artifacts.attempt));
 
-  if (rows.length === 0) {
+  const traces = selectReplayTracesByAttempt(rows);
+
+  if (traces.length === 0) {
     return c.json({ error: "No trace recorded for this test" }, 404);
   }
 
@@ -84,7 +89,7 @@ export const GET = defineHandler(async (c) => {
   // One entry per recorded trace (rows are already ascending by attempt);
   // each attempt gets its own freshly-signed token.
   const attempts = await Promise.all(
-    rows.map(async (row) => {
+    traces.map(async (row) => {
       const token = await signArtifactToken(
         { r2Key: row.r2Key, contentType: row.contentType },
         TRACE_TOKEN_TTL_SECONDS,

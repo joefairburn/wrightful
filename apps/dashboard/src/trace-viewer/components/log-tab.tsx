@@ -4,17 +4,17 @@ import type React from "react";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
 import { timeInRange, type TraceTimeRange } from "../model";
+import type { ActionTraceEventInContext } from "../vendor/model-util";
 import {
   OFFSET_GRID_CLASSES,
   OffsetCell,
   ScopedEmpty,
   TabNotice,
 } from "./detail-shared";
-import type { TraceTabProps } from "./detail-tabs";
 
 /**
- * One action's step log — API log lines recorded for `activeAction` (see
- * `TraceTabProps["activeAction"]`), narrowed to the timeline `selection`
+ * One action's step log — API log lines recorded for the hover-aware action,
+ * narrowed to the timeline `selection`
  * window when one is drag-selected. Unlike Console/Network there's no
  * whole-trace universe to fall back to (there's no action selected at all
  * before one is), so the "select an action" state is handled up front and
@@ -28,7 +28,7 @@ export function LogTab({
   startTime,
   selection,
 }: {
-  action: TraceTabProps["activeAction"];
+  action: ActionTraceEventInContext | undefined;
   startTime: number;
   /** Timeline selection: only log entries inside the window are shown. */
   selection: TraceTimeRange | null;

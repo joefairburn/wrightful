@@ -8,13 +8,16 @@ import { basename } from "@/lib/basename";
 import { cn } from "@/lib/cn";
 import { formatTraceOffset } from "../format";
 import { timeInRange, type TraceTimeRange } from "../model";
-import { eventsForAction } from "../vendor/model-util";
+import {
+  eventsForAction,
+  type ActionTraceEventInContext,
+  type TraceModel,
+} from "../vendor/model-util";
 import type {
   ConsoleMessageTraceEvent,
   EventTraceEvent,
 } from "../vendor/trace";
 import { OFFSET_GRID_CLASSES, OffsetCell, ScopedEmpty } from "./detail-shared";
-import type { TraceTabProps } from "./detail-tabs";
 
 /**
  * A console message or an uncaught-page-error event. The `method: "pageError"`
@@ -43,7 +46,7 @@ function isConsoleRow(
  * the list.
  */
 export function selectConsoleRows(
-  model: TraceTabProps["model"],
+  model: TraceModel,
   selection: TraceTimeRange | null,
 ): ConsoleRow[] {
   return model.events
@@ -77,7 +80,12 @@ export function ConsoleTab({
   selectedAction,
   scopeToSelected,
   selection,
-}: TraceTabProps): React.ReactElement {
+}: {
+  model: TraceModel;
+  selectedAction: ActionTraceEventInContext | undefined;
+  scopeToSelected: boolean;
+  selection: TraceTimeRange | null;
+}): React.ReactElement {
   // A timeline selection narrows the row universe first; the crosshair's
   // action-window scoping (and highlighting) then applies within it.
   const allRows = selectConsoleRows(model, selection);

@@ -100,14 +100,14 @@ export function classifyAttachment(
   contentType: string,
 ): ArtifactType {
   const ct = contentType.toLowerCase();
-  if (ct === "application/zip" || ct === "application/x-zip-compressed") {
+  // Playwright uses `trace`; older integrations may use `trace.zip`.
+  if (name === "trace" || name === "trace.zip") {
     return "trace";
   }
   if (ct.startsWith("image/")) return "screenshot";
   if (ct.startsWith("video/")) return "video";
 
   const ext = extname(name).toLowerCase();
-  if (ext === ".zip" && name.includes("trace")) return "trace";
   if (ext === ".png" || ext === ".jpg" || ext === ".jpeg" || ext === ".webp") {
     return "screenshot";
   }

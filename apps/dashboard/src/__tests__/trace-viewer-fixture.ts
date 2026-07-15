@@ -1,5 +1,5 @@
 import { vi } from "vite-plus/test";
-import type { TraceTabProps } from "@/trace-viewer/components/detail-tabs";
+import type { DetailTabsProps } from "@/trace-viewer/components/detail-tabs";
 import type { TraceBridge } from "@/trace-viewer/use-trace-model";
 import type { ContextEntry } from "@/trace-viewer/vendor/entries";
 import { TraceModel } from "@/trace-viewer/vendor/model-util";
@@ -304,7 +304,7 @@ export function makeModel(over?: Partial<ContextEntry>): TraceModel {
 }
 
 /**
- * Default `TraceTabProps` for the detail-tab component suites: a fresh
+ * Default inputs for the detail-tab component suites: a fresh
  * fixture model, no selection, an empty bridge, and a `vi.fn()` for
  * `onSelectAction`. Pass overrides for whatever a test pins down (a shared
  * `model` + its `selectedAction`, a seeded `bridge`, `scopeToSelected`…).
@@ -313,9 +313,13 @@ export function makeModel(over?: Partial<ContextEntry>): TraceModel {
  * `activeAction` existed) — pass an explicit `activeAction` to steer the
  * hover-aware tabs (Call/Log/Source) independently of the selection.
  */
+export type TraceTabFixtureProps = DetailTabsProps & {
+  scopeToSelected: boolean;
+};
+
 export function makeTabProps(
-  overrides: Partial<TraceTabProps> = {},
-): TraceTabProps {
+  overrides: Partial<TraceTabFixtureProps> = {},
+): TraceTabFixtureProps {
   const selectedAction = overrides.selectedAction ?? undefined;
   return {
     model: makeModel(),

@@ -3,12 +3,16 @@
 import type React from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatTraceDuration, formatWallClock } from "../format";
+import type { TraceModel } from "../vendor/model-util";
 import { Field } from "./detail-shared";
-import type { TraceTabProps } from "./detail-tabs";
 
 /** Trace/context metadata as a dense two-column definition grid. Every value is
  * plain prose (`variant="plain"`), unlike Call's monospace fields. */
-export function MetadataTab({ model }: TraceTabProps): React.ReactElement {
+export function MetadataTab({
+  model,
+}: {
+  model: TraceModel;
+}): React.ReactElement {
   const browser =
     [model.browserName, model.channel].filter(Boolean).join(" / ") || "—";
   const viewport = model.options.viewport

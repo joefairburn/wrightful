@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { ScaledSnapshotStage } from "@/trace-viewer/components/snapshot-stage";
 import type { PlaybackController } from "@/trace-viewer/components/use-playback";
 import { SnapshotPane } from "@/trace-viewer/components/snapshot-pane";
+import { collectSnapshots } from "@/trace-viewer/model";
 import {
   FIXTURE_TRACE_URL,
   makeAction,
@@ -175,6 +177,43 @@ describe("SnapshotPane", () => {
     expect(remaining).toHaveLength(1);
     expect(src(remaining[0]!)).toBe(OTHER_TRACE_URL);
     expect(remaining[0]!.getAttribute("aria-hidden")).toBe("false");
+  });
+
+  it("keeps the visible snapshot's viewport until the replacement is promoted", () => {
+    const model = makeModel();
+    const action = model.actions.find((a) => a.callId === "call@1")!;
+    const OTHER_TRACE_URL = "https://dash.test/api/artifacts/a2/download?t=t2";
+    const snapshots = collectSnapshots(action);
+    const available = ["before", "action", "after"] as const;
+    const { rerender } = render(
+      <ScaledSnapshotStage
+        traceUrl={FIXTURE_TRACE_URL}
+        snapshots={snapshots}
+        available={[...available]}
+        activeTab="action"
+        viewport={{ width: 800, height: 600 }}
+      />,
+    );
+
+    rerender(
+      <ScaledSnapshotStage
+        traceUrl={OTHER_TRACE_URL}
+        snapshots={snapshots}
+        available={[...available]}
+        activeTab="action"
+        viewport={{ width: 1600, height: 900 }}
+      />,
+    );
+
+    const frames = screen.getAllByTitle("DOM snapshot (Action)");
+    const front = frames.find(
+      (frame) => frame.getAttribute("aria-hidden") === "false",
+    );
+    const back = frames.find(
+      (frame) => frame.getAttribute("aria-hidden") === "true",
+    );
+    expect(front?.style.width).toBe("800px");
+    expect(back?.style.width).toBe("1600px");
   });
 
   it("drops the back buffer when the URL returns to the visible document mid-load", () => {

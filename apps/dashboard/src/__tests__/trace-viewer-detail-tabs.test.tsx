@@ -9,7 +9,6 @@ import {
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DetailTabs } from "@/trace-viewer/components/detail-tabs";
-import type { TraceTabProps } from "@/trace-viewer/components/detail-tabs";
 import {
   makeAction,
   makeBridge,
@@ -46,7 +45,7 @@ function tab(name: string): HTMLElement {
  * fields it actually pins down.
  */
 function renderDetailTabs(
-  overrides: Partial<TraceTabProps> = {},
+  overrides: Parameters<typeof makeTabProps>[0] = {},
 ): ReturnType<typeof render> {
   return render(<DetailTabs {...makeTabProps(overrides)} />);
 }
