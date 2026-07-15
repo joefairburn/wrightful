@@ -10,7 +10,10 @@ import { FAILURES_BRANCH } from "./global-setup";
  * `/trace-viewer/` loads the parsed model (`contexts?trace=…`), and DOM
  * snapshots render in iframes served by the SW
  * (`/trace-viewer/snapshot/<pageId>?trace=…`). The official viewer bundle
- * stays vendored as the engine + an "Official viewer" new-tab fallback.
+ * stays vendored as the engine only — there's no separate "official viewer"
+ * fallback link; the replay endpoint's `attempts` entries carry just
+ * `{ attempt, downloadHref }`, the signed artifact-download URL the native
+ * workbench's SW range-reads.
  *
  * These specs prove: (1) the SW scope is served with the headers that make
  * registration + same-origin snapshot framing possible while the rest of the
@@ -67,10 +70,12 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     await expect(replay).toBeVisible({ timeout: 10_000 });
 
     // Clicking sets `?replay=<testResultId>`; the page-level host then fetches
-    // the replay endpoint. Each attempt entry carries the SELF-HOSTED official
-    // viewer URL (the "Official viewer" fallback link) plus the downloadHref
-    // the native viewer feeds to the service worker; the modal replays the
-    // LAST attempt.
+    // the replay endpoint. Each attempt entry carries only `{ attempt,
+    // downloadHref }` — the signed artifact-download URL
+    // (`/api/artifacts/:id/download?t=<token>`, see `signedDownloadHref` in
+    // `src/lib/artifact-tokens.ts`) that the native workbench's service
+    // worker range-reads directly; there's no separate trace-viewer URL
+    // field. The modal replays the LAST attempt.
     const [resp] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes("/replay") && r.request().method() === "GET",
@@ -79,12 +84,12 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     ]);
     expect(resp.ok()).toBe(true);
     const body = (await resp.json()) as {
-      attempts?: Array<{ traceViewerUrl?: unknown }>;
+      attempts?: Array<{ downloadHref?: unknown }>;
     };
-    const traceViewerUrl = body.attempts?.at(-1)?.traceViewerUrl ?? null;
-    expect(typeof traceViewerUrl).toBe("string");
-    expect(traceViewerUrl).toContain("/trace-viewer/index.html?trace=");
-    expect(traceViewerUrl).not.toContain("trace.playwright.dev");
+    const downloadHref = body.attempts?.at(-1)?.downloadHref ?? null;
+    expect(typeof downloadHref).toBe("string");
+    expect(downloadHref).toMatch(/^\/api\/artifacts\/.+\/download\?t=.+/);
+    expect(downloadHref).not.toContain("trace.playwright.dev");
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: 10_000 });
