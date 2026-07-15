@@ -24,7 +24,6 @@ function signed(over: Partial<SignedArtifact>): SignedArtifact {
     role: over.role ?? null,
     snapshotName: over.snapshotName ?? null,
     href: over.href ?? `/api/artifacts/${over.id ?? "a"}/download?t=tok`,
-    traceViewerUrl: over.traceViewerUrl,
   };
 }
 
@@ -177,21 +176,6 @@ describe("buildAttemptArtifactGroups", () => {
     ];
     const media = buildAttemptArtifactGroups(rows).get(0)?.media ?? [];
     expect(media.map((m) => m.id)).toEqual(["trace"]);
-  });
-
-  it("propagates traceViewerUrl onto the trace action", () => {
-    const rows: SignedArtifact[] = [
-      signed({
-        id: "trace",
-        type: "trace",
-        href: "/api/artifacts/trace/download?t=tok",
-        traceViewerUrl: "https://trace.playwright.dev/?trace=x",
-      }),
-    ];
-    const media = buildAttemptArtifactGroups(rows).get(0)?.media ?? [];
-    expect(media[0].traceViewerUrl).toBe(
-      "https://trace.playwright.dev/?trace=x",
-    );
   });
 });
 

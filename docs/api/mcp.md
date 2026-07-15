@@ -80,14 +80,14 @@ each call.
 | ----------------------- | ----------------------------------------------------------- |
 | `list_projects`         | Every team + project your account can read — call it first. |
 
-| Tool               | What it does                                                                                                                                                                                                                                            |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_runs`        | List runs, newest first. Filters: `pr` (PR number), `commit` (SHA prefix), `branch`, `status[]`, `environment`, `actor`, `from`/`to` dates, `origin` (`ci`/`synthetic`/`all`). Cursor-paginated.                                                        |
-| `get_run`          | One run's full summary: status, pass/fail/flaky/skipped counts, duration, commit/PR/branch/actor, CI provider, dashboard URL.                                                                                                                           |
-| `list_tests`       | A run's test results with truncated error messages. `status:"failed"` narrows to failures. Cursor-paginated.                                                                                                                                            |
-| `list_flaky_tests` | The project's flakiest tests over a trailing window (default 14 days), ranked by flake rate (flaky / flaky + passed — same definition as the dashboard's flaky page). Each row links its latest flaky `testResultId`.                                   |
-| `get_test_result`  | Full detail for one test: complete error message + stack, every retry attempt with its own error **plus captured `stdout`/`stderr`** (the test process's own `console.log` output), tags, annotations, and the artifact index (id/type/name/size/role). |
-| `get_artifact`     | Fetch one artifact. Screenshots ≤ 2 MiB return inline as an image; text artifacts ≤ 128 KiB inline as text; everything else returns a signed download URL (1 h). Traces also get a `trace.playwright.dev` viewer URL.                                   |
+| Tool               | What it does                                                                                                                                                                                                                                                           |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_runs`        | List runs, newest first. Filters: `pr` (PR number), `commit` (SHA prefix), `branch`, `status[]`, `environment`, `actor`, `from`/`to` dates, `origin` (`ci`/`synthetic`/`all`). Cursor-paginated.                                                                       |
+| `get_run`          | One run's full summary: status, pass/fail/flaky/skipped counts, duration, commit/PR/branch/actor, CI provider, dashboard URL.                                                                                                                                          |
+| `list_tests`       | A run's test results with truncated error messages. `status:"failed"` narrows to failures. Cursor-paginated.                                                                                                                                                           |
+| `list_flaky_tests` | The project's flakiest tests over a trailing window (default 14 days), ranked by flake rate (flaky / flaky + passed — same definition as the dashboard's flaky page). Each row links its latest flaky `testResultId`.                                                  |
+| `get_test_result`  | Full detail for one test: complete error message + stack, every retry attempt with its own error **plus captured `stdout`/`stderr`** (the test process's own `console.log` output), tags, annotations, and the artifact index (id/type/name/size/role).                |
+| `get_artifact`     | Fetch one artifact. Screenshots ≤ 2 MiB return inline as an image; text artifacts ≤ 128 KiB inline as text; everything else returns a signed download URL (1 h normally, 8 h for replayable traces). Replayable traces also get a same-origin, self-hosted viewer URL. |
 
 Typical agent flow: `list_runs {pr: 123, status: ["failed"]}` →
 `list_tests {run_id, status: "failed"}` → `get_test_result {test_result_id}` →
@@ -105,7 +105,9 @@ the passing one, fix the test in the repo, and watch the next runs.
 not inlined returns the same short-lived HMAC-signed download URL the dashboard
 uses (`/api/artifacts/:id/download?t=…`) — fetchable without an Authorization
 header, so an agent can hand it to `curl`, a browser, or
-`npx playwright show-trace <url>`.
+`npx playwright show-trace <url>`. The response reports the chosen lifetime in
+`downloadUrlExpiresInSeconds`: one hour for ordinary artifacts and eight hours
+for replayable traces whose viewer may lazily request more ZIP ranges.
 
 ## Relationship to the other API surfaces
 

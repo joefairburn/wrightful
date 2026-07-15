@@ -6,16 +6,38 @@ import {
   base64urlEncode,
   timingSafeEqualBytes,
 } from "@/lib/token-crypto";
+import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
 
 /**
- * Lifetime of an artifact-download token (1 hour). Exported so the direct-R2
- * trace-viewer embed can mint its presigned R2 URL with exactly the same
- * lifetime as the token minted alongside it — keeping the "a presigned
- * capability never outlives its authorizing token" invariant on both byte paths
- * (the 302 path caps to the token's *remaining* life; the trace embed mints both
- * together, so the token's *full* life applies).
+ * Lifetime of an artifact-download token (1 hour). Exported because two other
+ * places need this exact value: the default `ttlSeconds` for
+ * `signArtifactToken` below, and the presign cap in `serveArtifactBytes`
+ * (`apps/dashboard/src/lib/artifacts/serve.ts`), which mints a direct-R2
+ * presigned GET expiring at `min(remainingTokenSeconds,
+ * ARTIFACT_TOKEN_TTL_SECONDS)` — the single place enforcing that a longer-lived
+ * TRACE token (see below) can't mint an equally long-lived anonymous-read R2
+ * URL. Keeps the "a presigned capability never outlives its authorizing
+ * token" invariant on both byte paths (the worker-proxy path caps its shared
+ * cache to the token's *remaining* life; the direct-R2 path additionally caps
+ * to this standard ceiling).
  */
 export const ARTIFACT_TOKEN_TTL_SECONDS = 60 * 60;
+
+/**
+ * Lifetime of a TRACE download token (8 hours, vs 1 hour for other
+ * artifacts). The Replay viewer's service worker range-reads the trace zip
+ * LAZILY — scrubbing to a not-yet-cached snapshot re-reads bytes with the
+ * token minted when the modal opened — so a debugging session longer than
+ * the token would start failing quietly mid-scrub.
+ *
+ * In direct-R2 mode the SW's range-read GETs still hit `/api/artifacts/:id/
+ * download` and 302 to a presigned R2 URL, so the longer token DOES reach the
+ * presign path — but `serveArtifactBytes` (the single home of the presign cap;
+ * `apps/dashboard/src/lib/artifacts/serve.ts`) caps every presigned URL to
+ * `ARTIFACT_TOKEN_TTL_SECONDS`, not the token's full remaining life, so this
+ * longer token never mints an equally long-lived anonymous-read R2 URL.
+ */
+export const TRACE_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 
 /**
  * Signed artifact-download token. Carries the R2 object key + content type
@@ -27,6 +49,34 @@ export interface ArtifactDownloadPayload {
   r2Key: string;
   /** Content-Type echoed to the client (and the trace viewer). */
   contentType: string;
+}
+
+/**
+ * The row fields needed to choose an artifact download's lifetime and sign
+ * its storage capability. Keeping the policy on the complete artifact avoids
+ * callers treating every row with `type: "trace"` as replayable.
+ */
+export interface ArtifactDownloadTokenCandidate extends ArtifactDownloadPayload {
+  type: string;
+  name: string;
+}
+
+/**
+ * The canonical lifetime policy for artifact-download capabilities.
+ * Replayable traces need the longer window because the viewer range-reads
+ * them lazily; every other artifact keeps the standard one-hour lifetime.
+ */
+export function artifactDownloadTokenTtlSeconds(
+  artifact: ArtifactDownloadTokenCandidate,
+): number {
+  return isReplayTraceArtifact(artifact)
+    ? TRACE_TOKEN_TTL_SECONDS
+    : ARTIFACT_TOKEN_TTL_SECONDS;
+}
+
+export interface SignedArtifactDownloadToken {
+  token: string;
+  expiresInSeconds: number;
 }
 
 const signedPayloadSchema = z.object({
@@ -74,32 +124,21 @@ export function signedDownloadHref(artifactId: string, token: string): string {
 export const TRACE_VIEWER_PATH = "/trace-viewer/index.html";
 
 /**
- * Wrap a signed download URL in a self-hosted trace-viewer link. The viewer
- * fetches the trace from the `?trace=` URL with range requests, so it must be
- * the **absolute** same-origin download URL — hence the request `origin`. Pure
- * + exported alongside `signedDownloadHref` so the trace-viewer wrap lives next
- * to the download-URL shape it depends on (the viewer URL embeds the download
- * URL verbatim). Embedded in-app via an iframe (see `trace-viewer-dialog.tsx`).
+ * Wrap an ABSOLUTE signed download URL in our SELF-HOSTED trace-viewer link.
+ * Same-origin by construction: the viewer served from our origin range-reads
+ * the trace from the (same-origin) download URL, so the bytes stay on this
+ * dashboard and are never handed to the third-party trace.playwright.dev — the
+ * whole point of vendoring the viewer.
+ *
+ * The result is absolute (origin taken from the download URL), so it's a valid
+ * standalone link: the artifacts rail's "has a replayable trace" gate and the
+ * MCP `get_artifact` response both hand it out. The one place that deliberately
+ * opts into trace.playwright.dev is the dialog's "Public viewer" button, which
+ * builds that cross-origin URL itself.
  */
-export function signedTraceViewerUrl(
-  origin: string,
-  artifactId: string,
-  token: string,
-): string {
-  const downloadUrl = `${origin}${signedDownloadHref(artifactId, token)}`;
-  return `${TRACE_VIEWER_PATH}?trace=${encodeURIComponent(downloadUrl)}`;
-}
-
-/**
- * Wrap any absolute trace URL in a trace.playwright.dev link. Used by the
- * direct-R2 path (a presigned R2 GET URL embedded directly, so the cross-origin
- * trace viewer never has to follow a cross-origin 302; see
- * `test-artifact-actions.ts` and ADR 0003). The worker-proxy download path goes
- * through {@link signedTraceViewerUrl} instead, which wraps the same-origin
- * download URL in the self-hosted viewer (`TRACE_VIEWER_PATH`).
- */
-export function traceViewerUrlFor(absoluteTraceUrl: string): string {
-  return `https://trace.playwright.dev/?trace=${encodeURIComponent(absoluteTraceUrl)}`;
+export function selfHostedTraceViewerUrl(absoluteDownloadUrl: string): string {
+  const { origin } = new URL(absoluteDownloadUrl);
+  return `${origin}${TRACE_VIEWER_PATH}?trace=${encodeURIComponent(absoluteDownloadUrl)}`;
 }
 
 export async function signArtifactToken(
@@ -121,6 +160,22 @@ export async function signArtifactToken(
     new TextEncoder().encode(body),
   );
   return `${body}.${base64urlEncode(new Uint8Array(sig))}`;
+}
+
+/**
+ * Sign a real artifact row under the canonical lifetime policy and return the
+ * chosen lifetime with the token. Callers that describe the capability (for
+ * example MCP) must use `expiresInSeconds` rather than restating the policy.
+ */
+export async function signArtifactDownloadToken(
+  artifact: ArtifactDownloadTokenCandidate,
+): Promise<SignedArtifactDownloadToken> {
+  const expiresInSeconds = artifactDownloadTokenTtlSeconds(artifact);
+  const token = await signArtifactToken(
+    { r2Key: artifact.r2Key, contentType: artifact.contentType },
+    expiresInSeconds,
+  );
+  return { token, expiresInSeconds };
 }
 
 export async function verifyArtifactToken(

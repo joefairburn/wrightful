@@ -846,7 +846,12 @@ describe("Wrightful E2E", () => {
       );
       expect(traceMeta.id).toBe(traceUpload.artifactId);
       expect(traceMeta.note).toContain("downloadUrl");
-      expect(traceMeta.traceViewerUrl).toContain("trace.playwright.dev");
+      const traceViewerUrl = new URL(traceMeta.traceViewerUrl);
+      expect(traceViewerUrl.origin).toBe(new URL(DASHBOARD_URL).origin);
+      expect(traceViewerUrl.pathname).toBe("/trace-viewer/index.html");
+      expect(traceViewerUrl.searchParams.get("trace")).toBe(
+        traceMeta.downloadUrl,
+      );
       // The signed URL must work WITHOUT an Authorization header — that is
       // the whole point (hand it to curl / a browser / show-trace).
       const download = await fetch(traceMeta.downloadUrl);

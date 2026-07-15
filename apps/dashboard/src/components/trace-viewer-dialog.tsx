@@ -1,10 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Download, ExternalLink, PlayCircle } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { Download, PlayCircle, Share2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { fetch } from "void/client";
 import type { ArtifactAction } from "@/components/artifact-actions";
+import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSearchParam } from "@/lib/use-search-param";
+import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
+import { TraceViewer } from "@/trace-viewer/components/trace-viewer";
+import { releaseWarmedTrace, warmTraceViewer } from "@/trace-viewer/warm";
 
 /**
  * URL param that drives the Replay modal so it's deep-linkable / shareable.
@@ -25,118 +30,81 @@ import { useSearchParam } from "@/lib/use-search-param";
 const REPLAY_PARAM = "replay";
 
 /**
- * Close-on-Escape across ALL of the trace viewer's same-origin frames. The
- * viewer is self-hosted (same-origin) and renders DOM snapshots in a NESTED
- * iframe; a keydown while focus is inside that snapshot frame reaches neither
- * the parent Dialog nor the top viewer window, so Escape would be swallowed
- * there. Bind the handler on the viewer window AND every reachable same-origin
- * descendant frame, re-binding as frames are added or re-navigated during a
- * scrub (each frame's `load` + a `MutationObserver` per document). Every access
- * is guarded — a cross-origin frame throws and is skipped, and any failure
- * degrades to the Dialog's own Escape/backdrop handling. Idempotent (WeakSets
- * guard re-binding); the returned cleanup tears everything down.
+ * One attempt's replay links, as consumed by the switcher below — the same
+ * shape as `TestReplayResponse["attempts"][number]` (the `/replay` route),
+ * so the host can pass the response's `attempts` straight through.
  */
-function bindEscapeAcrossFrames(
-  topWin: Window,
-  onEscape: () => void,
-): () => void {
-  const cleanups: Array<() => void> = [];
-  const boundWindows = new WeakSet<Window>();
-  const boundFrames = new WeakSet<HTMLIFrameElement>();
-  const observedDocs = new WeakSet<Document>();
-
-  const onKey = (e: KeyboardEvent): void => {
-    if (e.key === "Escape") onEscape();
-  };
-
-  function bindWindow(win: Window): void {
-    if (boundWindows.has(win)) return;
-    boundWindows.add(win);
-    let doc: Document;
-    try {
-      win.addEventListener("keydown", onKey);
-      doc = win.document;
-    } catch {
-      return; // cross-origin frame — unreachable, skip
-    }
-    cleanups.push(() => {
-      try {
-        win.removeEventListener("keydown", onKey);
-      } catch {
-        /* window already torn down */
-      }
-    });
-    scanDoc(doc);
-  }
-
-  function scanDoc(doc: Document): void {
-    for (const frame of Array.from(doc.querySelectorAll("iframe"))) {
-      if (boundFrames.has(frame)) continue;
-      boundFrames.add(frame);
-      const onFrameLoad = (): void => {
-        const cw = frame.contentWindow;
-        if (cw) bindWindow(cw);
-      };
-      frame.addEventListener("load", onFrameLoad);
-      cleanups.push(() => frame.removeEventListener("load", onFrameLoad));
-      onFrameLoad(); // bind whatever's currently loaded
-    }
-    if (observedDocs.has(doc)) return;
-    observedDocs.add(doc);
-    const observer = new MutationObserver(() => scanDoc(doc));
-    observer.observe(doc.documentElement, { childList: true, subtree: true });
-    cleanups.push(() => observer.disconnect());
-  }
-
-  bindWindow(topWin);
-  return () => {
-    for (const c of cleanups) c();
-  };
+export interface TestReplayAttempt {
+  /** 0-based, as stored — displayed as `attempt + 1`. */
+  attempt: number;
+  /** Signed raw `trace.zip` download — the viewer's SW range-reads it, and the
+   * header's download/public-viewer actions point at it. */
+  downloadHref: string;
 }
 
 /**
- * Shared body of the Replay dialog: a near-full-viewport panel whose iframe
- * hosts the self-hosted Playwright trace viewer
- * (`/trace-viewer/index.html?trace=…`, vendored into `public/` — see
- * `scripts/vendor-trace-viewer.mjs`). This gives Cypress-style time-travel (DOM
- * snapshot scrubber + command log + network + console) without leaving the
- * dashboard, and without the trace bytes ever reaching the public
- * trace.playwright.dev.
+ * Shared body of the Replay dialog: a near-full-viewport panel hosting OUR
+ * trace viewer (`src/trace-viewer/` — native dashboard components on top of
+ * the vendored Playwright service worker; see that folder's bridge.html for
+ * the architecture). Gives Cypress-style time-travel (DOM snapshot scrubber +
+ * action tree + network/console) without leaving the dashboard and without
+ * the trace bytes ever reaching the public trace.playwright.dev.
  *
- * The iframe mounts only while `open` so the ~1.6 MB bundle + service-worker
- * registration defer to first use and a reopened dialog reloads fresh (no stale
- * snapshot from a prior trace).
+ * The viewer mounts only while `open`, so the SW registration + trace
+ * download defer to first use and a reopened dialog loads fresh. The header
+ * carries two icon actions (tooltip on hover): download the trace, or open it
+ * in the public Playwright viewer (trace.playwright.dev, new tab). When 2+
+ * `attempts` are given, a compact switcher in the header lets the retries be
+ * replayed individually — defaulting to the LAST one.
  */
 function TestReplayContent({
-  viewerUrl,
-  downloadHref,
   title,
+  attempts,
   open,
   onClose,
 }: {
-  viewerUrl: string;
-  downloadHref: string;
   title: string;
+  /**
+   * Every attempt with a recorded trace, ascending, non-empty. Only rendered
+   * as a switcher when 2+ are present — a single-attempt test (the common
+   * case) has nothing to switch between. The artifacts-rail entry point
+   * (which only ever knows about the one artifact resolved at SSR) builds a
+   * single-element array.
+   */
+  attempts: TestReplayAttempt[];
   open: boolean;
   /** Close the modal (clears the `?replay=` URL param). */
   onClose: () => void;
 }): React.ReactElement {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  // Removes the iframe's Escape listener; set on each load, called on unmount.
-  const escapeCleanup = useRef<(() => void) | null>(null);
-  useEffect(() => () => escapeCleanup.current?.(), []);
+  // Selected attempt defaults to the LAST one.
+  const lastAttempt = attempts.at(-1)?.attempt;
+  const [selectedAttempt, setSelectedAttempt] = useState(lastAttempt);
+
+  // `attempts` is guaranteed non-empty by the prop contract, so the fallback
+  // to the last attempt always resolves.
+  const active =
+    attempts.find((a) => a.attempt === selectedAttempt) ?? attempts.at(-1)!;
+  const activeDownloadHref = active.downloadHref;
+
+  // The SW resolves + range-reads the trace zip itself, so it needs the
+  // ABSOLUTE signed download URL. Client-only (needs `window.location`):
+  // null on SSR, set on hydrate — the dialog body is client-side anyway.
+  const absoluteTraceUrl = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return new URL(activeDownloadHref, window.location.origin).href;
+  }, [activeDownloadHref]);
 
   // Public-viewer fallback — opens the trace on the public trace.playwright.dev
-  // in a NEW TAB (never framed, so the page CSP doesn't apply). Built from the
-  // explicit `downloadHref` prop + the current origin, NOT by parsing
-  // `signedTraceViewerUrl`'s `?trace=` layout (which this component doesn't own).
-  // Client-only (needs `window.location.origin`): null on SSR, set on hydrate.
-  const publicViewerUrl = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    const absoluteDownloadUrl = new URL(downloadHref, window.location.origin)
-      .href;
-    return `https://trace.playwright.dev/?trace=${encodeURIComponent(absoluteDownloadUrl)}`;
-  }, [downloadHref]);
+  // in a NEW TAB (never framed, so the page CSP doesn't apply).
+  const publicViewerUrl = absoluteTraceUrl
+    ? `https://trace.playwright.dev/?trace=${encodeURIComponent(absoluteTraceUrl)}`
+    : null;
+
+  // The modal is up and mounts its OWN authoritative bridge below — release the
+  // hover prewarm's iframe so it doesn't keep pinning the trace for the session.
+  useEffect(() => {
+    if (open) releaseWarmedTrace();
+  }, [open]);
 
   return (
     <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden p-0">
@@ -145,66 +113,91 @@ function TestReplayContent({
           {title}
         </DialogTitle>
         <div className="flex shrink-0 items-center gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            render={<a href={viewerUrl} target="_blank" rel="noreferrer" />}
-          >
-            <ExternalLink />
-            New tab
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            render={<a href={downloadHref} download />}
-          >
-            <Download />
-            Download
-          </Button>
-          {publicViewerUrl ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              title="Opens the public Playwright viewer — sends this trace to trace.playwright.dev"
-              className="text-fg-3"
-              render={
-                <a href={publicViewerUrl} target="_blank" rel="noreferrer" />
-              }
-            >
-              Public viewer
-            </Button>
+          {attempts.length > 1 ? (
+            <SegmentedControl
+              compact
+              value={String(selectedAttempt ?? lastAttempt)}
+              onChange={(next) => setSelectedAttempt(Number(next))}
+              // Hover intent on a NON-selected attempt prewarms its trace
+              // (loads + parses it into the SW cache), so the in-place swap
+              // on click is near-instant.
+              onOptionHover={(value) => {
+                const hovered = attempts.find(
+                  (a) => String(a.attempt) === value,
+                );
+                if (!hovered || hovered.attempt === active.attempt) return;
+                warmTraceViewer(
+                  new URL(hovered.downloadHref, window.location.origin).href,
+                );
+              }}
+              options={attempts.map((a) => ({
+                value: String(a.attempt),
+                label: `Attempt ${a.attempt + 1}`,
+              }))}
+            />
           ) : null}
+          {publicViewerUrl ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Open in the Playwright viewer"
+                    render={
+                      <a
+                        href={publicViewerUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      />
+                    }
+                  >
+                    <Share2 />
+                  </Button>
+                }
+              />
+              <TooltipPopup>
+                Open in the Playwright viewer — sends this trace to
+                trace.playwright.dev
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Download trace"
+                  render={<a href={activeDownloadHref} download />}
+                >
+                  <Download />
+                </Button>
+              }
+            />
+            <TooltipPopup>Download trace</TooltipPopup>
+          </Tooltip>
         </div>
       </div>
-      {open ? (
-        <iframe
-          ref={iframeRef}
-          title={`Replay: ${title}`}
-          src={viewerUrl}
-          className="min-h-0 w-full flex-1 border-0 bg-bg-0"
-          // Bind Escape-to-close across the viewer's frames (see
-          // `bindEscapeAcrossFrames`) — a same-origin iframe swallows the key
-          // otherwise. Drop any prior binding first so a re-load can't stack
-          // listeners; the unmount effect above clears the last one.
-          onLoad={() => {
-            escapeCleanup.current?.();
-            const win = iframeRef.current?.contentWindow;
-            escapeCleanup.current = win
-              ? bindEscapeAcrossFrames(win, onClose)
-              : null;
-          }}
-        />
-      ) : null}
+      <div className="min-h-0 flex-1 bg-bg-0">
+        {open && absoluteTraceUrl ? (
+          // Deliberately NOT keyed on the attempt: switching attempts only
+          // changes `traceUrl`, and the viewer loads the new trace behind the
+          // still-rendered previous one (see `useTraceModel`), so the frame
+          // never drops to a spinner.
+          <TraceViewer traceUrl={absoluteTraceUrl} onEscape={onClose} />
+        ) : null}
+      </div>
     </DialogContent>
   );
 }
 
 /**
  * Test-detail artifacts-rail entry point. The trace artifact already carries a
- * signed `traceViewerUrl` (minted in the page loader), so the dialog opens
- * directly. Open state lives in `?replay=<artifactId>` so a specific replay is
- * deep-linkable. `children` are the trigger's inner content so the rail keeps
- * ownership of the button's appearance.
+ * signed `downloadHref` (minted in the page loader), so the dialog opens
+ * directly on it. Open state lives in `?replay=<artifactId>` so a specific
+ * replay is deep-linkable. `children` are the trigger's inner content so the
+ * rail keeps ownership of the button's appearance.
  */
 export function TraceViewerDialog({
   artifact,
@@ -214,8 +207,7 @@ export function TraceViewerDialog({
   children: React.ReactNode;
 }): React.ReactElement {
   const [replay, setReplay] = useSearchParam(REPLAY_PARAM, "");
-  const viewerUrl = artifact.traceViewerUrl;
-  if (!viewerUrl) return <></>;
+  if (!isReplayTraceArtifact(artifact)) return <></>;
 
   const open = replay === artifact.id;
   const close = (): void => setReplay("");
@@ -231,14 +223,24 @@ export function TraceViewerDialog({
             size="sm"
             variant="outline"
             className="w-full justify-between"
+            // Full prefetch on intent: unlike the Tests-tab row, the
+            // artifact's download URL is already known here, so the SW can
+            // load + parse the trace before the click.
+            onPointerEnter={() =>
+              warmTraceViewer(
+                new URL(artifact.downloadHref, window.location.origin).href,
+              )
+            }
           />
         }
       >
         {children}
       </DialogTrigger>
       <TestReplayContent
-        viewerUrl={viewerUrl}
-        downloadHref={artifact.downloadHref}
+        // Only the artifact resolved at SSR is known here — a single-element
+        // array. The `attempt` number is only used for the switcher label,
+        // which doesn't render for a single attempt.
+        attempts={[{ attempt: 0, downloadHref: artifact.downloadHref }]}
         title={artifact.name}
         open={open}
         onClose={close}
@@ -271,6 +273,10 @@ export function ReplayRowButton({
         e.stopPropagation();
         setReplay(testResultId);
       }}
+      // Register-only warm: this row doesn't know its trace URL (only the
+      // replay endpoint, fetched lazily by `ReplayModalHost`, does), but the
+      // SW registration alone shaves the modal's first-ever load.
+      onPointerEnter={() => warmTraceViewer()}
     >
       <PlayCircle className="size-3.5" strokeWidth={2} />
       Replay
@@ -311,19 +317,21 @@ export function ReplayModalHost({
         },
       ),
     enabled: replay !== "",
-    // A trace for a given testResultId is immutable — never refetch on remount.
-    staleTime: Number.POSITIVE_INFINITY,
+    // Refetch on open because downloadHref is an expiring signed URL.
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // No trace / transient failure — drop the param so the URL doesn't advertise
-  // a modal that can't open. This is a navigation side effect, so it can't run
-  // during render.
+  // a modal that can't open. Navigation side effect, so it can't run in render.
   useEffect(() => {
     if (query.isError) setReplay("");
   }, [query.isError, setReplay]);
 
   const close = (): void => setReplay("");
-  const resolved = query.data;
+  // Do not render a cached signed URL while its replacement is loading.
+  const resolved = query.fetchStatus === "fetching" ? undefined : query.data;
   const open = Boolean(replay) && resolved !== undefined;
 
   return (
@@ -335,9 +343,9 @@ export function ReplayModalHost({
     >
       {resolved ? (
         <TestReplayContent
-          viewerUrl={resolved.traceViewerUrl}
-          downloadHref={resolved.downloadHref}
+          key={replay}
           title={resolved.title}
+          attempts={resolved.attempts}
           open={open}
           onClose={close}
         />

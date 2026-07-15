@@ -11,10 +11,11 @@ import { z } from "zod";
 import { env } from "void/env";
 import { storage } from "void/storage";
 import {
-  signArtifactToken,
+  selfHostedTraceViewerUrl,
+  signArtifactDownloadToken,
   signedDownloadHref,
-  traceViewerUrlFor,
 } from "@/lib/artifact-tokens";
+import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
 import { loadRunsListPage } from "@/lib/export";
 import {
   ERROR_MESSAGE_SNIPPET_CHARS,
@@ -136,13 +137,14 @@ type ArtifactContentBlock = CallToolResult["content"][number];
 
 /**
  * The metadata card `get_artifact` always returns: identity, size/role, the
- * signed 1-hour download URL, and — for traces — the browser viewer URL + local
- * `show-trace` hint. Pure; the inline decision layers its `warning`/`note` on
- * top afterwards.
+ * signed download URL + its policy-owned lifetime, and — for replayable
+ * traces — the browser viewer URL + local `show-trace` hint. Pure; the inline decision
+ * layers its `warning`/`note` on top afterwards.
  */
 function artifactMeta(
   artifact: LoadedArtifact,
   downloadUrl: string,
+  downloadUrlExpiresInSeconds: number,
 ): Record<string, unknown> {
   const meta: Record<string, unknown> = {
     id: artifact.id,
@@ -155,12 +157,14 @@ function artifactMeta(
     role: artifact.role,
     snapshotName: artifact.snapshotName,
     downloadUrl,
-    downloadUrlExpiresInSeconds: 3600,
+    downloadUrlExpiresInSeconds,
   };
-  if (artifact.type === "trace") {
-    meta.traceViewerUrl = traceViewerUrlFor(downloadUrl);
+  if (isReplayTraceArtifact(artifact)) {
+    // Our SELF-HOSTED viewer (same-origin) — the trace stays on this dashboard,
+    // never the third-party trace.playwright.dev.
+    meta.traceViewerUrl = selfHostedTraceViewerUrl(downloadUrl);
     meta.hint =
-      "Open traceViewerUrl in a browser, or run: npx playwright show-trace <downloadUrl>";
+      "Open traceViewerUrl in a browser (self-hosted — the trace stays on this dashboard), or run: npx playwright show-trace <downloadUrl>";
   }
   return meta;
 }
@@ -226,7 +230,7 @@ const FLOW_INSTRUCTIONS = `Typical debugging flow:
 1. list_runs — find the run(s) you care about. Filter by pr (PR number), commit (SHA prefix), branch, or status:["failed"].
 2. list_tests with status:"failed" — the failing tests of a run, each with a truncated error message.
 3. get_test_result — full error message + stack, every retry attempt, and the artifact index (screenshots, traces, videos, error context).
-4. get_artifact — small screenshots return inline as images and text artifacts as text; everything else (traces, videos) returns a signed download URL. Playwright traces also return a trace.playwright.dev viewer URL, and can be inspected locally with: npx playwright show-trace <downloadUrl>.
+4. get_artifact — small screenshots return inline as images and text artifacts as text; everything else (traces, videos) returns a signed download URL. Playwright traces also return a self-hosted viewer URL (same-origin — the trace stays on this dashboard), and can be inspected locally with: npx playwright show-trace <downloadUrl>.
 
 For proactive flake hunting ("find and fix my flaky tests"), start with list_flaky_tests instead: it ranks tests by flake rate over a recent window and hands back each test's latest flaky testResultId — feed that into get_test_result to compare the failing attempt against the passing retry (each attempt keeps its own error and artifacts).
 
@@ -553,7 +557,7 @@ export function buildMcpServer(authz: McpAuthz): McpServer {
     name: "get_artifact",
     title: "Get an artifact",
     description:
-      "Fetch one artifact by id (from get_test_result). Small screenshots return inline as an image; small text artifacts (logs, error context) return inline as text. Everything else — Playwright traces, videos, large files — returns a signed download URL (valid 1 hour, no auth header needed). Traces also return a trace.playwright.dev viewer URL and can be opened locally with `npx playwright show-trace <downloadUrl>`.",
+      "Fetch one artifact by id (from get_test_result). Small screenshots return inline as an image; small text artifacts (logs, error context) return inline as text. Everything else — Playwright traces, videos, large files — returns a signed download URL (valid 1 hour normally or 8 hours for replayable traces; no auth header needed). Replayable traces also return a self-hosted viewer URL (same-origin — the trace stays on this dashboard) and can be opened locally with `npx playwright show-trace <downloadUrl>`.",
     inputSchema: {
       artifact_id: z.string().describe("Artifact id from get_test_result"),
     },
@@ -562,13 +566,11 @@ export function buildMcpServer(authz: McpAuthz): McpServer {
       if (!artifact) {
         return errorResult(`Artifact not found: ${args.artifact_id}`);
       }
-      const token = await signArtifactToken({
-        r2Key: artifact.r2Key,
-        contentType: artifact.contentType,
-      });
+      const { token, expiresInSeconds } =
+        await signArtifactDownloadToken(artifact);
       const downloadUrl = `${publicBase()}${signedDownloadHref(artifact.id, token)}`;
 
-      const meta = artifactMeta(artifact, downloadUrl);
+      const meta = artifactMeta(artifact, downloadUrl, expiresInSeconds);
       const inline = await inlineArtifact(artifact);
       if ("blocks" in inline) {
         return {

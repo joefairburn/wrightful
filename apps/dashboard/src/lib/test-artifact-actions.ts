@@ -2,9 +2,8 @@ import { asc, db } from "void/db";
 import { artifacts } from "@schema";
 import type { ArtifactAction } from "@/components/artifact-actions";
 import {
-  signArtifactToken,
+  signArtifactDownloadToken,
   signedDownloadHref,
-  signedTraceViewerUrl,
 } from "@/lib/artifact-tokens";
 import { childByTestResultWhere, type TenantScope } from "@/lib/scope";
 
@@ -34,13 +33,15 @@ function compareByTypeThenName(
 }
 
 /**
- * An artifact row whose download capability has already been minted server-side
- * — `href` is the signed download URL, `traceViewerUrl` is set for traces (the
- * self-hosted viewer wrapping that same signed download URL). The pure
- * presentation transforms (`buildAttemptArtifactGroups`) operate on these so
- * token minting / DB access stays out of the orderable/groupable core. The raw
- * `r2Key` never appears as a field here, and neither `href` nor `traceViewerUrl`
- * embeds it — both go through the token-authed worker download route.
+ * An artifact row whose download capability has already been minted
+ * server-side — `href` is the signed download URL. The pure presentation
+ * transforms (`buildAttemptArtifactGroups`) operate on these so token minting
+ * / DB access stays out of the orderable/groupable core. The raw `r2Key`
+ * never appears as a field here, and `href` doesn't embed it — it goes
+ * through the token-authed worker download route. Consumers that need the
+ * self-hosted trace-viewer link (the rail button, the replay dialog) first
+ * apply the shared replay-eligibility predicate, then derive the viewer link
+ * from `href`; they do not need a separate minted field.
  */
 export interface SignedArtifact {
   id: string;
@@ -51,7 +52,6 @@ export interface SignedArtifact {
   role: string | null;
   snapshotName: string | null;
   href: string;
-  traceViewerUrl?: string;
 }
 
 /**
@@ -151,7 +151,6 @@ function signedToAction(a: SignedArtifact): ArtifactAction {
     name: a.name,
     contentType: a.contentType,
     downloadHref: a.href,
-    traceViewerUrl: a.traceViewerUrl,
   };
 }
 
@@ -183,18 +182,15 @@ type RawArtifactRow = {
 /**
  * Mint a download token per row and project it to a `SignedArtifact`. The raw
  * `r2Key` is consumed HERE (to sign the token) and dropped from the returned
- * shape — it never surfaces in the in-page `href` or the `traceViewerUrl`.
+ * shape — it never surfaces in the in-page `href`.
  */
 async function signArtifactRows(
   rows: readonly RawArtifactRow[],
-  origin: string,
 ): Promise<SignedArtifact[]> {
   return Promise.all(
     rows.map(async (a) => {
-      const token = await signArtifactToken({
-        r2Key: a.r2Key,
-        contentType: a.contentType,
-      });
+      const { token } = await signArtifactDownloadToken(a);
+      const href = signedDownloadHref(a.id, token);
       return {
         id: a.id,
         type: a.type,
@@ -203,18 +199,7 @@ async function signArtifactRows(
         attempt: a.attempt,
         role: a.role,
         snapshotName: a.snapshotName,
-        href: signedDownloadHref(a.id, token),
-        // ALWAYS the self-hosted, same-origin viewer so it can be embedded in an
-        // iframe under our CSP (`default-src 'self'` frames only same-origin).
-        // `trace.playwright.dev` is never used here — it only appears as the
-        // explicit "Public viewer" LINK in the dialog (a new tab, never framed).
-        // Under the direct-R2 path (ADR 0003) the embed stays same-origin too:
-        // the viewer fetches the worker download URL, which 302s to R2 (the
-        // bucket's CORS must allow this origin — was `trace.playwright.dev`).
-        traceViewerUrl:
-          a.type === "trace"
-            ? signedTraceViewerUrl(origin, a.id, token)
-            : undefined,
+        href,
       } satisfies SignedArtifact;
     }),
   );
@@ -232,7 +217,6 @@ async function signArtifactRows(
 export async function loadAttemptArtifactGroups(
   scope: TenantScope,
   testResultId: string,
-  origin: string,
 ): Promise<Map<number, AttemptArtifactGroup>> {
   const rows = await db
     .select(ARTIFACT_PRESENTATION_COLUMNS)
@@ -240,6 +224,6 @@ export async function loadAttemptArtifactGroups(
     .where(childByTestResultWhere(artifacts, scope, testResultId))
     .orderBy(asc(artifacts.attempt));
 
-  const signed = await signArtifactRows(rows, origin);
+  const signed = await signArtifactRows(rows);
   return buildAttemptArtifactGroups(signed);
 }

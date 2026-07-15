@@ -15,14 +15,10 @@ const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
  * see `lib/artifact-tokens.ts#getKey`) carries the R2 key + content-type
  * directly, so we skip the DB on the hot path. CORS narrowed to the dashboard
  * + the Playwright trace viewer.
- *
- * Auth + translation only: verify the token, resolve the CORS origin and the
- * token's remaining life, then hand off to `serveArtifactBytes`, which owns the
- * proxy-vs-302 fork (ADR 0003) and the origin-safety invariants (sanitised
- * content-type, forced attachment, remaining-life cap) on both branches.
  */
-// Exported for unit testing the token gate + translation into
-// `serveArtifactBytes`; the Void router only binds the `GET` export below.
+// Exported for unit testing the token gate + delegation; the Void router only
+// binds the `GET` export below. Auth + translation only — the proxy-vs-302
+// fork and the origin-safety policy live in `serveArtifactBytes`.
 export async function handle(c: Context): Promise<Response> {
   const url = new URL(c.req.url);
   const token = url.searchParams.get("t");
@@ -31,20 +27,23 @@ export async function handle(c: Context): Promise<Response> {
     return unauthorizedResponse(c);
   }
 
+  const corsOrigin = resolveAllowedOrigin(c.req.raw, url.origin);
+  const { r2Key, contentType, exp } = payload;
+
   // Seconds of token life left (≥1s; the token is already verified non-expired
-  // above). `serveArtifactBytes` caps both request-outliving capabilities
-  // (presigned URL expiry / shared-cache window) to it.
+  // above). `serveArtifactBytes` caps every request-outliving capability to
+  // this (the presigned URL additionally to the standard artifact-token TTL).
   const remainingTokenSeconds = Math.max(
     1,
-    payload.exp - Math.floor(Date.now() / 1000),
+    exp - Math.floor(Date.now() / 1000),
   );
 
   return serveArtifactBytes({
-    r2Key: payload.r2Key,
-    tokenContentType: payload.contentType,
+    r2Key,
+    tokenContentType: contentType,
     method: c.req.method,
     requestHeaders: c.req.raw.headers,
-    allowedOrigin: resolveAllowedOrigin(c.req.raw, url.origin),
+    allowedOrigin: corsOrigin,
     remainingTokenSeconds,
     directConfig: r2DirectConfig(env),
   });
@@ -107,9 +106,8 @@ function resolveAllowedOrigin(
   return dashboardOrigin;
 }
 
-// HEAD requests fall through to the GET route in Hono. `serveArtifactBytes`
-// keeps HEAD on the worker path (a presigned GET URL is method-bound), where
-// `readArtifact` short-circuits it with a metadata-only `storage.head()` (no
-// R2 GET); the range/304/header math then lives in the pure
+// HEAD requests fall through to the GET route in Hono. `readArtifact` branches
+// on the method to short-circuit a HEAD with a metadata-only `storage.head()`
+// (no R2 GET); the range/304/header math then lives in the pure
 // `buildArtifactResponse` (see `@/lib/artifacts`).
 export const GET = defineHandler(handle);

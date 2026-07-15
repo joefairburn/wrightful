@@ -4,6 +4,11 @@ import {
   SAFE_CONTENT_TYPES as DASHBOARD_SAFE_CONTENT_TYPES,
 } from "../../../../apps/dashboard/src/lib/content-types.js";
 import {
+  isReplayTraceArtifact,
+  REPLAY_TRACE_ARTIFACT_NAMES as DASHBOARD_REPLAY_TRACE_ARTIFACT_NAMES,
+  REPLAY_TRACE_CONTENT_TYPES as DASHBOARD_REPLAY_TRACE_CONTENT_TYPES,
+} from "../../../../apps/dashboard/src/lib/trace-artifacts.js";
+import {
   AppendResultsPayloadSchema,
   AppendResultsResponseSchema,
   CompleteRunPayloadSchema,
@@ -31,7 +36,10 @@ import {
   truncateNullable,
 } from "../limits.js";
 import {
+  isReplayTraceAttachment,
   normalizeContentType,
+  REPLAY_TRACE_ARTIFACT_NAMES as REPORTER_REPLAY_TRACE_ARTIFACT_NAMES,
+  REPLAY_TRACE_CONTENT_TYPES as REPORTER_REPLAY_TRACE_CONTENT_TYPES,
   SAFE_CONTENT_TYPES as REPORTER_SAFE_CONTENT_TYPES,
 } from "../attachments.js";
 import {
@@ -775,6 +783,38 @@ describe("reporter ↔ dashboard artifact content-type contract", () => {
     expect(normalizeContentType("Application/JSON; charset=utf-8")).toBe(
       "application/json",
     );
+  });
+});
+
+describe("reporter ↔ dashboard replay trace contract", () => {
+  it("keeps the canonical trace names and ZIP content types identical", () => {
+    expect(REPORTER_REPLAY_TRACE_ARTIFACT_NAMES).toEqual(
+      DASHBOARD_REPLAY_TRACE_ARTIFACT_NAMES,
+    );
+    expect(REPORTER_REPLAY_TRACE_CONTENT_TYPES).toEqual(
+      DASHBOARD_REPLAY_TRACE_CONTENT_TYPES,
+    );
+  });
+
+  it("keeps replay eligibility identical across the ingest boundary", () => {
+    for (const candidate of [
+      { name: "trace", contentType: "application/zip" },
+      { name: "trace.zip", contentType: "application/x-zip-compressed" },
+      { name: "trace", contentType: "Application/ZIP; charset=binary" },
+      { name: "trace", contentType: "text/plain" },
+      { name: "trace.zip", contentType: "image/png" },
+      { name: "diagnostics.zip", contentType: "application/zip" },
+    ]) {
+      expect(
+        isReplayTraceAttachment(candidate.name, candidate.contentType),
+      ).toBe(
+        isReplayTraceArtifact({
+          type: "trace",
+          name: candidate.name,
+          contentType: candidate.contentType,
+        }),
+      );
+    }
   });
 });
 

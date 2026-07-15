@@ -3,6 +3,7 @@ import { Link } from "@void/react";
 import { memo } from "react";
 import { StatusGlyph } from "@/components/status-glyph";
 import { ReplayRowButton } from "@/components/trace-viewer-dialog";
+import { basename } from "@/lib/basename";
 import { cn } from "@/lib/cn";
 import {
   type GroupByAxis,
@@ -80,7 +81,7 @@ export const TestRow = memo(function TestRow({
     groupBy === "file"
       ? test.projectName
       : test.file
-        ? (test.file.split("/").pop() ?? test.file)
+        ? basename(test.file)
         : null;
 
   // The row is a <Link>, so the Test Replay button (which opens a dialog) lives

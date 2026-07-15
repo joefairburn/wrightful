@@ -1,4 +1,5 @@
 import type { RunProgressTest } from "@/realtime/run-progress";
+import { basename } from "@/lib/basename";
 import { statusGroupKey, type StatusGroupKey } from "@/lib/status";
 
 /**
@@ -14,8 +15,8 @@ export function parseTitleSegments(
   const segments = title.split(" > ");
   let start = 0;
   if (projectName && segments[start] === projectName) start += 1;
-  const basename = file.includes("/") ? (file.split("/").pop() ?? file) : file;
-  if (segments[start] === file || segments[start] === basename) start += 1;
+  const base = basename(file);
+  if (segments[start] === file || segments[start] === base) start += 1;
   const remaining = segments.slice(start);
   if (remaining.length === 0) {
     return { describeChain: [], testTitle: title };
