@@ -6,6 +6,7 @@ import {
   base64urlEncode,
   timingSafeEqualBytes,
 } from "@/lib/token-crypto";
+import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
 
 /**
  * Lifetime of an artifact-download token (1 hour). Exported because two other
@@ -48,6 +49,34 @@ export interface ArtifactDownloadPayload {
   r2Key: string;
   /** Content-Type echoed to the client (and the trace viewer). */
   contentType: string;
+}
+
+/**
+ * The row fields needed to choose an artifact download's lifetime and sign
+ * its storage capability. Keeping the policy on the complete artifact avoids
+ * callers treating every row with `type: "trace"` as replayable.
+ */
+export interface ArtifactDownloadTokenCandidate extends ArtifactDownloadPayload {
+  type: string;
+  name: string;
+}
+
+/**
+ * The canonical lifetime policy for artifact-download capabilities.
+ * Replayable traces need the longer window because the viewer range-reads
+ * them lazily; every other artifact keeps the standard one-hour lifetime.
+ */
+export function artifactDownloadTokenTtlSeconds(
+  artifact: ArtifactDownloadTokenCandidate,
+): number {
+  return isReplayTraceArtifact(artifact)
+    ? TRACE_TOKEN_TTL_SECONDS
+    : ARTIFACT_TOKEN_TTL_SECONDS;
+}
+
+export interface SignedArtifactDownloadToken {
+  token: string;
+  expiresInSeconds: number;
 }
 
 const signedPayloadSchema = z.object({
@@ -131,6 +160,22 @@ export async function signArtifactToken(
     new TextEncoder().encode(body),
   );
   return `${body}.${base64urlEncode(new Uint8Array(sig))}`;
+}
+
+/**
+ * Sign a real artifact row under the canonical lifetime policy and return the
+ * chosen lifetime with the token. Callers that describe the capability (for
+ * example MCP) must use `expiresInSeconds` rather than restating the policy.
+ */
+export async function signArtifactDownloadToken(
+  artifact: ArtifactDownloadTokenCandidate,
+): Promise<SignedArtifactDownloadToken> {
+  const expiresInSeconds = artifactDownloadTokenTtlSeconds(artifact);
+  const token = await signArtifactToken(
+    { r2Key: artifact.r2Key, contentType: artifact.contentType },
+    expiresInSeconds,
+  );
+  return { token, expiresInSeconds };
 }
 
 export async function verifyArtifactToken(

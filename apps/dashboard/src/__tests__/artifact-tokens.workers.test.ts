@@ -12,6 +12,10 @@ vi.mock("void/env", () => ({
 }));
 
 const {
+  ARTIFACT_TOKEN_TTL_SECONDS,
+  TRACE_TOKEN_TTL_SECONDS,
+  artifactDownloadTokenTtlSeconds,
+  signArtifactDownloadToken,
   signArtifactToken,
   verifyArtifactToken,
   signedDownloadHref,
@@ -62,6 +66,52 @@ describe("artifact download tokens", () => {
     expect(await verifyArtifactToken("garbage")).toBeNull();
     expect(await verifyArtifactToken("")).toBeNull();
     expect(await verifyArtifactToken("a.b.c")).toBeNull();
+  });
+});
+
+describe("artifact download lifetime policy", () => {
+  const replayTrace = {
+    ...payload,
+    r2Key: "t/team/p/proj/runs/r/tr/trace.zip",
+    type: "trace",
+    name: "trace.zip",
+    contentType: "application/zip",
+  };
+
+  it("gives only replayable traces the extended lifetime", () => {
+    expect(artifactDownloadTokenTtlSeconds(replayTrace)).toBe(
+      TRACE_TOKEN_TTL_SECONDS,
+    );
+    expect(
+      artifactDownloadTokenTtlSeconds({
+        ...replayTrace,
+        type: "screenshot",
+        name: "actual.png",
+        contentType: "image/png",
+      }),
+    ).toBe(ARTIFACT_TOKEN_TTL_SECONDS);
+    expect(
+      artifactDownloadTokenTtlSeconds({
+        ...replayTrace,
+        contentType: "text/plain",
+      }),
+    ).toBe(ARTIFACT_TOKEN_TTL_SECONDS);
+  });
+
+  it("signs with, and reports, the policy-selected lifetime", async () => {
+    const nowSeconds = 1_800_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowSeconds * 1000);
+    try {
+      const signed = await signArtifactDownloadToken(replayTrace);
+      expect(signed.expiresInSeconds).toBe(TRACE_TOKEN_TTL_SECONDS);
+      expect(await verifyArtifactToken(signed.token)).toEqual({
+        r2Key: replayTrace.r2Key,
+        contentType: replayTrace.contentType,
+        exp: nowSeconds + TRACE_TOKEN_TTL_SECONDS,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 });
 

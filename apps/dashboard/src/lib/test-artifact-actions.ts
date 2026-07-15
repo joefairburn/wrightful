@@ -2,8 +2,7 @@ import { asc, db } from "void/db";
 import { artifacts } from "@schema";
 import type { ArtifactAction } from "@/components/artifact-actions";
 import {
-  signArtifactToken,
-  TRACE_TOKEN_TTL_SECONDS,
+  signArtifactDownloadToken,
   signedDownloadHref,
 } from "@/lib/artifact-tokens";
 import { childByTestResultWhere, type TenantScope } from "@/lib/scope";
@@ -40,9 +39,9 @@ function compareByTypeThenName(
  * / DB access stays out of the orderable/groupable core. The raw `r2Key`
  * never appears as a field here, and `href` doesn't embed it — it goes
  * through the token-authed worker download route. Consumers that need the
- * self-hosted trace-viewer link (the rail button, the replay dialog) derive
- * it from `href` + `type === "trace"` on demand rather than carrying a
- * separate minted field that only ever gets used as a truthiness gate.
+ * self-hosted trace-viewer link (the rail button, the replay dialog) first
+ * apply the shared replay-eligibility predicate, then derive the viewer link
+ * from `href`; they do not need a separate minted field.
  */
 export interface SignedArtifact {
   id: string;
@@ -190,15 +189,7 @@ async function signArtifactRows(
 ): Promise<SignedArtifact[]> {
   return Promise.all(
     rows.map(async (a) => {
-      // Trace tokens live longer: the Replay viewer's SW range-reads the zip
-      // lazily for the whole modal session (see TRACE_TOKEN_TTL_SECONDS).
-      const token = await signArtifactToken(
-        {
-          r2Key: a.r2Key,
-          contentType: a.contentType,
-        },
-        a.type === "trace" ? TRACE_TOKEN_TTL_SECONDS : undefined,
-      );
+      const { token } = await signArtifactDownloadToken(a);
       const href = signedDownloadHref(a.id, token);
       return {
         id: a.id,

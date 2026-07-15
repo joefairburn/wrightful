@@ -2,6 +2,7 @@ import { z } from "zod";
 // Relative (not `@/`) so the reporter's wire-contract test can import this
 // module cross-package without the dashboard's path alias.
 import { isSafeContentType } from "./content-types";
+import { isReplayTraceArtifact } from "./trace-artifacts";
 
 /**
  * Wire-protocol schemas for the streaming-ingest API (v3).
@@ -260,6 +261,17 @@ const ArtifactRequestSchema = z
         });
       }
     }
+  })
+  .transform((artifact) => {
+    // Protocol v3 reporters historically trusted the canonical filename when
+    // assigning `type: "trace"`. Rejecting one such legacy row would reject
+    // its entire otherwise-valid registration batch. Preserve v3 wire
+    // compatibility, but store malformed trace claims as ordinary artifacts;
+    // only the complete canonical policy earns Replay or the extended TTL.
+    if (artifact.type === "trace" && !isReplayTraceArtifact(artifact)) {
+      return { ...artifact, type: "other" as const };
+    }
+    return artifact;
   });
 
 export const RegisterArtifactsPayloadSchema = z.object({

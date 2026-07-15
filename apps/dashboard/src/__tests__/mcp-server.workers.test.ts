@@ -8,6 +8,14 @@ vi.mock("void/env", () => ({
 }));
 vi.mock("void/storage", () => ({ storage: { get: vi.fn() } }));
 
+const { loadMcpArtifactMock } = vi.hoisted(() => ({
+  loadMcpArtifactMock: vi.fn(),
+}));
+vi.mock("@/lib/mcp/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mcp/queries")>()),
+  loadMcpArtifact: loadMcpArtifactMock,
+}));
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
@@ -16,6 +24,10 @@ import {
   isInlineableImage,
   isInlineableText,
 } from "@/lib/mcp/server";
+import {
+  TRACE_TOKEN_TTL_SECONDS,
+  verifyArtifactToken,
+} from "@/lib/artifact-tokens";
 import { ERROR_MESSAGE_SNIPPET_CHARS, truncateText } from "@/lib/mcp/queries";
 import type { TenantScope } from "@/lib/scope";
 
@@ -109,6 +121,63 @@ describe("buildMcpServer tool surface", () => {
     });
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result.content)).toMatch(/SHA/);
+  });
+
+  it("signs replayable trace URLs for 8 hours and reports that exact lifetime", async () => {
+    loadMcpArtifactMock.mockResolvedValueOnce({
+      id: "artifact_trace",
+      testResultId: "result_1",
+      type: "trace",
+      name: "trace.zip",
+      contentType: "application/zip",
+      sizeBytes: 12_345,
+      attempt: 0,
+      role: null,
+      snapshotName: null,
+      r2Key: "t/team_abc/p/proj_xyz/runs/run_1/tr/result_1/trace.zip",
+    });
+
+    const client = await connectedClient();
+    const nowSeconds = 1_800_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowSeconds * 1000);
+    try {
+      const result = (await client.callTool({
+        name: "get_artifact",
+        arguments: { artifact_id: "artifact_trace" },
+      })) as {
+        isError?: boolean;
+        content: Array<{ type: string; text?: string }>;
+      };
+      expect(result.isError).not.toBe(true);
+      const block = result.content[0];
+      expect(block.type).toBe("text");
+      if (typeof block.text !== "string") {
+        throw new Error("expected metadata text");
+      }
+      const meta = JSON.parse(block.text) as {
+        downloadUrl: string;
+        downloadUrlExpiresInSeconds: number;
+        traceViewerUrl: string;
+      };
+      expect(meta.downloadUrlExpiresInSeconds).toBe(TRACE_TOKEN_TTL_SECONDS);
+      expect(meta.traceViewerUrl).toContain("/trace-viewer/index.html");
+
+      const token = new URL(meta.downloadUrl).searchParams.get("t");
+      expect(token).not.toBeNull();
+      expect(await verifyArtifactToken(token!)).toMatchObject({
+        exp: nowSeconds + TRACE_TOKEN_TTL_SECONDS,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it("advertises the distinct standard and replay-trace URL lifetimes", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    const getArtifact = tools.find((tool) => tool.name === "get_artifact");
+    expect(getArtifact?.description).toContain("valid 1 hour normally");
+    expect(getArtifact?.description).toContain("8 hours for replayable traces");
   });
 });
 

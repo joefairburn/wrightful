@@ -459,11 +459,85 @@ describe("RegisterArtifactsPayloadSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  describe("trace replay policy", () => {
+    it("accepts both canonical trace names and ZIP content types", () => {
+      for (const name of ["trace", "trace.zip"]) {
+        for (const contentType of [
+          "application/zip",
+          "application/x-zip-compressed",
+        ]) {
+          const result = RegisterArtifactsPayloadSchema.safeParse({
+            ...validPayload,
+            artifacts: [{ ...validPayload.artifacts[0], name, contentType }],
+          });
+          expect(result.success).toBe(true);
+        }
+      }
+    });
+
+    it("downgrades legacy trace claims with non-ZIP content", () => {
+      for (const contentType of [
+        "text/plain",
+        "image/png",
+        "application/octet-stream",
+      ]) {
+        const result = RegisterArtifactsPayloadSchema.safeParse({
+          ...validPayload,
+          artifacts: [{ ...validPayload.artifacts[0], contentType }],
+        });
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data.artifacts[0].type).toBe("other");
+      }
+    });
+
+    it("downgrades a trace claim with a non-canonical name", () => {
+      const result = RegisterArtifactsPayloadSchema.safeParse({
+        ...validPayload,
+        artifacts: [{ ...validPayload.artifacts[0], name: "diagnostics.zip" }],
+      });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.artifacts[0].type).toBe("other");
+    });
+
+    it("keeps the rest of a legacy v3 batch when one trace claim is downgraded", () => {
+      const result = RegisterArtifactsPayloadSchema.safeParse({
+        ...validPayload,
+        artifacts: [
+          {
+            ...validPayload.artifacts[0],
+            name: "trace",
+            contentType: "text/plain",
+          },
+          {
+            ...validPayload.artifacts[0],
+            name: "screenshot.png",
+            type: "screenshot",
+            contentType: "image/png",
+          },
+        ],
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.artifacts.map((artifact) => artifact.type)).toEqual([
+          "other",
+          "screenshot",
+        ]);
+      }
+    });
+  });
+
   describe("contentType allowlist", () => {
     it("rejects text/html (XSS vector when echoed back on download)", () => {
       const result = RegisterArtifactsPayloadSchema.safeParse({
         ...validPayload,
-        artifacts: [{ ...validPayload.artifacts[0], contentType: "text/html" }],
+        artifacts: [
+          {
+            ...validPayload.artifacts[0],
+            type: "other",
+            contentType: "text/html",
+          },
+        ],
       });
       expect(result.success).toBe(false);
     });
@@ -472,7 +546,11 @@ describe("RegisterArtifactsPayloadSchema", () => {
       const result = RegisterArtifactsPayloadSchema.safeParse({
         ...validPayload,
         artifacts: [
-          { ...validPayload.artifacts[0], contentType: "image/svg+xml" },
+          {
+            ...validPayload.artifacts[0],
+            type: "other",
+            contentType: "image/svg+xml",
+          },
         ],
       });
       expect(result.success).toBe(false);
@@ -486,7 +564,9 @@ describe("RegisterArtifactsPayloadSchema", () => {
       ]) {
         const result = RegisterArtifactsPayloadSchema.safeParse({
           ...validPayload,
-          artifacts: [{ ...validPayload.artifacts[0], contentType: ct }],
+          artifacts: [
+            { ...validPayload.artifacts[0], type: "other", contentType: ct },
+          ],
         });
         expect(result.success).toBe(false);
       }
@@ -504,7 +584,9 @@ describe("RegisterArtifactsPayloadSchema", () => {
       ]) {
         const result = RegisterArtifactsPayloadSchema.safeParse({
           ...validPayload,
-          artifacts: [{ ...validPayload.artifacts[0], contentType: ct }],
+          artifacts: [
+            { ...validPayload.artifacts[0], type: "other", contentType: ct },
+          ],
         });
         expect(result.success).toBe(true);
       }

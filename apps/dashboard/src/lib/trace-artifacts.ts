@@ -1,14 +1,38 @@
+import { safeContentType } from "./content-types";
+
+/**
+ * The complete replay-eligibility contract. `type: "trace"` is reporter input,
+ * not proof that the bytes are a Playwright archive, so every Replay surface
+ * also requires a canonical attachment name and normalized ZIP MIME type.
+ */
 export const REPLAY_TRACE_ARTIFACT_NAMES = ["trace", "trace.zip"] as const;
+export const REPLAY_TRACE_CONTENT_TYPES = [
+  "application/zip",
+  "application/x-zip-compressed",
+] as const;
 
 type ReplayTraceCandidate = {
   type: string;
   name: string;
+  contentType: string;
 };
+
+export function isReplayTraceArtifactName(name: string): boolean {
+  return REPLAY_TRACE_ARTIFACT_NAMES.some((candidate) => candidate === name);
+}
+
+export function isReplayTraceContentType(contentType: string): boolean {
+  const normalized = safeContentType(contentType);
+  return REPLAY_TRACE_CONTENT_TYPES.some(
+    (candidate) => candidate === normalized,
+  );
+}
 
 export function isReplayTraceArtifact(artifact: ReplayTraceCandidate): boolean {
   return (
     artifact.type === "trace" &&
-    REPLAY_TRACE_ARTIFACT_NAMES.some((name) => name === artifact.name)
+    isReplayTraceArtifactName(artifact.name) &&
+    isReplayTraceContentType(artifact.contentType)
   );
 }
 

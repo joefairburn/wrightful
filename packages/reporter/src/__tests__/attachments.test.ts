@@ -27,6 +27,20 @@ describe("classifyAttachment", () => {
     );
   });
 
+  it("normalizes the ZIP content type before classifying a trace", () => {
+    expect(classifyAttachment("trace", "Application/ZIP; charset=binary")).toBe(
+      "trace",
+    );
+  });
+
+  it("does not trust a canonical trace name with non-ZIP content", () => {
+    expect(classifyAttachment("trace", "text/plain")).toBe("other");
+    expect(classifyAttachment("trace.zip", "image/png")).toBe("screenshot");
+    expect(classifyAttachment("trace.zip", "application/octet-stream")).toBe(
+      "other",
+    );
+  });
+
   it("treats arbitrary ZIP attachments as other", () => {
     expect(classifyAttachment("bundle.zip", "application/zip")).toBe("other");
   });

@@ -12,7 +12,7 @@ import { env } from "void/env";
 import { storage } from "void/storage";
 import {
   selfHostedTraceViewerUrl,
-  signArtifactToken,
+  signArtifactDownloadToken,
   signedDownloadHref,
 } from "@/lib/artifact-tokens";
 import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
@@ -137,13 +137,14 @@ type ArtifactContentBlock = CallToolResult["content"][number];
 
 /**
  * The metadata card `get_artifact` always returns: identity, size/role, the
- * signed 1-hour download URL, and — for traces — the browser viewer URL + local
- * `show-trace` hint. Pure; the inline decision layers its `warning`/`note` on
- * top afterwards.
+ * signed download URL + its policy-owned lifetime, and — for replayable
+ * traces — the browser viewer URL + local `show-trace` hint. Pure; the inline decision
+ * layers its `warning`/`note` on top afterwards.
  */
 function artifactMeta(
   artifact: LoadedArtifact,
   downloadUrl: string,
+  downloadUrlExpiresInSeconds: number,
 ): Record<string, unknown> {
   const meta: Record<string, unknown> = {
     id: artifact.id,
@@ -156,7 +157,7 @@ function artifactMeta(
     role: artifact.role,
     snapshotName: artifact.snapshotName,
     downloadUrl,
-    downloadUrlExpiresInSeconds: 3600,
+    downloadUrlExpiresInSeconds,
   };
   if (isReplayTraceArtifact(artifact)) {
     // Our SELF-HOSTED viewer (same-origin) — the trace stays on this dashboard,
@@ -556,7 +557,7 @@ export function buildMcpServer(authz: McpAuthz): McpServer {
     name: "get_artifact",
     title: "Get an artifact",
     description:
-      "Fetch one artifact by id (from get_test_result). Small screenshots return inline as an image; small text artifacts (logs, error context) return inline as text. Everything else — Playwright traces, videos, large files — returns a signed download URL (valid 1 hour, no auth header needed). Traces also return a self-hosted viewer URL (same-origin — the trace stays on this dashboard) and can be opened locally with `npx playwright show-trace <downloadUrl>`.",
+      "Fetch one artifact by id (from get_test_result). Small screenshots return inline as an image; small text artifacts (logs, error context) return inline as text. Everything else — Playwright traces, videos, large files — returns a signed download URL (valid 1 hour normally or 8 hours for replayable traces; no auth header needed). Replayable traces also return a self-hosted viewer URL (same-origin — the trace stays on this dashboard) and can be opened locally with `npx playwright show-trace <downloadUrl>`.",
     inputSchema: {
       artifact_id: z.string().describe("Artifact id from get_test_result"),
     },
@@ -565,13 +566,11 @@ export function buildMcpServer(authz: McpAuthz): McpServer {
       if (!artifact) {
         return errorResult(`Artifact not found: ${args.artifact_id}`);
       }
-      const token = await signArtifactToken({
-        r2Key: artifact.r2Key,
-        contentType: artifact.contentType,
-      });
+      const { token, expiresInSeconds } =
+        await signArtifactDownloadToken(artifact);
       const downloadUrl = `${publicBase()}${signedDownloadHref(artifact.id, token)}`;
 
-      const meta = artifactMeta(artifact, downloadUrl);
+      const meta = artifactMeta(artifact, downloadUrl, expiresInSeconds);
       const inline = await inlineArtifact(artifact);
       if ("blocks" in inline) {
         return {

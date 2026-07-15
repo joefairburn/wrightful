@@ -1,7 +1,10 @@
 import { and, db, eq, inArray } from "void/db";
 import { artifacts } from "@schema";
 import { childProjectScopeWhere, type TenantScope } from "@/lib/scope";
-import { REPLAY_TRACE_ARTIFACT_NAMES } from "@/lib/trace-artifacts";
+import {
+  isReplayTraceArtifact,
+  REPLAY_TRACE_ARTIFACT_NAMES,
+} from "@/lib/trace-artifacts";
 import type { RunProgressTest } from "@/realtime/run-progress";
 
 /**
@@ -22,20 +25,26 @@ export async function attachHasTrace(
 ): Promise<RunProgressTest[]> {
   if (rows.length === 0) return [...rows];
   const ids = rows.map((r) => r.id);
+  const candidates = await db
+    .selectDistinct({
+      testResultId: artifacts.testResultId,
+      type: artifacts.type,
+      name: artifacts.name,
+      contentType: artifacts.contentType,
+    })
+    .from(artifacts)
+    .where(
+      and(
+        childProjectScopeWhere(artifacts.projectId, scope),
+        eq(artifacts.type, "trace"),
+        inArray(artifacts.name, REPLAY_TRACE_ARTIFACT_NAMES),
+        inArray(artifacts.testResultId, ids),
+      ),
+    );
   const traced = new Set(
-    (
-      await db
-        .selectDistinct({ testResultId: artifacts.testResultId })
-        .from(artifacts)
-        .where(
-          and(
-            childProjectScopeWhere(artifacts.projectId, scope),
-            eq(artifacts.type, "trace"),
-            inArray(artifacts.name, REPLAY_TRACE_ARTIFACT_NAMES),
-            inArray(artifacts.testResultId, ids),
-          ),
-        )
-    ).map((r) => r.testResultId),
+    candidates
+      .filter(isReplayTraceArtifact)
+      .map((candidate) => candidate.testResultId),
   );
   return rows.map((r) => ({ ...r, hasTrace: traced.has(r.id) }));
 }

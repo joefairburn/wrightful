@@ -2,8 +2,7 @@ import { defineHandler } from "void";
 import { and, asc, db, eq } from "void/db";
 import { artifacts, testResults } from "@schema";
 import {
-  TRACE_TOKEN_TTL_SECONDS,
-  signArtifactToken,
+  signArtifactDownloadToken,
   signedDownloadHref,
 } from "@/lib/artifact-tokens";
 import { childByTestResultWhere, childProjectScopeWhere } from "@/lib/scope";
@@ -36,10 +35,9 @@ export type TestReplayResponse = {
  * than pre-signing every row in the loader) keeps the download tokens fresh
  * and avoids embedding one per test in the page.
  *
- * Every trace token is signed with `TRACE_TOKEN_TTL_SECONDS` rather than the
- * shorter default: see that constant's docstring for why (the SW range-reads
- * the trace lazily, so a short-lived token would start failing quietly
- * mid-scrub).
+ * Every trace token is signed through the canonical artifact lifetime policy,
+ * which grants replayable traces a longer lifetime because the viewer's
+ * service worker range-reads them lazily throughout the session.
  *
  * 404 when the test recorded no trace at all (e.g. a passed test under the
  * reporter's default `artifacts: "failed"` mode).
@@ -90,10 +88,7 @@ export const GET = defineHandler(async (c) => {
   // each attempt gets its own freshly-signed token.
   const attempts = await Promise.all(
     traces.map(async (row) => {
-      const token = await signArtifactToken(
-        { r2Key: row.r2Key, contentType: row.contentType },
-        TRACE_TOKEN_TTL_SECONDS,
-      );
+      const { token } = await signArtifactDownloadToken(row);
       return {
         attempt: row.attempt,
         downloadHref: signedDownloadHref(row.id, token),
