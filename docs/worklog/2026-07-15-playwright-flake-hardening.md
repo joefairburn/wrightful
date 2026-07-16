@@ -91,6 +91,11 @@ that an on-demand development module graph cannot.
   next legitimate scheduler tick deterministically instead of sleeping through
   a real 60-second monitor interval. The two monitor specs dropped from about
   1.2 minutes each to 6–7 seconds.
+- Scheduler-driven monitors are created paused and resumed only while their
+  spec owns a cross-worker filesystem lease; they are paused again before the
+  lease is released. Alert-only monitors stay paused. This preserves the real
+  scheduler's intentionally global sweep while preventing one parallel file's
+  future tick from executing another file's fresh monitor.
 - Production preview exposed that `void.json#routing.headers` is applied by the
   managed dispatch worker, not by own-account Workers or `vp preview`. Early
   in-worker middleware now applies the same defensive headers everywhere and

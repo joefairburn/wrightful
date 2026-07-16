@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, type FullConfig } from "@playwright/test";
 
 import { bootDashboard, type DashboardFixture } from "../src/dashboard-fixture";
+import { clearMonitorSchedulerLease } from "./helpers/monitor-scheduler-lease";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../../..");
@@ -45,6 +46,7 @@ declare global {
 }
 
 export default async function globalSetup(_config: FullConfig): Promise<void> {
+  await clearMonitorSchedulerLease();
   const fixture = await bootDashboard({
     port: PORT,
     envBackupSuffix: "playwright-dashboard-backup",

@@ -8,6 +8,7 @@ import { MonitorsPage } from "./pages/monitors.page";
 import { RunDetailPage } from "./pages/run-detail.page";
 import { RunsListPage } from "./pages/runs-list.page";
 import { readFixture, type SerializedFixture } from "./helpers/fixture";
+import { acquireMonitorSchedulerLease } from "./helpers/monitor-scheduler-lease";
 
 /**
  * Custom Playwright test extended with our project-specific fixtures.
@@ -29,6 +30,15 @@ export interface DashboardFixtures {
   apiKeysPage: ApiKeysPage;
   monitorsPage: MonitorsPage;
   groupsPage: GroupsPage;
+  /**
+   * Run one monitor's scheduled cycle without another Playwright worker
+   * advancing the same global scheduler. The monitor must be created paused;
+   * this fixture resumes it only while holding the cross-process lease and
+   * pauses it again before release, including on assertion failure.
+   */
+  monitorScheduler: {
+    run: (monitorId: string, action: () => Promise<void>) => Promise<void>;
+  };
   /**
    * Navigate to the detail page of a seeded run and return its runId.
    * Collapses the `runsListPage.goto()` → `firstRunId()` → `runDetailPage.goto()`
@@ -79,6 +89,30 @@ export const test = base.extend<
 
   monitorsPage: async ({ page, ctx }, use) => {
     await use(new MonitorsPage(page, ctx.teamSlug, ctx.projectSlug));
+  },
+
+  monitorScheduler: async ({ monitorsPage }, use) => {
+    await use({
+      run: async (monitorId, action) => {
+        const release = await acquireMonitorSchedulerLease();
+        let resumed = false;
+        try {
+          await monitorsPage.gotoDetail(monitorId);
+          await monitorsPage.resume();
+          resumed = true;
+          await action();
+        } finally {
+          try {
+            if (resumed) {
+              await monitorsPage.gotoDetail(monitorId);
+              await monitorsPage.pause();
+            }
+          } finally {
+            await release();
+          }
+        }
+      },
+    });
   },
 
   groupsPage: async ({ page, ctx }, use) => {

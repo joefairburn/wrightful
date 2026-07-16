@@ -25,6 +25,9 @@ export class MonitorsPage {
   readonly sourceEditor: Locator;
   readonly urlInput: Locator;
   readonly createButton: Locator;
+  readonly enabledSwitch: Locator;
+  readonly pauseButton: Locator;
+  readonly resumeButton: Locator;
 
   constructor(page: Page, teamSlug: string, projectSlug: string) {
     this.page = page;
@@ -40,6 +43,11 @@ export class MonitorsPage {
     });
     this.urlInput = page.locator('input[name="url"]');
     this.createButton = page.getByRole("button", { name: /create monitor/i });
+    this.enabledSwitch = page.getByRole("switch", {
+      name: /^(enabled|paused)\b/i,
+    });
+    this.pauseButton = page.getByRole("button", { name: /^pause$/i });
+    this.resumeButton = page.getByRole("button", { name: /^resume$/i });
   }
 
   get base(): string {
@@ -95,11 +103,13 @@ export class MonitorsPage {
     name: string;
     intervalSeconds: number;
     url: string;
+    enabled?: boolean;
   }): Promise<string> {
     await waitForHydration(this.page);
     await this.nameInput.fill(opts.name);
     await this.intervalSelect.selectOption(String(opts.intervalSeconds));
     await this.urlInput.fill(opts.url);
+    await this.setFormEnabled(opts.enabled ?? true);
 
     return this.submitCreate();
   }
@@ -115,6 +125,7 @@ export class MonitorsPage {
     name: string;
     intervalSeconds: number;
     source?: string;
+    enabled?: boolean;
   }): Promise<string> {
     await waitForHydration(this.page);
     await this.nameInput.fill(opts.name);
@@ -122,8 +133,16 @@ export class MonitorsPage {
     if (opts.source !== undefined) {
       await this.sourceEditor.fill(opts.source);
     }
+    await this.setFormEnabled(opts.enabled ?? true);
 
     return this.submitCreate();
+  }
+
+  private async setFormEnabled(enabled: boolean): Promise<void> {
+    if (enabled) return;
+    await expect(this.enabledSwitch).toBeChecked();
+    await this.enabledSwitch.click();
+    await expect(this.enabledSwitch).not.toBeChecked();
   }
 
   /** A list-table row anchored on the monitor's name. */
@@ -139,6 +158,16 @@ export class MonitorsPage {
       this.detailPath(monitorId),
       this.page.getByRole("heading", { level: 1 }),
     );
+  }
+
+  async pause(): Promise<void> {
+    await this.pauseButton.click();
+    await expect(this.resumeButton).toBeVisible();
+  }
+
+  async resume(): Promise<void> {
+    await this.resumeButton.click();
+    await expect(this.pauseButton).toBeVisible();
   }
 
   /** The empty-executions placeholder shown before any execution lands. */

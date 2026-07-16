@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { triggerScheduled } from "./helpers/void-trigger";
 import { expect, test } from "./fixtures";
 
@@ -45,8 +46,9 @@ test.describe("HTTP uptime monitors", () => {
     monitorsPage,
     page,
     ctx,
+    monitorScheduler,
   }) => {
-    const name = `pw-uptime-${Date.now()}`;
+    const name = `pw-uptime-${randomUUID()}`;
 
     // 1. Create via the http form (pointed at a public URL — url-policy blocks
     // loopback, so the dashboard's own dev URL can't be the target).
@@ -55,6 +57,7 @@ test.describe("HTTP uptime monitors", () => {
       name,
       intervalSeconds: ONE_MINUTE,
       url: TARGET_URL,
+      enabled: false,
     });
 
     // List: the uptime type pill + humanized interval.
@@ -79,20 +82,22 @@ test.describe("HTTP uptime monitors", () => {
     // `emptyExecutions` being hidden before the check has actually run (mirrors
     // how `monitors.spec` waits for the terminal "View run" link, not the row).
     const stateBadge = page.getByText(/^(pass|degraded|fail|error)$/i).first();
-    await triggerScheduled(
-      page.request,
-      ctx.url,
-      ctx.voidProxyToken,
-      SWEEP_CRON,
-      Date.now() + (ONE_MINUTE + 1) * 1_000,
-    );
-    await expect(async () => {
-      await monitorsPage.gotoDetail(monitorId);
-      await expect(stateBadge).toBeVisible({ timeout: 5_000 });
-    }).toPass({ timeout: 45_000 });
+    await monitorScheduler.run(monitorId, async () => {
+      await triggerScheduled(
+        page.request,
+        ctx.url,
+        ctx.voidProxyToken,
+        SWEEP_CRON,
+        Date.now() + (ONE_MINUTE + 1) * 1_000,
+      );
+      await expect(async () => {
+        await monitorsPage.gotoDetail(monitorId);
+        await expect(stateBadge).toBeVisible({ timeout: 5_000 });
+      }).toPass({ timeout: 45_000 });
 
-    // An http execution carries an inline result — NOT a run report. The
-    // "View run" deep-link must never appear for an uptime check.
-    await expect(monitorsPage.runLinks).toHaveCount(0);
+      // An http execution carries an inline result — NOT a run report. The
+      // "View run" deep-link must never appear for an uptime check.
+      await expect(monitorsPage.runLinks).toHaveCount(0);
+    });
   });
 });

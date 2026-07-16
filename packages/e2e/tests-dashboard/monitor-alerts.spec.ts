@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, test } from "./fixtures";
 
 /**
@@ -22,9 +23,10 @@ test.describe("Monitor alert controls", () => {
   }) => {
     await monitorsPage.gotoNewHttp();
     const monitorId = await monitorsPage.createHttp({
-      name: `pw-alert-mute-${Date.now()}`,
+      name: `pw-alert-mute-${randomUUID()}`,
       intervalSeconds: 60,
       url: "https://example.com",
+      enabled: false,
     });
 
     // Alerts default on ⇒ the control offers to mute.
@@ -47,9 +49,10 @@ test.describe("Monitor alert controls", () => {
   }) => {
     await monitorsPage.gotoNewHttp();
     const monitorId = await monitorsPage.createHttp({
-      name: `pw-alert-recip-${Date.now()}`,
+      name: `pw-alert-recip-${randomUUID()}`,
       intervalSeconds: 60,
       url: "https://example.com",
+      enabled: false,
     });
 
     // Recipients now live inside the edit modal — open it to reach the picker.

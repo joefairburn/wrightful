@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { triggerQueue, triggerScheduled } from "./helpers/void-trigger";
 import { expect, test } from "./fixtures";
 
@@ -40,8 +41,9 @@ test.describe("Synthetic monitors", () => {
     runDetailPage,
     page,
     ctx,
+    monitorScheduler,
   }) => {
-    const name = `pw-monitor-${Date.now()}`;
+    const name = `pw-monitor-${randomUUID()}`;
     const source = `import { test, expect } from "@playwright/test";
 
 test("synthetic smoke", async ({ page }) => {
@@ -55,15 +57,16 @@ test("synthetic smoke", async ({ page }) => {
       name,
       intervalSeconds: ONE_MINUTE,
       source,
+      enabled: false,
     });
 
     await monitorsPage.gotoList();
     const row = monitorsPage.listRowFor(name);
     await expect(row).toBeVisible();
     // The interval column humanizes 60s as "1m"; the Enabled column shows a
-    // toggle that is on for a freshly-armed monitor.
+    // toggle that stays off until this test owns the global scheduler lease.
     await expect(row.getByText(/^1m$/)).toBeVisible();
-    await expect(row.getByRole("switch")).toBeChecked();
+    await expect(row.getByRole("switch")).not.toBeChecked();
 
     // 2. Detail page: empty executions state before the scheduler runs.
     await monitorsPage.gotoDetail(monitorId);
@@ -99,37 +102,40 @@ test("synthetic smoke", async ({ page }) => {
     await monitorsPage.gotoDetail(monitorId);
     await expect(monitorsPage.runLinks).toHaveCount(0);
 
-    // 3b. Advance the scheduled tick just beyond the one-minute interval. The
-    // sweep enqueues exactly one job and re-arms nextRunAt; the assertion then
-    // waits only for local queue delivery and the stub run to settle.
-    await triggerScheduled(
-      page.request,
-      ctx.url,
-      ctx.voidProxyToken,
-      SWEEP_CRON,
-      Date.now() + (ONE_MINUTE + 1) * 1_000,
-    );
-    await expect(async () => {
-      await monitorsPage.gotoDetail(monitorId);
-      await expect(monitorsPage.runLinks.first()).toBeVisible({
-        timeout: 5_000,
+    // 3b. Resume only while this file owns the cross-worker scheduler lease.
+    // The production scheduler is intentionally global, so another spec's
+    // future tick would otherwise execute this monitor and invalidate the
+    // attribution this test is meant to prove.
+    await monitorScheduler.run(monitorId, async () => {
+      await triggerScheduled(
+        page.request,
+        ctx.url,
+        ctx.voidProxyToken,
+        SWEEP_CRON,
+        Date.now() + (ONE_MINUTE + 1) * 1_000,
+      );
+      await expect(async () => {
+        await monitorsPage.gotoDetail(monitorId);
+        await expect(monitorsPage.runLinks.first()).toBeVisible({
+          timeout: 5_000,
+        });
+      }).toPass({ timeout: 45_000 });
+
+      // The execution row carries a passing state (the stub source has no
+      // FORCE_FAIL sentinel) and a "View run" deep-link.
+      await expect(page.getByText(/^pass$/i).first()).toBeVisible();
+
+      // 4. Follow the deep-link to the produced run and assert it renders.
+      const runHref = await monitorsPage.runLinks.first().getAttribute("href");
+      expect(runHref).toBeTruthy();
+      const runId = runHref?.match(/\/runs\/([^/?#]+)/)?.[1];
+      expect(runId).toBeTruthy();
+
+      await runDetailPage.goto(runId as string);
+      // The synthetic run streamed two fake tests; the Tests tab links them.
+      await expect(runDetailPage.testRowLinks.first()).toBeVisible({
+        timeout: 15_000,
       });
-    }).toPass({ timeout: 45_000 });
-
-    // The execution row carries a passing state (the stub source has no
-    // FORCE_FAIL sentinel) and a "View run" deep-link.
-    await expect(page.getByText(/^pass$/i).first()).toBeVisible();
-
-    // 4. Follow the deep-link to the produced run and assert it renders.
-    const runHref = await monitorsPage.runLinks.first().getAttribute("href");
-    expect(runHref).toBeTruthy();
-    const runId = runHref?.match(/\/runs\/([^/?#]+)/)?.[1];
-    expect(runId).toBeTruthy();
-
-    await runDetailPage.goto(runId as string);
-    // The synthetic run streamed two fake tests; the Tests tab links them.
-    await expect(runDetailPage.testRowLinks.first()).toBeVisible({
-      timeout: 15_000,
     });
   });
 });
