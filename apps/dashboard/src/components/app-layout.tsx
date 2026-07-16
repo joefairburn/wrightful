@@ -31,6 +31,7 @@ const CommandMenu = lazy(() =>
 import { SidebarUserMenu } from "@/components/sidebar-user-menu";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { cn } from "@/lib/cn";
+import { useHydrated } from "@/lib/hooks/use-hydrated";
 import type {
   ResolvedActiveProject,
   ResolvedActiveTeam,
@@ -85,6 +86,7 @@ interface AppLayoutProps {
  * (URL overrides cookie when pinned).
  */
 export function AppLayout({ children, mode }: AppLayoutProps) {
+  const hydrated = useHydrated();
   const router = useRouter();
   const {
     auth,
@@ -111,7 +113,10 @@ export function AppLayout({ children, mode }: AppLayoutProps) {
        * `data-instant` skip-delay (2nd-through-nth tooltip in a hover sweep
        * opens instantly) for every tooltip in the app, not just charts. */}
       <TooltipProvider delay={600} closeDelay={0}>
-        <div className="flex h-screen overflow-hidden bg-bg-0 text-fg-1 font-sans">
+        <div
+          className="flex h-screen overflow-hidden bg-bg-0 text-fg-1 font-sans"
+          data-app-hydrated={hydrated}
+        >
           <nav className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
             <SidebarTop
               selectedProject={selectedProject}

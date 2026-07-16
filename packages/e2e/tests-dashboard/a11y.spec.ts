@@ -51,12 +51,14 @@ async function scanSerious(page: Page, label: string): Promise<void> {
   );
   if (blocking.length > 0) {
     const summary = blocking
-      .map(
-        (v) =>
-          `  - [${v.impact}] ${v.id}: ${v.help} (${v.nodes.length} node${
-            v.nodes.length === 1 ? "" : "s"
-          })`,
-      )
+      .map((v) => {
+        const targets = v.nodes
+          .map((node) => `${node.target.join(" ")} (${node.html})`)
+          .join(", ");
+        return `  - [${v.impact}] ${v.id}: ${v.help} (${v.nodes.length} node${
+          v.nodes.length === 1 ? "" : "s"
+        }: ${targets})`;
+      })
       .join("\n");
     throw new Error(
       `axe-core found ${blocking.length} serious/critical violation(s) on ${label}:\n${summary}`,

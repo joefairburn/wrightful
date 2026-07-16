@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { Dialog, DialogPopup } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogDescription,
+  DialogPopup,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 /**
  * Modal that pops open when `open` becomes true to surface a freshly-minted
@@ -38,10 +43,12 @@ export function RevealOnceDialog({
       <DialogPopup className="max-w-md">
         <div className="flex flex-col gap-4 p-6">
           <div>
-            <div className="font-semibold text-base">{title}</div>
-            <div className="mt-1 text-body text-fg-3 leading-relaxed">
+            <DialogTitle className="font-sans font-semibold text-base leading-normal">
+              {title}
+            </DialogTitle>
+            <DialogDescription className="mt-1 text-body text-fg-3 leading-relaxed">
               {description}
-            </div>
+            </DialogDescription>
           </div>
           {cachedChildren}
         </div>

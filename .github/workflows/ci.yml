@@ -10,6 +10,13 @@ on:
     # it, the label would only take effect on the next push.
     types: [opened, synchronize, reopened, labeled]
 
+# A new push to the same PR (or branch) cancels the previous in-flight run —
+# an outdated ~7-minute pipeline finishing has no value. Push-to-main runs
+# key on the ref and are never concurrent with each other in practice.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-typecheck:
     name: Lint, Format & Typecheck
@@ -215,16 +222,18 @@ jobs:
   # shape (via the dogfood e2e suite). When Renovate bumps @playwright/test,
   # this job surfaces any format / reporter-API incompatibilities early.
   #
-  # The fixtures boot the Void dashboard at apps/dashboard (.env.local +
-  # `void db reset`); the suite is green (12/12) locally. Note: the harness
-  # strips VITEST from the spawned dev server's env so the Void plugin (and
-  # thus /api/auth + D1) stays enabled — see src/dashboard-fixture.ts.
+  # The fixture resets a throwaway Postgres database, builds the Void dashboard,
+  # and runs the suite against `vp preview`. The harness strips VITEST from the
+  # build/preview env so the complete production plugin stays enabled — see
+  # src/dashboard-fixture.ts.
+  # No `needs`: this job installs, builds the reporter, and boots its own
+  # dashboard — it consumes nothing from the unit-test jobs, and gating it
+  # behind them added ~2 minutes of pure waterfall to every green run.
   test-e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: [test-reporter, test-dashboard]
-    # bootDashboard (src/dashboard-fixture.ts) runs `void db reset` + `vp dev`,
-    # which need a Postgres to connect to. An ephemeral service container (same
+    # bootDashboard (src/dashboard-fixture.ts) resets Postgres, builds the app,
+    # and starts `vp preview`. An ephemeral service container (same
     # pattern as test-postgres) gives a throwaway DB reachable only from inside
     # the runner — never point `void db reset` at a real DB, it wipes + remigrates.
     services:
@@ -323,13 +332,15 @@ jobs:
   # Browser-driven UI smoke against a locally booted dashboard. Catches
   # cross-cutting regressions (auth → navigation → run-detail) that the
   # API-level e2e and component RTL tests can't see. The fixtures boot the Void
-  # dashboard at apps/dashboard (.env.local + `void db reset`); the suite is
-  # green (35/35) locally. CI runs 3 workers + retries:2 to absorb timing flake.
+  # production dashboard build at apps/dashboard after `void db reset`. Runs
+  # two parallel workers against one shared preview and database (specs isolate
+  # their state; global setup preflights key SSR routes); retries remain enabled
+  # to capture genuine flakes.
+  # No `needs` — same reasoning as test-e2e: fully self-contained job.
   test-e2e-dashboard:
     name: Dashboard E2E Tests (Playwright)
     runs-on: ubuntu-latest
-    needs: [test-reporter, test-dashboard]
-    # Throwaway Postgres for bootDashboard's `void db reset` + `vp dev` (see the
+    # Throwaway Postgres for bootDashboard's reset + production preview (see the
     # note on test-e2e). Dedicated `wrightful_e2e` DB — the guarded
     # `test:dashboard` wrapper only ever resets a `_e2e`/`_test` throwaway, never
     # a dev DB. Reachable only inside the runner; never a real DB.

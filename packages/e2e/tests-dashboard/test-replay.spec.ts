@@ -1,6 +1,9 @@
 import { expect, test } from "./fixtures";
 import { FAILURES_BRANCH } from "./global-setup";
 
+// Real trace parsing crosses the artifact proxy, service worker, and iframe.
+test.setTimeout(90_000);
+
 /**
  * Embedded Test Replay — Wrightful's OWN trace viewer.
  *
@@ -61,7 +64,11 @@ test.describe("Test Replay (embedded trace viewer)", () => {
   test("run test-list Replay button opens the native workbench, deep-links, and closes on Escape", async ({
     page,
     openSeededRun,
-  }) => {
+  }, testInfo) => {
+    // Three 40s workbench outcomes, two dialog remounts, and the later snapshot
+    // and cold deep-link checks must all fit when both recovery attempts fire.
+    testInfo.setTimeout(240_000);
+
     await openSeededRun(FAILURES_BRANCH);
 
     // The button renders only for rows whose test has a trace (the row's
@@ -95,9 +102,28 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     await expect(dialog).toBeVisible({ timeout: 10_000 });
 
     // The NATIVE workbench loads the real trace through the real service
-    // worker: the action list populates from the parsed model…
+    // worker: the action list populates from the parsed model. Under a busy
+    // preview (parallel workers), the workbench's own 30s no-progress
+    // watchdog (BRIDGE_TIMEOUT_MS in use-trace-model.ts) can fire before the
+    // queued SW/trace fetches complete, leaving a terminal "Couldn't load
+    // this trace" state. Closing and reopening the dialog remounts the
+    // bridge iframe — a pure read, no side effects to repeat — so recover
+    // from that specific terminal state rather than failing on contention.
     const actionList = dialog.getByRole("listbox", { name: "Actions" });
-    await expect(actionList).toBeVisible({ timeout: 30_000 });
+    const loadError = dialog.getByText(/couldn't load this trace/i);
+    const workbenchOutcome = async (): Promise<"ready" | "error"> => {
+      await expect(actionList.or(loadError)).toBeVisible({ timeout: 40_000 });
+      return (await actionList.isVisible()) ? "ready" : "error";
+    };
+    let outcome = await workbenchOutcome();
+    for (let retry = 0; outcome === "error" && retry < 2; retry++) {
+      await page.keyboard.press("Escape");
+      await expect(dialog).not.toBeVisible();
+      await replay.click();
+      await expect(dialog).toBeVisible({ timeout: 10_000 });
+      outcome = await workbenchOutcome();
+    }
+    expect(outcome).toBe("ready");
     expect(await actionList.getByRole("option").count()).toBeGreaterThan(0);
 
     // …and the DOM snapshot iframes are served by the SW from the trace

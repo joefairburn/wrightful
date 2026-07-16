@@ -120,7 +120,7 @@ export class LoginPage {
   /** Wait for navigation away from /login or /signup. */
   async waitForLandedOff(prefix: "/login" | "/signup"): Promise<void> {
     // Generous timeout: email sign-in/up runs a scrypt password hash which is
-    // markedly slow on the local miniflare dev server the e2e harness boots.
+    // can be markedly slow in the local Worker runtime the E2E harness boots.
     await this.page.waitForURL((url) => !url.pathname.startsWith(prefix), {
       timeout: 30_000,
     });

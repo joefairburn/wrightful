@@ -1,5 +1,9 @@
 import { expect, test } from "./fixtures";
 
+// Email auth intentionally performs password hashing on the local worker.
+// Leave room for that real operation plus browser navigation on a slow runner.
+test.setTimeout(60_000);
+
 test.describe("Auth", () => {
   test.describe("anonymous", () => {
     test.use({ storageState: { cookies: [], origins: [] } });
