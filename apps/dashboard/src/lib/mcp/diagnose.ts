@@ -113,7 +113,9 @@ async function loadWindowRows(
     runScopeWhere(scope),
     inArray(testResults.testId, testIds),
     gte(testResults.createdAt, windowStart(opts.days)),
-    ne(testResults.status, "skipped"),
+    // Exactly the statuses the ranking counters cover — `queued` prefills and
+    // `skipped` rows must not inflate analyzedRows or spend the row budget.
+    inArray(testResults.status, [...FAILURE_STATUSES, "passed"]),
   ];
   if (opts.branch) conditions.push(eq(runs.branch, opts.branch));
 
