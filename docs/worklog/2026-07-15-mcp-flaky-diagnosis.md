@@ -31,7 +31,8 @@ maximum at the tool's explicit limit), error text fetched as a 2,048-char
 `left(coalesce(errorMessage, errorStack), …)` head (signatures only use the
 first meaningful line; ingest allows 64/128 KB messages/stacks, which must not
 be pulled whole into a Worker), and co-failure analysis bounded to 200 flaky
-runs and 5,000 failure rows. `get_test_history` resolves its selector as a
+runs and 5,000 failure rows, and at most 10 signature groups returned per
+test (`distinctSignatures` reports the uncapped total). `get_test_history` resolves its selector as a
 discriminated `{ kind, value }` union built by the tool layer's
 exactly-one-non-blank validation, and resolves all selector kinds through the
 `tests` catalog (ingest catalogs every test atomically with its results).

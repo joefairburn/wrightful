@@ -37,6 +37,8 @@ const MAX_CO_FAILURE_RUNS = 200;
 /** Hard row cap on the co-failure read — a mass-failure era must not make it unbounded. */
 const MAX_CO_FAILURE_ROWS = 5000;
 const MAX_CO_FAILURES_PER_TEST = 10;
+/** Signature groups returned per test — `distinctSignatures` reports the uncapped total. */
+const MAX_SIGNATURES_PER_TEST = 10;
 const MAX_MATCHED_TESTS = 50;
 /**
  * Only this many leading chars of an error are fetched: a signature uses the
@@ -286,6 +288,8 @@ function buildTestDossier(
       latestHardFailTestResultId,
       latestPassedTestResultId,
     },
+    /** Total distinct signatures in the window; > signatures.length means the list was capped. */
+    distinctSignatures: signatureGroups.size,
     signatures: [...signatureGroups.entries()]
       .map(([signature, group]) => ({
         signature,
@@ -298,7 +302,8 @@ function buildTestDossier(
       }))
       .sort(
         (a, b) => b.count - a.count || a.signature.localeCompare(b.signature),
-      ),
+      )
+      .slice(0, MAX_SIGNATURES_PER_TEST),
     coFailures: [...coFailureCounts.entries()]
       .map(([testId, value]) => ({ testId, ...value }))
       .sort(

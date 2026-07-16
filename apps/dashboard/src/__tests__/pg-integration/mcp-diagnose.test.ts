@@ -234,6 +234,7 @@ describe("MCP flaky diagnosis Postgres queries", () => {
       flakeRatePct: 50,
       passedInLatestRun: true,
       latestStatus: "passed",
+      distinctSignatures: 1,
       representatives: {
         latestFlakyTestResultId: "result_a_flaky",
         latestHardFailTestResultId: "result_a_failed",
