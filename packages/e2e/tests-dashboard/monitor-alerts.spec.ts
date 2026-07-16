@@ -30,7 +30,7 @@ test.describe("Monitor alert controls", () => {
     // Alerts default on ⇒ the control offers to mute.
     await expect(monitorsPage.muteAlertsButton).toBeVisible();
 
-    // Mute, then reload from D1 and confirm it stuck.
+    // Mute, then reload from Postgres and confirm it stuck.
     await monitorsPage.muteAlerts();
     await monitorsPage.gotoDetail(monitorId);
     await expect(monitorsPage.unmuteAlertsButton).toBeVisible();

@@ -30,8 +30,11 @@ import { monitorFamily } from "@/lib/monitors/types";
  */
 export const cron = "* * * * *";
 
-export default loggedScheduled("sweep-monitors", async () => {
-  const nowSeconds = Math.floor(Date.now() / 1000);
+export default loggedScheduled("sweep-monitors", async (controller) => {
+  // Use the event's scheduled time rather than wall-clock time. This keeps a
+  // delayed delivery tied to the tick it represents and lets authenticated
+  // production-trigger tests advance one deterministic scheduler cycle.
+  const nowSeconds = Math.floor(controller.scheduledTime / 1000);
 
   const { found, enqueued } = await sweepDueMonitors({
     now: nowSeconds,

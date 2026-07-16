@@ -1,4 +1,4 @@
-import { triggerQueue, triggerScheduled } from "./helpers/dev-trigger";
+import { triggerQueue, triggerScheduled } from "./helpers/void-trigger";
 import { expect, test } from "./fixtures";
 
 /**
@@ -11,16 +11,15 @@ import { expect, test } from "./fixtures";
  *   1. Create a monitor through the form; assert it lands in the list with the
  *      right name + interval.
  *   2. Open its detail; assert the empty-executions state renders.
- *   3. Drive ONE scheduled cycle via Void's dev triggers (no real cron/queue):
+ *   3. Drive one scheduled cycle via Void's authenticated built-worker trigger:
  *        - `POST /__void/scheduled` fires the `sweep-monitors` cron. Once the
  *          monitor is due (`nextRunAt <= now`), the sweep mints a `queued`
  *          execution + enqueues a `MonitorJob`; Miniflare natively delivers it
  *          to `queues/monitors.ts`, which runs the stub → opens/streams/completes
  *          a synthetic `runs` row keyed on the execution id, and records the
- *          execution terminal state. We poll the cron until the execution lands
- *          (a fresh enabled monitor arms `nextRunAt = createdAt + intervalSeconds`,
- *          so it isn't due until one interval has elapsed — hence the generous
- *          per-test timeout and the 1-minute interval).
+ *          execution terminal state. The trigger supplies a scheduled time just
+ *          beyond the interval so the monitor is immediately due without a real
+ *          one-minute wait.
  *        - `POST /__void/queue` exercises the consumer's manual dispatch path +
  *          its decision contract directly: a job for a missing execution acks
  *          (nothing to run), and crucially produces no spurious run.
@@ -33,10 +32,7 @@ import { expect, test } from "./fixtures";
 const SWEEP_CRON = "* * * * *";
 const ONE_MINUTE = 60;
 
-// A fresh enabled monitor is due one interval after creation, the stub run then
-// streams through ingest, and the list/detail pages re-render off D1 — well
-// within two minutes, but the default 30s test timeout is far too tight.
-test.setTimeout(150_000);
+test.setTimeout(90_000);
 
 test.describe("Synthetic monitors", () => {
   test("create, schedule one cycle via the stub executor, and link to a run", async ({
@@ -81,7 +77,7 @@ test("synthetic smoke", async ({ page }) => {
     const queueResult = await triggerQueue(
       page.request,
       ctx.url,
-      ctx.devTriggerToken,
+      ctx.voidProxyToken,
       "monitors",
       [
         {
@@ -103,22 +99,22 @@ test("synthetic smoke", async ({ page }) => {
     await monitorsPage.gotoDetail(monitorId);
     await expect(monitorsPage.runLinks).toHaveCount(0);
 
-    // 3b. Fire the sweep cron until the monitor becomes due and the stub run
-    // lands. Each tick is a no-op until `nextRunAt` passes; once it does, the
-    // sweep enqueues exactly one job (it re-arms `nextRunAt`, so later ticks
-    // don't re-fire it) and Miniflare delivers it to the stub consumer.
+    // 3b. Advance the scheduled tick just beyond the one-minute interval. The
+    // sweep enqueues exactly one job and re-arms nextRunAt; the assertion then
+    // waits only for local queue delivery and the stub run to settle.
+    await triggerScheduled(
+      page.request,
+      ctx.url,
+      ctx.voidProxyToken,
+      SWEEP_CRON,
+      Date.now() + (ONE_MINUTE + 1) * 1_000,
+    );
     await expect(async () => {
-      await triggerScheduled(
-        page.request,
-        ctx.url,
-        ctx.devTriggerToken,
-        SWEEP_CRON,
-      );
       await monitorsPage.gotoDetail(monitorId);
       await expect(monitorsPage.runLinks.first()).toBeVisible({
         timeout: 5_000,
       });
-    }).toPass({ timeout: 130_000 });
+    }).toPass({ timeout: 45_000 });
 
     // The execution row carries a passing state (the stub source has no
     // FORCE_FAIL sentinel) and a "View run" deep-link.

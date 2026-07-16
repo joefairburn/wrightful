@@ -45,11 +45,12 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  // All workers share one Void server, database, and seeded tenant. Kept low
-  // in CI: the 2-core runner hosts the dev server plus every Chromium, and
-  // the pre-hardening suite showed genuine server saturation at 2 workers
-  // (see docs/worklog/2026-07-15-playwright-flake-hardening.md). Local
-  // machines have the cores to go wider.
+  // All workers share one Void preview, database, and seeded tenant. Kept low
+  // in CI: the public-repo ubuntu runner has 4 vCPUs hosting the built Worker,
+  // Postgres, and every Chromium, so 2 workers is the conservative start —
+  // 3 is worth benchmarking once a few 2-worker CI datapoints exist. Local
+  // machines have the cores to go wider. (Validated locally at 4 workers;
+  // see docs/worklog/2026-07-15-playwright-flake-hardening.md.)
   workers: process.env.CI ? 2 : 4,
   reporter: isMinimalReporter
     ? [["line"], ["html", { open: "never" }], dashboardReporter]

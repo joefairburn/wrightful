@@ -151,7 +151,7 @@ async function gotoAndAwaitRoom(
   };
 
   try {
-    // CI's shared dev server can be slow to open the void/ws socket under
+    // CI's shared preview can be slow to open the void/ws socket under
     // parallel load; give it more room there than a responsive local server.
     const firstConnectTimeout = process.env.CI ? 30_000 : 20_000;
     await navigate();

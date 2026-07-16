@@ -103,7 +103,7 @@ test.describe("Test Replay (embedded trace viewer)", () => {
 
     // The NATIVE workbench loads the real trace through the real service
     // worker: the action list populates from the parsed model. Under a busy
-    // dev server (parallel workers), the workbench's own 30s no-progress
+    // preview (parallel workers), the workbench's own 30s no-progress
     // watchdog (BRIDGE_TIMEOUT_MS in use-trace-model.ts) can fire before the
     // queued SW/trace fetches complete, leaving a terminal "Couldn't load
     // this trace" state. Closing and reopening the dialog remounts the

@@ -90,22 +90,21 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     const browser = await chromium.launch();
     const context = await browser.newContext();
 
-    // Serially warm the dev server's SSR module graph before any parallel
-    // workers start. Vite evaluates modules on demand, and the workerd module
-    // runner does not tolerate CONCURRENT first evaluations of a shared module:
-    // two cold renders racing the same import chain can cache a half-initialized
-    // namespace (seen as `createAuthClient is not a function` from void/client),
-    // after which EVERY later render of routes importing it 500s until restart.
-    // One serial GET per page family leaves nothing cold for workers to race.
-    console.log("[playwright] Warming SSR module graph (serial, per route)");
+    // Preflight each important page family against the production bundle before
+    // workers start. This keeps a broken SSR route from burning minutes across
+    // dozens of specs and also locates a real seeded run for detail-page checks.
+    console.log("[playwright] Preflighting production SSR routes");
     const { teamSlug, projectSlug } = fixture;
     const projectBase = `/t/${teamSlug}/p/${projectSlug}`;
     const settingsBase = `/settings/teams/${teamSlug}`;
-    const warm = async (path: string, okStatuses = [200]): Promise<string> => {
+    const preflight = async (
+      path: string,
+      okStatuses = [200],
+    ): Promise<string> => {
       const res = await context.request.get(`${fixture.url}${path}`);
       if (!okStatuses.includes(res.status())) {
         throw new Error(
-          `SSR warm-up GET ${path} returned ${res.status()} — the dashboard ` +
+          `SSR preflight GET ${path} returned ${res.status()} — the dashboard ` +
             "cannot render this route; aborting before the suite burns " +
             "minutes failing every spec that visits it",
         );
@@ -113,11 +112,10 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
       return res.text();
     };
 
-    // Warm auth pages while this context is still anonymous. Once the seeded
-    // session cookies are installed, both loaders redirect to `/` and their
-    // page modules remain cold for the anonymous specs to race later.
-    await warm("/login");
-    await warm("/signup");
+    // Check auth pages while this context is still anonymous. Once the seeded
+    // session cookies are installed, both loaders redirect to `/`.
+    await preflight("/login");
+    await preflight("/signup");
 
     const cookies = fixture.sessionCookies
       .map((raw) => {
@@ -138,27 +136,24 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     await context.addCookies(cookies);
     await context.storageState({ path: STORAGE_STATE_PATH });
 
-    const runsListHtml = await warm(projectBase);
+    const runsListHtml = await preflight(projectBase);
     // A real seeded runId (any run works — the page module is what we're
-    // warming). The tests/:id route 404s on the phantom id below, which still
-    // evaluates the page module; navigation.spec also 404s deliberately, so
-    // warm the not-found page the same way.
+    // checking). The tests/:id route 404s on the phantom id below;
+    // navigation.spec also exercises that deliberate not-found path.
     const runId = runsListHtml.match(/\/runs\/([0-9A-HJKMNP-TV-Z]{26})/)?.[1];
-    if (!runId) throw new Error("SSR warm-up: no run link on the runs list");
-    await warm(`${projectBase}/runs/${runId}`);
-    await warm(
+    if (!runId) throw new Error("SSR preflight: no run link on the runs list");
+    await preflight(`${projectBase}/runs/${runId}`);
+    await preflight(
       `${projectBase}/runs/${runId}/tests/01HZZZZZZZZZZZZZZZZZZZZZZZ`,
       [200, 404],
     );
-    await warm(`${projectBase}/monitors`);
-    await warm(`${projectBase}/monitors/new`);
-    await warm(settingsBase);
-    await warm(`${settingsBase}/groups`);
-    await warm(`${settingsBase}/billing`);
-    await warm(`${settingsBase}/p/${projectSlug}/keys`);
-    // Same shape navigation.spec's 404 test uses (unknown project slug) —
-    // warms the NotFoundPage module.
-    await warm(`/t/${teamSlug}/p/does-not-exist`, [404]);
+    await preflight(`${projectBase}/monitors`);
+    await preflight(`${projectBase}/monitors/new`);
+    await preflight(settingsBase);
+    await preflight(`${settingsBase}/groups`);
+    await preflight(`${settingsBase}/billing`);
+    await preflight(`${settingsBase}/p/${projectSlug}/keys`);
+    await preflight(`/t/${teamSlug}/p/does-not-exist`, [404]);
 
     await browser.close();
 
@@ -176,7 +171,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
           artifactTokenSecret: fixture.artifactTokenSecret,
           email: fixture.email,
           password: fixture.password,
-          devTriggerToken: fixture.devTriggerToken,
+          voidProxyToken: fixture.voidProxyToken,
         },
         null,
         2,

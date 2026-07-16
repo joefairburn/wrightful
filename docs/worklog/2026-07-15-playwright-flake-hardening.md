@@ -30,7 +30,7 @@ Trace and error-context inspection showed three recurring causes:
 - API-key minting, duplicate-group creation, run/test navigation, and monitor
   creation/editing now wait for explicit user-visible outcomes instead of
   retrying clicks.
-- Slow password hashing, dev-trigger requests, monitor scheduling, and trace
+- Slow password hashing, internal trigger requests, monitor scheduling, and trace
   parsing have bounded operation-appropriate timeout budgets.
 - The API-key reveal dialog now has semantic title/description elements. The
   run-history chart's labelled, non-clickable current point now has an image
@@ -51,8 +51,8 @@ within a file keep their order). Three things had to change first:
 function`), the runner cached the poisoned module, and every later page
   render 500'd for the life of the process (~29/52 tests failed; only routes
   not importing that chain kept passing). Serial runs never trigger it, which
-  is why one worker looked like the only safe configuration. `global-setup.ts`
-  now warms the SSR module graph serially — one cookie-authenticated GET per
+  is why one worker looked like the only safe configuration. At that stage,
+  `global-setup.ts` warmed the SSR module graph serially — one authenticated GET per
   page family, failing fast on 500 — before any worker starts. Add new page
   families to that list. Postgres was ruled out empirically (< 20 connections
   throughout).
@@ -70,15 +70,47 @@ function`), the runner cached the poisoned module, and every later page
   terminal "Couldn't load this trace" state. The test closes and reopens the
   dialog (a pure read) up to twice instead of failing on contention.
 
-Diagnostics: `WRIGHTFUL_E2E_SERVER_LOG=<path>` tees the booted dev server's
-output to disk (`src/dashboard-fixture.ts`); without it the buffered log is
-lost unless the server exits mid-run.
-
 Suite wall-clock dropped from ~4 minutes to ~2 at 4 workers.
+
+## Production-build E2E (follow-up, 2026-07-16)
+
+Both E2E lanes now exercise the deployable dashboard output: the shared fixture
+runs `pnpm build` and serves it with `vp preview` instead of booting `vp dev`.
+That catches production bundling, generated Worker config, and runtime behavior
+that an on-demand development module graph cannot.
+
+- The fixture injects an ephemeral local Hyperdrive binding backed by the same
+  throwaway `DATABASE_URL`, then calls the built Worker's authenticated
+  `/__void/migrate` endpoint. This mirrors production migration behavior and
+  includes Better Auth's tables, which local dev used to bootstrap implicitly.
+- Cron and queue tests use Void's production `/__void/scheduled` and
+  `/__void/queue` dispatchers with an ephemeral `__VOID_PROXY_TOKEN`; they no
+  longer depend on the dev-only trigger-token file/header.
+- `loggedScheduled` now forwards the Cloudflare `ScheduledController`, and the
+  monitor sweep uses `controller.scheduledTime`. Tests can therefore drive the
+  next legitimate scheduler tick deterministically instead of sleeping through
+  a real 60-second monitor interval. The two monitor specs dropped from about
+  1.2 minutes each to 6–7 seconds.
+- Production preview exposed that `void.json#routing.headers` is applied by the
+  managed dispatch worker, not by own-account Workers or `vp preview`. Early
+  in-worker middleware now applies the same defensive headers everywhere and
+  preserves the trace viewer's `SAMEORIGIN`/relaxed-CSP exception; edge rules
+  remain as a redundant outer layer.
+- The prior cold-`vp dev` module race documented above is no longer part of the
+  E2E runtime. Global setup retains a serial production-route preflight as a
+  fast fail for broken SSR page families, not as a module-graph warm-up.
+
+Diagnostics: `WRIGHTFUL_E2E_SERVER_LOG=<path>` now tees the production preview's
+output to disk. Relative paths resolve from the repository root.
 
 ## Verification
 
 - `pnpm check`
+- Production-preview monitor specs: 2 passed (6–7 seconds/spec).
+- Production-preview trace/replay specs: 3 passed.
+- Full canonical production-preview suite at 4 workers: 51 passed, 1 visual
+  baseline check intentionally skipped, in 1.4 minutes.
+- Vitest full-stack E2E against the production preview: 29 passed.
 - 54 interaction/auth/group/navigation/test-detail checks passed across three
   repetitions.
 - 8 monitor alert/synthetic/uptime checks passed across two repetitions.
