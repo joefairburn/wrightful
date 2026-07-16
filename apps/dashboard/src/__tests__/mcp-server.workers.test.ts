@@ -8,12 +8,29 @@ vi.mock("void/env", () => ({
 }));
 vi.mock("void/storage", () => ({ storage: { get: vi.fn() } }));
 
-const { loadMcpArtifactMock } = vi.hoisted(() => ({
+const {
+  loadMcpArtifactMock,
+  loadMcpFlakyDiagnosisMock,
+  loadMcpFlakyTestsMock,
+  loadMcpTestHistoryMock,
+  loadMcpTestResultDetailMock,
+} = vi.hoisted(() => ({
   loadMcpArtifactMock: vi.fn(),
+  loadMcpFlakyDiagnosisMock: vi.fn(),
+  loadMcpFlakyTestsMock: vi.fn(),
+  loadMcpTestHistoryMock: vi.fn(),
+  loadMcpTestResultDetailMock: vi.fn(),
 }));
 vi.mock("@/lib/mcp/queries", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/mcp/queries")>()),
   loadMcpArtifact: loadMcpArtifactMock,
+  loadMcpFlakyTests: loadMcpFlakyTestsMock,
+  loadMcpTestResultDetail: loadMcpTestResultDetailMock,
+}));
+vi.mock("@/lib/mcp/diagnose", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mcp/diagnose")>()),
+  loadMcpFlakyDiagnosis: loadMcpFlakyDiagnosisMock,
+  loadMcpTestHistory: loadMcpTestHistoryMock,
 }));
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -67,8 +84,10 @@ describe("buildMcpServer tool surface", () => {
     const client = await connectedClient();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "diagnose_flaky_tests",
       "get_artifact",
       "get_run",
+      "get_test_history",
       "get_test_result",
       "list_flaky_tests",
       "list_runs",
@@ -101,6 +120,243 @@ describe("buildMcpServer tool surface", () => {
     ]) {
       expect(props, `list_runs is missing input "${key}"`).toHaveProperty(key);
     }
+  });
+
+  it("advertises diagnosis and history selectors with bounded windows", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    const diagnose = tools.find((tool) => tool.name === "diagnose_flaky_tests");
+    expect(diagnose?.inputSchema.properties).toEqual(
+      expect.objectContaining({
+        days: expect.anything(),
+        branch: expect.anything(),
+        limit: expect.anything(),
+      }),
+    );
+
+    const history = tools.find((tool) => tool.name === "get_test_history");
+    expect(history?.inputSchema.properties).toEqual(
+      expect.objectContaining({
+        test_id: expect.anything(),
+        file: expect.anything(),
+        query: expect.anything(),
+        days: expect.anything(),
+        branch: expect.anything(),
+        limit: expect.anything(),
+      }),
+    );
+  });
+
+  it("returns the flaky diagnosis dossier shape", async () => {
+    loadMcpFlakyDiagnosisMock.mockResolvedValueOnce({
+      windowDays: 14,
+      branch: "main",
+      totalFlakyTests: 1,
+      currentHealth: {
+        latestRunId: "run_latest",
+        latestRunStatus: "passed",
+        branch: "main",
+        at: 1_800_000_000,
+      },
+      tests: [
+        {
+          testId: "test_login",
+          title: "logs in",
+          file: "tests/login.spec.ts",
+          samples: 27,
+          firstAttemptFailures: 6,
+          retryPasses: 5,
+          hardFailures: 1,
+          passedCount: 21,
+          flakeRatePct: 19.2,
+          lastFlakyAt: 1_799_999_000,
+          passedInLatestRun: true,
+          latestStatus: "passed",
+          representatives: {
+            latestFlakyTestResultId: "result_flaky",
+            latestHardFailTestResultId: "result_failed",
+            latestPassedTestResultId: "result_passed",
+          },
+          signatures: [
+            {
+              signature: "expect(page).toHaveURL(expected) failed",
+              count: 4,
+              correlatedTests: 2,
+              representativeTestResultId: "result_flaky",
+            },
+          ],
+          coFailures: [
+            { testId: "test_nav", title: "navigates", sharedRuns: 3 },
+          ],
+        },
+      ],
+    });
+
+    const client = await connectedClient();
+    const result = (await client.callTool({
+      name: "diagnose_flaky_tests",
+      arguments: { days: 14, branch: "main", limit: 10 },
+    })) as { content: Array<{ type: string; text?: string }> };
+    const text = result.content[0]?.text;
+    if (!text) throw new Error("expected diagnosis JSON");
+    const payload = JSON.parse(text) as {
+      semantics: string;
+      tests: Array<Record<string, unknown>>;
+      currentHealth: Record<string, unknown>;
+    };
+    expect(payload.tests[0]).toMatchObject({
+      samples: 27,
+      retryPasses: 5,
+      hardFailures: 1,
+      passedInLatestRun: true,
+    });
+    expect(payload.currentHealth.latestRunStatus).toBe("passed");
+    // The semantics prose is the tool layer's, not the loader's.
+    expect(payload.semantics).toContain("hardFailures = failed or timedout");
+  });
+
+  it("returns one-call history with run and result URLs", async () => {
+    loadMcpTestHistoryMock.mockResolvedValueOnce({
+      matchedTests: [
+        {
+          testId: "test_login",
+          title: "logs in",
+          file: "tests/login.spec.ts",
+        },
+      ],
+      executions: [
+        {
+          testResultId: "result_flaky",
+          testId: "test_login",
+          title: "logs in",
+          file: "tests/login.spec.ts",
+          runId: "run_1",
+          at: 1_800_000_000,
+          commit: "aeb5ff8",
+          branch: "main",
+          prNumber: 55,
+          status: "flaky",
+          durationMs: 4300,
+          attempts: [
+            { attempt: 0, status: "failed", durationMs: 3100 },
+            { attempt: 1, status: "passed", durationMs: 1200 },
+          ],
+          workerIndex: 3,
+          shardIndex: null,
+          errorSignature: "expect(page).toHaveURL(expected) failed",
+        },
+      ],
+    });
+
+    const client = await connectedClient();
+    const result = (await client.callTool({
+      name: "get_test_history",
+      arguments: { test_id: "test_login" },
+    })) as { content: Array<{ type: string; text?: string }> };
+    const text = result.content[0]?.text;
+    if (!text) throw new Error("expected history JSON");
+    const payload = JSON.parse(text) as {
+      executions: Array<{ runUrl: string; url: string; workerIndex: number }>;
+    };
+    expect(payload.executions[0]).toMatchObject({
+      runUrl: "https://wrightful.example.com/t/acme/p/web/runs/run_1",
+      url: "https://wrightful.example.com/t/acme/p/web/runs/run_1/tests/result_flaky",
+      workerIndex: 3,
+    });
+  });
+
+  it("labels cheap-ranking rate semantics", async () => {
+    loadMcpFlakyTestsMock.mockResolvedValueOnce({
+      flakyTests: [],
+      totalFlakyTests: 0,
+      windowDays: 14,
+    });
+    const client = await connectedClient();
+    const result = (await client.callTool({
+      name: "list_flaky_tests",
+      arguments: {},
+    })) as { content: Array<{ type: string; text?: string }> };
+    const text = result.content[0]?.text;
+    if (!text) throw new Error("expected flaky ranking JSON");
+    const payload = JSON.parse(text) as { semantics: string };
+    expect(payload.semantics).toContain(
+      "flakeRatePct = retryPasses / (retryPasses + passed)",
+    );
+  });
+
+  it("exposes workerIndex from get_test_result", async () => {
+    loadMcpTestResultDetailMock.mockResolvedValueOnce({
+      result: {
+        id: "result_1",
+        runId: "run_1",
+        testId: "test_1",
+        title: "works",
+        file: "tests/example.spec.ts",
+        projectName: "chromium",
+        status: "failed",
+        durationMs: 100,
+        retryCount: 0,
+        errorMessage: "boom",
+        errorStack: "Error: boom",
+        workerIndex: 4,
+        shardIndex: null,
+        createdAt: 1_800_000_000,
+        branch: "main",
+        commitSha: "aeb5ff8",
+        commitMessage: "test",
+        prNumber: 55,
+        repo: "acme/web",
+        environment: "ci",
+        actor: "octocat",
+      },
+      attempts: [],
+      tags: [],
+      annotations: [],
+      artifacts: [],
+    });
+    const client = await connectedClient();
+    const result = (await client.callTool({
+      name: "get_test_result",
+      arguments: { test_result_id: "result_1" },
+    })) as { content: Array<{ type: string; text?: string }> };
+    const text = result.content[0]?.text;
+    if (!text) throw new Error("expected test-result JSON");
+    const payload = JSON.parse(text) as { workerIndex: number };
+    expect(payload.workerIndex).toBe(4);
+  });
+
+  it("requires exactly one non-empty history selector", async () => {
+    loadMcpTestHistoryMock.mockClear();
+    const client = await connectedClient();
+    const none = await client.callTool({
+      name: "get_test_history",
+      arguments: {},
+    });
+    expect(none.isError).toBe(true);
+    const multiple = await client.callTool({
+      name: "get_test_history",
+      arguments: { test_id: "test_login", file: "tests/login.spec.ts" },
+    });
+    expect(multiple.isError).toBe(true);
+    expect(loadMcpTestHistoryMock).not.toHaveBeenCalled();
+
+    // A blank selector is "not provided": the one real selector wins the
+    // dispatch (previously the blank test_id shadowed it in the loader).
+    loadMcpTestHistoryMock.mockResolvedValueOnce({
+      matchedTests: [],
+      executions: [],
+    });
+    const blankPlusFile = await client.callTool({
+      name: "get_test_history",
+      arguments: { test_id: "   ", file: "tests/login.spec.ts" },
+    });
+    expect(blankPlusFile.isError).toBeUndefined();
+    expect(loadMcpTestHistoryMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        selector: { kind: "file", value: "tests/login.spec.ts" },
+      }),
+    );
   });
 
   it("rejects a tools/call with missing required arguments before any query runs", async () => {
@@ -193,8 +449,10 @@ describe("buildMcpServer user-mode tool surface", () => {
     const client = await connect({ kind: "user", userId: "user_1" });
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "diagnose_flaky_tests",
       "get_artifact",
       "get_run",
+      "get_test_history",
       "get_test_result",
       "list_flaky_tests",
       "list_projects",

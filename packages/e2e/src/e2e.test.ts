@@ -580,8 +580,10 @@ describe("Wrightful E2E", () => {
         await mcpRpc("tools/list"),
       );
       expect(result.tools.map((t) => t.name).sort()).toEqual([
+        "diagnose_flaky_tests",
         "get_artifact",
         "get_run",
+        "get_test_history",
         "get_test_result",
         "list_flaky_tests",
         "list_runs",

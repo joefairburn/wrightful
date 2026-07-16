@@ -18,6 +18,11 @@ import {
 import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
 import { loadRunsListPage } from "@/lib/export";
 import {
+  loadMcpFlakyDiagnosis,
+  loadMcpTestHistory,
+  type McpTestHistorySelector,
+} from "@/lib/mcp/diagnose";
+import {
   ERROR_MESSAGE_SNIPPET_CHARS,
   listUserProjects,
   loadMcpArtifact,
@@ -226,13 +231,24 @@ async function inlineArtifact(
   return { blocks: [block] };
 }
 
+/**
+ * Agent-facing rate definitions returned as a `semantics` field by the two
+ * flake tools. Tool prose lives here at the tool layer, not in the loaders —
+ * the rate formula itself is owned by `rankFlakyTests` and stays identical to
+ * the dashboard flaky page.
+ */
+const FLAKY_RATE_SEMANTICS =
+  "flakeRatePct = retryPasses / (retryPasses + passed), where retryPasses are results with status 'flaky' (failed then passed on retry) — the same definition as the dashboard flaky page.";
+const FLAKY_DIAGNOSIS_SEMANTICS =
+  "samples = passed + retryPasses + hardFailures; firstAttemptFailures = retryPasses + hardFailures; retryPasses = failed then passed on retry (status 'flaky'); hardFailures = failed or timedout results; flakeRatePct = retryPasses / (retryPasses + passed) — the same rate definition as the dashboard flaky page. Counters and representatives cover the full window; signatures are computed from each test's newest analyzedRows results (sampled when analyzedRows < samples), and coFailures from its newest coFailureRunsAnalyzed flaky runs.";
+
 const FLOW_INSTRUCTIONS = `Typical debugging flow:
 1. list_runs — find the run(s) you care about. Filter by pr (PR number), commit (SHA prefix), branch, or status:["failed"].
 2. list_tests with status:"failed" — the failing tests of a run, each with a truncated error message.
 3. get_test_result — full error message + stack, every retry attempt, and the artifact index (screenshots, traces, videos, error context).
 4. get_artifact — small screenshots return inline as images and text artifacts as text; everything else (traces, videos) returns a signed download URL. Playwright traces also return a self-hosted viewer URL (same-origin — the trace stays on this dashboard), and can be inspected locally with: npx playwright show-trace <downloadUrl>.
 
-For proactive flake hunting ("find and fix my flaky tests"), start with list_flaky_tests instead: it ranks tests by flake rate over a recent window and hands back each test's latest flaky testResultId — feed that into get_test_result to compare the failing attempt against the passing retry (each attempt keeps its own error and artifacts).
+For proactive flake hunting ("find and fix my flaky tests"), start with diagnose_flaky_tests: it returns the ranked tests with explicit counters, grouped error signatures, representative result ids, co-failures, and latest-run health. Use list_flaky_tests only when you need the cheaper ranking. For one known stable test id, spec file, or title/file search, call get_test_history to get its commit-to-attempt execution timeline in one response. Feed a representative testResultId into get_test_result for full errors and artifacts.
 
 Timestamps are unix seconds. Lists are cursor-paginated: pass the returned nextCursor back to get the next page.`;
 
@@ -505,6 +521,7 @@ export function buildMcpServer(authz: McpAuthz): McpServer {
       });
       return jsonResult({
         ...result,
+        semantics: FLAKY_RATE_SEMANTICS,
         flakyTests: result.flakyTests.map((t) => ({
           ...t,
           url:
@@ -516,6 +533,116 @@ export function buildMcpServer(authz: McpAuthz): McpServer {
           result.flakyTests.length > 0
             ? "Diagnose with get_test_result(lastFlakyTestResultId): it returns every retry attempt with its own error, plus per-attempt artifacts (screenshots/traces of the FAILING attempt)."
             : "No flaky results in the window. Widen `days`, drop the branch filter, or check list_runs — a run must record a retried-then-passed test for it to count as flaky.",
+      });
+    },
+  });
+
+  registerScopedTool(server, authz, {
+    name: "diagnose_flaky_tests",
+    title: "Diagnose flaky tests",
+    description:
+      "Investigate the project's top flaky tests over a recent window (default 14 days). Returns explicit sample/failure/retry counters, normalized error-signature groups, representative test-result ids, same-run co-failures, and whether each test passed in the latest completed CI run. This is the primary entry point for proactive flake hunting; use list_flaky_tests for a cheaper ranking-only call.",
+    inputSchema: {
+      days: z
+        .number()
+        .int()
+        .min(1)
+        .max(90)
+        .optional()
+        .describe("Trailing window in days (default 14)"),
+      branch: z
+        .string()
+        .optional()
+        .describe("Only count results from runs on this exact branch"),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe("Max tests diagnosed, flakiest first (default 10)"),
+    },
+    run: async (scope, args) =>
+      jsonResult({
+        ...(await loadMcpFlakyDiagnosis(scope, {
+          days: args.days ?? 14,
+          branch: args.branch ?? null,
+          limit: args.limit ?? 10,
+        })),
+        semantics: FLAKY_DIAGNOSIS_SEMANTICS,
+      }),
+  });
+
+  registerScopedTool(server, authz, {
+    name: "get_test_history",
+    title: "Get test history",
+    description:
+      "Get the newest execution timeline for exactly one selector: stable test_id, exact spec file, or free-text title/file query. Each execution includes commit/branch/PR context, final status and duration, per-attempt status/duration, worker/shard indexes, and a normalized error signature.",
+    inputSchema: {
+      test_id: z
+        .string()
+        .optional()
+        .describe("Exact stable Playwright test id"),
+      file: z
+        .string()
+        .optional()
+        .describe(
+          "Exact spec-file path as currently cataloged — a renamed/moved test matches its current path only; use query for fuzzy matching",
+        ),
+      query: z
+        .string()
+        .optional()
+        .describe("Free-text substring search over test title and file"),
+      days: z
+        .number()
+        .int()
+        .min(1)
+        .max(90)
+        .optional()
+        .describe("Trailing window in days (default 30)"),
+      branch: z
+        .string()
+        .optional()
+        .describe("Only include runs on this exact branch"),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe("Max executions returned, newest first (default 50)"),
+    },
+    run: async (scope, args) => {
+      const candidates: Array<{
+        kind: McpTestHistorySelector["kind"];
+        value: string | undefined;
+      }> = [
+        { kind: "testId", value: args.test_id },
+        { kind: "file", value: args.file },
+        { kind: "query", value: args.query },
+      ];
+      const provided = candidates.filter(
+        (candidate): candidate is McpTestHistorySelector =>
+          candidate.value !== undefined && candidate.value.trim() !== "",
+      );
+      if (provided.length !== 1) {
+        return errorResult(
+          "Provide exactly one non-empty selector: test_id, file, or query.",
+        );
+      }
+      const result = await loadMcpTestHistory(scope, {
+        selector: { kind: provided[0].kind, value: provided[0].value.trim() },
+        days: args.days ?? 30,
+        branch: args.branch ?? null,
+        limit: args.limit ?? 50,
+      });
+      return jsonResult({
+        ...result,
+        executions: result.executions.map((execution) => ({
+          ...execution,
+          runUrl: runUrl(scope, execution.runId),
+          url: testResultUrl(scope, execution.runId, execution.testResultId),
+        })),
       });
     },
   });
