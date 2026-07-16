@@ -14,6 +14,15 @@ import type { Context } from "hono";
  * sees the final rewritten error response while the cache middleware remains
  * outermost and can add its default policy last.
  */
+// Direct-R2 artifact URLs always use Cloudflare's account-specific S3 host.
+// The account ID is deployment-specific, so the CSP uses the narrowest static
+// source expression that works for both managed and self-hosted deployments.
+export const R2_S3_CSP_ORIGIN = "https://*.r2.cloudflarestorage.com";
+
+export const GLOBAL_CONTENT_SECURITY_POLICY = `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com ${R2_S3_CSP_ORIGIN}; font-src 'self' data:; media-src 'self' blob: ${R2_S3_CSP_ORIGIN}; connect-src 'self' ${R2_S3_CSP_ORIGIN}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`;
+
+export const TRACE_VIEWER_CONTENT_SECURITY_POLICY = `default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob: ${R2_S3_CSP_ORIGIN}; worker-src 'self' blob:; frame-src 'self' data: blob:; frame-ancestors 'self'; base-uri 'self'; object-src 'none'`;
+
 const GLOBAL_HEADERS: Readonly<Record<string, string>> = {
   "X-Frame-Options": "DENY",
   "X-Content-Type-Options": "nosniff",
@@ -21,15 +30,13 @@ const GLOBAL_HEADERS: Readonly<Record<string, string>> = {
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
   "Permissions-Policy":
     "camera=(), microphone=(), geolocation=(), browsing-topics=()",
-  "Content-Security-Policy":
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+  "Content-Security-Policy": GLOBAL_CONTENT_SECURITY_POLICY,
 };
 
 const TRACE_VIEWER_HEADERS: Readonly<Record<string, string>> = {
   "X-Frame-Options": "SAMEORIGIN",
   "Service-Worker-Allowed": "/trace-viewer/",
-  "Content-Security-Policy":
-    "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; frame-src 'self' data: blob:; frame-ancestors 'self'; base-uri 'self'; object-src 'none'",
+  "Content-Security-Policy": TRACE_VIEWER_CONTENT_SECURITY_POLICY,
 };
 
 export default defineMiddleware(async (c, next) => {

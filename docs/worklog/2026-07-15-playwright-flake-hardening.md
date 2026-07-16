@@ -95,7 +95,10 @@ that an on-demand development module graph cannot.
   managed dispatch worker, not by own-account Workers or `vp preview`. Early
   in-worker middleware now applies the same defensive headers everywhere and
   preserves the trace viewer's `SAMEORIGIN`/relaxed-CSP exception; edge rules
-  remain as a redundant outer layer.
+  remain as a redundant outer layer. Both policies allow the account-specific
+  `*.r2.cloudflarestorage.com` S3 endpoint in the minimum directives needed by
+  presigned direct-R2 artifact redirects: image, media, and fetch destinations
+  on dashboard pages, and range fetches in the trace viewer.
 - The prior cold-`vp dev` module race documented above is no longer part of the
   E2E runtime. Global setup retains a serial production-route preflight as a
   fast fail for broken SSR page families, not as a module-graph warm-up.
