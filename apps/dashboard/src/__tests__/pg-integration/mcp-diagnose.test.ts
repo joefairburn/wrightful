@@ -236,6 +236,7 @@ describe("MCP flaky diagnosis Postgres queries", () => {
       passedInLatestRun: true,
       latestStatus: "passed",
       distinctSignatures: 1,
+      coFailureRunsAnalyzed: 1,
       representatives: {
         latestFlakyTestResultId: "result_a_flaky",
         latestHardFailTestResultId: "result_a_failed",
@@ -271,6 +272,7 @@ describe("MCP flaky diagnosis Postgres queries", () => {
         file: "tests/login.spec.ts",
       },
     ]);
+    expect(history.matchedTestsTruncated).toBe(false);
     expect(
       history.executions.map((execution) => execution.testResultId),
     ).toEqual(["result_a_passed", "result_a_flaky", "result_a_failed"]);

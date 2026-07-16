@@ -31,8 +31,17 @@ maximum at the tool's explicit limit), error text fetched as a 2,048-char
 `left(coalesce(errorMessage, errorStack), …)` head (signatures only use the
 first meaningful line; ingest allows 64/128 KB messages/stacks, which must not
 be pulled whole into a Worker), and co-failure analysis bounded to 200 flaky
-runs and 5,000 failure rows, and at most 10 signature groups returned per
-test (`distinctSignatures` reports the uncapped total). `get_test_history` resolves its selector as a
+runs (budgeted per test, newest first, so one high-volume test cannot starve
+the others) and 5,000 failure rows, and at most 10 signature groups returned
+per test (`distinctSignatures` reports the uncapped total). Sampling is
+disclosed: each dossier reports `analyzedRows` and `coFailureRunsAnalyzed`,
+while the counters and the representative result ids always cover the full
+window (representatives come from a dedicated latest-per-(test, status)
+`distinct on` read, so a high-volume test's newest flaky occurrence cannot
+fall out of the sample). History reports `matchedTestsTruncated` when a
+file/query selector matches more than 50 catalog tests; the `file` selector
+deliberately matches the test's current cataloged path (resolving historical
+paths would mean unindexed fact-table scans — `query` covers fuzzy needs). `get_test_history` resolves its selector as a
 discriminated `{ kind, value }` union built by the tool layer's
 exactly-one-non-blank validation, and resolves all selector kinds through the
 `tests` catalog (ingest catalogs every test atomically with its results).

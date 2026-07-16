@@ -240,7 +240,7 @@ async function inlineArtifact(
 const FLAKY_RATE_SEMANTICS =
   "flakeRatePct = retryPasses / (retryPasses + passed), where retryPasses are results with status 'flaky' (failed then passed on retry) — the same definition as the dashboard flaky page.";
 const FLAKY_DIAGNOSIS_SEMANTICS =
-  "samples = passed + retryPasses + hardFailures; firstAttemptFailures = retryPasses + hardFailures; retryPasses = failed then passed on retry (status 'flaky'); hardFailures = failed or timedout results; flakeRatePct = retryPasses / (retryPasses + passed) — the same rate definition as the dashboard flaky page. Counters cover the full window; signatures and coFailures are computed from each test's newest analyzedRows results, so they are sampled when analyzedRows < samples.";
+  "samples = passed + retryPasses + hardFailures; firstAttemptFailures = retryPasses + hardFailures; retryPasses = failed then passed on retry (status 'flaky'); hardFailures = failed or timedout results; flakeRatePct = retryPasses / (retryPasses + passed) — the same rate definition as the dashboard flaky page. Counters and representatives cover the full window; signatures are computed from each test's newest analyzedRows results (sampled when analyzedRows < samples), and coFailures from its newest coFailureRunsAnalyzed flaky runs.";
 
 const FLOW_INSTRUCTIONS = `Typical debugging flow:
 1. list_runs — find the run(s) you care about. Filter by pr (PR number), commit (SHA prefix), branch, or status:["failed"].
@@ -583,7 +583,12 @@ export function buildMcpServer(authz: McpAuthz): McpServer {
         .string()
         .optional()
         .describe("Exact stable Playwright test id"),
-      file: z.string().optional().describe("Exact spec-file path"),
+      file: z
+        .string()
+        .optional()
+        .describe(
+          "Exact spec-file path as currently cataloged — a renamed/moved test matches its current path only; use query for fuzzy matching",
+        ),
       query: z
         .string()
         .optional()

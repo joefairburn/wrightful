@@ -202,11 +202,72 @@ async function loadCoFailureRows(scope: TenantScope, runIds: string[]) {
   );
 }
 
+/**
+ * Latest result per (test, status) over the FULL window. Representatives must
+ * not disappear when a high-volume test's newest flaky/failed/passed row falls
+ * outside the {@link MAX_WINDOW_ROWS_PER_TEST} sample — the ranking counters
+ * are full-window, so the representative ids must be too. Bounded to
+ * 4 × |testIds| rows.
+ */
+async function loadLatestRowsByStatus(
+  scope: TenantScope,
+  testIds: string[],
+  opts: McpFlakyDiagnosisOptions,
+) {
+  const conditions = [
+    childProjectScopeWhere(testResults.projectId, scope),
+    runScopeWhere(scope),
+    inArray(testResults.testId, testIds),
+    gte(testResults.createdAt, windowStart(opts.days)),
+    inArray(testResults.status, [...FAILURE_STATUSES, "passed"]),
+  ];
+  if (opts.branch) conditions.push(eq(runs.branch, opts.branch));
+
+  return (
+    db
+      .selectDistinctOn([testResults.testId, testResults.status], {
+        testId: testResults.testId,
+        status: testResults.status,
+        id: testResults.id,
+        createdAt: testResults.createdAt,
+      })
+      .from(testResults)
+      .innerJoin(runs, ciRunsJoinOn())
+      // `distinct on` requires the distinct columns to lead the ordering; the
+      // createdAt/id DESC tiebreak makes "the" row per pair the latest one.
+      .where(and(...conditions))
+      .orderBy(
+        testResults.testId,
+        testResults.status,
+        desc(testResults.createdAt),
+        desc(testResults.id),
+      )
+  );
+}
+
+interface LatestRowByStatus {
+  id: string;
+  createdAt: number;
+}
+
+/** The newer of two optional rows — createdAt, then id (ULIDs sort by time). */
+function newerRow(
+  a: LatestRowByStatus | undefined,
+  b: LatestRowByStatus | undefined,
+): LatestRowByStatus | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  if (a.createdAt !== b.createdAt) return a.createdAt > b.createdAt ? a : b;
+  return a.id > b.id ? a : b;
+}
+
 /** Cross-test context {@link buildTestDossier} reads alongside one test's own rows. */
 interface DossierContext {
+  /** testId → status → latest full-window result ({@link loadLatestRowsByStatus}). */
+  latestByTestStatus: Map<string, Map<string, LatestRowByStatus>>;
   /** signature → the selected testIds that produced it in the window. */
   signatureOwners: Map<string, Set<string>>;
-  /** The (newest-first) flaky runs co-failure analysis was bounded to. */
+  /** The flaky runs co-failure analysis was bounded to — per-test budgeted, newest first. */
   coFailureRunIds: Set<string>;
   flakyRunIdsByTest: Map<string, Set<string>>;
   failuresByRun: Map<string, CoFailureRow[]>;
@@ -221,29 +282,18 @@ function buildTestDossier(
   ctx: DossierContext,
 ) {
   const latest = ownRows[0];
+  const byStatus = ctx.latestByTestStatus.get(rankedRow.testId);
+  const latestFlaky = byStatus?.get("flaky") ?? null;
+  const latestHardFail = newerRow(
+    byStatus?.get("failed"),
+    byStatus?.get("timedout"),
+  );
   const signatureGroups = new Map<
     string,
     { count: number; representativeTestResultId: string }
   >();
-  let latestFlakyTestResultId: string | null = null;
-  let latestHardFailTestResultId: string | null = null;
-  let latestPassedTestResultId: string | null = null;
-  let lastFlakyAt: number | null = null;
 
   for (const row of ownRows) {
-    if (row.status === "flaky" && latestFlakyTestResultId === null) {
-      latestFlakyTestResultId = row.id;
-      lastFlakyAt = row.createdAt;
-    }
-    if (
-      (row.status === "failed" || row.status === "timedout") &&
-      latestHardFailTestResultId === null
-    ) {
-      latestHardFailTestResultId = row.id;
-    }
-    if (row.status === "passed" && latestPassedTestResultId === null) {
-      latestPassedTestResultId = row.id;
-    }
     if (!row.signature) continue;
     const group = signatureGroups.get(row.signature);
     signatureGroups.set(row.signature, {
@@ -256,8 +306,10 @@ function buildTestDossier(
     string,
     { title: string; sharedRuns: number }
   >();
+  let coFailureRunsAnalyzed = 0;
   for (const runId of ctx.flakyRunIdsByTest.get(rankedRow.testId) ?? []) {
     if (!ctx.coFailureRunIds.has(runId)) continue;
+    coFailureRunsAnalyzed += 1;
     for (const row of ctx.failuresByRun.get(runId) ?? []) {
       if (row.testId === rankedRow.testId) continue;
       const existing = coFailureCounts.get(row.testId);
@@ -287,13 +339,15 @@ function buildTestDossier(
     hardFailures,
     passedCount: rankedRow.passedCount,
     flakeRatePct: Math.round(rankedRow.flakeRatePct * 10) / 10,
-    lastFlakyAt,
+    lastFlakyAt: latestFlaky?.createdAt ?? null,
     passedInLatestRun: latestStatus === null ? null : latestStatus === "passed",
     latestStatus,
+    // Full-window like the counters — never null just because the newest
+    // occurrence fell outside the analyzedRows sample.
     representatives: {
-      latestFlakyTestResultId,
-      latestHardFailTestResultId,
-      latestPassedTestResultId,
+      latestFlakyTestResultId: latestFlaky?.id ?? null,
+      latestHardFailTestResultId: latestHardFail?.id ?? null,
+      latestPassedTestResultId: byStatus?.get("passed")?.id ?? null,
     },
     /** Total distinct signatures in the window; > signatures.length means the list was capped. */
     distinctSignatures: signatureGroups.size,
@@ -311,6 +365,8 @@ function buildTestDossier(
         (a, b) => b.count - a.count || a.signature.localeCompare(b.signature),
       )
       .slice(0, MAX_SIGNATURES_PER_TEST),
+    /** This test's flaky runs the coFailures below were computed from (per-test budgeted). */
+    coFailureRunsAnalyzed,
     coFailures: [...coFailureCounts.entries()]
       .map(([testId, value]) => ({ testId, ...value }))
       .sort(
@@ -338,15 +394,25 @@ export async function loadMcpFlakyDiagnosis(
   if (selected.length === 0) return { ...base, currentHealth: null, tests: [] };
 
   const testIds = selected.map((row) => row.testId);
-  const rows = await loadWindowRows(scope, testIds, opts);
+  const [rows, representativeRows] = await Promise.all([
+    loadWindowRows(scope, testIds, opts),
+    loadLatestRowsByStatus(scope, testIds, opts),
+  ]);
+  const latestByTestStatus = new Map<string, Map<string, LatestRowByStatus>>();
+  for (const row of representativeRows) {
+    const byStatus =
+      latestByTestStatus.get(row.testId) ??
+      new Map<string, LatestRowByStatus>();
+    byStatus.set(row.status, { id: row.id, createdAt: row.createdAt });
+    latestByTestStatus.set(row.testId, byStatus);
+  }
 
   // One enrichment pass: fingerprint each failure row once, group rows per
-  // test, and collect the flaky runs (globally newest-first) that co-failure
-  // analysis is bounded to.
+  // test, and collect each test's flaky runs (newest-first) for co-failure
+  // analysis.
   const rowsByTest = new Map<string, EnrichedRow[]>();
   const signatureOwners = new Map<string, Set<string>>();
   const flakyRunIdsByTest = new Map<string, Set<string>>();
-  const flakyRunIds = new Set<string>();
   for (const row of rows) {
     const signature = isFailureStatus(row.status)
       ? normalizeErrorSignature(row.errorHead)
@@ -360,16 +426,28 @@ export async function loadMcpFlakyDiagnosis(
       signatureOwners.set(signature, owners);
     }
     if (row.status === "flaky") {
-      flakyRunIds.add(row.runId);
       const runIds = flakyRunIdsByTest.get(row.testId) ?? new Set<string>();
       runIds.add(row.runId);
       flakyRunIdsByTest.set(row.testId, runIds);
     }
   }
 
-  const coFailureRunIds = new Set(
-    [...flakyRunIds].slice(0, MAX_CO_FAILURE_RUNS),
+  // Allocate the run budget per test, newest runs first (the per-test sets are
+  // insertion-ordered from the newest-first row scan), so one high-volume test
+  // cannot starve the others' co-failure analysis.
+  const perTestRunBudget = Math.max(
+    1,
+    Math.floor(MAX_CO_FAILURE_RUNS / selected.length),
   );
+  const coFailureRunIds = new Set<string>();
+  for (const runIds of flakyRunIdsByTest.values()) {
+    let taken = 0;
+    for (const runId of runIds) {
+      if (taken >= perTestRunBudget) break;
+      coFailureRunIds.add(runId);
+      taken += 1;
+    }
+  }
   const [coFailureRows, health] = await Promise.all([
     loadCoFailureRows(scope, [...coFailureRunIds]),
     loadCurrentHealth(scope, testIds, opts.branch),
@@ -382,6 +460,7 @@ export async function loadMcpFlakyDiagnosis(
   }
 
   const ctx: DossierContext = {
+    latestByTestStatus,
     signatureOwners,
     coFailureRunIds,
     flakyRunIdsByTest,
@@ -419,12 +498,15 @@ async function resolveHistoryTests(
             eq(tests.file, selector.value),
           )
         : buildTestSearchWhere(scope, selector.value);
-  return db
-    .select({ testId: tests.testId, title: tests.title, file: tests.file })
-    .from(tests)
-    .where(where)
-    .orderBy(desc(tests.lastSeenAt), tests.testId)
-    .limit(MAX_MATCHED_TESTS);
+  return (
+    db
+      .select({ testId: tests.testId, title: tests.title, file: tests.file })
+      .from(tests)
+      .where(where)
+      .orderBy(desc(tests.lastSeenAt), tests.testId)
+      // +1 probes truncation; the caller slices back to the cap and reports it.
+      .limit(MAX_MATCHED_TESTS + 1)
+  );
 }
 
 /** One-call execution and retry timeline behind `get_test_history`. */
@@ -432,9 +514,15 @@ export async function loadMcpTestHistory(
   scope: TenantScope,
   opts: McpTestHistoryOptions,
 ) {
-  const matchedTests = await resolveHistoryTests(scope, opts.selector);
+  const matched = await resolveHistoryTests(scope, opts.selector);
+  /** True when the selector matched more catalog tests than the cap — narrow the selector. */
+  const matchedTestsTruncated = matched.length > MAX_MATCHED_TESTS;
+  const matchedTests = matchedTestsTruncated
+    ? matched.slice(0, MAX_MATCHED_TESTS)
+    : matched;
   const testIds = matchedTests.map((test) => test.testId);
-  if (testIds.length === 0) return { matchedTests, executions: [] };
+  if (testIds.length === 0)
+    return { matchedTests, matchedTestsTruncated, executions: [] };
 
   const conditions = [
     childProjectScopeWhere(testResults.projectId, scope),
@@ -468,7 +556,8 @@ export async function loadMcpTestHistory(
     .orderBy(desc(runs.createdAt), desc(testResults.createdAt), testResults.id)
     .limit(opts.limit);
 
-  if (rows.length === 0) return { matchedTests, executions: [] };
+  if (rows.length === 0)
+    return { matchedTests, matchedTestsTruncated, executions: [] };
   const attemptRows = await db
     .select({
       testResultId: testResultAttempts.testResultId,
@@ -496,6 +585,7 @@ export async function loadMcpTestHistory(
 
   return {
     matchedTests,
+    matchedTestsTruncated,
     executions: rows.map((row) => ({
       testResultId: row.testResultId,
       testId: row.testId,
