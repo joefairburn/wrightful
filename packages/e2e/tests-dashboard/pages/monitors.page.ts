@@ -69,6 +69,10 @@ export class MonitorsPage {
   private async submitCreate(): Promise<string> {
     await this.createButton.click();
     await expect(this.page).toHaveURL(MONITOR_DETAIL_URL, { timeout: 15_000 });
+    // The create action redirects via a full page load, so the detail page
+    // hydrates like any fresh navigation; callers chain straight into
+    // pause()/openEdit(), whose clicks a mid-hydration render can swallow.
+    await waitForHydration(this.page);
 
     const monitorId = new URL(this.page.url()).pathname.match(
       /\/monitors\/([^/?#]+)/,

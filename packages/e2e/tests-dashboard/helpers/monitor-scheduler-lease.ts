@@ -41,7 +41,11 @@ export async function acquireMonitorSchedulerLease(): Promise<
         !ownerProcessIsAlive(owner) ||
         (lockStat && Date.now() - lockStat.mtimeMs > STALE_AFTER_MS)
       ) {
-        await rm(LOCK_PATH, { force: true });
+        // Another worker may have reclaimed the stale lock and written a
+        // fresh lease since `owner` was read; only delete an unchanged lock
+        // (mirrors release()).
+        const current = await readFile(LOCK_PATH, "utf8").catch(() => null);
+        if (current === owner) await rm(LOCK_PATH, { force: true });
         continue;
       }
       await delay(RETRY_DELAY_MS);

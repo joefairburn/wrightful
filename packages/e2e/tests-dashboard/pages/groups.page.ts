@@ -61,14 +61,19 @@ export class GroupsPage {
         .check();
     }
     await form.getByRole("button", { name: /create group/i }).click();
-    await expect(this.card(name)).toBeVisible();
+    await expect(this.card(name)).toBeVisible({ timeout: 15_000 });
   }
 
   async createExpectingDuplicate(name: string): Promise<void> {
     const form = this.createForm;
     await form.locator('input[name="name"]').fill(name);
     await form.getByRole("button", { name: /create group/i }).click();
-    await expect(this.page.getByRole("alert")).toContainText(/already exists/i);
+    await expect(this.page.getByRole("alert")).toContainText(
+      /already exists/i,
+      {
+        timeout: 15_000,
+      },
+    );
   }
 
   /** Open the inline editor for a group (its `?editGroup=` Link). */

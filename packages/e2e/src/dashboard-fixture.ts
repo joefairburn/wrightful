@@ -382,10 +382,25 @@ export async function bootDashboard(
     // so through Void's authenticated migration endpoint. Exercise that exact
     // built-worker path before the first auth request, just as deploy does.
     log("Step 6: Apply production migrations (including Better Auth)");
-    const migrationRes = await fetch(`${url}/__void/migrate`, {
-      method: "POST",
-      headers: { "x-void-internal": voidProxyToken },
-    });
+    // Same bounded retry as signup below: waitForServer only proves the root
+    // page renders, so this first binding-dependent request can still hit a
+    // transient 404/5xx while bindings settle. The endpoint is idempotent, and
+    // the abort signal keeps a hung request from stalling global setup.
+    const requestMigration = (): Promise<Response> =>
+      fetch(`${url}/__void/migrate`, {
+        method: "POST",
+        headers: { "x-void-internal": voidProxyToken },
+        signal: AbortSignal.timeout(30_000),
+      });
+    let migrationRes = await requestMigration();
+    for (
+      let i = 0;
+      i < 15 && (migrationRes.status === 404 || migrationRes.status >= 500);
+      i++
+    ) {
+      await sleep(1000);
+      migrationRes = await requestMigration();
+    }
     const migrationBody = await migrationRes.text();
     if (!migrationRes.ok) {
       throw new Error(
