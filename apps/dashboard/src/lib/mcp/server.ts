@@ -240,7 +240,7 @@ async function inlineArtifact(
 const FLAKY_RATE_SEMANTICS =
   "flakeRatePct = retryPasses / (retryPasses + passed), where retryPasses are results with status 'flaky' (failed then passed on retry) — the same definition as the dashboard flaky page.";
 const FLAKY_DIAGNOSIS_SEMANTICS =
-  "samples = passed + retryPasses + hardFailures; firstAttemptFailures = retryPasses + hardFailures; retryPasses = failed then passed on retry (status 'flaky'); hardFailures = failed or timedout results; flakeRatePct = retryPasses / (retryPasses + passed) — the same rate definition as the dashboard flaky page.";
+  "samples = passed + retryPasses + hardFailures; firstAttemptFailures = retryPasses + hardFailures; retryPasses = failed then passed on retry (status 'flaky'); hardFailures = failed or timedout results; flakeRatePct = retryPasses / (retryPasses + passed) — the same rate definition as the dashboard flaky page. Counters cover the full window; signatures and coFailures are computed from each test's newest analyzedRows results, so they are sampled when analyzedRows < samples.";
 
 const FLOW_INSTRUCTIONS = `Typical debugging flow:
 1. list_runs — find the run(s) you care about. Filter by pr (PR number), commit (SHA prefix), branch, or status:["failed"].
@@ -626,7 +626,7 @@ export function buildMcpServer(authz: McpAuthz): McpServer {
         );
       }
       const result = await loadMcpTestHistory(scope, {
-        selector: provided[0],
+        selector: { kind: provided[0].kind, value: provided[0].value.trim() },
         days: args.days ?? 30,
         branch: args.branch ?? null,
         limit: args.limit ?? 50,

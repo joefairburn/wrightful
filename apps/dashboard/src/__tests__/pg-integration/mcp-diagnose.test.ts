@@ -227,6 +227,7 @@ describe("MCP flaky diagnosis Postgres queries", () => {
     const login = diagnosis.tests.find((test) => test.testId === "test_login");
     expect(login).toMatchObject({
       samples: 3,
+      analyzedRows: 3,
       firstAttemptFailures: 2,
       retryPasses: 1,
       hardFailures: 1,

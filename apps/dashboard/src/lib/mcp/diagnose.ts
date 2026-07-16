@@ -275,6 +275,13 @@ function buildTestDossier(
     title: latest?.title ?? "",
     file: latest?.file ?? "",
     samples: rankedRow.passedCount + rankedRow.flakyCount + hardFailures,
+    /**
+     * Rows the signature/co-failure breakdowns below were computed from — the
+     * test's newest window rows, capped at {@link MAX_WINDOW_ROWS_PER_TEST}.
+     * When this is less than `samples`, those breakdowns are sampled; the
+     * counters above always cover the full window.
+     */
+    analyzedRows: ownRows.length,
     firstAttemptFailures: rankedRow.flakyCount + hardFailures,
     retryPasses: rankedRow.flakyCount,
     hardFailures,
