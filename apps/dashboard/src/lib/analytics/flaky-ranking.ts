@@ -11,7 +11,7 @@ import { childProjectScopeWhere, type TenantScope } from "@/lib/scope";
  * `list_flaky_tests` tool (`src/lib/mcp/queries.ts`) open with.
  *
  * It used to live verbatim in both: same `ciRunsJoinOn()` synthetic-traffic
- * exclusion, same three `sum(case when status = …)` counters, same
+ * exclusion, same status counters, same
  * `having flaky >= 1`, same `flaky / (flaky + passed)` rate and same
  * rate-then-count sort. An agent and the flaky page disagreeing about "the
  * flakiest tests" for the same window reads as a data bug, so the two were
@@ -31,6 +31,8 @@ export interface RankedFlaky {
   /** Results recorded `flaky` (failed, then passed on retry). */
   flakyCount: number;
   passedCount: number;
+  /** Results that remained failed or timed out after retries. */
+  hardFailureCount: number;
   /** flaky / (flaky + passed), 0..100, unrounded. */
   flakeRatePct: number;
 }
@@ -62,6 +64,9 @@ export async function rankFlakyTests(
       ),
       passedCount: numericSql(
         sql`sum(case when ${testResults.status} = 'passed' then 1 else 0 end)`,
+      ),
+      hardFailureCount: numericSql(
+        sql`sum(case when ${testResults.status} in ('failed', 'timedout') then 1 else 0 end)`,
       ),
     })
     .from(testResults)

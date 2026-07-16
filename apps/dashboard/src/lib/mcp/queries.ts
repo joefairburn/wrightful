@@ -167,6 +167,7 @@ export async function loadMcpTestResultDetail(
       retryCount: testResults.retryCount,
       errorMessage: testResults.errorMessage,
       errorStack: testResults.errorStack,
+      workerIndex: testResults.workerIndex,
       shardIndex: testResults.shardIndex,
       createdAt: testResults.createdAt,
       branch: runs.branch,
