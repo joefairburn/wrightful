@@ -33,8 +33,16 @@ import {
 const FAILURE_STATUSES = ["flaky", "failed", "timedout"] as const;
 
 const MAX_WINDOW_ROWS_PER_TEST = 500;
+/**
+ * Aggregate window-row budget across ALL selected tests. The per-test cap
+ * alone still lets a max-size call (50 tests × 500 rows × 2 KB error heads)
+ * hold ~50 M chars of error text in Worker memory; splitting one budget
+ * across the selection bounds the aggregate instead. At the default
+ * `limit: 10` each test keeps the full 500 rows.
+ */
+const WINDOW_ROW_BUDGET = 5000;
 const MAX_CO_FAILURE_RUNS = 200;
-/** Hard row cap on the co-failure read — a mass-failure era must not make it unbounded. */
+/** Aggregate row budget for the co-failure read, split per run — a mass-failure era must not make it unbounded. */
 const MAX_CO_FAILURE_ROWS = 5000;
 const MAX_CO_FAILURES_PER_TEST = 10;
 /** Signature groups returned per test — `distinctSignatures` reports the uncapped total. */
@@ -53,11 +61,15 @@ function isFailureStatus(status: string): boolean {
   return (FAILURE_STATUSES as readonly string[]).includes(status);
 }
 
-/** Byte-bounded error head, message first, stack as fallback. */
+/**
+ * Byte-bounded error head — message first, stack as fallback. A blank or
+ * whitespace-only message counts as absent (`nullif(trim(…), '')`), so a
+ * useful stack is not shadowed by an empty non-null message.
+ */
 function errorHeadSql() {
   return sql<
     string | null
-  >`left(coalesce(${testResults.errorMessage}, ${testResults.errorStack}), ${ERROR_HEAD_CHARS})`;
+  >`left(coalesce(nullif(trim(${testResults.errorMessage}), ''), ${testResults.errorStack}), ${ERROR_HEAD_CHARS})`;
 }
 
 export interface McpFlakyDiagnosisOptions {
@@ -92,6 +104,10 @@ async function loadWindowRows(
   testIds: string[],
   opts: McpFlakyDiagnosisOptions,
 ) {
+  const perTestRowCap = Math.min(
+    MAX_WINDOW_ROWS_PER_TEST,
+    Math.max(1, Math.floor(WINDOW_ROW_BUDGET / testIds.length)),
+  );
   const conditions = [
     childProjectScopeWhere(testResults.projectId, scope),
     runScopeWhere(scope),
@@ -133,7 +149,7 @@ async function loadWindowRows(
       createdAt: windowed.createdAt,
     })
     .from(windowed)
-    .where(lte(windowed.rowNumber, MAX_WINDOW_ROWS_PER_TEST))
+    .where(lte(windowed.rowNumber, perTestRowCap))
     .orderBy(desc(windowed.createdAt), desc(windowed.id));
 }
 
@@ -179,27 +195,43 @@ async function loadCurrentHealth(
 
 async function loadCoFailureRows(scope: TenantScope, runIds: string[]) {
   if (runIds.length === 0) return [];
-  return (
-    db
-      .select({
-        runId: testResults.runId,
-        testId: testResults.testId,
-        title: testResults.title,
-      })
-      .from(testResults)
-      .innerJoin(runs, ciRunsJoinOn())
-      .where(
-        and(
-          childProjectScopeWhere(testResults.projectId, scope),
-          runScopeWhere(scope),
-          inArray(testResults.runId, runIds),
-          inArray(testResults.status, [...FAILURE_STATUSES]),
-        ),
-      )
-      // Newest-first so the row cap drops the oldest failures, not arbitrary ones.
-      .orderBy(desc(testResults.createdAt), desc(testResults.id))
-      .limit(MAX_CO_FAILURE_ROWS)
+  // Split the row budget per run (newest failures first within each) so one
+  // mass-failure run cannot consume the whole read and silently starve the
+  // other budgeted runs out of `failuresByRun`.
+  const perRunRowCap = Math.max(
+    1,
+    Math.floor(MAX_CO_FAILURE_ROWS / runIds.length),
   );
+  const ranked = db
+    .select({
+      runId: testResults.runId,
+      testId: testResults.testId,
+      title: testResults.title,
+      rowNumber:
+        sql<number>`cast(row_number() over (partition by ${testResults.runId} order by ${testResults.createdAt} desc, ${testResults.id} desc) as integer)`.as(
+          "rowNumber",
+        ),
+    })
+    .from(testResults)
+    .innerJoin(runs, ciRunsJoinOn())
+    .where(
+      and(
+        childProjectScopeWhere(testResults.projectId, scope),
+        runScopeWhere(scope),
+        inArray(testResults.runId, runIds),
+        inArray(testResults.status, [...FAILURE_STATUSES]),
+      ),
+    )
+    .as("co_failure_rows");
+
+  return db
+    .select({
+      runId: ranked.runId,
+      testId: ranked.testId,
+      title: ranked.title,
+    })
+    .from(ranked)
+    .where(lte(ranked.rowNumber, perRunRowCap));
 }
 
 /**
@@ -328,10 +360,10 @@ function buildTestDossier(
     file: latest?.file ?? "",
     samples: rankedRow.passedCount + rankedRow.flakyCount + hardFailures,
     /**
-     * Rows the signature/co-failure breakdowns below were computed from — the
-     * test's newest window rows, capped at {@link MAX_WINDOW_ROWS_PER_TEST}.
-     * When this is less than `samples`, those breakdowns are sampled; the
-     * counters above always cover the full window.
+     * Rows the signature breakdown below was computed from — the test's newest
+     * window rows, capped per test and by the selection-wide
+     * {@link WINDOW_ROW_BUDGET}. When this is less than `samples`, the
+     * breakdown is sampled; the counters above always cover the full window.
      */
     analyzedRows: ownRows.length,
     firstAttemptFailures: rankedRow.flakyCount + hardFailures,

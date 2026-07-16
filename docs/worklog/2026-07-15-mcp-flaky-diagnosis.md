@@ -26,14 +26,17 @@ whitespace normalization, and a bounded output length.
 ## Query and tenancy decisions
 
 No schema, migration, reporter, or ingest change was needed. The diagnosis
-read is bounded on every axis: 500 recent rows per selected test (25,000
-maximum at the tool's explicit limit), error text fetched as a 2,048-char
-`left(coalesce(errorMessage, errorStack), …)` head (signatures only use the
-first meaningful line; ingest allows 64/128 KB messages/stacks, which must not
-be pulled whole into a Worker), and co-failure analysis bounded to 200 flaky
-runs (budgeted per test, newest first, so one high-volume test cannot starve
-the others) and 5,000 failure rows, and at most 10 signature groups returned
-per test (`distinctSignatures` reports the uncapped total). Sampling is
+read is bounded on every axis: a 5,000-row window budget split across the
+selected tests, at most 500 rows per test (the full 500 at the default
+`limit: 10`), error text fetched as a 2,048-char
+`left(coalesce(nullif(trim(errorMessage), ''), errorStack), …)` head (blank
+messages fall back to the stack; signatures only use the first meaningful
+line, and ingest allows 64/128 KB messages/stacks, which must not be pulled
+whole into a Worker), and co-failure analysis bounded to 200 flaky runs
+(budgeted per test, newest first, so one high-volume test cannot starve the
+others) and 5,000 failure rows (budgeted per run, so one mass-failure run
+cannot starve the other budgeted runs), and at most 10 signature groups
+returned per test (`distinctSignatures` reports the uncapped total). Sampling is
 disclosed: each dossier reports `analyzedRows` and `coFailureRunsAnalyzed`,
 while the counters and the representative result ids always cover the full
 window (representatives come from a dedicated latest-per-(test, status)
