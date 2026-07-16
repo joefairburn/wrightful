@@ -2,7 +2,8 @@ import { type Locator, type Page, expect } from "@playwright/test";
 
 import { gotoAndExpect, waitForHydration } from "../helpers/navigation";
 
-const MONITOR_DETAIL_URL = /\/monitors\/(?!new(?:[/?#]|$))[^/?#]+(?:[?#]|$)/;
+const escapeRegExp = (s: string): string =>
+  s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * Page object for the synthetic-monitors section under
@@ -66,9 +67,19 @@ export class MonitorsPage {
     return `${this.listPath}/${monitorId}`;
   }
 
+  /**
+   * URL pattern for a monitor detail page under THIS team/project (excludes
+   * `/new`), so a wrong-tenant redirect can never satisfy the assertion.
+   */
+  private get detailUrl(): RegExp {
+    return new RegExp(
+      `${escapeRegExp(this.listPath)}/(?!new(?:[/?#]|$))[^/?#]+(?:[?#]|$)`,
+    );
+  }
+
   private async submitCreate(): Promise<string> {
     await this.createButton.click();
-    await expect(this.page).toHaveURL(MONITOR_DETAIL_URL, { timeout: 15_000 });
+    await expect(this.page).toHaveURL(this.detailUrl, { timeout: 15_000 });
     // The create action redirects via a full page load, so the detail page
     // hydrates like any fresh navigation; callers chain straight into
     // pause()/openEdit(), whose clicks a mid-hydration render can swallow.
@@ -229,10 +240,13 @@ export class MonitorsPage {
 
   async openEdit(): Promise<void> {
     await expect(this.editLink).toBeVisible();
+    // Pin the assertion to the detail page we're editing, not any ?edit=1 URL.
+    const detailPathname = new URL(this.page.url()).pathname;
     await this.editLink.click();
-    await expect(this.page).toHaveURL(/[?&]edit=1(?:&|$)/, {
-      timeout: 15_000,
-    });
+    await expect(this.page).toHaveURL(
+      new RegExp(`${escapeRegExp(detailPathname)}\\?(?:.*&)?edit=1(?:&|$)`),
+      { timeout: 15_000 },
+    );
     await expect(this.saveEditButton).toBeVisible({ timeout: 15_000 });
   }
 

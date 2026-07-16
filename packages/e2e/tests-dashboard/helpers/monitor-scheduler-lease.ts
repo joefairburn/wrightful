@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  link,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,11 +49,7 @@ export async function acquireMonitorSchedulerLease(): Promise<
         !ownerProcessIsAlive(owner) ||
         (lockStat && Date.now() - lockStat.mtimeMs > STALE_AFTER_MS)
       ) {
-        // Another worker may have reclaimed the stale lock and written a
-        // fresh lease since `owner` was read; only delete an unchanged lock
-        // (mirrors release()).
-        const current = await readFile(LOCK_PATH, "utf8").catch(() => null);
-        if (current === owner) await rm(LOCK_PATH, { force: true });
+        await reclaimStaleLock(owner);
         continue;
       }
       await delay(RETRY_DELAY_MS);
@@ -56,6 +60,29 @@ export async function acquireMonitorSchedulerLease(): Promise<
   throw new Error(
     `Timed out waiting for the monitor scheduler lease (owner: ${owner})`,
   );
+}
+
+/**
+ * Dispose of a stale lock without racing other reclaimers. A compare-then-rm
+ * on LOCK_PATH is not atomic — two waiters can both pass the compare before
+ * either deletes, and the loser then removes a lease written in between.
+ * rename() is atomic, so exactly one contender takes custody of the lock
+ * file; if the file it captured turns out to be a fresh lease (it replaced
+ * the stale lock after `staleOwner` was read), put it back — link() refuses
+ * to clobber an even newer acquisition.
+ */
+async function reclaimStaleLock(staleOwner: string | null): Promise<void> {
+  const claimPath = `${LOCK_PATH}.stale-${process.pid}-${randomUUID()}`;
+  try {
+    await rename(LOCK_PATH, claimPath);
+  } catch {
+    return; // another worker claimed it (or the owner released) first
+  }
+  const claimed = await readFile(claimPath, "utf8").catch(() => null);
+  if (claimed !== staleOwner && claimed !== null) {
+    await link(claimPath, LOCK_PATH).catch(() => {});
+  }
+  await rm(claimPath, { force: true });
 }
 
 /** Remove a lock left behind by a worker killed before fixture teardown. */
