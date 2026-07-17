@@ -20,6 +20,10 @@ export const MAX_TITLE = 2048;
 export const MAX_MESSAGE = 65_536;
 export const MAX_STACK = 131_072;
 
+/** Dashboard request caps mirrored and pinned by the contract tests. */
+export const MAX_RESULTS_PER_BATCH = 5000;
+export const MAX_PLANNED_TESTS = 100_000;
+
 /**
  * Truncate `s` to at most `max` UTF-16 code units, byte-for-byte matching the
  * dashboard's `truncatedText` transform — including its surrogate-pair guard: a

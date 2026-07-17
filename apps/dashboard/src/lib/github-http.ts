@@ -99,6 +99,30 @@ export async function githubFetch(
   });
 }
 
+/** Best-effort, per-colo deduplication for GitHub webhook delivery ids. */
+const WEBHOOK_DEDUP_CACHE = "github-webhook-deliveries";
+const WEBHOOK_DEDUP_TTL_SECONDS = 3600;
+
+export async function isReplayedDelivery(
+  deliveryId: string | null | undefined,
+): Promise<boolean> {
+  if (!deliveryId) return false;
+  const cacheApi = (globalThis as { caches?: CacheStorage }).caches;
+  if (!cacheApi) return false;
+  const cache = await cacheApi.open(WEBHOOK_DEDUP_CACHE);
+  const key = new Request(
+    `https://github-webhook.invalid/delivery/${encodeURIComponent(deliveryId)}`,
+  );
+  if (await cache.match(key)) return true;
+  await cache.put(
+    key,
+    new Response("1", {
+      headers: { "Cache-Control": `max-age=${WEBHOOK_DEDUP_TTL_SECONDS}` },
+    }),
+  );
+  return false;
+}
+
 /**
  * Verify a GitHub webhook's `X-Hub-Signature-256` (HMAC-SHA256 of the raw body
  * keyed by the webhook secret). Constant-time compare. Returns false on a

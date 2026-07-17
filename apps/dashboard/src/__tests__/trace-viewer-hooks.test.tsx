@@ -244,9 +244,12 @@ describe("useTraceModel — mount + protocol", () => {
     expect(iframes).toHaveLength(1);
     const iframe = iframes[0] as HTMLIFrameElement;
     expect(iframe.style.display).toBe("none");
-    expect(iframe.getAttribute("src")).toBe(
+    // Leads with the encoded trace param, then the explicit `host=` postMessage
+    // handshake param (see `bridgeIframeSrc`).
+    expect(iframe.getAttribute("src")).toContain(
       `/trace-viewer/bridge.html?trace=${encodeURIComponent(TRACE_URL)}`,
     );
+    expect(iframe.getAttribute("src")).toContain("host=");
     expect(document.body.contains(iframe)).toBe(true);
     unmount();
   });
@@ -635,9 +638,10 @@ describe("useTraceModel — attempt switching (stale-while-loading)", () => {
     });
     const iframeB = secondIframe();
     expect(document.body.contains(iframeA)).toBe(true);
-    expect(iframeB.getAttribute("src")).toBe(
+    expect(iframeB.getAttribute("src")).toContain(
       `/trace-viewer/bridge.html?trace=${encodeURIComponent(TRACE_B)}`,
     );
+    expect(iframeB.getAttribute("src")).toContain("host=");
     unmount();
   });
 

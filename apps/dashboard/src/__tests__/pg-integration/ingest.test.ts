@@ -44,6 +44,13 @@ vi.mock("@/realtime/publish", () => ({
   broadcastProjectRoom: () => Promise.resolve(),
 }));
 
+// `appendRunResults` reads the per-run test-result-row ceiling off `void/env`.
+// Provide a generous cap so these pipeline tests never trip it (its enforcement
+// is covered by `ingest-row-cap.test.ts`).
+vi.mock("void/env", () => ({
+  env: { WRIGHTFUL_MAX_TEST_RESULTS_PER_RUN: 500000 },
+}));
+
 const { resetTables } = await import("./harness");
 const { runBatch } = await import("@/lib/db-batch");
 const {

@@ -7,10 +7,8 @@
  * the credentials a real user would have. Extracted so the boot logic doesn't
  * drift between the two consumers.
  *
- * Lifecycle: `bootDashboard(...)` returns a `DashboardFixture` whose `.teardown()`
- * kills the preview server and restores the original `.env.local`. Always pair the
- * call with a `finally`/teardown hook — the dashboard listens on a fixed port,
- * so a leaked process blocks the next run.
+ * Always await `.teardown()` so the fixed preview port and shared environment
+ * lock are released before another suite starts.
  *
  * Targets the Void dashboard at `apps/dashboard`: local config is `.env.local`,
  * the clean slate is `void db reset`, and tests run against a production build
@@ -21,6 +19,7 @@ import { randomBytes } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
+  readdirSync,
   readFileSync,
   renameSync,
   unlinkSync,
@@ -35,6 +34,48 @@ const ROOT = resolve(__dirname, "../../..");
 const DASHBOARD_DIR = resolve(ROOT, "apps/dashboard");
 const REPORTER_DIR = resolve(ROOT, "packages/reporter");
 const ENV_LOCAL_PATH = resolve(DASHBOARD_DIR, ".env.local");
+const ENV_LOCK_PATH = resolve(DASHBOARD_DIR, ".env.local.lock");
+const TEARDOWN_SIGKILL_TIMEOUT_MS = 8000;
+const TEARDOWN_MAX_WAIT_MS = 15000;
+
+/** Stop the preview process group, escalating to SIGKILL if needed. */
+function killPreviewGroup(server: ChildProcess): Promise<void> {
+  const signalGroup = (sig: NodeJS.Signals): void => {
+    try {
+      if (server.pid) process.kill(-server.pid, sig);
+      else server.kill(sig);
+    } catch {
+      try {
+        server.kill(sig);
+      } catch {
+        // Process already exited.
+      }
+    }
+  };
+
+  return new Promise<void>((resolvePromise) => {
+    if (server.exitCode !== null || server.signalCode !== null) {
+      resolvePromise();
+      return;
+    }
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(sigkillTimer);
+      clearTimeout(maxWaitTimer);
+      resolvePromise();
+    };
+    server.once("exit", finish);
+    signalGroup("SIGTERM");
+    const sigkillTimer = setTimeout(() => {
+      if (!settled) signalGroup("SIGKILL");
+    }, TEARDOWN_SIGKILL_TIMEOUT_MS);
+    sigkillTimer.unref?.();
+    const maxWaitTimer = setTimeout(finish, TEARDOWN_MAX_WAIT_MS);
+    maxWaitTimer.unref?.();
+  });
+}
 export interface BootOptions {
   /** TCP port the production preview server should listen on. */
   port: number;
@@ -104,8 +145,8 @@ export interface DashboardFixture {
    * scheduled cycle without waiting on real Cloudflare cron / queue delivery.
    */
   voidProxyToken: string;
-  /** Kills the preview server and restores `.env.local`. Idempotent. */
-  teardown: () => void;
+  /** Stops the preview server and restores the shared local environment. */
+  teardown: () => Promise<void>;
 }
 
 function log(msg: string): void {
@@ -226,25 +267,28 @@ export async function bootDashboard(
 
   let dashboardServer: ChildProcess | undefined;
   let envBackedUp = false;
+  let lockAcquired = false;
   let tornDown = false;
   // Flipped by teardown so the intentional kill doesn't trip the mid-run
   // death reporter attached to the preview server's `exit` event below.
   let expectedExit = false;
 
-  const teardown = () => {
+  const teardown = async (): Promise<void> => {
     if (tornDown) return;
     tornDown = true;
     expectedExit = true;
     if (dashboardServer) {
-      // Kill the whole process group (detached leader) so vp/vite/miniflare
-      // don't outlive the parent and hold the port. Fall back to a direct kill.
-      try {
-        if (dashboardServer.pid) process.kill(-dashboardServer.pid, "SIGTERM");
-        else dashboardServer.kill("SIGTERM");
-      } catch {
-        dashboardServer.kill("SIGTERM");
-      }
+      const server = dashboardServer;
       dashboardServer = undefined;
+      await killPreviewGroup(server);
+    }
+    if (lockAcquired) {
+      try {
+        if (existsSync(ENV_LOCK_PATH)) unlinkSync(ENV_LOCK_PATH);
+      } catch (err) {
+        console.error(`[dashboard-fixture] Failed to remove lock:`, err);
+      }
+      lockAcquired = false;
     }
     if (!envBackedUp) return;
     try {
@@ -265,11 +309,25 @@ export async function bootDashboard(
     run("pnpm build", { cwd: REPORTER_DIR });
 
     log("Step 2: Write .env.local (backup any existing)");
-    if (existsSync(envBackupPath)) {
+    if (existsSync(ENV_LOCK_PATH)) {
       throw new Error(
-        `Refusing to start: ${envBackupPath} already exists. A previous run likely crashed before teardown. Inspect it and restore/remove manually.`,
+        `Refusing to start: ${ENV_LOCK_PATH} is held — another dashboard e2e fixture is running, or a previous run crashed before teardown. Stop it, or remove the lock (and any .env.local.* backup) and retry.`,
       );
     }
+    const strayBackup = readdirSync(DASHBOARD_DIR).find(
+      (f) => f.startsWith(".env.local.") && f !== ".env.local.lock",
+    );
+    if (strayBackup) {
+      throw new Error(
+        `Refusing to start: ${resolve(DASHBOARD_DIR, strayBackup)} already exists. A previous run likely crashed before teardown. Inspect it and restore/remove manually.`,
+      );
+    }
+    writeFileSync(
+      ENV_LOCK_PATH,
+      `pid=${process.pid} port=${port} at=${new Date().toISOString()}\n`,
+      { encoding: "utf8", flag: "wx" },
+    );
+    lockAcquired = true;
     if (existsSync(ENV_LOCAL_PATH)) {
       renameSync(ENV_LOCAL_PATH, envBackupPath);
       log("  Existing .env.local backed up.");
@@ -528,7 +586,7 @@ export async function bootDashboard(
       teardown,
     };
   } catch (err) {
-    teardown();
+    await teardown();
     throw err;
   }
 }

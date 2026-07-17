@@ -35,18 +35,22 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+// The bridge src always carries an explicit `host=<parent-origin>` param now
+// (the cross-origin postMessage handshake — see `bridgeIframeSrc`), so a
+// register-only (warm-mode) iframe is "bridge.html with a host but NO trace",
+// and a prefetch iframe additionally carries `trace=`.
 function registerOnlyIframes(): HTMLIFrameElement[] {
   return Array.from(
     document.querySelectorAll<HTMLIFrameElement>(
-      'iframe[src="/trace-viewer/bridge.html"]',
+      'iframe[src^="/trace-viewer/bridge.html"]',
     ),
-  );
+  ).filter((iframe) => !(iframe.getAttribute("src") ?? "").includes("trace="));
 }
 
 function prefetchIframes(): HTMLIFrameElement[] {
   return Array.from(
     document.querySelectorAll<HTMLIFrameElement>(
-      'iframe[src^="/trace-viewer/bridge.html?trace="]',
+      'iframe[src*="/trace-viewer/bridge.html?trace="]',
     ),
   );
 }
@@ -83,12 +87,17 @@ describe("warmTraceViewer", () => {
 
   it("mounts one iframe carrying the encoded trace param for a full prefetch", () => {
     const traceUrl = "https://dash.test/api/artifacts/warm-1/download?t=tok";
-    const expectedSrc = `/trace-viewer/bridge.html?trace=${encodeURIComponent(traceUrl)}`;
+    // The src leads with the encoded trace param and also carries the explicit
+    // `host=<parent-origin>` postMessage-handshake param appended after it.
+    const expectedPrefix = `/trace-viewer/bridge.html?trace=${encodeURIComponent(traceUrl)}`;
 
     warmTraceViewer(traceUrl);
 
-    const iframes = document.querySelectorAll(`iframe[src="${expectedSrc}"]`);
+    const iframes = document.querySelectorAll<HTMLIFrameElement>(
+      `iframe[src^="${expectedPrefix}"]`,
+    );
     expect(iframes).toHaveLength(1);
+    expect(iframes[0]?.getAttribute("src")).toContain("host=");
   });
 
   it("dedupes repeat warms of the same artifact even when the signed token rotates", () => {

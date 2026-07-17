@@ -190,10 +190,10 @@ openssl rand -base64 32 | pnpm --filter @wrightful/dashboard exec void secret pu
 pnpm --filter @wrightful/dashboard exec void secret put WRIGHTFUL_PUBLIC_URL
 
 # 3. Deploy — builds, applies db/migrations/, provisions Postgres + R2, goes live.
-pnpm deploy
+pnpm deploy:void
 ```
 
-`pnpm deploy` runs `void deploy`, which reads the checked-in `apps/dashboard/db/migrations/`, fails if the schema source (`db/schema.ts`) has drifted ahead of them (run `pnpm db:generate`, commit, retry), applies any pending migrations, and goes live — no separate migrate step, no hand-edited binding config. For auto-deploy on push, `void init --github` writes a `.github/workflows/deploy.yml` that runs `void deploy` with a `VOID_TOKEN` secret (from `void auth token`).
+`pnpm deploy:void` runs `void deploy`, which reads the checked-in `apps/dashboard/db/migrations/`, fails if the schema source (`db/schema.ts`) has drifted ahead of them (run `pnpm db:generate`, commit, retry), applies any pending migrations, and goes live — no separate migrate step, no hand-edited binding config. For auto-deploy on push, `void init --github` writes a `.github/workflows/deploy.yml` that runs `void deploy` with a `VOID_TOKEN` secret (from `void auth token`).
 
 ---
 
@@ -205,13 +205,14 @@ Wrightful reads two kinds of configuration. **Build-time** inputs configure the 
 
 Consumed by `gen-wrangler` and `pnpm db:migrate:remote` during the build/deploy, not by the running Worker. On Workers Builds set the `CF_*` as **variables** and `DATABASE_URL` as a **secret**; the GitHub Actions path additionally needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (or `VOID_TOKEN` for Void) — see [Auto-deploy on push](#auto-deploy-on-push-recommended).
 
-| Name               | Secret? | Default                    | Purpose                                                                                                                                                   |
-| ------------------ | ------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CF_WORKER_NAME`   | No      | `wrightful-dashboard-void` | Worker name; injected into `wrangler.jsonc` by `gen-wrangler`.                                                                                            |
-| `CF_R2_BUCKET`     | No      | —                          | R2 bucket name → `STORAGE` binding.                                                                                                                       |
-| `CF_HYPERDRIVE_ID` | No      | —                          | Hyperdrive config id → `HYPERDRIVE` (Postgres) binding.                                                                                                   |
-| `CF_OBSERVABILITY` | No      | `false`                    | Truthy (`true`/`1`/`yes`/`on`) injects an `observability` block (Workers Logs) into `wrangler.jsonc`. View logs with `wrangler tail` or the CF dashboard. |
-| `DATABASE_URL`     | **Yes** | —                          | Prod Postgres **direct** connection for `pnpm db:migrate:remote` (and `vp dev`). **Not** a runtime secret — prod reaches Postgres via `HYPERDRIVE`.       |
+| Name                                 | Secret? | Default                    | Purpose                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------ | ------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CF_WORKER_NAME`                     | No      | `wrightful-dashboard-void` | Worker name; injected into `wrangler.jsonc` by `gen-wrangler`.                                                                                                                                                                                                                                                                                                   |
+| `CF_R2_BUCKET`                       | No      | —                          | R2 bucket name → `STORAGE` binding.                                                                                                                                                                                                                                                                                                                              |
+| `CF_HYPERDRIVE_ID`                   | No      | —                          | Hyperdrive config id → `HYPERDRIVE` (Postgres) binding.                                                                                                                                                                                                                                                                                                          |
+| `CF_OBSERVABILITY`                   | No      | `false`                    | Truthy (`true`/`1`/`yes`/`on`) injects an `observability` block (Workers Logs) into `wrangler.jsonc`. View logs with `wrangler tail` or the CF dashboard.                                                                                                                                                                                                        |
+| `DATABASE_URL`                       | **Yes** | —                          | Prod Postgres **direct** connection for `pnpm db:migrate:remote` (and `vp dev`). **Not** a runtime secret — prod reaches Postgres via `HYPERDRIVE`.                                                                                                                                                                                                              |
+| `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` | No      | — (same-origin)            | Absolute origin serving the trace-viewer scope, e.g. `https://traces.example.com`. **Build-time** (inlined into the client bundle). Isolates attacker-craftable DOM snapshots off the session origin — see [Trace-viewer origin isolation](#trace-viewer-origin-isolation-optional-hardening). Unset = safe same-origin default (scripts disabled on snapshots). |
 
 ### Runtime variables & secrets
 
@@ -353,6 +354,23 @@ Two pieces of out-of-band setup:
    ```
 
 2. **No custom domain.** Presigned URLs only work on the `<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` S3 endpoint — Cloudflare does **not** honour SigV4 on a custom domain. Serving artifacts from a branded `artifacts.example.com` would require Cloudflare WAF HMAC tokens (Pro plan or above) and is not yet implemented (deferred in ADR 0003). Leave the bucket's public `r2.dev` access disabled; presigned URLs do not need it.
+
+### Trace-viewer origin isolation (optional hardening)
+
+The embedded **Test Replay** viewer reconstructs DOM snapshots from bytes inside a trace zip and renders them in an iframe. Those bytes are **attacker-craftable** — any holder of a project ingest API key can upload an arbitrary trace, so a snapshot need not come from a real Playwright capture. To let the service worker resolve the snapshot's subresources, the iframe must be `allow-same-origin`; served from the **same origin as the dashboard session** (the default), a script that slipped past the vendored Playwright sanitiser would run with your login cookies — stored XSS → session takeover. Upstream Playwright avoids this by isolating the viewer onto a **separate origin** (`trace.playwright.dev` / unique localhost ports).
+
+**The default is safe without any configuration:** same-origin snapshot iframes drop `allow-scripts` and `/trace-viewer/snapshot/*` is served with a `script-src 'none'` CSP, so no snapshot script can execute at all. The only cost is fidelity — snapshot scripts that restore scroll position, canvas contents, and the click-point marker don't run (the static DOM still renders).
+
+To get **full-fidelity replay** back safely, serve the trace-viewer scope from a **separate, cookieless origin** and set `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` to it (a **build-time** variable — it is inlined into the client bundle, so set it before `pnpm deploy:cf` / the Workers Build, alongside the `CF_*` vars). When set, snapshot iframes become cross-origin to the session, so `allow-scripts` is re-enabled with no access to your cookies/DOM.
+
+A separate-origin deployment is a **manual DNS/routing + CSP step** (not automated, and not verifiable in a code sandbox):
+
+1. **Provision a cookieless hostname** — e.g. `traces.example.com` — as a Cloudflare custom domain / route bound to **the same Worker** as the dashboard. It must serve the same `/trace-viewer/*` assets and the same `sw.bundle.js`. Do **not** issue any dashboard session cookie for this hostname (Better Auth cookies are scoped to `WRIGHTFUL_PUBLIC_URL`'s host, so a distinct host is naturally cookieless — just don't add a cookie `Domain` that widens them).
+2. **Set `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN=https://traces.example.com`** as a build-time variable and rebuild/redeploy.
+3. **Allow the dashboard to frame the snapshots** — the trace-viewer origin's responses must send `Content-Security-Policy: frame-ancestors 'self' https://dash.example.com` (your `WRIGHTFUL_PUBLIC_URL`) and **not** `X-Frame-Options: DENY`, or the browser blocks the cross-origin embed. Configure this at your edge for `traces.example.com/trace-viewer/*`. (The in-app worker headers keep `frame-ancestors 'self'`; the cross-origin allowance is a deploy-side header you own.)
+4. **Verify** end-to-end after deploy: open a run's Replay, confirm the snapshot iframe `src` is on `traces.example.com`, that snapshots render **with** scroll/canvas/point-marker fidelity, and that no dashboard session cookie is sent to the trace-viewer origin (DevTools → Network).
+
+If any of that isn't in place, leave `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` unset — the same-origin default stays fully functional and safe.
 
 ---
 

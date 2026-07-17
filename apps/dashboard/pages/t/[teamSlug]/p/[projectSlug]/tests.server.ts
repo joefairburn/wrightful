@@ -21,6 +21,7 @@ import {
   statusCounter,
 } from "@/lib/analytics/per-test";
 import { makeRangeParser } from "@/lib/analytics/range";
+import { deferredNoStore, pageProjectFields } from "@/lib/page-loader";
 import { paginateOffsetTable } from "@/lib/page-window";
 import { parsePage } from "@/lib/runs-filters";
 import type { TenantScope } from "@/lib/scope";
@@ -109,17 +110,9 @@ export const loader = defineHandler(async (c) => {
   const qSql = searchFragment(q || null, scope.projectId);
   const tagSql = tagFragment(tags);
 
-  // A deferred loader streams a variant-specific body — set no-store so the
-  // browser can't replay the wrong (NDJSON vs HTML) variant.
-  c.header("Cache-Control", "private, no-store");
+  deferredNoStore(c);
   return {
-    project: {
-      id: project.id,
-      teamId: project.teamId,
-      slug: project.slug,
-      name: project.name,
-      teamSlug: project.teamSlug,
-    },
+    project: pageProjectFields(project),
     range,
     branchParam,
     branchFilter,

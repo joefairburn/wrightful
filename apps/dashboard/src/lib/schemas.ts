@@ -71,8 +71,9 @@ export const MAX = {
 const MAX_ATTEMPTS = 100;
 const MAX_TAGS = 200;
 const MAX_ANNOTATIONS = 200;
-const MAX_RESULTS_PER_BATCH = 5000;
-const MAX_PLANNED_TESTS = 100_000;
+// Mirrored by reporter limits and pinned by its contract tests.
+export const MAX_RESULTS_PER_BATCH = 5000;
+export const MAX_PLANNED_TESTS = 100_000;
 const MAX_ARTIFACTS_PER_REQUEST = 2000;
 
 /**
@@ -136,7 +137,15 @@ const TestResultSchema = z.object({
     )
     .max(MAX_ANNOTATIONS)
     .default([]),
-  attempts: z.array(TestAttemptSchema).min(1).max(MAX_ATTEMPTS),
+  attempts: z
+    .array(TestAttemptSchema)
+    .min(1)
+    .max(MAX_ATTEMPTS)
+    .refine(
+      (attempts) =>
+        new Set(attempts.map((a) => a.attempt)).size === attempts.length,
+      { message: "attempt indices must be unique within a result" },
+    ),
 });
 
 export type TestResultInput = z.infer<typeof TestResultSchema>;
@@ -190,10 +199,15 @@ const BackdateSeconds = z.number().int().min(0).optional();
  * legacy "finalize on the single /complete" path). Mirror of the `shard` field
  * on `OpenRunPayload` / `CompleteRunPayload` in `@wrightful/reporter`'s types.
  */
-const ShardSchema = z.object({
-  index: z.number().int().min(1),
-  total: z.number().int().min(1),
-});
+const ShardSchema = z
+  .object({
+    index: z.number().int().min(1),
+    total: z.number().int().min(1),
+  })
+  .refine((s) => s.index <= s.total, {
+    message: "shard index must be <= total",
+    path: ["index"],
+  });
 
 export const OpenRunPayloadSchema = z.object({
   idempotencyKey: z.string().min(1).max(MAX.ID),

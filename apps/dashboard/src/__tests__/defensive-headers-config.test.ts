@@ -11,6 +11,7 @@ const {
   GLOBAL_CONTENT_SECURITY_POLICY,
   R2_S3_CSP_ORIGIN,
   TRACE_VIEWER_CONTENT_SECURITY_POLICY,
+  TRACE_VIEWER_SNAPSHOT_CONTENT_SECURITY_POLICY,
 } = await import("../../middleware/00.defensive-headers");
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -45,6 +46,21 @@ describe("defensive header CSP configuration", () => {
     expect(
       directive(TRACE_VIEWER_CONTENT_SECURITY_POLICY, "connect-src"),
     ).toContain(R2_S3_CSP_ORIGIN);
+  });
+
+  it("forbids scripts on the attacker-craftable snapshot documents", () => {
+    expect(
+      directive(TRACE_VIEWER_SNAPSHOT_CONTENT_SECURITY_POLICY, "script-src"),
+    ).toBe("script-src 'none'");
+    expect(TRACE_VIEWER_SNAPSHOT_CONTENT_SECURITY_POLICY).not.toContain(
+      "unsafe-eval",
+    );
+    expect(
+      directive(TRACE_VIEWER_SNAPSHOT_CONTENT_SECURITY_POLICY, "img-src"),
+    ).toContain(R2_S3_CSP_ORIGIN);
+    expect(TRACE_VIEWER_SNAPSHOT_CONTENT_SECURITY_POLICY).toContain(
+      "object-src 'none'",
+    );
   });
 
   it("keeps the managed-edge policies synchronized with the worker", () => {

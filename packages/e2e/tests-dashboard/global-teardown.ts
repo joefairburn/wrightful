@@ -8,7 +8,7 @@ const FIXTURE_PATH = resolve(__dirname, ".auth", "fixture.json");
 const STORAGE_STATE_PATH = resolve(__dirname, ".auth", "storageState.json");
 
 export default async function globalTeardown(): Promise<void> {
-  globalThis.__wrightfulDashboardFixture?.teardown();
+  await globalThis.__wrightfulDashboardFixture?.teardown();
   globalThis.__wrightfulDashboardFixture = undefined;
   for (const path of [FIXTURE_PATH, STORAGE_STATE_PATH]) {
     if (existsSync(path)) unlinkSync(path);

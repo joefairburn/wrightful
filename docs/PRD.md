@@ -162,7 +162,7 @@ The reporter has an opt-in `postPrComment` option: when a run finishes inside a 
 
 ## Self-hosting
 
-See [`SELF-HOSTING.md`](../SELF-HOSTING.md) for the canonical step-by-step guide. In one paragraph: clone the repo, authenticate with `void auth login`, set `BETTER_AUTH_SECRET` + `WRIGHTFUL_PUBLIC_URL` (via `void secret put`), and run `pnpm deploy` — `void deploy` builds the app, applies the Drizzle migrations in `apps/dashboard/db/migrations/`, and provisions the D1 database + R2 bucket + KV bindings, then you sign up via the dashboard, create a team + project, and mint an API key. No resource creation, no separate migrate step. `void deploy` ships to Void's managed Cloudflare platform by default; you can also deploy to your own Cloudflare account.
+See [`SELF-HOSTING.md`](../SELF-HOSTING.md) for the canonical step-by-step guide. In one paragraph: clone the repo, authenticate with `void auth login`, set `BETTER_AUTH_SECRET` + `WRIGHTFUL_PUBLIC_URL` (via `void secret put`), and run `pnpm deploy:void` — `void deploy` builds the app, applies the Drizzle migrations in `apps/dashboard/db/migrations/`, and provisions the D1 database + R2 bucket + KV bindings, then you sign up via the dashboard, create a team + project, and mint an API key. No resource creation, no separate migrate step. `void deploy` ships to Void's managed Cloudflare platform by default; you can also deploy to your own Cloudflare account.
 
 ## Key Design Decisions
 

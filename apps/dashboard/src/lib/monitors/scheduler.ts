@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { and, asc, db, eq, lte, sql } from "void/db";
+import { and, asc, db, eq, inArray, lte, sql } from "void/db";
 import { monitorExecutions, monitors } from "@schema";
 import type { Monitor } from "@schema";
 import { runBatch } from "@/lib/db-batch";
@@ -123,6 +123,38 @@ export function dueMonitorsWhere(now: number) {
   );
 }
 
+/** Compare-and-swap predicate used to claim a due monitor for re-arming. */
+export function monitorReArmCasWhere(monitorId: string, now: number) {
+  return and(
+    eq(monitors.id, monitorId),
+    eq(monitors.enabled, 1),
+    lte(monitors.nextRunAt, now),
+  );
+}
+
+/** Collect monitor ids returned by successful re-arm claims. */
+export function claimedMonitorIds(
+  updateResults: readonly unknown[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const rows of updateResults) {
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const candidate: unknown = row;
+      if (
+        typeof candidate !== "object" ||
+        candidate === null ||
+        !("id" in candidate)
+      ) {
+        continue;
+      }
+      const id = candidate.id;
+      if (typeof id === "string") ids.add(id);
+    }
+  }
+  return ids;
+}
+
 /**
  * Max jobs enqueued concurrently per `allSettled` wave — the enqueue-side twin
  * of `STALE_RUN_FINALIZE_CONCURRENCY`. Each `enqueue` is one queue-send
@@ -132,28 +164,7 @@ export function dueMonitorsWhere(now: number) {
  */
 const MONITOR_ENQUEUE_CONCURRENCY = 10;
 
-/**
- * Sweep entry point: select up to `limit` enabled, due monitors (skipping any
- * with an execution still in flight — see {@link dueMonitorsWhere}), plan their
- * executions + re-arm, persist BOTH in one atomic D1 batch, then enqueue each
- * job with bounded concurrency. Returns `{ found, enqueued }`.
- *
- * The `.limit(limit)` is the load-bearing budget (matching `sweepStaleRuns`):
- * each 1-minute invocation drains a capped slice in `nextRunAt` order, so a
- * project that armed hundreds of monitors can't make a single cron tick blow
- * the Workers subrequest budget — the backlog drains across ticks, oldest-due
- * first.
- *
- * Ordering is deliberate: the execution-insert + `nextRunAt` advance go in ONE
- * `runBatch` (all-or-nothing) BEFORE any enqueue. So if the batch fails, nothing
- * was enqueued and the monitors stay due for the next tick; and once it
- * succeeds, the monitors' `nextRunAt` is already pushed forward, so a double
- * cron tick selecting an overlapping slice won't re-enqueue them. Enqueue
- * failures are tolerated per-job (`allSettled`): the execution row already
- * exists in `queued` state, so a dropped send leaves a visibly-stuck execution
- * the operator can see, rather than silently advancing `nextRunAt` with no work
- * done — but the monitor itself is re-armed and will fire again next interval.
- */
+/** Claim due monitors, create executions, and enqueue jobs in bounded waves. */
 export async function sweepDueMonitors(opts: {
   now: number;
   limit: number;
@@ -180,47 +191,71 @@ export async function sweepDueMonitors(opts: {
   if (due.length === 0) return { found: 0, enqueued: 0 };
 
   const plan = planMonitorSweep(due, opts.now, ulid);
-
   const nowSeconds = opts.now;
-  await runBatch((tx) => [
-    ...plan.executions.map((e) =>
+
+  const claimResults = await runBatch((tx) =>
+    plan.monitorUpdates.map((u) =>
+      tx
+        .update(monitors)
+        .set({ nextRunAt: u.nextRunAt, lastEnqueuedAt: u.lastEnqueuedAt })
+        .where(monitorReArmCasWhere(u.id, nowSeconds))
+        .returning({ id: monitors.id }),
+    ),
+  );
+  const claimedIds = claimedMonitorIds(claimResults);
+
+  const items = plan.jobs
+    .map((job, i) => ({
+      job,
+      execution: plan.executions[i]!,
+      monitor: due[i]!,
+    }))
+    .filter((item) => claimedIds.has(item.monitor.id));
+
+  if (items.length === 0) return { found: due.length, enqueued: 0 };
+
+  await runBatch((tx) =>
+    items.map((item) =>
       tx.insert(monitorExecutions).values({
-        id: e.id,
-        projectId: e.projectId,
-        monitorId: e.monitorId,
-        scheduledFor: e.scheduledFor,
+        id: item.execution.id,
+        projectId: item.execution.projectId,
+        monitorId: item.execution.monitorId,
+        scheduledFor: item.execution.scheduledFor,
         state: "queued",
         attempt: 0,
         createdAt: nowSeconds,
       }),
     ),
-    ...plan.monitorUpdates.map((u) =>
-      tx
-        .update(monitors)
-        .set({ nextRunAt: u.nextRunAt, lastEnqueuedAt: u.lastEnqueuedAt })
-        .where(eq(monitors.id, u.id)),
-    ),
-  ]);
+  );
 
-  // Pair each job with its due-monitor slice (plan.jobs is index-aligned with
-  // `due` — see `planMonitorSweep`) so the enqueue callback can route by
-  // `monitor.type`.
-  const items = plan.jobs.map((job, i) => ({ job, monitor: due[i]! }));
-
-  // Enqueue with bounded concurrency, same wave policy as `drainStaleRuns`:
-  // each `allSettled` wave holds at most `MONITOR_ENQUEUE_CONCURRENCY` sends in
-  // flight, and a fresh wave only starts once the previous settles. A failed
-  // send is tolerated (the execution row is already persisted as `queued`); we
-  // count only the sends that landed.
   let enqueued = 0;
+  const failedExecutionIds: string[] = [];
   for (let i = 0; i < items.length; i += MONITOR_ENQUEUE_CONCURRENCY) {
     const wave = items.slice(i, i + MONITOR_ENQUEUE_CONCURRENCY);
     const settled = await Promise.allSettled(
       wave.map((item) => opts.enqueue(item.job, item.monitor)),
     );
-    for (const result of settled) {
+    settled.forEach((result, j) => {
       if (result.status === "fulfilled") enqueued++;
-    }
+      else failedExecutionIds.push(wave[j]!.execution.id);
+    });
+  }
+
+  // Do not leave failed sends in `queued`, where they suppress future checks.
+  if (failedExecutionIds.length > 0) {
+    await db
+      .update(monitorExecutions)
+      .set({
+        state: "error",
+        completedAt: nowSeconds,
+        errorMessage: "monitor enqueue failed",
+      })
+      .where(
+        and(
+          inArray(monitorExecutions.id, failedExecutionIds),
+          eq(monitorExecutions.state, "queued"),
+        ),
+      );
   }
 
   return { found: due.length, enqueued };

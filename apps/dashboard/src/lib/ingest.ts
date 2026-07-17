@@ -1,5 +1,6 @@
 import { ulid } from "ulid";
 import { and, db, eq, inArray, sql } from "void/db";
+import { env } from "void/env";
 import { logger } from "void/log";
 import {
   runs,
@@ -11,7 +12,7 @@ import {
   testTags,
   teams,
 } from "@schema";
-import type { BatchBuilder, BatchExecutor } from "@/lib/db-batch";
+import type { BatchExecutor } from "@/lib/db-batch";
 import {
   changedRows,
   isForeignKeyViolation,
@@ -28,7 +29,11 @@ import {
   type TenantScope,
 } from "@/lib/scope";
 import { STATUS_BUCKETS, WIRE_INVISIBLE_STATUSES } from "@/lib/status-buckets";
-import { monthStartSeconds, usageBumpStatement } from "@/lib/usage";
+import {
+  monthStartSeconds,
+  usageBumpStatement,
+  usageGuardedBumpStatement,
+} from "@/lib/usage";
 import { broadcastProjectRoom, broadcastRunRoom } from "@/realtime/publish";
 import type {
   AppendResultsPayload,
@@ -915,6 +920,14 @@ export interface OpenRunResult {
   duplicate: boolean;
 }
 
+/** Rolls back a fresh run when its atomic quota bump is rejected. */
+export class RunQuotaOvershootError extends Error {
+  constructor(readonly limit: number) {
+    super("run quota exceeded");
+    this.name = "RunQuotaOvershootError";
+  }
+}
+
 /**
  * Build the `runs` row for an open. PURE — the single place the run-row shape is
  * derived from the open payload, so the field mapping is unit-testable without a
@@ -1003,6 +1016,7 @@ export async function openRun(
   scope: TenantScope,
   payload: OpenRunPayload,
   nowSeconds: number,
+  opts: { runsQuotaLimit?: number } = {},
 ): Promise<OpenRunResult> {
   // Refresh the project's CODEOWNERS from the reporter's on-disk copy when it
   // sent one (roadmap 2.3). Runs on both the fresh-open and duplicate (CI
@@ -1040,37 +1054,58 @@ export async function openRun(
   const plannedTests = payload.run.plannedTests ?? [];
 
   const runValues = buildRunInsertValues(runId, scope, payload, nowSeconds);
-  // All-or-nothing: the run insert, the queued-test prefill, the tests-catalog
-  // seed, and the usage meter bump (run open) commit atomically in one
-  // `db.transaction` (see `runBatch`). Every statement is built against the
-  // passed executor so it enrolls in that boundary. Extracted to a named builder
-  // so the FK-recovery path below can re-run the SAME batch after nulling a
-  // stale monitorId.
-  const buildOpenBatch: BatchBuilder = (tx) => {
-    const usageBump = usageBumpStatement(
-      scope.teamId,
-      monthStartSeconds(nowSeconds),
-      { runs: 1 },
-      nowSeconds,
-      tx,
-    );
-    return [
-      tx.insert(runs).values(runValues),
-      ...buildQueuePrefillStatements(
+  const runsQuotaLimit = opts.runsQuotaLimit;
+  const enforceRuns =
+    runsQuotaLimit !== undefined && Number.isFinite(runsQuotaLimit);
+  // Kept as a runner so the stale-monitor recovery path can retry the same
+  // transaction after clearing `monitorId`.
+  const runOpenBatch = () =>
+    db.transaction(async (tx) => {
+      await tx.insert(runs).values(runValues);
+      for (const stmt of buildQueuePrefillStatements(
         scope,
         runId,
         plannedTests,
         nowSeconds,
         tx,
         payload.shard?.index ?? null,
-      ),
+      )) {
+        await stmt;
+      }
       // Seed the tests catalog from the planned set so a test is searchable the
       // moment its run opens, before any result streams. Idempotent upsert, so
       // a re-opened run (CI re-run) just refreshes lastSeenAt.
-      ...buildTestCatalogUpsertStatements(scope, plannedTests, nowSeconds, tx),
-      ...(usageBump ? [usageBump] : []),
-    ];
-  };
+      for (const stmt of buildTestCatalogUpsertStatements(
+        scope,
+        plannedTests,
+        nowSeconds,
+        tx,
+      )) {
+        await stmt;
+      }
+      if (enforceRuns) {
+        const applied = await usageGuardedBumpStatement(
+          scope.teamId,
+          monthStartSeconds(nowSeconds),
+          { runs: 1 },
+          { dimension: "runs", limit: runsQuotaLimit },
+          nowSeconds,
+          tx,
+        );
+        if (applied.length === 0) {
+          throw new RunQuotaOvershootError(runsQuotaLimit);
+        }
+      } else {
+        const usageBump = usageBumpStatement(
+          scope.teamId,
+          monthStartSeconds(nowSeconds),
+          { runs: 1 },
+          nowSeconds,
+          tx,
+        );
+        if (usageBump) await usageBump;
+      }
+    });
 
   // Recover the winner of a lost (projectId, idempotencyKey) race: re-read its
   // row and re-arm it for writes. Returns null when no winner exists (the unique
@@ -1092,7 +1127,7 @@ export async function openRun(
   };
 
   try {
-    await runBatch(buildOpenBatch);
+    await runOpenBatch();
   } catch (err) {
     if (isForeignKeyViolation(err) && runValues.monitorId != null) {
       // A synthetic run whose monitor was deleted between scheduling and open:
@@ -1110,7 +1145,7 @@ export async function openRun(
       );
       runValues.monitorId = null;
       try {
-        await runBatch(buildOpenBatch);
+        await runOpenBatch();
       } catch (retryErr) {
         // The retry can still lose the (projectId, idempotencyKey) race to a
         // sibling shard — recover that the same way the first attempt would.
@@ -1187,7 +1222,8 @@ export async function openRun(
 export type AppendRunResultsOutcome =
   | { kind: "ok"; mapping: ResultMapping[] }
   | { kind: "notFound" }
-  | { kind: "runClosed" };
+  | { kind: "runClosed" }
+  | { kind: "rowCapExceeded"; limit: number; count: number };
 
 /**
  * How long a terminal run keeps accepting ingest writes after its LAST write
@@ -1236,6 +1272,7 @@ export const RUN_WRITE_GUARD_COLUMNS = {
   // `completeRun` reads this off the same probe to decide the sharded
   // deferred-finalize path vs the legacy single-complete path.
   expectedShards: runs.expectedShards,
+  totalTests: runs.totalTests,
 } as const;
 
 /**
@@ -1385,6 +1422,14 @@ export async function appendRunResults(
     .limit(1);
   if (!owner[0]) return { kind: "notFound" };
   if (runClosedForWrites(owner[0], nowSeconds)) return { kind: "runClosed" };
+  const rowCap = env.WRIGHTFUL_MAX_TEST_RESULTS_PER_RUN;
+  if (rowCap > 0 && owner[0].totalTests >= rowCap) {
+    return {
+      kind: "rowCapExceeded",
+      limit: rowCap,
+      count: owner[0].totalTests,
+    };
+  }
 
   const results = dedupeResultsByTestId(payload.results);
   const testIds = results.map((r) => r.testId);
@@ -1582,8 +1627,7 @@ export function mergeRunStatusSql(incoming: string) {
  * recompute to reconcile any straggler /results writes that raced this
  * call. Broadcasts the final summary.
  *
- * Two paths, chosen by whether the completing reporter identifies itself as a
- * shard AND the run knows a shard total > 1:
+ * Two paths, chosen by the run's `expectedShards` value:
  *
  *   - SHARDED (deferred finalize): each shard's /complete records a `runShards`
  *     row and the run STAYS `running` until every shard has reported, then
@@ -1617,14 +1661,11 @@ export async function completeRun(
   // complete just bumped lastActivityAt), and re-runs re-arm it via openRun.
   if (runClosedForWrites(owner[0], nowSeconds)) return { kind: "runClosed" };
 
-  // Deferred finalize for a sharded suite: defer the terminal flip until every
-  // shard has reported. `expectedShards` is set at open from `config.shard.total`
-  // (owner probe), with the payload's own total as a mixed-version fallback. A
-  // missing shard identity, no total, or a 1-shard run falls through to the
-  // legacy single-complete merge below.
+  // Prefer the run-side shard total so a mixed-version completion without a
+  // shard identity cannot finalize while sibling shards are still running.
   const expectedShards =
     owner[0].expectedShards ?? payload.shard?.total ?? null;
-  if (payload.shard && expectedShards !== null && expectedShards > 1) {
+  if (expectedShards !== null && expectedShards > 1) {
     return completeShardedRun(
       scope,
       runId,
@@ -1700,7 +1741,7 @@ async function completeShardedRun(
   payload: CompleteRunPayload,
   completedAt: number,
   nowSeconds: number,
-  shard: NonNullable<CompleteRunPayload["shard"]>,
+  shard: CompleteRunPayload["shard"] | undefined,
   expectedShards: number,
 ): Promise<CompleteRunOutcome> {
   const { summary, allDone } = await db.transaction(async (tx) => {
@@ -1711,30 +1752,31 @@ async function completeShardedRun(
       .where(runByIdWhere(scope, runId))
       .for("update");
 
-    // Record this shard's terminal outcome, idempotent on the shard-index
-    // unique so a retried /complete can't inflate the completed-shard count.
-    await tx
-      .insert(runShards)
-      .values({
-        id: ulid(),
-        projectId: scope.projectId,
-        runId,
-        shardIndex: shard.index,
-        shardTotal: shard.total,
-        status: payload.status,
-        durationMs: payload.durationMs,
-        completedAt,
-        createdAt: nowSeconds,
-      })
-      .onConflictDoUpdate({
-        target: [runShards.projectId, runShards.runId, runShards.shardIndex],
-        set: {
+    // Anonymous completions cannot advance the completed-shard count.
+    if (shard) {
+      await tx
+        .insert(runShards)
+        .values({
+          id: ulid(),
+          projectId: scope.projectId,
+          runId,
+          shardIndex: shard.index,
+          shardTotal: shard.total,
           status: payload.status,
           durationMs: payload.durationMs,
           completedAt,
-          shardTotal: shard.total,
-        },
-      });
+          createdAt: nowSeconds,
+        })
+        .onConflictDoUpdate({
+          target: [runShards.projectId, runShards.runId, runShards.shardIndex],
+          set: {
+            status: payload.status,
+            durationMs: payload.durationMs,
+            completedAt,
+            shardTotal: shard.total,
+          },
+        });
+    }
 
     const shardRows = await tx
       .select({

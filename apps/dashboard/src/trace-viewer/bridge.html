@@ -42,10 +42,21 @@
   <body>
     <script>
       (async () => {
+        // Explicit parent origin for cross-origin bridge messaging.
+        const HOST = (() => {
+          const raw = new URLSearchParams(location.search).get("host");
+          if (!raw) return location.origin;
+          try {
+            return new URL(raw).origin;
+          } catch {
+            return location.origin;
+          }
+        })();
+
         const send = (method, params) =>
           parent.postMessage(
             { source: "wrightful-trace-bridge", method, params },
-            location.origin,
+            HOST,
           );
 
         // Fetch proxy: answer parent requests from inside this controlled
@@ -53,7 +64,7 @@
         // sha1 requests work as soon as the parent has the model.
         window.addEventListener("message", (event) => {
           const data = event.data;
-          if (event.origin !== location.origin) return;
+          if (event.origin !== HOST) return;
           if (event.source !== parent) return;
           if (!data || data.source !== "wrightful-trace-host") return;
           if (data.method !== "fetch") return;

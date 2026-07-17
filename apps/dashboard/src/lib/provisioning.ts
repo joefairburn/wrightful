@@ -134,15 +134,17 @@ export class TeamCreationNotAllowedError extends Error {
  * resource-granting action. A self-registered stranger holds a dead account:
  * no team, no projects, no API keys, no synthetic monitors (which execute
  * arbitrary Playwright code in containers on the operator's Cloudflare
- * account). Existing members may always create more teams, and the zero-teams
- * case lets the operator bootstrap a fresh instance.
+ * account). Existing members may always create more teams. A closed instance
+ * requires an explicit opt-in before its first team can be bootstrapped.
  */
 export function teamCreationAllowed(input: {
   openSignup: boolean;
   isMemberOfAnyTeam: boolean;
   anyTeamExists: boolean;
+  allowFirstTeamBootstrap: boolean;
 }): boolean {
-  return input.openSignup || input.isMemberOfAnyTeam || !input.anyTeamExists;
+  if (input.openSignup || input.isMemberOfAnyTeam) return true;
+  return !input.anyTeamExists && input.allowFirstTeamBootstrap;
 }
 
 /**
@@ -170,6 +172,7 @@ export async function createTeamForUser(
     openSignup: openSignupAllowed(env.ALLOW_OPEN_SIGNUP),
     isMemberOfAnyTeam: Boolean(membershipRows[0]),
     anyTeamExists: Boolean(teamRows[0]),
+    allowFirstTeamBootstrap: env.WRIGHTFUL_BOOTSTRAP_FIRST_TEAM,
   });
   if (!allowed) throw new TeamCreationNotAllowedError();
 

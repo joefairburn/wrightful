@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { mountBridgeIframe } from "./bridge-iframe";
+import { traceViewerBridgeOrigin } from "./origin";
 import type { ContextEntry } from "./vendor/entries";
 
 const BRIDGE_TIMEOUT_MS = 30_000;
@@ -145,7 +146,7 @@ export function useTraceModel(traceUrl: string): {
         });
         target.postMessage(
           { source: "wrightful-trace-host", method: "fetch", id, path, as },
-          window.location.origin,
+          traceViewerBridgeOrigin(window.location.origin),
         );
       });
     return {
@@ -166,7 +167,8 @@ export function useTraceModel(traceUrl: string): {
     const pending = pendingRef.current;
 
     const onMessage = (event: MessageEvent): void => {
-      if (event.origin !== window.location.origin) return;
+      if (event.origin !== traceViewerBridgeOrigin(window.location.origin))
+        return;
       if (event.source !== activeIframeRef.current?.contentWindow) return;
       if (!isBridgeMessage(event.data)) return;
       if (event.data.method !== "fetchResult") return;
@@ -243,7 +245,8 @@ export function useTraceModel(traceUrl: string): {
     armWatchdog();
 
     const onMessage = (event: MessageEvent): void => {
-      if (event.origin !== window.location.origin) return;
+      if (event.origin !== traceViewerBridgeOrigin(window.location.origin))
+        return;
       if (event.source !== iframe.contentWindow) return;
       if (!isBridgeMessage(event.data)) return;
       const message = event.data;

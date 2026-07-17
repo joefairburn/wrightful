@@ -1,5 +1,6 @@
 import { defineMiddleware } from "void";
 import type { Context } from "hono";
+import { isSeparateTraceViewerOrigin } from "@/trace-viewer/origin";
 
 /**
  * Security headers that must be present regardless of deployment topology.
@@ -22,6 +23,9 @@ export const R2_S3_CSP_ORIGIN = "https://*.r2.cloudflarestorage.com";
 export const GLOBAL_CONTENT_SECURITY_POLICY = `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com ${R2_S3_CSP_ORIGIN}; font-src 'self' data:; media-src 'self' blob: ${R2_S3_CSP_ORIGIN}; connect-src 'self' ${R2_S3_CSP_ORIGIN}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`;
 
 export const TRACE_VIEWER_CONTENT_SECURITY_POLICY = `default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob: ${R2_S3_CSP_ORIGIN}; worker-src 'self' blob:; frame-src 'self' data: blob:; frame-ancestors 'self'; base-uri 'self'; object-src 'none'`;
+
+/** Defense-in-depth CSP for worker-served, same-origin trace snapshots. */
+export const TRACE_VIEWER_SNAPSHOT_CONTENT_SECURITY_POLICY = `default-src 'self' data: blob:; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${R2_S3_CSP_ORIGIN}; font-src 'self' data:; media-src 'self' data: blob: ${R2_S3_CSP_ORIGIN}; connect-src 'self' data: blob: ${R2_S3_CSP_ORIGIN}; frame-ancestors 'self'; base-uri 'self'; object-src 'none'`;
 
 const GLOBAL_HEADERS: Readonly<Record<string, string>> = {
   "X-Frame-Options": "DENY",
@@ -55,12 +59,26 @@ export default defineMiddleware(async (c, next) => {
   if (secured !== c.res) replaceResponse(c, secured);
 });
 
+function traceViewerPolicy(path: string): Readonly<Record<string, string>> {
+  const base = { ...GLOBAL_HEADERS, ...TRACE_VIEWER_HEADERS };
+  if (
+    path.startsWith("/trace-viewer/snapshot/") &&
+    !isSeparateTraceViewerOrigin()
+  ) {
+    return {
+      ...base,
+      "Content-Security-Policy": TRACE_VIEWER_SNAPSHOT_CONTENT_SECURITY_POLICY,
+    };
+  }
+  return base;
+}
+
 function withDefensiveHeaders(response: Response, path: string): Response {
   // WebSocket upgrades have immutable headers and are not document responses.
   if (response.status === 101) return response;
 
   const policy = path.startsWith("/trace-viewer/")
-    ? { ...GLOBAL_HEADERS, ...TRACE_VIEWER_HEADERS }
+    ? traceViewerPolicy(path)
     : GLOBAL_HEADERS;
 
   try {

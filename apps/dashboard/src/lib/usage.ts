@@ -170,6 +170,57 @@ export function usageBumpStatement(
     });
 }
 
+/**
+ * Atomically increments an enforced dimension when the result stays within its
+ * limit. Callers use the returned row to detect a rejected update.
+ */
+export function usageGuardedBumpStatement(
+  teamId: string,
+  periodStart: number,
+  delta: UsageDelta,
+  guard: { dimension: "runs" | "artifactBytes"; limit: number },
+  nowSeconds: number,
+  exec: BatchExecutor,
+) {
+  const runsDelta = delta.runs ?? 0;
+  const artifactBytesDelta = delta.artifactBytes ?? 0;
+  const artifactCountDelta = delta.artifactCount ?? 0;
+  const set = {
+    runsCount: sql`${usageCounters.runsCount} + ${runsDelta}`,
+    artifactBytes: sql`${usageCounters.artifactBytes} + ${artifactBytesDelta}`,
+    artifactCount: sql`${usageCounters.artifactCount} + ${artifactCountDelta}`,
+    updatedAt: nowSeconds,
+  };
+  const base = exec.insert(usageCounters).values({
+    id: ulid(),
+    teamId,
+    periodStart,
+    runsCount: runsDelta,
+    artifactBytes: artifactBytesDelta,
+    artifactCount: artifactCountDelta,
+    updatedAt: nowSeconds,
+  });
+  const target = [usageCounters.teamId, usageCounters.periodStart];
+  if (!Number.isFinite(guard.limit)) {
+    return base
+      .onConflictDoUpdate({ target, set })
+      .returning({ applied: usageCounters.id });
+  }
+  const col =
+    guard.dimension === "runs"
+      ? usageCounters.runsCount
+      : usageCounters.artifactBytes;
+  const guardDelta =
+    guard.dimension === "runs" ? runsDelta : artifactBytesDelta;
+  return base
+    .onConflictDoUpdate({
+      target,
+      set,
+      setWhere: sql`${col} + ${guardDelta} <= ${guard.limit}`,
+    })
+    .returning({ applied: usageCounters.id });
+}
+
 export interface QuotaResult {
   status: QuotaStatus;
   dimension: QuotaDimension;
@@ -424,9 +475,7 @@ export async function reconcileUsage(
     };
   });
 
-  // Each row's SET differs, so the upsert reads new values from `excluded`
-  // (Postgres's alias for the proposed INSERT row), not a shared literal — the
-  // multi-row `onConflictDoUpdate` idiom `src/lib/ingest.ts` also uses.
+  // Preserve live increments that race the aggregate reads above.
   for (const chunk of chunkUsageCounterRows(rows)) {
     await db
       .insert(usageCounters)
@@ -434,9 +483,9 @@ export async function reconcileUsage(
       .onConflictDoUpdate({
         target: [usageCounters.teamId, usageCounters.periodStart],
         set: {
-          runsCount: sql`excluded."runsCount"`,
-          artifactBytes: sql`excluded."artifactBytes"`,
-          artifactCount: sql`excluded."artifactCount"`,
+          runsCount: sql`greatest(${usageCounters.runsCount}, excluded."runsCount")`,
+          artifactBytes: sql`greatest(${usageCounters.artifactBytes}, excluded."artifactBytes")`,
+          artifactCount: sql`greatest(${usageCounters.artifactCount}, excluded."artifactCount")`,
           updatedAt: sql`excluded."updatedAt"`,
         },
       });

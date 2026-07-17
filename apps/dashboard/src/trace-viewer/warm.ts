@@ -1,6 +1,7 @@
 "use client";
 
 import { mountBridgeIframe } from "./bridge-iframe";
+import { traceViewerBridgeOrigin } from "./origin";
 import { isBridgeMessage } from "./use-trace-model";
 
 /**
@@ -51,7 +52,8 @@ function mountRegisterOnlyIframe(): void {
     iframe.remove();
   };
   const onMessage = (event: MessageEvent): void => {
-    if (event.origin !== window.location.origin) return;
+    if (event.origin !== traceViewerBridgeOrigin(window.location.origin))
+      return;
     if (event.source !== iframe.contentWindow) return;
     if (!isBridgeMessage(event.data) || event.data.method !== "warm") return;
     cleanup();

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { snapshotIframeUrl } from "../model";
 import type { SnapshotSet, SnapshotTabId } from "../model";
+import { snapshotSandbox } from "../origin";
 import { useElementSize } from "../use-element-size";
 import { bindEscapeAcrossFrames } from "./escape-frames";
 
@@ -254,7 +255,7 @@ function SnapshotFrame({
     <iframe
       title={`DOM snapshot (${TAB_LABELS[id]})`}
       src={url}
-      sandbox="allow-same-origin allow-scripts"
+      sandbox={snapshotSandbox()}
       aria-hidden={!isActive}
       inert={!isActive}
       className={cn(
