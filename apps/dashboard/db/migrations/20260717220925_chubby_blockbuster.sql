@@ -1,0 +1,2 @@
+ALTER TABLE "testResults" ADD COLUMN "errorSignature" text;--> statement-breakpoint
+CREATE INDEX "testResults_project_signature_createdAt_idx" ON "testResults" USING btree ("projectId","errorSignature","createdAt") WHERE "testResults"."errorSignature" is not null;

@@ -5,6 +5,7 @@ import {
   DEFAULT_RUN_RESULTS_LIMIT,
   loadRunResultsPage,
 } from "@/lib/run-results-page";
+import { loadNewFailureFlags } from "@/lib/failure-novelty";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 import { attachHasTrace } from "@/lib/trace-presence";
 
@@ -68,8 +69,19 @@ export const GET = defineHandler.withValidator({
   });
   if (!result) return c.json({ error: "Not found" }, 404);
 
+  // Two UI-only enrichments over the page's rows, both deliberately outside
+  // the shared loader (public v1 / export / MCP must not carry them): the
+  // per-row Replay gate and the new-vs-known failure badge.
+  const [withTrace, newFailureFlags] = await Promise.all([
+    attachHasTrace(scope, result.results),
+    loadNewFailureFlags(scope, runId, result.results),
+  ]);
   return {
-    results: await attachHasTrace(scope, result.results),
+    results: withTrace.map((r) =>
+      newFailureFlags.has(r.id)
+        ? { ...r, isNewFailure: newFailureFlags.get(r.id) }
+        : r,
+    ),
     nextCursor: result.nextCursor,
   };
 });

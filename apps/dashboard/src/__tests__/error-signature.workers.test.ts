@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   ERROR_SIGNATURE_MAX_CHARS,
+  failureSignature,
   normalizeErrorSignature,
 } from "@/lib/error-signature";
 
@@ -47,5 +48,36 @@ describe("normalizeErrorSignature", () => {
     expect(normalizeErrorSignature(`Error: ${"x".repeat(500)}`)).toHaveLength(
       ERROR_SIGNATURE_MAX_CHARS,
     );
+  });
+});
+
+describe("failureSignature", () => {
+  const message = "Error: expect(received).toBe(expected) failed";
+  const stack =
+    "Error: page.goto: net::ERR_CONNECTION_REFUSED\n  at nav.ts:1:1";
+
+  it("fingerprints failed/timedout/flaky finals and nothing else", () => {
+    for (const status of ["failed", "timedout", "flaky"]) {
+      expect(failureSignature(status, message, null)).toBe(
+        "expect(received).toBe(expected) failed",
+      );
+    }
+    for (const status of ["passed", "skipped", "queued"]) {
+      expect(failureSignature(status, message, null)).toBeNull();
+    }
+  });
+
+  it("falls back to the stack when the message is blank — the errorHead rule", () => {
+    expect(failureSignature("failed", "   ", stack)).toBe(
+      "page.goto: net::ERR_CONNECTION_REFUSED",
+    );
+    expect(failureSignature("failed", null, stack)).toBe(
+      "page.goto: net::ERR_CONNECTION_REFUSED",
+    );
+    // A non-blank message shadows the stack.
+    expect(failureSignature("failed", message, stack)).toBe(
+      "expect(received).toBe(expected) failed",
+    );
+    expect(failureSignature("failed", null, null)).toBeNull();
   });
 });

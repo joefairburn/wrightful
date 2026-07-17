@@ -149,6 +149,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
       `${projectBase}/runs/${runId}/tests/01HZZZZZZZZZZZZZZZZZZZZZZZ`,
       [200, 404],
     );
+    await preflight(`${projectBase}/failures`);
     await preflight(`${projectBase}/monitors`);
     await preflight(`${projectBase}/monitors/new`);
     await preflight(settingsBase);

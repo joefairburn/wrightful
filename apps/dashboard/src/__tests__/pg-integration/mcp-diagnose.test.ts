@@ -12,6 +12,7 @@ vi.mock("void/db", async () => {
 });
 
 const { resetTables } = await import("./harness");
+const { failureSignature } = await import("@/lib/error-signature");
 const { loadMcpFlakyDiagnosis, loadMcpTestHistory } =
   await import("@/lib/mcp/diagnose");
 const { makeTenantScope } = await import("@/lib/scope");
@@ -56,6 +57,9 @@ function result(
   createdAt: number,
   errorMessage: string | null = null,
 ) {
+  const errorStack = errorMessage
+    ? `${errorMessage}\n    at test.spec.ts:42:7`
+    : null;
   return {
     id,
     projectId: scope.projectId,
@@ -71,9 +75,9 @@ function result(
     durationMs: status === "passed" ? 500 : 1500,
     retryCount: status === "flaky" ? 1 : 0,
     errorMessage,
-    errorStack: errorMessage
-      ? `${errorMessage}\n    at test.spec.ts:42:7`
-      : null,
+    errorStack,
+    // Seeded the way ingest writes it — diagnose reads the persisted column.
+    errorSignature: failureSignature(status, errorMessage, errorStack),
     workerIndex: 3,
     shardIndex: null,
     createdAt,

@@ -53,7 +53,7 @@ Two systems coexist on the same worker:
 Void file-based routing. API handlers in `apps/dashboard/routes/`, pages in `apps/dashboard/pages/` (`*.tsx` + co-located `*.server.ts` loaders/actions). Cross-cutting concerns are ordered middleware in `apps/dashboard/middleware/`.
 
 - `/` — team / project picker.
-- `/t/:teamSlug/p/:projectSlug/…` — tenant-scoped UI. Every loader starts with `requireTenantContext(c)` (reads the active project resolved once by `middleware/01.context.ts`). Pages: runs list + run detail, **test catalog** (tags + file/suite grouping), **flaky** (quarantine + ownership), **run diff**, **insights**, and **monitors** (browser / HTTP / TCP·ping).
+- `/t/:teamSlug/p/:projectSlug/…` — tenant-scoped UI. Every loader starts with `requireTenantContext(c)` (reads the active project resolved once by `middleware/01.context.ts`). Pages: runs list + run detail, **test catalog** (tags + file/suite grouping), **failures** (cross-run clusters keyed on the ingest-persisted `errorSignature` fingerprint), **flaky** (quarantine + ownership), **run diff**, **insights**, and **monitors** (browser / HTTP / TCP·ping).
 - `/settings/…` — profile, team management (general / members / projects), project keys, invites, **usage** (quota meters), **audit log**.
 - `/api/runs/*`, `/api/artifacts/*` — ingest + artifact API. Guarded by `middleware/02.api-auth.ts` (Bearer key) + protocol version negotiation (`X-Wrightful-Version: 3`).
 - `/api/v1/*` — **public query/export API** (Bearer key, no version handshake): `runs`, `runs/:id`, `runs/:id/tests`, with `?format=csv` + the `WRIGHTFUL_EXPORT_MAX_ROWS` cap. See [`docs/api/query-export.md`](./api/query-export.md).

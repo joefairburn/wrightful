@@ -3,6 +3,38 @@ import { stripAnsi } from "@/lib/ansi";
 /** Error fingerprints stay compact enough to group and return in MCP payloads. */
 export const ERROR_SIGNATURE_MAX_CHARS = 240;
 
+/**
+ * Statuses whose rows carry a failure worth fingerprinting and co-relating.
+ * Hand-listed like `run-diff.ts`'s FAILING_STATUSES: `interrupted` never
+ * appears on the per-test wire enum and `queued`/`skipped` carry no error.
+ * A `flaky` row DOES carry one — the reporter propagates the failing
+ * attempt's error to the final result (see `errorSource` in
+ * `packages/reporter/src/index.ts`).
+ */
+export const FAILURE_STATUSES = ["flaky", "failed", "timedout"] as const;
+
+export function isFailureStatus(status: string): boolean {
+  return (FAILURE_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * The persisted-at-ingest failure fingerprint for one final test result:
+ * {@link normalizeErrorSignature} over the error message, falling back to the
+ * stack when the message is blank — the same message-first/stack-fallback rule
+ * the MCP dossier's `errorHead` read used, so switching readers to the stored
+ * column changed no signatures. Non-failure statuses fingerprint to `null`
+ * (their rows carry no error worth grouping).
+ */
+export function failureSignature(
+  status: string,
+  errorMessage: string | null | undefined,
+  errorStack: string | null | undefined,
+): string | null {
+  if (!isFailureStatus(status)) return null;
+  const source = errorMessage?.trim() ? errorMessage : errorStack;
+  return normalizeErrorSignature(source);
+}
+
 const STACK_FRAME_RE = /^at\s+/;
 const ERROR_PREFIX_RE = /^(?:error|assertionerror):\s*/i;
 const URL_RE = /\b(?:https?|wss?):\/\/[^\s)\]}>,]+/gi;

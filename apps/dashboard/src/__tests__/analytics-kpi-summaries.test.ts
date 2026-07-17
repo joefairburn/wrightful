@@ -4,6 +4,7 @@ import {
   type OutcomeAggRow,
   summarizeInsightsKpis,
 } from "../../pages/t/[teamSlug]/p/[projectSlug]/insights/index.server";
+import { summarizeFailureKpis } from "../../pages/t/[teamSlug]/p/[projectSlug]/failures.server";
 import {
   type RankedTest,
   summarizeFlakyKpis,
@@ -115,6 +116,43 @@ describe("summarizeFlakyKpis", () => {
     const k = summarizeFlakyKpis([]);
     expect(k.totalFailures).toBe(0);
     expect(k.avgFlakeRate).toBe(0);
+  });
+});
+
+describe("summarizeFailureKpis", () => {
+  const windowStartSec = 1_000_000;
+  const agg = (signature: string, occurrenceCount: number, testCount = 1) => ({
+    signature,
+    occurrenceCount,
+    testCount,
+    lastSeenAt: windowStartSec + 100,
+  });
+
+  it("counts occurrences over ALL window signatures and news by first-seen", () => {
+    const aggregates = [agg("sig_known", 5), agg("sig_new", 2)];
+    const firstSeen = new Map([
+      ["sig_known", windowStartSec - 10], // predates the window → known
+      ["sig_new", windowStartSec + 50], // first seen inside → new
+    ]);
+    const k = summarizeFailureKpis(aggregates, firstSeen, windowStartSec);
+    expect(k.distinctSignatures).toBe(2);
+    expect(k.totalOccurrences).toBe(7);
+    expect(k.newSignatures).toBe(1);
+  });
+
+  it("treats a signature with no first-seen row as not-new and zeroes an empty window", () => {
+    const k = summarizeFailureKpis(
+      [agg("sig_orphan", 1)],
+      new Map(),
+      windowStartSec,
+    );
+    expect(k.newSignatures).toBe(0);
+    const empty = summarizeFailureKpis([], new Map(), windowStartSec);
+    expect(empty).toEqual({
+      distinctSignatures: 0,
+      totalOccurrences: 0,
+      newSignatures: 0,
+    });
   });
 });
 
