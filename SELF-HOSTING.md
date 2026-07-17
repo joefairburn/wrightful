@@ -224,19 +224,20 @@ Read by the Worker. Only `WRIGHTFUL_PUBLIC_URL` + `BETTER_AUTH_SECRET` are requi
 >
 > The Void path (`void secret put`) and Workers Builds dashboard secrets persist the same way. Local dev reads `apps/dashboard/.env.local`, which is unaffected.
 
-| Name                           | Required? | Secret? | Default              | Purpose                                                                                                                                                                    |
-| ------------------------------ | --------- | ------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `WRIGHTFUL_PUBLIC_URL`         | Yes       | No      | —                    | Public origin users hit (`https://<worker>.<you>.workers.dev` or a custom domain). OAuth callbacks + artifact-download token audience.                                     |
-| `BETTER_AUTH_SECRET`           | Yes       | Yes     | —                    | Signs session cookies + artifact download tokens. 32+ random bytes (`openssl rand -base64 32`). Auto-created on Void.                                                      |
-| `ARTIFACT_TOKEN_SECRET`        | No        | Yes     | `BETTER_AUTH_SECRET` | Dedicated signer for artifact download tokens — rotate to revoke leaked links without logging everyone out. 32+ bytes.                                                     |
-| `AUTH_GITHUB_CLIENT_ID`        | No        | No      | —                    | Enables "Continue with GitHub" (with the secret below). [OAuth app](https://github.com/settings/developers) callback `${WRIGHTFUL_PUBLIC_URL}/api/auth/callback/github`.   |
-| `AUTH_GITHUB_CLIENT_SECRET`    | No        | Yes     | —                    | Pair with `AUTH_GITHUB_CLIENT_ID` — both must be set or the button stays hidden.                                                                                           |
-| `ALLOW_OPEN_SIGNUP`            | No        | No      | `false`              | Allow public email/password sign-up. On a public instance pair with `EMAIL_FROM` (verification); otherwise add users via invites.                                          |
-| `EMAIL_FROM`                   | No        | No      | —                    | From address for verification / password-reset / monitor-alert email (Cloudflare Email Service). Unset = email off (graceful) — see [Production notes](#production-notes). |
-| `WRIGHTFUL_MAX_ARTIFACT_BYTES` | No        | No      | 50 MiB               | Per-artifact upload size cap.                                                                                                                                              |
-| `WRIGHTFUL_RUN_STALE_MINUTES`  | No        | No      | 30                   | How long a run can sit `running` before the cron watchdog interrupts it.                                                                                                   |
-| `WRIGHTFUL_SWEEP_BATCH_SIZE`   | No        | No      | 200                  | Max stale runs the watchdog finalizes per cron invocation.                                                                                                                 |
-| `REALTIME_INTERNAL_SECRET`     | No        | Yes     | per-build random     | Pins the internal realtime-broadcast secret across deploys (see [Production notes](#production-notes)). 32+ bytes.                                                         |
+| Name                             | Required? | Secret? | Default              | Purpose                                                                                                                                                                    |
+| -------------------------------- | --------- | ------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WRIGHTFUL_PUBLIC_URL`           | Yes       | No      | —                    | Public origin users hit (`https://<worker>.<you>.workers.dev` or a custom domain). OAuth callbacks + artifact-download token audience.                                     |
+| `BETTER_AUTH_SECRET`             | Yes       | Yes     | —                    | Signs session cookies + artifact download tokens. 32+ random bytes (`openssl rand -base64 32`). Auto-created on Void.                                                      |
+| `ARTIFACT_TOKEN_SECRET`          | No        | Yes     | `BETTER_AUTH_SECRET` | Dedicated signer for artifact download tokens — rotate to revoke leaked links without logging everyone out. 32+ bytes.                                                     |
+| `AUTH_GITHUB_CLIENT_ID`          | No        | No      | —                    | Enables "Continue with GitHub" (with the secret below). [OAuth app](https://github.com/settings/developers) callback `${WRIGHTFUL_PUBLIC_URL}/api/auth/callback/github`.   |
+| `AUTH_GITHUB_CLIENT_SECRET`      | No        | Yes     | —                    | Pair with `AUTH_GITHUB_CLIENT_ID` — both must be set or the button stays hidden.                                                                                           |
+| `ALLOW_OPEN_SIGNUP`              | No        | No      | `false`              | Allow public email/password sign-up. On a public instance pair with `EMAIL_FROM` (verification); otherwise add users via invites.                                          |
+| `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM` | No        | No      | `false`              | Temporarily allow the first team to be created while signup remains closed. Enable only for the bootstrap window, then disable it again.                                   |
+| `EMAIL_FROM`                     | No        | No      | —                    | From address for verification / password-reset / monitor-alert email (Cloudflare Email Service). Unset = email off (graceful) — see [Production notes](#production-notes). |
+| `WRIGHTFUL_MAX_ARTIFACT_BYTES`   | No        | No      | 50 MiB               | Per-artifact upload size cap.                                                                                                                                              |
+| `WRIGHTFUL_RUN_STALE_MINUTES`    | No        | No      | 30                   | How long a run can sit `running` before the cron watchdog interrupts it.                                                                                                   |
+| `WRIGHTFUL_SWEEP_BATCH_SIZE`     | No        | No      | 200                  | Max stale runs the watchdog finalizes per cron invocation.                                                                                                                 |
+| `REALTIME_INTERNAL_SECRET`       | No        | Yes     | per-build random     | Pins the internal realtime-broadcast secret across deploys (see [Production notes](#production-notes)). 32+ bytes.                                                         |
 
 The feature areas below add their own optional runtime keys — all defaulted.
 
@@ -370,7 +371,7 @@ A separate-origin deployment is a **manual DNS/routing + CSP step** (not automat
 3. **Allow the dashboard to frame the snapshots** — the trace-viewer origin's responses must send `Content-Security-Policy: frame-ancestors 'self' https://dash.example.com` (your `WRIGHTFUL_PUBLIC_URL`) and **not** `X-Frame-Options: DENY`, or the browser blocks the cross-origin embed. Configure this at your edge for `traces.example.com/trace-viewer/*`. (The in-app worker headers keep `frame-ancestors 'self'`; the cross-origin allowance is a deploy-side header you own.)
 4. **Verify** end-to-end after deploy: open a run's Replay, confirm the snapshot iframe `src` is on `traces.example.com`, that snapshots render **with** scroll/canvas/point-marker fidelity, and that no dashboard session cookie is sent to the trace-viewer origin (DevTools → Network).
 
-If any of that isn't in place, leave `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` unset — the same-origin default stays fully functional and safe.
+If any of that isn't in place, leave `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` unset — the same-origin default stays safe and usable, with the reduced snapshot fidelity described above.
 
 ---
 
@@ -380,7 +381,7 @@ If any of that isn't in place, leave `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` unset 
 
 **Rate limiting needs a trusted client-IP header** — the auth/API rate limiters key unauthenticated requests by `CF-Connecting-IP`, falling back to the first hop of `X-Forwarded-For`. When the Worker runs on Cloudflare (both deploy paths above), `CF-Connecting-IP` is always set by the edge and cannot be spoofed. If you front the instance with anything else — or proxy to it through your own infrastructure — note that `X-Forwarded-For` is client-controlled: a sender can rotate it freely to dodge per-IP limits. Make sure your edge sets `CF-Connecting-IP` (or strips and rewrites `X-Forwarded-For`) from the real client address before the request reaches the Worker.
 
-**What "closed signup" actually closes** — with `ALLOW_OPEN_SIGNUP=false`, email/password registration is disabled, but GitHub OAuth sign-in (when configured) can still create accounts. That is deliberate: invites don't create accounts, so OAuth signup is how an invited teammate gets one on a closed instance. The resource boundary is enforced one step later — a self-registered account with no team membership cannot **create a team** (and therefore can't reach projects, API keys, or synthetic monitors). The only exception is a fresh instance with zero teams, so the first user — you — can bootstrap. Existing members can always create additional teams.
+**What "closed signup" actually closes** — with `ALLOW_OPEN_SIGNUP=false`, email/password registration is disabled, but GitHub OAuth sign-in (when configured) can still create accounts. That is deliberate: invites don't create accounts, so OAuth signup is how an invited teammate gets one on a closed instance. The resource boundary is enforced one step later — a self-registered account with no team membership cannot **create a team** (and therefore can't reach projects, API keys, or synthetic monitors). On a fresh instance with zero teams, temporarily set `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM=true` for the operator who creates the first team, then disable it again. Without that explicit bootstrap window, a memberless account cannot claim the instance. Existing members can always create additional teams.
 
 **Features fail closed when unconfigured** — these shipped surfaces silently no-op (rather than erroring) until configured, so an unconfigured instance is fine: GitHub Checks are skipped unless the three `GITHUB_APP_*` secrets are set (the `/api/github/webhook` 404s otherwise); browser monitors error at execution if `WRIGHTFUL_MONITOR_EXECUTOR=sandbox` but no container is wired (HTTP/TCP monitors still work).
 
@@ -394,8 +395,8 @@ If any of that isn't in place, leave `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` unset 
 
 Open your `WRIGHTFUL_PUBLIC_URL` in a browser.
 
-1. **Sign up** with email/password (or GitHub if configured). Set `ALLOW_OPEN_SIGNUP=true` first if you're the first user, then turn it off.
-2. Create a team via `/settings/teams/new`.
+1. **Create the operator account.** For email/password, temporarily set `ALLOW_OPEN_SIGNUP=true`, sign up, and turn it off again. To keep signup closed and use GitHub OAuth, temporarily set `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM=true` instead.
+2. Create a team via `/settings/teams/new`. If you used `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM`, disable it immediately after this succeeds.
 3. Create a project via `/settings/teams/<team-slug>/projects/new`.
 4. Generate an API key from the project's keys page (`/settings/teams/<team-slug>/p/<project-slug>/keys`). Save the printed key — only its SHA-256 hash is stored server-side.
 

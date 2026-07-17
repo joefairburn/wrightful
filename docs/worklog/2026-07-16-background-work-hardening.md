@@ -127,6 +127,10 @@ Tests (`provisioning-slug.workers.test.ts`): bootstrap allowed only when opted i
 REFUSED to an anonymous stranger when not opted in; open-signup + member paths
 unaffected by the flag.
 
+`SELF-HOSTING.md` and `.env.example` document the bootstrap window explicitly so
+a closed fresh install does not appear locked: enable the flag, create the first
+team, then disable it again.
+
 ### 7. Retention idle-probe re-cost (LOW)
 
 `src/lib/retention.ts` — `drainRetention`.
@@ -159,6 +163,7 @@ their first probe).
 - `apps/dashboard/src/lib/provisioning.ts` (bootstrap gate)
 - `apps/dashboard/env.ts` (`WRIGHTFUL_BILLING_RECONCILE_BATCH_SIZE`,
   `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM`)
+- `SELF-HOSTING.md`, `apps/dashboard/.env.example` (operator bootstrap guidance)
 - Tests: `scheduler.workers.test.ts`, `retention.workers.test.ts`,
   `provisioning-slug.workers.test.ts`, `src/lib/billing/__tests__/reconcile.test.ts`
   (new)
