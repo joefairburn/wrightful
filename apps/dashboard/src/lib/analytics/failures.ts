@@ -10,7 +10,7 @@ import { childProjectScopeWhere, type TenantScope } from "@/lib/scope";
  * These loaders back the Failures page; the run page's new-vs-known badge
  * shares the same first-seen definition through `src/lib/failure-novelty.ts`.
  *
- * All three reads go through the query builder (not `runRows`) so the bigint
+ * Both reads go through the query builder (not `runRows`) so the bigint
  * `createdAt` and int8 aggregates come back as JS numbers via Drizzle's field
  * decoders (`numericSql`), and every one is served by the partial
  * `testResults_project_signature_createdAt_idx`.
@@ -24,6 +24,16 @@ export interface SignatureWindowAggregate {
   testCount: number;
   /** Newest occurrence inside the window (+ branch filter). */
   lastSeenAt: number;
+  /**
+   * When this fingerprint FIRST appeared in the project's CI history —
+   * deliberately NOT window- or branch-filtered: those filters choose which
+   * signatures are shown, not when a failure mode was first seen. Bounded by
+   * retention: a signature quiet for longer than the run-retention window
+   * resurfaces as new, which is the intended reading (a regression after
+   * months IS news). `firstSeenAt >= windowStartSec` is the "New" definition
+   * for both the row pill and the KPI strip.
+   */
+  firstSeenAt: number;
 }
 
 /**
@@ -52,6 +62,21 @@ export async function loadSignatureAggregates(
       testCount: numericSql(sql`count(distinct ${testResults.testId})`),
       // max over a bigint column is int8 too — same string trap as count/sum.
       lastSeenAt: numericSql(sql`max(${testResults.createdAt})`),
+      // Project-wide first CI occurrence, as a correlated scalar min on the
+      // grouped signature — one seek per result row on the same partial index,
+      // instead of round-tripping every window signature back through an
+      // unbounded IN-list. `prior` aliases keep the self-reference from
+      // capturing the outer table; the outer `errorSignature` is the GROUP BY
+      // column, so referencing it here is legal. Never null: the group's own
+      // window rows are CI occurrences, so at least one prior row exists.
+      firstSeenAt: numericSql(sql`(
+        select min(prior."createdAt")
+        from "testResults" prior
+        join "runs" prior_run
+          on prior_run.id = prior."runId" and prior_run.origin <> 'synthetic'
+        where prior."projectId" = ${scope.projectId}
+          and prior."errorSignature" = ${testResults.errorSignature}
+      )`),
     })
     .from(testResults)
     .innerJoin(runs, ciRunsJoinOn())
@@ -67,49 +92,6 @@ export async function loadSignatureAggregates(
   return rows.filter(
     (r): r is SignatureWindowAggregate => r.signature !== null,
   );
-}
-
-export interface SignatureFirstSeen {
-  signature: string;
-  firstSeenAt: number;
-  firstRunId: string;
-}
-
-/**
- * Project-wide first occurrence per signature — when and in which run each
- * fingerprint FIRST appeared in CI history. Deliberately NOT window- or
- * branch-filtered: those filters choose which signatures are shown, not when
- * a failure mode was first seen. Bounded by retention: a signature quiet for
- * longer than the run-retention window resurfaces as new, which is the
- * intended reading (a regression after months IS news).
- */
-export async function loadSignatureFirstSeen(
-  scope: TenantScope,
-  signatures: readonly string[],
-): Promise<SignatureFirstSeen[]> {
-  if (signatures.length === 0) return [];
-  const rows = await db
-    .selectDistinctOn([testResults.errorSignature], {
-      signature: testResults.errorSignature,
-      firstSeenAt: testResults.createdAt,
-      firstRunId: testResults.runId,
-    })
-    .from(testResults)
-    .innerJoin(runs, ciRunsJoinOn())
-    // `distinct on` requires the distinct column to lead the ordering; the
-    // createdAt/id ASC tiebreak makes "the" row per signature the earliest one.
-    .where(
-      and(
-        childProjectScopeWhere(testResults.projectId, scope),
-        inArray(testResults.errorSignature, [...signatures]),
-      ),
-    )
-    .orderBy(
-      testResults.errorSignature,
-      asc(testResults.createdAt),
-      asc(testResults.id),
-    );
-  return rows.filter((r): r is SignatureFirstSeen => r.signature !== null);
 }
 
 export interface SignatureExample {

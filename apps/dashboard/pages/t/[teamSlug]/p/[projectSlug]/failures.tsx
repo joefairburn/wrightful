@@ -272,7 +272,7 @@ function FailureClusterTableRow({
         {row.testCount}
       </TableCell>
       <TableCell className="w-[110px] px-4 py-3 text-right align-middle text-caption text-fg-3">
-        {row.firstSeenAt != null ? formatRelativeTime(row.firstSeenAt) : "—"}
+        {formatRelativeTime(row.firstSeenAt)}
       </TableCell>
       <TableCell className="w-[110px] px-4 py-3 text-right align-middle text-caption text-fg-3">
         {formatRelativeTime(row.lastSeenAt)}

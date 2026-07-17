@@ -18,7 +18,11 @@ import type { RunProgressTest } from "@/realtime/run-progress";
  *
  * "Earlier" means an occurrence with `createdAt < run.createdAt` in CI
  * (synthetic monitor traffic excluded, matching the Failures page's
- * first-seen definition in `analytics/failures.ts`). Two runs racing the same
+ * first-seen definition in `analytics/failures.ts`). Novelty is therefore a
+ * CI-only concept, so a SYNTHETIC run's rows are never classified: run-detail
+ * pages serve monitor runs too (`runByIdWhere` deliberately sees them), and
+ * judging those rows against CI history would badge a recurring monitor
+ * failure "New" on every execution forever. Two runs racing the same
  * brand-new failure can both classify as new — the honest reading. Like
  * `hasTrace` (see `trace-presence.ts`), this is a UI-only enrichment applied
  * by the run-detail `…/results` route on the paginated read, kept OUT of the
@@ -39,7 +43,7 @@ export async function loadNewFailureFlags(
   const ids = rows.map((r) => r.id);
   const [runRows, sigRows] = await Promise.all([
     db
-      .select({ createdAt: runs.createdAt })
+      .select({ createdAt: runs.createdAt, origin: runs.origin })
       .from(runs)
       .where(runByIdWhere(scope, runId))
       .limit(1),
@@ -55,7 +59,7 @@ export async function loadNewFailureFlags(
       ),
   ]);
   const run = runRows[0];
-  if (!run || sigRows.length === 0) return flags;
+  if (!run || run.origin === "synthetic" || sigRows.length === 0) return flags;
 
   // A signature is KNOWN iff any CI occurrence predates this run's open time.
   // Every one of this run's own rows has createdAt >= run.createdAt (createdAt

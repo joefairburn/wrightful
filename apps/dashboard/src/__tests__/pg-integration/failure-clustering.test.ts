@@ -13,11 +13,8 @@ vi.mock("void/db", async () => {
 
 const { resetTables } = await import("./harness");
 const { failureSignature } = await import("@/lib/error-signature");
-const {
-  loadSignatureAggregates,
-  loadSignatureExamples,
-  loadSignatureFirstSeen,
-} = await import("@/lib/analytics/failures");
+const { loadSignatureAggregates, loadSignatureExamples } =
+  await import("@/lib/analytics/failures");
 const { loadNewFailureFlags } = await import("@/lib/failure-novelty");
 const { makeTenantScope } = await import("@/lib/scope");
 const { runs, testResults } = await import("../../../db/schema");
@@ -99,6 +96,7 @@ beforeAll(async () => {
       run("run_recent", NOW - 200),
       run("run_current", NOW - 100),
       run("run_synthetic", NOW - 150, "synthetic"),
+      run("run_synth_old", NOW - 900, "synthetic"),
     ]);
   await h.db.insert(testResults).values([
     // sigA (URL_SIG): known — first seen in run_old, BEFORE the window.
@@ -153,6 +151,16 @@ beforeAll(async () => {
       NOW - 150,
       "Error: synthetic-only failure",
     ),
+    // sigA also failed in an EARLIER synthetic run — must not drag the
+    // project-wide first-seen (a CI-only min) back to NOW - 900.
+    result(
+      "res_synth_old_a",
+      "run_synth_old",
+      "test_monitor",
+      "failed",
+      NOW - 900,
+      URL_ERROR,
+    ),
   ]);
 });
 
@@ -170,16 +178,22 @@ describe("failure clustering Postgres queries", () => {
     expect(aggregates.map((a) => a.signature)).toEqual([URL_SIG, CONN_SIG]);
     const urlAgg = aggregates[0]!;
     // res_old_a is outside the window; res_synth is synthetic — both excluded.
+    // firstSeenAt is project-wide (run_old, outside the window) but CI-only:
+    // the older synthetic occurrence at NOW - 900 must not drag it back.
     expect(urlAgg).toMatchObject({
       occurrenceCount: 2,
       testCount: 2,
       lastSeenAt: NOW - 100,
+      firstSeenAt: NOW - 800,
     });
+    // sigB's first-ever CI occurrence is inside the window → the "New" case.
+    expect(aggregates[1]).toMatchObject({ firstSeenAt: NOW - 100 });
     // Pins the int8/bigint coercion: node-postgres returns these as strings
     // without the numericSql decoders.
     expect(typeof urlAgg.occurrenceCount).toBe("number");
     expect(typeof urlAgg.testCount).toBe("number");
     expect(typeof urlAgg.lastSeenAt).toBe("number");
+    expect(typeof urlAgg.firstSeenAt).toBe("number");
   });
 
   it("filters the aggregate by branch", async () => {
@@ -188,21 +202,6 @@ describe("failure clustering Postgres queries", () => {
       branch: "other-branch",
     });
     expect(aggregates).toEqual([]);
-  });
-
-  it("resolves project-wide first-seen, unbounded by the window", async () => {
-    const firstSeen = await loadSignatureFirstSeen(scope, [URL_SIG, CONN_SIG]);
-    const bySig = new Map(firstSeen.map((r) => [r.signature, r]));
-
-    expect(bySig.get(URL_SIG)).toMatchObject({
-      firstSeenAt: NOW - 800,
-      firstRunId: "run_old",
-    });
-    expect(bySig.get(CONN_SIG)).toMatchObject({
-      firstSeenAt: NOW - 100,
-      firstRunId: "run_current",
-    });
-    expect(typeof bySig.get(URL_SIG)?.firstSeenAt).toBe("number");
   });
 
   it("returns the newest in-window example row per signature", async () => {
@@ -224,18 +223,19 @@ describe("failure clustering Postgres queries", () => {
     });
   });
 
+  const pageRow = (id: string, status: string) => ({
+    id,
+    testId: `t_${id}`,
+    title: "t",
+    file: "f",
+    projectName: null,
+    status,
+    durationMs: 0,
+    retryCount: 0,
+    shardIndex: null,
+  });
+
   it("classifies a run page's failures as new vs known by signature history", async () => {
-    const pageRow = (id: string, status: string) => ({
-      id,
-      testId: `t_${id}`,
-      title: "t",
-      file: "f",
-      projectName: null,
-      status,
-      durationMs: 0,
-      retryCount: 0,
-      shardIndex: null,
-    });
     const flags = await loadNewFailureFlags(scope, "run_current", [
       pageRow("res_current_a", "failed"),
       pageRow("res_current_b", "failed"),
@@ -249,5 +249,14 @@ describe("failure clustering Postgres queries", () => {
     // Unclassifiable rows (no signature) stay absent, not false.
     expect(flags.has("res_current_pass")).toBe(false);
     expect(flags.has("res_current_noerr")).toBe(false);
+  });
+
+  it("never classifies a synthetic run's rows — novelty is a CI concept", async () => {
+    // Without the origin gate this recurring monitor failure (no CI history)
+    // would badge "New" on every monitor execution forever.
+    const flags = await loadNewFailureFlags(scope, "run_synthetic", [
+      pageRow("res_synth", "failed"),
+    ]);
+    expect(flags.size).toBe(0);
   });
 });

@@ -21,7 +21,12 @@ createdAt) WHERE errorSignature IS NOT NULL`. Migration
   affected tests, first/last seen, newest example row link, "New" pill),
   KPI strip (distinct patterns / new this window / total occurrences).
   Loaders live in `src/lib/analytics/failures.ts` — query-builder reads (not
-  raw SQL) so Drizzle's decoders handle the int8/bigint coercion.
+  raw SQL) so Drizzle's decoders handle the int8/bigint coercion. Two bounded
+  reads: the window aggregate carries each signature's project-wide first-seen
+  as a correlated `min(createdAt)` on the grouped signature (one partial-index
+  seek per group), and the example fetch covers only the displayed slice — no
+  full-window-set IN-list round-trips. The `firstSeenAt >= windowStartSec`
+  rule drives both the row pills and the KPI's "new" count.
 - **Run page.** Failure rows in the Tests tab carry a "New" badge when their
   signature's first CI appearance is this run. `loadNewFailureFlags`
   (`src/lib/failure-novelty.ts`) is a UI-only enrichment applied by the
@@ -59,7 +64,10 @@ would be an operation later.
   budget for it before touching the regexes.
 - **Novelty definition:** a signature is known iff any CI occurrence has
   `createdAt < run.createdAt`. Two overlapping runs racing the same brand-new
-  failure can both badge "New" — accepted as the honest reading.
+  failure can both badge "New" — accepted as the honest reading. Synthetic
+  runs get NO flags at all: run-detail pages serve monitor runs too, and
+  judging their rows against CI-only history would badge a recurring monitor
+  failure "New" on every execution forever.
 
 ## Verification
 
@@ -67,8 +75,9 @@ would be an operation later.
   `failureSignature` cases), `analytics-kpi-summaries.test.ts` (new
   `summarizeFailureKpis` cases).
 - New `pg-integration/failure-clustering.test.ts`: window aggregate (incl.
-  int8-as-number pinning + synthetic exclusion + branch filter), first-seen,
-  examples, and new-vs-known flags against real Postgres semantics;
+  int8-as-number pinning, synthetic exclusion of both the window rows and the
+  correlated first-seen min, branch filter), examples, new-vs-known flags,
+  and the synthetic-run no-flags gate against real Postgres semantics;
   `pg-integration/mcp-diagnose.test.ts` reseeded through `failureSignature`
   and still green against the column-reading diagnose.
 - Full `pnpm --filter @wrightful/dashboard test` + `pnpm check`.

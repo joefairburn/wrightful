@@ -2,7 +2,6 @@ import { defer, defineHandler, type InferProps } from "void";
 import {
   loadSignatureAggregates,
   loadSignatureExamples,
-  loadSignatureFirstSeen,
   type SignatureWindowAggregate,
 } from "@/lib/analytics/failures";
 import {
@@ -33,22 +32,20 @@ export interface FailureKpis {
 }
 
 /**
- * Summarize the window's signature aggregates + first-seen map into the KPI
- * strip numbers. `firstSeenBySignature` covers every window signature (the
- * loader fetches first-seen for the full set, not the display slice), so
- * "new" is defined over the whole window. PURE.
+ * Summarize the window's signature aggregates into the KPI strip numbers.
+ * Each aggregate carries its project-wide `firstSeenAt` (the correlated min
+ * in `loadSignatureAggregates`), so "new" is defined over the whole window,
+ * by the same `firstSeenAt >= windowStartSec` rule as the row pills. PURE.
  */
 export function summarizeFailureKpis(
   aggregates: readonly SignatureWindowAggregate[],
-  firstSeenBySignature: ReadonlyMap<string, number>,
   windowStartSec: number,
 ): FailureKpis {
   let totalOccurrences = 0;
   let newSignatures = 0;
   for (const agg of aggregates) {
     totalOccurrences += agg.occurrenceCount;
-    const firstSeenAt = firstSeenBySignature.get(agg.signature);
-    if (firstSeenAt != null && firstSeenAt >= windowStartSec) newSignatures++;
+    if (agg.firstSeenAt >= windowStartSec) newSignatures++;
   }
   return {
     distinctSignatures: aggregates.length,
@@ -57,16 +54,15 @@ export function summarizeFailureKpis(
   };
 }
 
-/** One displayed signature cluster — aggregate + first-seen + example rolled
- *  into the serializable row shape the table renders. */
+/** One displayed signature cluster — aggregate + example rolled into the
+ *  serializable row shape the table renders. */
 export interface FailureClusterRow {
   signature: string;
   occurrenceCount: number;
   testCount: number;
   lastSeenAt: number;
-  /** Project-wide first CI occurrence; null only if history was swept between passes. */
-  firstSeenAt: number | null;
-  firstRunId: string | null;
+  /** Project-wide first CI occurrence (see SignatureWindowAggregate). */
+  firstSeenAt: number;
   /** First seen inside the current window → the "New" pill. */
   isNew: boolean;
   /** Newest in-window example — the row's link target and title/file context. */
@@ -81,13 +77,12 @@ export interface FailureClusterRow {
 
 /**
  * Failures page loader — cross-run failure clusters keyed on the
- * ingest-persisted `errorSignature` fingerprint. Three passes behind one
+ * ingest-persisted `errorSignature` fingerprint. Two passes behind one
  * grouped `defer()` (the flaky page's shape):
- *  1. Per-signature window aggregate (counts, affected tests, last seen) —
- *     ALL window signatures, most-frequent first.
- *  2. Project-wide first-seen per signature (full set — the KPI strip's
- *     "new" count is window-wide, not slice-wide).
- *  3. Newest in-window example row for the displayed slice (row link target).
+ *  1. Per-signature window aggregate (counts, affected tests, last seen,
+ *     project-wide first-seen) — ALL window signatures, most-frequent first;
+ *     the KPI strip and the "New" pills both derive from it.
+ *  2. Newest in-window example row for the displayed slice (row link target).
  */
 export const loader = defineHandler(async (c) => {
   const { project, scope } = requireTenantContext(c);
@@ -131,38 +126,24 @@ export const loader = defineHandler(async (c) => {
       });
       const shown = aggregates.slice(0, TOP_N);
 
-      const [firstSeenRows, exampleRows] = await Promise.all([
-        loadSignatureFirstSeen(
-          scope,
-          aggregates.map((a) => a.signature),
-        ),
-        loadSignatureExamples(
-          scope,
-          shown.map((a) => a.signature),
-          { windowStartSec, branch: branchFilter },
-        ),
-      ]);
-      const firstSeenBySignature = new Map(
-        firstSeenRows.map((r) => [r.signature, r.firstSeenAt]),
-      );
-      const firstRunBySignature = new Map(
-        firstSeenRows.map((r) => [r.signature, r.firstRunId]),
+      const exampleRows = await loadSignatureExamples(
+        scope,
+        shown.map((a) => a.signature),
+        { windowStartSec, branch: branchFilter },
       );
       const exampleBySignature = new Map(
         exampleRows.map((r) => [r.signature, r]),
       );
 
       const rows: FailureClusterRow[] = shown.map((agg) => {
-        const firstSeenAt = firstSeenBySignature.get(agg.signature) ?? null;
         const example = exampleBySignature.get(agg.signature);
         return {
           signature: agg.signature,
           occurrenceCount: agg.occurrenceCount,
           testCount: agg.testCount,
           lastSeenAt: agg.lastSeenAt,
-          firstSeenAt,
-          firstRunId: firstRunBySignature.get(agg.signature) ?? null,
-          isNew: firstSeenAt != null && firstSeenAt >= windowStartSec,
+          firstSeenAt: agg.firstSeenAt,
+          isNew: agg.firstSeenAt >= windowStartSec,
           example: example
             ? {
                 testResultId: example.testResultId,
@@ -179,11 +160,7 @@ export const loader = defineHandler(async (c) => {
         totalSignatures: aggregates.length,
         truncated: aggregates.length > shown.length,
         rows,
-        kpis: summarizeFailureKpis(
-          aggregates,
-          firstSeenBySignature,
-          windowStartSec,
-        ),
+        kpis: summarizeFailureKpis(aggregates, windowStartSec),
       };
     }),
   };
