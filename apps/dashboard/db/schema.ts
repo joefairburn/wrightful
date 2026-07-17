@@ -371,6 +371,55 @@ export const githubInstallations = pgTable(
   ],
 );
 
+/**
+ * The sticky PR-summary comment for a `(project, repo, prNumber)` triple —
+ * the App-token sibling of the check run, but keyed per PR rather than per run
+ * because every run on the PR upserts the SAME comment (that's what makes it
+ * sticky). Owned by `@/lib/github-pr-comment`.
+ *
+ * `commentId` is the GitHub issue-comment id once posted (always real, never a
+ * sentinel); `claimedAt` is the same claim-before-POST CAS used by
+ * `runs.githubCheckClaimedAt` so two concurrent completions never POST
+ * duplicate comments. `runId` records which run's summary the comment currently
+ * shows — run ids are ULIDs (lexicographically time-ordered), so a stale
+ * watchdog-finalized run can compare ids and decline to overwrite a newer
+ * run's summary.
+ */
+export const githubPrComments = pgTable(
+  "githubPrComments",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("projectId")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** "owner/name" exactly as stored on `runs.repo`. */
+    repo: text("repo").notNull(),
+    prNumber: integer("prNumber").notNull(),
+    /** GitHub's numeric issue-comment id, or null before the first POST lands. */
+    commentId: big("commentId"),
+    /**
+     * The run whose summary the comment currently renders. Real FK with
+     * `set null`: a deleted run leaves the comment row (and its dedupe role)
+     * intact. No index on the FK child side — the table holds one row per PR,
+     * so the on-delete scan is trivially small.
+     */
+    runId: text("runId").references(() => runs.id, { onDelete: "set null" }),
+    /** Epoch-seconds claim for the right to POST; see `runs.githubCheckClaimedAt`. */
+    claimedAt: big("claimedAt"),
+    createdAt: big("createdAt").notNull(),
+    updatedAt: big("updatedAt").notNull(),
+  },
+  (t) => [
+    // The upsert identity: one sticky comment per (project, repo, PR). Also the
+    // point-seek every completion uses to find the row.
+    uniqueIndex("githubPrComments_project_repo_pr_idx").on(
+      t.projectId,
+      t.repo,
+      t.prNumber,
+    ),
+  ],
+);
+
 // ---------- Test data (runs and children) ----------
 
 export const runs = pgTable(

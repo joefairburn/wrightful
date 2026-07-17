@@ -60,7 +60,13 @@ export function statusToConclusion(status: string): CheckConclusion {
   }
 }
 
-function formatDuration(ms: number): string {
+/**
+ * Shared by the check-run output and the sticky PR comment
+ * (`@/lib/github-pr-comment`) so the two GitHub surfaces render durations
+ * identically. The reporter keeps a hand-synced copy (see
+ * `packages/reporter/src/pr-comment.ts`).
+ */
+export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const seconds = ms / 1000;
   if (seconds < 60) return `${seconds.toFixed(1)}s`;

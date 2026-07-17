@@ -19,6 +19,7 @@ import {
   runBatch,
 } from "@/lib/db-batch";
 import { maybePostGithubCheck } from "@/lib/github-checks";
+import { maybePostGithubPrComment } from "@/lib/github-pr-comment";
 import { setCodeownersFile } from "@/lib/owners-repo";
 import {
   childByTestResultsWhere,
@@ -1662,10 +1663,12 @@ export async function completeRun(
     scope,
   );
   await bumpTeamActivity(scope.teamId, nowSeconds);
-  // Best-effort GitHub check run (no-op unless the App is configured + the
-  // repo's org installed it). Awaited per the no-fire-and-forget rule; it
-  // swallows its own errors so a GitHub outage never fails /complete.
+  // Best-effort GitHub check run + sticky PR comment (each a no-op unless the
+  // App is configured + the repo's org installed it). Awaited per the
+  // no-fire-and-forget rule; both swallow their own errors so a GitHub outage
+  // never fails /complete.
   await maybePostGithubCheck(runId, scope.projectId);
+  await maybePostGithubPrComment(runId, scope.projectId);
 
   return { kind: "ok", status: summary?.status ?? payload.status };
 }
@@ -1806,9 +1809,13 @@ async function completeShardedRun(
     await broadcastRunProgress(runId, scope.projectId, summary);
   }
 
-  // Post the merge-gating GitHub check only once the run is actually terminal —
-  // an in-progress (still-sharding) run must not publish a "completed" check.
-  if (allDone) await maybePostGithubCheck(runId, scope.projectId);
+  // Post the merge-gating GitHub check (and sticky PR comment) only once the
+  // run is actually terminal — an in-progress (still-sharding) run must not
+  // publish a "completed" check.
+  if (allDone) {
+    await maybePostGithubCheck(runId, scope.projectId);
+    await maybePostGithubPrComment(runId, scope.projectId);
+  }
 
   return {
     kind: "ok",
@@ -1879,8 +1886,11 @@ export async function finalizeStaleRun(
     { requireStatusFlip: true },
   );
   // Watchdog-finalized runs (CI killed before /complete) still post their check
-  // — same best-effort, self-silencing path as completeRun.
+  // and PR comment — same best-effort, self-silencing path as completeRun. (The
+  // comment path's ULID stale-run guard keeps a late finalize of an old push
+  // from overwriting a newer run's summary.)
   await maybePostGithubCheck(run.id, run.projectId);
+  await maybePostGithubPrComment(run.id, run.projectId);
 }
 
 /** Counts a watchdog sweep emits: rows seen, finalized, and failed. */
