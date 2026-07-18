@@ -2,14 +2,17 @@ import { use } from "react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import { DeferredSection } from "@/components/defer-error-boundary";
 import { KpiInline } from "@/components/kpi-inline";
+import { NewFailurePill } from "@/components/new-failure-pill";
 import { PageHeader } from "@/components/page-header";
 import { PageToolbar } from "@/components/page-toolbar";
 import { RowLink } from "@/components/row-link";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
-import { TablePaginationFooterSkeleton } from "@/components/skeletons";
+import {
+  KpiInlineSkeleton,
+  TablePaginationFooterSkeleton,
+} from "@/components/skeletons";
 import { StatusGlyph } from "@/components/status-glyph";
-import { StatusPill } from "@/components/status-pill";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
 import {
   Empty,
@@ -76,7 +79,7 @@ export default function FailuresPage({
         <DeferredSection
           errorFallback={<></>}
           resetKey={resetKey}
-          skeleton={<FailureKpiSkeleton />}
+          skeleton={<KpiInlineSkeleton widths={["w-8", "w-8", "w-12"]} />}
         >
           <FailureKpiStrip failures={failures} />
         </DeferredSection>
@@ -121,24 +124,6 @@ function FailureKpiStrip({ failures }: { failures: Props["failures"] }) {
         value={kpis.newSignatures}
       />
       <KpiInline label="Total failures" value={kpis.totalOccurrences} />
-    </>
-  );
-}
-
-/** Fallback for the KPI strip — mirrors FlakyKpiSkeleton's shape. */
-function FailureKpiSkeleton() {
-  const widths = ["w-8", "w-8", "w-12"];
-  return (
-    <>
-      {widths.map((valueW, i) => (
-        <div
-          className="flex items-baseline gap-1.5 border-r border-line-1 pr-3 mr-1"
-          key={i}
-        >
-          <Skeleton className="h-3 w-20" />
-          <Skeleton className={`h-[13px] ${valueW}`} />
-        </div>
-      ))}
     </>
   );
 }
@@ -240,14 +225,7 @@ function FailureClusterTableRow({
             >
               {row.signature}
             </span>
-            {row.isNew ? (
-              <StatusPill
-                className="shrink-0"
-                cssVar="--fail"
-                label="New"
-                size="sm"
-              />
-            ) : null}
+            {row.isNew ? <NewFailurePill /> : null}
           </div>
           {row.example ? (
             <div className="mt-0.5 flex min-w-0 items-center gap-2 text-micro text-fg-3">

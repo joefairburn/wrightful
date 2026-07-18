@@ -59,6 +59,33 @@ export function KpiCardSkeleton(): React.ReactElement {
   );
 }
 
+/**
+ * Fallback for a `PageToolbar` strip of `KpiInline` stats — one label + value
+ * placeholder (and the same right divider) per entry. The toolbar is a fixed
+ * `min-h-13`, so the bars' exact height can't shift it; the dividers keep the
+ * horizontal rhythm. `widths` sizes each value bar (`w-8`, `w-12`, …) roughly
+ * like the number it stands in for. Used by the flaky and failures pages.
+ */
+export function KpiInlineSkeleton({
+  widths,
+}: {
+  widths: readonly string[];
+}): React.ReactElement {
+  return (
+    <>
+      {widths.map((valueW, i) => (
+        <div
+          className="flex items-baseline gap-1.5 border-r border-line-1 pr-3 mr-1"
+          key={i}
+        >
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className={`h-[13px] ${valueW}`} />
+        </div>
+      ))}
+    </>
+  );
+}
+
 /** Fallback for an analytics chart region. Reserves the chart's exact height.
  *  `AnalyticsLineChart` / `BucketBarChart` confine their axis + label rows
  *  inside the fixed `height` box, so passing the same `height` here matches the

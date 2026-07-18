@@ -7,7 +7,10 @@ import { PageHeader } from "@/components/page-header";
 import { PageToolbar } from "@/components/page-toolbar";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
-import { TablePaginationFooterSkeleton } from "@/components/skeletons";
+import {
+  KpiInlineSkeleton,
+  TablePaginationFooterSkeleton,
+} from "@/components/skeletons";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
 import {
   Empty,
@@ -78,7 +81,7 @@ export default function FlakyTestsPage({
         <DeferredSection
           errorFallback={<></>}
           resetKey={resetKey}
-          skeleton={<FlakyKpiSkeleton />}
+          skeleton={<KpiInlineSkeleton widths={["w-8", "w-12", "w-8"]} />}
         >
           <FlakyKpiStrip flaky={flaky} />
         </DeferredSection>
@@ -124,26 +127,6 @@ function FlakyKpiStrip({ flaky }: { flaky: Props["flaky"] }) {
         value={`${kpis.avgFlakeRate.toFixed(1)}%`}
       />
       <KpiInline label="Total failures" value={kpis.totalFailures} />
-    </>
-  );
-}
-
-/** Fallback for the KPI strip — three `KpiInline`-shaped placeholders (label +
- *  value + the same right divider). The toolbar is a fixed `min-h-13`, so the
- *  bars' exact height can't shift it; the dividers keep the horizontal rhythm. */
-function FlakyKpiSkeleton() {
-  const widths = ["w-8", "w-12", "w-8"];
-  return (
-    <>
-      {widths.map((valueW, i) => (
-        <div
-          className="flex items-baseline gap-1.5 border-r border-line-1 pr-3 mr-1"
-          key={i}
-        >
-          <Skeleton className="h-3 w-20" />
-          <Skeleton className={`h-[13px] ${valueW}`} />
-        </div>
-      ))}
     </>
   );
 }

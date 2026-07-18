@@ -77,11 +77,12 @@ export const GET = defineHandler.withValidator({
     loadNewFailureFlags(scope, runId, result.results),
   ]);
   return {
-    results: withTrace.map((r) =>
-      newFailureFlags.has(r.id)
-        ? { ...r, isNewFailure: newFailureFlags.get(r.id) }
-        : r,
-    ),
+    // `get` is undefined for unclassifiable rows; the optional field
+    // serializes away, so the wire shape is unchanged for them.
+    results: withTrace.map((r) => ({
+      ...r,
+      isNewFailure: newFailureFlags.get(r.id),
+    })),
     nextCursor: result.nextCursor,
   };
 });
