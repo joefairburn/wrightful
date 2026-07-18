@@ -1,8 +1,8 @@
 import { ulid } from "ulid";
 import { and, asc, db, eq, inArray, lte, sql } from "void/db";
+import { logger } from "void/log";
 import { monitorExecutions, monitors } from "@schema";
 import type { Monitor } from "@schema";
-import { runBatch } from "@/lib/db-batch";
 import type { MonitorJob } from "@/lib/monitors/types";
 
 /**
@@ -193,40 +193,40 @@ export async function sweepDueMonitors(opts: {
   const plan = planMonitorSweep(due, opts.now, ulid);
   const nowSeconds = opts.now;
 
-  const claimResults = await runBatch((tx) =>
-    plan.monitorUpdates.map((u) =>
-      tx
+  const items = await db.transaction(async (tx) => {
+    const claimed: Array<{
+      job: MonitorJob;
+      execution: SweepPlan["executions"][number];
+      monitor: DueMonitor;
+    }> = [];
+    for (let i = 0; i < plan.monitorUpdates.length; i++) {
+      const update = plan.monitorUpdates[i]!;
+      const claimRows = await tx
         .update(monitors)
-        .set({ nextRunAt: u.nextRunAt, lastEnqueuedAt: u.lastEnqueuedAt })
-        .where(monitorReArmCasWhere(u.id, nowSeconds))
-        .returning({ id: monitors.id }),
-    ),
-  );
-  const claimedIds = claimedMonitorIds(claimResults);
+        .set({
+          nextRunAt: update.nextRunAt,
+          lastEnqueuedAt: update.lastEnqueuedAt,
+        })
+        .where(monitorReArmCasWhere(update.id, nowSeconds))
+        .returning({ id: monitors.id });
+      if (!claimRows[0]) continue;
 
-  const items = plan.jobs
-    .map((job, i) => ({
-      job,
-      execution: plan.executions[i]!,
-      monitor: due[i]!,
-    }))
-    .filter((item) => claimedIds.has(item.monitor.id));
-
-  if (items.length === 0) return { found: due.length, enqueued: 0 };
-
-  await runBatch((tx) =>
-    items.map((item) =>
-      tx.insert(monitorExecutions).values({
-        id: item.execution.id,
-        projectId: item.execution.projectId,
-        monitorId: item.execution.monitorId,
-        scheduledFor: item.execution.scheduledFor,
+      const execution = plan.executions[i]!;
+      await tx.insert(monitorExecutions).values({
+        id: execution.id,
+        projectId: execution.projectId,
+        monitorId: execution.monitorId,
+        scheduledFor: execution.scheduledFor,
         state: "queued",
         attempt: 0,
         createdAt: nowSeconds,
-      }),
-    ),
-  );
+      });
+      claimed.push({ job: plan.jobs[i]!, execution, monitor: due[i]! });
+    }
+    return claimed;
+  });
+
+  if (items.length === 0) return { found: due.length, enqueued: 0 };
 
   let enqueued = 0;
   const failedExecutionIds: string[] = [];
@@ -237,7 +237,18 @@ export async function sweepDueMonitors(opts: {
     );
     settled.forEach((result, j) => {
       if (result.status === "fulfilled") enqueued++;
-      else failedExecutionIds.push(wave[j]!.execution.id);
+      else {
+        const item = wave[j]!;
+        logger.error("monitor enqueue failed", {
+          executionId: item.execution.id,
+          monitorId: item.monitor.id,
+          reason:
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason),
+        });
+        failedExecutionIds.push(item.execution.id);
+      }
     });
   }
 

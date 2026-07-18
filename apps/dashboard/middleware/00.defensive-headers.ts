@@ -48,22 +48,32 @@ export default defineMiddleware(async (c, next) => {
     await next();
   } catch (err) {
     if (err instanceof Response) {
-      replaceResponse(c, withDefensiveHeaders(err, c.req.path));
+      replaceResponse(
+        c,
+        withDefensiveHeaders(err, c.req.path, new URL(c.req.url).origin),
+      );
       return;
     }
     throw err;
   }
 
   if (!c.res) return;
-  const secured = withDefensiveHeaders(c.res, c.req.path);
+  const secured = withDefensiveHeaders(
+    c.res,
+    c.req.path,
+    new URL(c.req.url).origin,
+  );
   if (secured !== c.res) replaceResponse(c, secured);
 });
 
-function traceViewerPolicy(path: string): Readonly<Record<string, string>> {
+function traceViewerPolicy(
+  path: string,
+  pageOrigin: string,
+): Readonly<Record<string, string>> {
   const base = { ...GLOBAL_HEADERS, ...TRACE_VIEWER_HEADERS };
   if (
     path.startsWith("/trace-viewer/snapshot/") &&
-    !isSeparateTraceViewerOrigin()
+    !isSeparateTraceViewerOrigin(pageOrigin)
   ) {
     return {
       ...base,
@@ -73,12 +83,16 @@ function traceViewerPolicy(path: string): Readonly<Record<string, string>> {
   return base;
 }
 
-function withDefensiveHeaders(response: Response, path: string): Response {
+function withDefensiveHeaders(
+  response: Response,
+  path: string,
+  pageOrigin: string,
+): Response {
   // WebSocket upgrades have immutable headers and are not document responses.
   if (response.status === 101) return response;
 
   const policy = path.startsWith("/trace-viewer/")
-    ? traceViewerPolicy(path)
+    ? traceViewerPolicy(path, pageOrigin)
     : GLOBAL_HEADERS;
 
   try {

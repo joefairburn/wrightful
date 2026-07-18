@@ -36,7 +36,16 @@ vi.mock("@/realtime/publish", () => ({
 
 const { appendRunResults } = await import("@/lib/ingest");
 const { makeTenantScope } = await import("@/lib/scope");
-const { runs } = await import("../../db/schema");
+const {
+  runs,
+  teams,
+  testResults,
+  testResultAttempts,
+  testTags,
+  testAnnotations,
+  tests,
+} = await import("../../db/schema");
+const { eq } = await import("void/_db");
 const { getTableConfig } = await import("void/schema-pg");
 
 function pgType(columnType: string): string {
@@ -84,49 +93,166 @@ async function seedRun(id: string, totalTests: number) {
   } as never);
 }
 
-function batch() {
+function batch(...testIds: string[]) {
   return {
-    results: [
-      {
-        testId: "t-new",
-        title: "adds",
-        file: "math.spec.ts",
-        status: "passed" as const,
-        durationMs: 1,
-        retryCount: 0,
-        attempts: [{ attempt: 0, status: "passed" as const, durationMs: 1 }],
-        tags: [],
-        annotations: [],
-      },
-    ],
+    results: testIds.map((testId) => ({
+      testId,
+      title: "adds",
+      file: "math.spec.ts",
+      status: "passed" as const,
+      durationMs: 1,
+      retryCount: 0,
+      attempts: [],
+      tags: [],
+      annotations: [],
+    })),
   };
 }
 
+async function seedExistingResults(runId: string, ...testIds: string[]) {
+  await h.db.insert(testResults).values(
+    testIds.map((testId, index) => ({
+      id: `existing-${runId}-${index}`,
+      projectId: SCOPE.projectId,
+      runId,
+      testId,
+      title: testId,
+      file: "seed.spec.ts",
+      status: "passed",
+      durationMs: 1,
+      retryCount: 0,
+      createdAt: NOW,
+      updatedAt: NOW,
+    })),
+  );
+}
+
+async function readState(runId: string) {
+  const [run] = await h.db
+    .select({ totalTests: runs.totalTests })
+    .from(runs)
+    .where(eq(runs.id, runId));
+  const rows = await h.db
+    .select({ id: testResults.id })
+    .from(testResults)
+    .where(eq(testResults.runId, runId));
+  return { totalTests: run?.totalTests, persistedRows: rows.length };
+}
+
 beforeAll(async () => {
-  for (const t of [runs]) {
+  for (const t of [
+    teams,
+    runs,
+    testResults,
+    testResultAttempts,
+    testTags,
+    testAnnotations,
+    tests,
+  ]) {
     const { name } = getTableConfig(t);
     await h.client.exec(`drop table if exists "${name}" cascade;`);
     await h.client.exec(createTableSql(t));
   }
+  await h.client.exec(
+    'create unique index "testResults_runId_testId_idx" on "testResults" ("runId", "testId");',
+  );
+  await h.client.exec(
+    'create unique index "tests_project_testId_idx" on "tests" ("projectId", "testId");',
+  );
 });
 afterAll(async () => {
   await h.client.close();
 });
 beforeEach(async () => {
-  const { name } = getTableConfig(runs);
-  await h.client.exec(`delete from "${name}";`);
+  for (const t of [
+    testTags,
+    testAnnotations,
+    testResultAttempts,
+    tests,
+    testResults,
+    runs,
+    teams,
+  ]) {
+    const { name } = getTableConfig(t);
+    await h.client.exec(`delete from "${name}";`);
+  }
 });
 
 describe("appendRunResults — per-run row cap", () => {
   it("refuses appends once totalTests reaches the ceiling (413-mapped rowCapExceeded)", async () => {
     await seedRun("run-cap", 3);
-    const outcome = await appendRunResults(SCOPE, "run-cap", batch(), NOW);
-    expect(outcome).toEqual({ kind: "rowCapExceeded", limit: 3, count: 3 });
+    const outcome = await appendRunResults(
+      SCOPE,
+      "run-cap",
+      batch("t-new"),
+      NOW,
+    );
+    expect(outcome).toEqual({ kind: "rowCapExceeded", limit: 3, count: 4 });
   });
 
   it("refuses when already over the ceiling", async () => {
     await seedRun("run-over", 9);
-    const outcome = await appendRunResults(SCOPE, "run-over", batch(), NOW);
+    const outcome = await appendRunResults(
+      SCOPE,
+      "run-over",
+      batch("t-new"),
+      NOW,
+    );
     expect(outcome.kind).toBe("rowCapExceeded");
+  });
+
+  it("allows an idempotent update at the ceiling when it adds no row", async () => {
+    await seedRun("run-at-cap", 3);
+    await seedExistingResults("run-at-cap", "t-1", "t-2", "t-3");
+
+    const outcome = await appendRunResults(
+      SCOPE,
+      "run-at-cap",
+      batch("t-3"),
+      NOW,
+    );
+
+    expect(outcome.kind).toBe("ok");
+    expect(await readState("run-at-cap")).toEqual({
+      totalTests: 3,
+      persistedRows: 3,
+    });
+  });
+
+  it("rejects a batch that crosses the ceiling under the run lock", async () => {
+    await seedRun("run-cross", 2);
+    await seedExistingResults("run-cross", "t-1", "t-2");
+
+    const outcome = await appendRunResults(
+      SCOPE,
+      "run-cross",
+      batch("t-3", "t-4"),
+      NOW,
+    );
+
+    expect(outcome).toEqual({ kind: "rowCapExceeded", limit: 3, count: 4 });
+    expect(await readState("run-cross")).toEqual({
+      totalTests: 2,
+      persistedRows: 2,
+    });
+  });
+
+  it("serializes concurrent appends so the persisted row count stays capped", async () => {
+    await seedRun("run-race", 2);
+    await seedExistingResults("run-race", "t-1", "t-2");
+
+    const outcomes = await Promise.all([
+      appendRunResults(SCOPE, "run-race", batch("t-3"), NOW),
+      appendRunResults(SCOPE, "run-race", batch("t-4"), NOW),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.kind === "ok")).toHaveLength(1);
+    expect(
+      outcomes.filter((outcome) => outcome.kind === "rowCapExceeded"),
+    ).toHaveLength(1);
+    expect(await readState("run-race")).toEqual({
+      totalTests: 3,
+      persistedRows: 3,
+    });
   });
 });

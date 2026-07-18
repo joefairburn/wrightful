@@ -99,7 +99,11 @@ unchanged. No client branches on the status — all four consumers check
 - `vitest run -c vitest.workers.config.ts` for `mcp-server`, `mcp-auth`,
   `github-app`, `settings-scope`, `capability-gate` workers suites — 62 passed;
   `github-checks-claim.test.ts` — 5 passed.
-- Not run (deferred to the coordinating full-verification pass, per parallel
-  workstream rules): `pnpm check` (format/lint/typecheck) and the e2e suites.
+- `pnpm check` (`vp check`) — **0 errors**, 143 existing warnings; formatting,
+  lint, `void prepare`, and typecheck completed successfully. This includes the
+  corrected rate-limit test objects (no duplicate-property type errors).
+- `pnpm test` — dashboard node lane **660 passed / 4 skipped**, dashboard
+  Workers lane **1369 passed**, reporter **304 passed**.
+- The E2E/preview suites were not run.
 
 No schema, migration, env, or wrangler binding changes.

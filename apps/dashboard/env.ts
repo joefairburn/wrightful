@@ -1,4 +1,5 @@
 import { boolean, defineEnv, number, oneOf, string, url } from "void/env";
+import { z } from "zod";
 
 export default defineEnv({
   /**
@@ -139,7 +140,11 @@ export default defineEnv({
    * Maximum distinct test-result rows accepted for one run. Further appends
    * return 413. Defaults to 500,000; set to 0 to disable.
    */
-  WRIGHTFUL_MAX_TEST_RESULTS_PER_RUN: number().default(500000),
+  WRIGHTFUL_MAX_TEST_RESULTS_PER_RUN: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(500000),
 
   // ---------- Billing / usage quotas ----------
 
@@ -197,7 +202,11 @@ export default defineEnv({
    * Maximum teams checked by each billing reconciliation. The randomly ordered
    * sample rotates coverage between runs. Defaults to 500.
    */
-  WRIGHTFUL_BILLING_RECONCILE_BATCH_SIZE: number().default(500),
+  WRIGHTFUL_BILLING_RECONCILE_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(500),
 
   // ---------- Pro-tier caps (apply only when billing is ON; PLACEHOLDER / TBA defaults) ----------
   /**

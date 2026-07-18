@@ -282,25 +282,27 @@ export async function bootDashboard(
       dashboardServer = undefined;
       await killPreviewGroup(server);
     }
+    if (envBackedUp) {
+      try {
+        if (existsSync(envBackupPath)) {
+          if (existsSync(ENV_LOCAL_PATH)) unlinkSync(ENV_LOCAL_PATH);
+          renameSync(envBackupPath, ENV_LOCAL_PATH);
+        } else if (existsSync(ENV_LOCAL_PATH)) {
+          unlinkSync(ENV_LOCAL_PATH);
+        }
+        envBackedUp = false;
+      } catch (err) {
+        console.error(`[dashboard-fixture] Failed to restore .env.local:`, err);
+        return;
+      }
+    }
     if (lockAcquired) {
       try {
         if (existsSync(ENV_LOCK_PATH)) unlinkSync(ENV_LOCK_PATH);
+        lockAcquired = false;
       } catch (err) {
         console.error(`[dashboard-fixture] Failed to remove lock:`, err);
       }
-      lockAcquired = false;
-    }
-    if (!envBackedUp) return;
-    try {
-      if (existsSync(envBackupPath)) {
-        if (existsSync(ENV_LOCAL_PATH)) unlinkSync(ENV_LOCAL_PATH);
-        renameSync(envBackupPath, ENV_LOCAL_PATH);
-      } else if (existsSync(ENV_LOCAL_PATH)) {
-        unlinkSync(ENV_LOCAL_PATH);
-      }
-      envBackedUp = false;
-    } catch (err) {
-      console.error(`[dashboard-fixture] Failed to restore .env.local:`, err);
     }
   };
 

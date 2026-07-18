@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+vi.mock("void/env", () => ({
+  env: { VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN: undefined },
+}));
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import {
   useBufferedObjectUrl,
@@ -246,10 +249,10 @@ describe("useTraceModel — mount + protocol", () => {
     expect(iframe.style.display).toBe("none");
     // Leads with the encoded trace param, then the explicit `host=` postMessage
     // handshake param (see `bridgeIframeSrc`).
-    expect(iframe.getAttribute("src")).toContain(
-      `/trace-viewer/bridge.html?trace=${encodeURIComponent(TRACE_URL)}`,
-    );
-    expect(iframe.getAttribute("src")).toContain("host=");
+    const src = new URL(iframe.src, document.baseURI);
+    expect(src.pathname).toBe("/trace-viewer/bridge.html");
+    expect(src.searchParams.get("trace")).toBe(TRACE_URL);
+    expect(src.searchParams.get("host")).toBe(window.location.origin);
     expect(document.body.contains(iframe)).toBe(true);
     unmount();
   });
@@ -638,10 +641,10 @@ describe("useTraceModel — attempt switching (stale-while-loading)", () => {
     });
     const iframeB = secondIframe();
     expect(document.body.contains(iframeA)).toBe(true);
-    expect(iframeB.getAttribute("src")).toContain(
-      `/trace-viewer/bridge.html?trace=${encodeURIComponent(TRACE_B)}`,
-    );
-    expect(iframeB.getAttribute("src")).toContain("host=");
+    const src = new URL(iframeB.src, document.baseURI);
+    expect(src.pathname).toBe("/trace-viewer/bridge.html");
+    expect(src.searchParams.get("trace")).toBe(TRACE_B);
+    expect(src.searchParams.get("host")).toBe(window.location.origin);
     unmount();
   });
 

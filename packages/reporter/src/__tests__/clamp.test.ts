@@ -41,6 +41,10 @@ function bigSuite(n: number): Suite {
 describe("reporter client-side clamps", () => {
   let originalEnv: Record<string, string | undefined>;
   let stderr: string[];
+  let baselineSignalListeners: Record<
+    "SIGTERM" | "SIGINT",
+    ReturnType<typeof process.listeners>
+  >;
 
   beforeEach(() => {
     originalEnv = {};
@@ -48,6 +52,10 @@ describe("reporter client-side clamps", () => {
       originalEnv[k] = process.env[k];
       delete process.env[k];
     }
+    baselineSignalListeners = {
+      SIGTERM: process.listeners("SIGTERM"),
+      SIGINT: process.listeners("SIGINT"),
+    };
     stderr = [];
     vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
       stderr.push(String(chunk));
@@ -70,8 +78,13 @@ describe("reporter client-side clamps", () => {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
-    process.removeAllListeners("SIGTERM");
-    process.removeAllListeners("SIGINT");
+    for (const signal of ["SIGTERM", "SIGINT"] as const) {
+      for (const listener of process.listeners(signal)) {
+        if (!baselineSignalListeners[signal].includes(listener)) {
+          process.removeListener(signal, listener);
+        }
+      }
+    }
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });

@@ -212,6 +212,16 @@ export function usageGuardedBumpStatement(
       : usageCounters.artifactBytes;
   const guardDelta =
     guard.dimension === "runs" ? runsDelta : artifactBytesDelta;
+  // `setWhere` only guards the ON CONFLICT update. A delta larger than the
+  // entire allowance can never be accepted (counters are non-negative), so
+  // return an executable no-op before the INSERT path can create an
+  // over-limit first row.
+  if (guardDelta > guard.limit) {
+    return exec
+      .select({ applied: usageCounters.id })
+      .from(usageCounters)
+      .where(sql`false`);
+  }
   return base
     .onConflictDoUpdate({
       target,
@@ -381,28 +391,53 @@ export interface ReconcileUsageResult {
   teamsReconciled: number;
 }
 
-// Postgres's per-statement bound-param ceiling (65535). Mirrors the chunking
-// idiom in `src/lib/ingest.ts`, duplicated locally rather than imported to
-// avoid a cycle (`ingest.ts` already imports from this module).
-const USAGE_PG_MAX_BOUND_PARAMS = 65_535;
+interface UsageCounterSnapshot {
+  runsCount: number;
+  artifactBytes: number;
+  artifactCount: number;
+}
+
+interface ReconciledUsageCounterRow extends UsageCounterSnapshot {
+  id: string;
+  teamId: string;
+  periodStart: number;
+  updatedAt: number;
+}
 
 /**
- * Chunk `usageCounters` upsert rows so a single `.values(chunk)` stays under
- * the bound-param ceiling, deriving the per-row column count from the row shape
- * (so it can't drift). Pre-launch this is virtually always one chunk.
+ * Upsert one authoritative usage row while retaining increments committed
+ * after the reconciliation snapshot. If the stored value still equals the
+ * snapshot, it is stale drift and may move either up or down to the aggregate.
+ * Otherwise only the post-snapshot delta is carried onto the aggregate.
  */
-function chunkUsageCounterRows<T extends Record<string, unknown>>(
-  rows: T[],
-): T[][] {
-  if (rows.length === 0) return [];
-  const perChunk = Math.floor(
-    USAGE_PG_MAX_BOUND_PARAMS / Object.keys(rows[0]).length,
-  );
-  const chunks: T[][] = [];
-  for (let i = 0; i < rows.length; i += perChunk) {
-    chunks.push(rows.slice(i, i + perChunk));
+export function reconcileUsageCounterRowStatement(
+  row: ReconciledUsageCounterRow,
+  snapshot: UsageCounterSnapshot,
+  exec: BatchExecutor,
+) {
+  return exec
+    .insert(usageCounters)
+    .values(row)
+    .onConflictDoUpdate({
+      target: [usageCounters.teamId, usageCounters.periodStart],
+      set: {
+        runsCount: sql`case when ${usageCounters.runsCount} = ${snapshot.runsCount} then excluded."runsCount" else greatest(0, excluded."runsCount" + ${usageCounters.runsCount} - ${snapshot.runsCount}) end`,
+        artifactBytes: sql`case when ${usageCounters.artifactBytes} = ${snapshot.artifactBytes} then excluded."artifactBytes" else greatest(0, excluded."artifactBytes" + ${usageCounters.artifactBytes} - ${snapshot.artifactBytes}) end`,
+        artifactCount: sql`case when ${usageCounters.artifactCount} = ${snapshot.artifactCount} then excluded."artifactCount" else greatest(0, excluded."artifactCount" + ${usageCounters.artifactCount} - ${snapshot.artifactCount}) end`,
+        updatedAt: sql`excluded."updatedAt"`,
+      },
+    });
+}
+
+function isSerializationFailure(err: unknown): boolean {
+  let current: unknown = err;
+  for (let depth = 0; current != null && depth < 8; depth++) {
+    if ((current as { code?: unknown }).code === "40001") return true;
+    const next = (current as { cause?: unknown }).cause;
+    if (next === current) break;
+    current = next;
   }
-  return chunks;
+  return false;
 }
 
 /**
@@ -426,70 +461,92 @@ export async function reconcileUsage(
   nowSeconds: number,
 ): Promise<ReconcileUsageResult> {
   const periodStart = monthStartSeconds(nowSeconds);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await db.transaction(
+        async (tx) => {
+          // The baseline and aggregates share one MVCC snapshot. A usage bump
+          // committed later is visible only as a changed conflict row, so its
+          // delta can be retained without double-counting its source row.
+          const counterRows = await tx
+            .select({
+              teamId: usageCounters.teamId,
+              runsCount: usageCounters.runsCount,
+              artifactBytes: usageCounters.artifactBytes,
+              artifactCount: usageCounters.artifactCount,
+            })
+            .from(usageCounters)
+            .where(eq(usageCounters.periodStart, periodStart));
+          const countersByTeam = new Map(counterRows.map((r) => [r.teamId, r]));
 
-  // Runs scope to a team directly. Period filter in the JOIN's ON clause (not
-  // a WHERE) so an unmatched team keeps its zero-count row instead of dropping.
-  const runCountRows = await db
-    .select({
-      teamId: teams.id,
-      runsCount: numericSql(sql`count(${runs.id})`),
-    })
-    .from(teams)
-    .leftJoin(
-      runs,
-      and(eq(runs.teamId, teams.id), gte(runs.createdAt, periodStart)),
-    )
-    .groupBy(teams.id);
+          const runCountRows = await tx
+            .select({
+              teamId: teams.id,
+              runsCount: numericSql(sql`count(${runs.id})`),
+            })
+            .from(teams)
+            .leftJoin(
+              runs,
+              and(eq(runs.teamId, teams.id), gte(runs.createdAt, periodStart)),
+            )
+            .groupBy(teams.id);
 
-  // Artifacts scope to a team through their project: teams LEFT JOIN projects
-  // (unconditional) LEFT JOIN artifacts (period filter in ON, as above).
-  const artifactRows = await db
-    .select({
-      teamId: teams.id,
-      artifactBytes: numericSql(sql`coalesce(sum(${artifacts.sizeBytes}), 0)`),
-      artifactCount: numericSql(sql`count(${artifacts.id})`),
-    })
-    .from(teams)
-    .leftJoin(projects, eq(projects.teamId, teams.id))
-    .leftJoin(
-      artifacts,
-      and(
-        eq(artifacts.projectId, projects.id),
-        gte(artifacts.createdAt, periodStart),
-      ),
-    )
-    .groupBy(teams.id);
+          const artifactRows = await tx
+            .select({
+              teamId: teams.id,
+              artifactBytes: numericSql(
+                sql`coalesce(sum(${artifacts.sizeBytes}), 0)`,
+              ),
+              artifactCount: numericSql(sql`count(${artifacts.id})`),
+            })
+            .from(teams)
+            .leftJoin(projects, eq(projects.teamId, teams.id))
+            .leftJoin(
+              artifacts,
+              and(
+                eq(artifacts.projectId, projects.id),
+                gte(artifacts.createdAt, periodStart),
+              ),
+            )
+            .groupBy(teams.id);
 
-  const artifactsByTeam = new Map(artifactRows.map((r) => [r.teamId, r]));
+          const artifactsByTeam = new Map(
+            artifactRows.map((r) => [r.teamId, r]),
+          );
+          const zero: UsageCounterSnapshot = {
+            runsCount: 0,
+            artifactBytes: 0,
+            artifactCount: 0,
+          };
+          const rows = runCountRows.map((r) => {
+            const art = artifactsByTeam.get(r.teamId);
+            return {
+              id: ulid(),
+              teamId: r.teamId,
+              periodStart,
+              runsCount: r.runsCount,
+              artifactBytes: art?.artifactBytes ?? 0,
+              artifactCount: art?.artifactCount ?? 0,
+              updatedAt: nowSeconds,
+            };
+          });
 
-  const rows = runCountRows.map((r) => {
-    const art = artifactsByTeam.get(r.teamId);
-    return {
-      id: ulid(),
-      teamId: r.teamId,
-      periodStart,
-      runsCount: r.runsCount,
-      artifactBytes: art?.artifactBytes ?? 0,
-      artifactCount: art?.artifactCount ?? 0,
-      updatedAt: nowSeconds,
-    };
-  });
-
-  // Preserve live increments that race the aggregate reads above.
-  for (const chunk of chunkUsageCounterRows(rows)) {
-    await db
-      .insert(usageCounters)
-      .values(chunk)
-      .onConflictDoUpdate({
-        target: [usageCounters.teamId, usageCounters.periodStart],
-        set: {
-          runsCount: sql`greatest(${usageCounters.runsCount}, excluded."runsCount")`,
-          artifactBytes: sql`greatest(${usageCounters.artifactBytes}, excluded."artifactBytes")`,
-          artifactCount: sql`greatest(${usageCounters.artifactCount}, excluded."artifactCount")`,
-          updatedAt: sql`excluded."updatedAt"`,
+          for (const row of rows) {
+            await reconcileUsageCounterRowStatement(
+              row,
+              countersByTeam.get(row.teamId) ?? zero,
+              tx,
+            );
+          }
+          return { teamsReconciled: rows.length };
         },
-      });
+        { isolationLevel: "repeatable read" },
+      );
+    } catch (err) {
+      // At repeatable-read, a usage bump that commits after our snapshot makes
+      // the conflicting upsert fail with 40001 instead of overwriting it. A
+      // fresh snapshot includes both the source row and its counter bump.
+      if (attempt >= 4 || !isSerializationFailure(err)) throw err;
+    }
   }
-
-  return { teamsReconciled: rows.length };
 }

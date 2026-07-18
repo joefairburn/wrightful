@@ -219,6 +219,19 @@ describe("completeRun — sharded deferred finalize", () => {
     expect((await readRun("run-c")).status).toBe("failed");
   });
 
+  it("rejects shard metadata that disagrees with the run's authoritative total", async () => {
+    await seedRun("run-invalid-shard", 3);
+
+    await expect(
+      completeShard("run-invalid-shard", 4, 4, "passed", 4500),
+    ).resolves.toEqual({ kind: "invalidShard", expectedShards: 3 });
+    expect(await shardCount("run-invalid-shard")).toBe(0);
+    expect(await readRun("run-invalid-shard")).toEqual({
+      status: "running",
+      completedAt: null,
+    });
+  });
+
   it("does NOT wait on shards for a non-sharded run (legacy immediate finalize)", async () => {
     await seedRun("run-d", null);
     // No shard field, expectedShards null → the run flips on this single

@@ -25,6 +25,10 @@ const { teardownProject, scheduleProjectArtifactCleanup } =
   await import("@/lib/project-teardown");
 const { projects } = await import("../../../db/schema");
 
+const PROJECT_ONE = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const PROJECT_TWO = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
+const PROJECT_THREE = "01ARZ3NDEKTSV4RRFFQ69G5FAX";
+
 afterAll(async () => {
   await h.client.close();
 });
@@ -58,21 +62,21 @@ beforeEach(async () => {
   h.deleteSpy.mockClear();
   await h.db.insert(projects).values([
     {
-      id: "p1",
+      id: PROJECT_ONE,
       teamId: "t1",
       slug: "one",
       name: "One",
       createdAt: 1_700_000_000,
     },
     {
-      id: "p2",
+      id: PROJECT_TWO,
       teamId: "t2",
       slug: "two",
       name: "Two",
       createdAt: 1_700_000_000,
     },
     {
-      id: "p3",
+      id: PROJECT_THREE,
       teamId: "t1",
       slug: "three",
       name: "Three",
@@ -84,17 +88,17 @@ beforeEach(async () => {
 describe("teardownProject", () => {
   it("deletes ONLY the target project row and leaves siblings intact", async () => {
     const { ctx } = makeCtx();
-    await teardownProject(ctx as never, "t1", "p1");
+    await teardownProject(ctx as never, "t1", PROJECT_ONE);
 
-    expect(await projectIds()).toEqual(["p2", "p3"]);
+    expect(await projectIds()).toEqual([PROJECT_THREE, PROJECT_TWO].sort());
   });
 
   it("schedules the R2 sweep for exactly the destroyed (teamId, projectId)", async () => {
     const rec = makeCtx();
-    await teardownProject(rec.ctx as never, "t1", "p1");
+    await teardownProject(rec.ctx as never, "t1", PROJECT_ONE);
 
     expect(h.deleteSpy).toHaveBeenCalledTimes(1);
-    expect(h.deleteSpy).toHaveBeenCalledWith("t1", "p1");
+    expect(h.deleteSpy).toHaveBeenCalledWith("t1", PROJECT_ONE);
     expect(rec.scheduled).toHaveLength(1);
     await expect(rec.scheduled[0]).resolves.toBeUndefined();
   });
@@ -105,18 +109,29 @@ describe("teardownProject", () => {
       rowsPresentAtSweep = await projectIds();
     });
     const rec = makeCtx();
-    await teardownProject(rec.ctx as never, "t1", "p1");
+    await teardownProject(rec.ctx as never, "t1", PROJECT_ONE);
     await rec.scheduled[0];
 
-    expect(rowsPresentAtSweep).toEqual(["p2", "p3"]);
+    expect(rowsPresentAtSweep).toEqual([PROJECT_THREE, PROJECT_TWO].sort());
   });
 
   it("does not delete anything for an unknown projectId (no-op delete), still schedules its sweep", async () => {
     const rec = makeCtx();
     await teardownProject(rec.ctx as never, "t1", "nope");
 
-    expect(await projectIds()).toEqual(["p1", "p2", "p3"]);
+    expect(await projectIds()).toEqual(
+      [PROJECT_ONE, PROJECT_TWO, PROJECT_THREE].sort(),
+    );
     expect(h.deleteSpy).toHaveBeenCalledWith("t1", "nope");
+  });
+
+  it("does not delete a project owned by a different team", async () => {
+    const rec = makeCtx();
+    await teardownProject(rec.ctx as never, "t1", PROJECT_TWO);
+
+    expect(await projectIds()).toEqual(
+      [PROJECT_ONE, PROJECT_TWO, PROJECT_THREE].sort(),
+    );
   });
 });
 
@@ -126,7 +141,7 @@ describe("scheduleProjectArtifactCleanup", () => {
     const rec = makeCtx();
 
     expect(() =>
-      scheduleProjectArtifactCleanup(rec.ctx as never, "t1", "p1"),
+      scheduleProjectArtifactCleanup(rec.ctx as never, "t1", PROJECT_ONE),
     ).not.toThrow();
     expect(rec.scheduled).toHaveLength(1);
     await expect(rec.scheduled[0]).resolves.toBeUndefined();
@@ -134,8 +149,10 @@ describe("scheduleProjectArtifactCleanup", () => {
 
   it("leaves the project rows untouched (it is byte-cleanup only)", async () => {
     const rec = makeCtx();
-    scheduleProjectArtifactCleanup(rec.ctx as never, "t1", "p1");
+    scheduleProjectArtifactCleanup(rec.ctx as never, "t1", PROJECT_ONE);
     await rec.scheduled[0];
-    expect(await projectIds()).toEqual(["p1", "p2", "p3"]);
+    expect(await projectIds()).toEqual(
+      [PROJECT_ONE, PROJECT_TWO, PROJECT_THREE].sort(),
+    );
   });
 });

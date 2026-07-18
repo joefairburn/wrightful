@@ -31,6 +31,7 @@ vi.mock("void/db", async () => {
 vi.mock("void/env", () => ({ env: {} }));
 
 const {
+  reconcileUsageCounterRowStatement,
   usageGuardedBumpStatement,
   usageBumpStatement,
   reconcileUsage,
@@ -132,6 +133,25 @@ describe("usageGuardedBumpStatement", () => {
     expect((await readCounter("team-1"))?.artifactBytes).toBe(90);
   });
 
+  it.each([
+    ["artifactBytes", { artifactBytes: 101 }],
+    ["runs", { runs: 4 }],
+  ] as const)(
+    "rejects a first-write %s delta above its limit without creating a row",
+    async (dimension, delta) => {
+      const rejected = await usageGuardedBumpStatement(
+        "team-1",
+        PERIOD,
+        delta,
+        { dimension, limit: dimension === "runs" ? 3 : 100 },
+        NOW,
+        EXEC,
+      );
+      expect(rejected).toHaveLength(0);
+      expect(await readCounter("team-1")).toBeUndefined();
+    },
+  );
+
   it("is exactly-at-limit inclusive (boundary allowed)", async () => {
     await usageGuardedBumpStatement(
       "team-1",
@@ -191,8 +211,8 @@ describe("usageGuardedBumpStatement", () => {
   });
 });
 
-describe("reconcileUsage — does not clobber a live bump", () => {
-  it("keeps a counter higher than the recomputed row count (greatest, not overwrite)", async () => {
+describe("reconcileUsage — corrects drift and preserves snapshot deltas", () => {
+  it("lowers a stale counter to the recomputed row count", async () => {
     await h.db.insert(teams).values({
       id: "team-1",
       slug: "team-1",
@@ -222,6 +242,30 @@ describe("reconcileUsage — does not clobber a live bump", () => {
 
     await reconcileUsage(NOW);
 
-    expect((await readCounter("team-1"))?.runsCount).toBe(5);
+    expect((await readCounter("team-1"))?.runsCount).toBe(2);
+  });
+
+  it("carries a post-snapshot increment onto the recomputed count", async () => {
+    await usageBumpStatement("team-1", PERIOD, { runs: 5 }, NOW, EXEC);
+
+    await reconcileUsageCounterRowStatement(
+      {
+        id: "reconciled-row",
+        teamId: "team-1",
+        periodStart: PERIOD,
+        runsCount: 2,
+        artifactBytes: 0,
+        artifactCount: 0,
+        updatedAt: NOW + 1,
+      },
+      {
+        runsCount: 4,
+        artifactBytes: 0,
+        artifactCount: 0,
+      },
+      EXEC,
+    );
+
+    expect((await readCounter("team-1"))?.runsCount).toBe(3);
   });
 });

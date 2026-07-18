@@ -87,7 +87,10 @@ describe("reconcileBilling", () => {
 
     expect(h.captured.selectCalls).toBe(1);
     expect(h.captured.limit).toBe(123);
-    expect(h.captured.orderBy).toMatchObject({ __op: "sql" });
+    expect(h.captured.orderBy).toMatchObject({
+      __op: "sql",
+      strings: ["random()"],
+    });
     expect(result).toEqual({ checked: 0, corrected: 0 });
   });
 });

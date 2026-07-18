@@ -15,7 +15,8 @@ import { makeTenantScope, type TenantScope } from "@/lib/scope";
  * status and NO redirect URL — every call site decides how to render it:
  * the page seams ({@link requireOwnerScope} / {@link requireOwnedProjectScope})
  * map it to a 404 Response (don't leak existence to non-owners) and build the
- * `here` redirect URL; JSON handlers return the same leak-safe 404 as JSON.
+ * `here` redirect URL; JSON handlers render the same leak-safe 404 as a JSON
+ * response.
  */
 export class AuthzError extends Error {
   constructor(message = "not authorized") {

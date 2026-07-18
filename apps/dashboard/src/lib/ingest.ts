@@ -1423,13 +1423,6 @@ export async function appendRunResults(
   if (!owner[0]) return { kind: "notFound" };
   if (runClosedForWrites(owner[0], nowSeconds)) return { kind: "runClosed" };
   const rowCap = env.WRIGHTFUL_MAX_TEST_RESULTS_PER_RUN;
-  if (rowCap > 0 && owner[0].totalTests >= rowCap) {
-    return {
-      kind: "rowCapExceeded",
-      limit: rowCap,
-      count: owner[0].totalTests,
-    };
-  }
 
   const results = dedupeResultsByTestId(payload.results);
   const testIds = results.map((r) => r.testId);
@@ -1437,6 +1430,9 @@ export async function appendRunResults(
   // steps (the clientKey→id map and the id assignment resolved under the lock).
   let mapping: ResultMapping[] = [];
   let assignedIds = new Map<string, string>();
+  let rowCapOutcome:
+    | { kind: "rowCapExceeded"; limit: number; count: number }
+    | undefined;
   //
   // testResults usage is deliberately NOT metered here. It used to upsert the
   // single `usageCounters` (teamId, month) row inside THIS transaction, which
@@ -1450,16 +1446,27 @@ export async function appendRunResults(
     // Serialize concurrent /results flushes for THIS run (see the docstring).
     // Scoped to the single run row via runByIdWhere (projectId + id), not a
     // table lock; sibling runs and other projects are unaffected.
-    await tx
-      .select({ id: runs.id })
+    const lockedRows = await tx
+      .select({ id: runs.id, totalTests: runs.totalTests })
       .from(runs)
       .where(runByIdWhere(scope, runId))
       .for("update");
+    if (!lockedRows[0]) return null;
 
     // Read prior status UNDER the lock so the delta and the upsert id-assignment
     // both see committed state — this is what closes the double-apply + phantom
     // -id races. Built against `tx` so it enrolls in the locked transaction.
     const resolved = await resolveTestResultIds(scope, runId, testIds, tx);
+    const projectedCount =
+      lockedRows[0].totalTests + testIds.length - resolved.existingIds.size;
+    if (rowCap > 0 && projectedCount > rowCap) {
+      rowCapOutcome = {
+        kind: "rowCapExceeded",
+        limit: rowCap,
+        count: projectedCount,
+      };
+      return null;
+    }
     assignedIds = resolved.assignedIds;
     const delta = computeAggregateDelta(results, resolved.prevStatusByTestId);
 
@@ -1493,6 +1500,7 @@ export async function appendRunResults(
       activityBumpStatement(scope, runId, nowSeconds, tx);
     return summaryFromBatchResults([await summaryStmt]);
   });
+  if (rowCapOutcome) return rowCapOutcome;
   // `bumpTeamActivity` runs only after the notFound guard below (origin/main's
   // review fix): a write that found no run must not record team activity.
   if (!summary) return { kind: "notFound" };
@@ -1518,7 +1526,8 @@ export async function appendRunResults(
 export type CompleteRunOutcome =
   | { kind: "ok"; status: string }
   | { kind: "notFound" }
-  | { kind: "runClosed" };
+  | { kind: "runClosed" }
+  | { kind: "invalidShard"; expectedShards: number };
 
 /**
  * Severity ranking for merging terminal run statuses across shards. A sharded
@@ -1666,6 +1675,14 @@ export async function completeRun(
   const expectedShards =
     owner[0].expectedShards ?? payload.shard?.total ?? null;
   if (expectedShards !== null && expectedShards > 1) {
+    if (
+      payload.shard &&
+      (payload.shard.total !== expectedShards ||
+        payload.shard.index < 1 ||
+        payload.shard.index > expectedShards)
+    ) {
+      return { kind: "invalidShard", expectedShards };
+    }
     return completeShardedRun(
       scope,
       runId,

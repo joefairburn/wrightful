@@ -243,6 +243,11 @@ function SnapshotFrame({
   onLoaded?: () => void;
 }): React.ReactElement {
   const escapeCleanupRef = useRef<(() => void) | null>(null);
+  const [pageOrigin, setPageOrigin] = useState("");
+
+  useEffect(() => {
+    setPageOrigin(window.location.origin);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -255,7 +260,7 @@ function SnapshotFrame({
     <iframe
       title={`DOM snapshot (${TAB_LABELS[id]})`}
       src={url}
-      sandbox={snapshotSandbox()}
+      sandbox={snapshotSandbox(pageOrigin)}
       aria-hidden={!isActive}
       inert={!isActive}
       className={cn(

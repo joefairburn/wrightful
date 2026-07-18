@@ -1,4 +1,5 @@
 import { base64urlEncode, timingSafeEqualHex } from "@/lib/token-crypto";
+import { logger } from "void/log";
 
 /**
  * Env-free GitHub HTTP + crypto core (WebCrypto-only, Workers-compatible):
@@ -103,24 +104,61 @@ export async function githubFetch(
 const WEBHOOK_DEDUP_CACHE = "github-webhook-deliveries";
 const WEBHOOK_DEDUP_TTL_SECONDS = 3600;
 
+function deliveryCacheKey(deliveryId: string): Request {
+  return new Request(
+    `https://github-webhook.invalid/delivery/${encodeURIComponent(deliveryId)}`,
+  );
+}
+
 export async function isReplayedDelivery(
   deliveryId: string | null | undefined,
 ): Promise<boolean> {
   if (!deliveryId) return false;
   const cacheApi = (globalThis as { caches?: CacheStorage }).caches;
   if (!cacheApi) return false;
-  const cache = await cacheApi.open(WEBHOOK_DEDUP_CACHE);
-  const key = new Request(
-    `https://github-webhook.invalid/delivery/${encodeURIComponent(deliveryId)}`,
-  );
-  if (await cache.match(key)) return true;
-  await cache.put(
-    key,
-    new Response("1", {
-      headers: { "Cache-Control": `max-age=${WEBHOOK_DEDUP_TTL_SECONDS}` },
-    }),
-  );
-  return false;
+  try {
+    const cache = await cacheApi.open(WEBHOOK_DEDUP_CACHE);
+    return Boolean(await cache.match(deliveryCacheKey(deliveryId)));
+  } catch (err) {
+    logger.warn("github webhook replay cache read failed", {
+      deliveryId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+async function markDeliveryProcessed(
+  deliveryId: string | null | undefined,
+): Promise<void> {
+  if (!deliveryId) return;
+  const cacheApi = (globalThis as { caches?: CacheStorage }).caches;
+  if (!cacheApi) return;
+  try {
+    const cache = await cacheApi.open(WEBHOOK_DEDUP_CACHE);
+    await cache.put(
+      deliveryCacheKey(deliveryId),
+      new Response("1", {
+        headers: { "Cache-Control": `max-age=${WEBHOOK_DEDUP_TTL_SECONDS}` },
+      }),
+    );
+  } catch (err) {
+    logger.warn("github webhook replay cache write failed", {
+      deliveryId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/** Run a webhook mutation once, marking the delivery only after it succeeds. */
+export async function processWebhookDelivery(
+  deliveryId: string | null | undefined,
+  process: () => Promise<void>,
+): Promise<{ replay: boolean }> {
+  if (await isReplayedDelivery(deliveryId)) return { replay: true };
+  await process();
+  await markDeliveryProcessed(deliveryId);
+  return { replay: false };
 }
 
 /**

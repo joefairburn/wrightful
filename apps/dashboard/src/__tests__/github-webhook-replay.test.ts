@@ -1,5 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-import { isReplayedDelivery } from "@/lib/github-http";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
+import { isReplayedDelivery, processWebhookDelivery } from "@/lib/github-http";
 
 function fakeCacheStorage(): CacheStorage {
   const stores = new Map<string, Map<string, Response>>();
@@ -39,16 +46,23 @@ describe("isReplayedDelivery", () => {
     }
   });
 
-  it("lets a first-seen delivery id through and flags its replay", async () => {
-    expect(await isReplayedDelivery("d-1")).toBe(false);
-    expect(await isReplayedDelivery("d-1")).toBe(true);
+  it("lets a first-seen delivery run and flags its replay", async () => {
+    const mutate = vi.fn(() => Promise.resolve());
+    expect(await processWebhookDelivery("d-1", mutate)).toEqual({
+      replay: false,
+    });
+    expect(await processWebhookDelivery("d-1", mutate)).toEqual({
+      replay: true,
+    });
+    expect(mutate).toHaveBeenCalledTimes(1);
   });
 
   it("tracks delivery ids independently", async () => {
-    expect(await isReplayedDelivery("d-1")).toBe(false);
-    expect(await isReplayedDelivery("d-2")).toBe(false);
-    expect(await isReplayedDelivery("d-1")).toBe(true);
-    expect(await isReplayedDelivery("d-2")).toBe(true);
+    const mutate = vi.fn(() => Promise.resolve());
+    expect((await processWebhookDelivery("d-1", mutate)).replay).toBe(false);
+    expect((await processWebhookDelivery("d-2", mutate)).replay).toBe(false);
+    expect((await processWebhookDelivery("d-1", mutate)).replay).toBe(true);
+    expect((await processWebhookDelivery("d-2", mutate)).replay).toBe(true);
   });
 
   it("cannot dedup a missing/empty id (GitHub always sends one on real deliveries)", async () => {
@@ -61,5 +75,25 @@ describe("isReplayedDelivery", () => {
     delete globals.caches;
     expect(await isReplayedDelivery("d-1")).toBe(false);
     expect(await isReplayedDelivery("d-1")).toBe(false);
+  });
+
+  it("does not mark a failed mutation, so a retry can process it", async () => {
+    const mutate = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("database unavailable"))
+      .mockResolvedValueOnce();
+
+    await expect(processWebhookDelivery("d-retry", mutate)).rejects.toThrow(
+      "database unavailable",
+    );
+    expect(await isReplayedDelivery("d-retry")).toBe(false);
+
+    await expect(processWebhookDelivery("d-retry", mutate)).resolves.toEqual({
+      replay: false,
+    });
+    expect(await processWebhookDelivery("d-retry", mutate)).toEqual({
+      replay: true,
+    });
+    expect(mutate).toHaveBeenCalledTimes(2);
   });
 });

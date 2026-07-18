@@ -395,8 +395,8 @@ If any of that isn't in place, leave `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` unset 
 
 Open your `WRIGHTFUL_PUBLIC_URL` in a browser.
 
-1. **Create the operator account.** For email/password, temporarily set `ALLOW_OPEN_SIGNUP=true`, sign up, and turn it off again. To keep signup closed and use GitHub OAuth, temporarily set `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM=true` instead.
-2. Create a team via `/settings/teams/new`. If you used `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM`, disable it immediately after this succeeds.
+1. **Create the operator account.** For email/password, temporarily set `ALLOW_OPEN_SIGNUP=true`, sign up, and leave it enabled through step 2. To keep signup closed and use GitHub OAuth, temporarily set `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM=true` instead.
+2. Create a team via `/settings/teams/new`. Once it succeeds, disable whichever temporary bootstrap setting you used (`ALLOW_OPEN_SIGNUP` or `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM`).
 3. Create a project via `/settings/teams/<team-slug>/projects/new`.
 4. Generate an API key from the project's keys page (`/settings/teams/<team-slug>/p/<project-slug>/keys`). Save the printed key — only its SHA-256 hash is stored server-side.
 

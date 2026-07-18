@@ -957,7 +957,7 @@ describe("reconcileUsage (set-based rebase, Postgres path)", () => {
     expect(b?.artifactCount).toBe(0);
   });
 
-  it("does not clobber a counter above the recomputed row count", async () => {
+  it("corrects a stale counter above the recomputed row count", async () => {
     await h.db.insert(teams).values({
       id: "rt-stale",
       slug: "rt-stale",
@@ -981,9 +981,9 @@ describe("reconcileUsage (set-based rebase, Postgres path)", () => {
       .select()
       .from(usageCounters)
       .where(eq(usageCounters.teamId, "rt-stale"));
-    expect(row?.runsCount).toBe(500);
-    expect(row?.artifactBytes).toBe(123_456);
-    expect(row?.artifactCount).toBe(42);
+    expect(row?.runsCount).toBe(0);
+    expect(row?.artifactBytes).toBe(0);
+    expect(row?.artifactCount).toBe(0);
     expect(row?.updatedAt).toBe(RNOW);
   });
 });

@@ -102,17 +102,14 @@ satisfy the finalize count early. 400 at the door.
 
 ## Verification
 
-Focused vitest (node + workers lanes) + reporter suite, all green:
-
-- New: `usage-atomic.test.ts` (guard applies/rejects/boundary/infinite +
-  reconcile no-clobber), `ingest-row-cap.test.ts`, `clamp.test.ts` (reporter),
-  schema cases (attempt dedupe, shard range).
-- Updated: `members-billing.test.ts` reconcile test → asserts monotonic
-  no-clobber (was rebase-to-zero); `artifacts-pipeline.test.ts` mock gained
-  `.returning()`; `pg-integration/ingest.test.ts` gained a `void/env` mock.
-- Green: reporter full suite (304), dashboard schemas/usage/ingest-pipeline/
-  ingest-routes/ingest-results-guards/sharded-complete/pg-integration.
-- `tsgo --noEmit` clean for both packages.
-
-Not run: repo-wide `pnpm check` (format/lint) and the e2e/preview harness, per
-task scope.
+- `pnpm check` (`vp check`, including `void prepare`, formatting, lint, and
+  typecheck) — **0 errors**, 143 existing warnings.
+- `pnpm test` — dashboard node lane **660 passed / 4 skipped**, dashboard
+  Workers lane **1369 passed**, reporter **304 passed**.
+- Focused quota/ingest suites — `usage-atomic`, `ingest-row-cap`,
+  `sharded-complete`, `pg-integration/ingest`, `members-billing`, schemas, and
+  ingest-pipeline all passed. Coverage now includes first-write quota rejection,
+  locked cap crossing/concurrent appends, stale-counter correction, and
+  post-snapshot increment preservation.
+- The preview/E2E harness was not run; its lock-restoration ordering was covered
+  by typecheck and the full unit suites.
