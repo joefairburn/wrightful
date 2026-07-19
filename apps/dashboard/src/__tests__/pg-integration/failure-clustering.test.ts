@@ -223,24 +223,12 @@ describe("failure clustering Postgres queries", () => {
     });
   });
 
-  const pageRow = (id: string, status: string) => ({
-    id,
-    testId: `t_${id}`,
-    title: "t",
-    file: "f",
-    projectName: null,
-    status,
-    durationMs: 0,
-    retryCount: 0,
-    shardIndex: null,
-  });
-
   it("classifies a run page's failures as new vs known by signature history", async () => {
     const flags = await loadNewFailureFlags(scope, "run_current", [
-      pageRow("res_current_a", "failed"),
-      pageRow("res_current_b", "failed"),
-      pageRow("res_current_pass", "passed"),
-      pageRow("res_current_noerr", "failed"),
+      "res_current_a",
+      "res_current_b",
+      "res_current_pass",
+      "res_current_noerr",
     ]);
 
     // sigA appeared in run_old → known; sigB's first appearance is this run.
@@ -255,7 +243,7 @@ describe("failure clustering Postgres queries", () => {
     // Without the origin gate this recurring monitor failure (no CI history)
     // would badge "New" on every monitor execution forever.
     const flags = await loadNewFailureFlags(scope, "run_synthetic", [
-      pageRow("res_synth", "failed"),
+      "res_synth",
     ]);
     expect(flags.size).toBe(0);
   });

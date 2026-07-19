@@ -1,6 +1,6 @@
 import { and, asc, db, desc, eq, gte, inArray, isNotNull, sql } from "void/db";
 import { runs, testResults } from "@schema";
-import { ciRunsJoinOn } from "@/lib/analytics/filters";
+import { ciRunsJoinFragmentAs, ciRunsJoinOn } from "@/lib/analytics/filters";
 import { numericSql } from "@/lib/db/sql-ops";
 import { childProjectScopeWhere, type TenantScope } from "@/lib/scope";
 
@@ -69,11 +69,12 @@ export async function loadSignatureAggregates(
       // capturing the outer table; the outer `errorSignature` is the GROUP BY
       // column, so referencing it here is legal. Never null: the group's own
       // window rows are CI occurrences, so at least one prior row exists.
+      // The CI-policy join comes from the canonical fragment (aliased for the
+      // self-join); `projectId` stays a bound param off the branded scope.
       firstSeenAt: numericSql(sql`(
         select min(prior."createdAt")
         from "testResults" prior
-        join "runs" prior_run
-          on prior_run.id = prior."runId" and prior_run.origin <> 'synthetic'
+        ${ciRunsJoinFragmentAs("prior", "prior_run")}
         where prior."projectId" = ${scope.projectId}
           and prior."errorSignature" = ${testResults.errorSignature}
       )`),

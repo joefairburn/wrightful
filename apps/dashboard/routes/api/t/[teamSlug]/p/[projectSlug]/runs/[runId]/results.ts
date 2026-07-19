@@ -74,7 +74,11 @@ export const GET = defineHandler.withValidator({
   // per-row Replay gate and the new-vs-known failure badge.
   const [withTrace, newFailureFlags] = await Promise.all([
     attachHasTrace(scope, result.results),
-    loadNewFailureFlags(scope, runId, result.results),
+    loadNewFailureFlags(
+      scope,
+      runId,
+      result.results.map((r) => r.id),
+    ),
   ]);
   return {
     // `get` is undefined for unclassifiable rows; the optional field

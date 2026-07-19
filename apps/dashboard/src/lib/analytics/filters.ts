@@ -2,6 +2,7 @@ import { and, eq, ne, sql } from "void/db";
 import { runs, testResults } from "@schema";
 import { escapeLike } from "@/lib/runs-filters-where";
 import type { TenantScope } from "@/lib/scope";
+import { assertSqlIdentifier } from "./sql-identifier";
 
 /** Drizzle `SQL` fragment — the exact return type of a `sql\`…\`` template literal. */
 export type SqlFilterFragment = ReturnType<typeof sql>;
@@ -27,15 +28,12 @@ export type SqlFilterFragment = ReturnType<typeof sql>;
  * this needs `runs` for its branch filter or a `runs.createdAt` window.
  * Raw-SQL passes that don't need the tenant WHERE built in (flaky's sparkline,
  * suite-size's tests-added) pair {@link ciRunsJoinFragment} with their own
- * predicate instead — the join text (and its synthetic exclusion) must stay
- * identical between the two.
+ * predicate instead — both delegate the join text to
+ * {@link ciRunsJoinFragmentAs}, so the synthetic exclusion cannot drift
+ * between them.
  */
 export function testResultsScopeJoin(scope: TenantScope): SqlFilterFragment {
-  // `origin <> 'synthetic'` keeps monitor traffic out of every analytics
-  // surface that routes through this join (tests catalog, flaky, insights):
-  // a 1-minute monitor writes 1,440 runs/day of testResults that would skew
-  // flakiness/duration aggregates computed over CI history.
-  return sql`inner join runs on runs.id = tr."runId" and runs.origin <> 'synthetic'
+  return sql`${ciRunsJoinFragmentAs("tr", "runs")}
       where tr."projectId" = ${scope.projectId}`;
 }
 
@@ -91,7 +89,34 @@ export function branchFragment(branch: string | null): SqlFilterFragment {
  * `${branchFragment(branch)}` in the WHERE clause as before.
  */
 export function ciRunsJoinFragment(): SqlFilterFragment {
-  return sql`inner join runs on runs.id = tr."runId" and runs.origin <> 'synthetic'`;
+  return ciRunsJoinFragmentAs("tr", "runs");
+}
+
+/**
+ * Alias-parameterized form of {@link ciRunsJoinFragment} — the ONE textual
+ * home of the raw-SQL CI-policy join. `origin <> 'synthetic'` keeps monitor
+ * traffic out of every analytics surface that routes through it (tests
+ * catalog, flaky, failures, insights): a 1-minute monitor writes 1,440
+ * runs/day of testResults that would skew aggregates computed over CI
+ * history. {@link testResultsScopeJoin} and {@link ciRunsJoinFragment} are
+ * the `tr`/`runs` instantiation; passes whose `testResults` reference carries
+ * another alias (the failures loader's correlated first-seen subquery scans
+ * `"testResults" prior` and joins `runs prior_run`) parameterize it here
+ * instead of re-typing the clause.
+ *
+ * Aliases are in-code literals, never request input, and are guarded by
+ * {@link assertSqlIdentifier} like the other raw-identifier fragment builders
+ * (`per-test.ts`, `bucketing-sql.ts`).
+ */
+export function ciRunsJoinFragmentAs(
+  resultsAlias: string,
+  runsAlias: string,
+): SqlFilterFragment {
+  const tr = assertSqlIdentifier(resultsAlias);
+  const r = assertSqlIdentifier(runsAlias);
+  return sql.raw(
+    `inner join runs ${r} on ${r}.id = ${tr}."runId" and ${r}.origin <> 'synthetic'`,
+  ) as SqlFilterFragment;
 }
 
 /** A non-undefined Drizzle condition, suitable for `.innerJoin(runs, …)`. */

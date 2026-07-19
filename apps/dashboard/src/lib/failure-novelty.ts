@@ -6,15 +6,15 @@ import {
   runByIdWhere,
   type TenantScope,
 } from "@/lib/scope";
-import type { RunProgressTest } from "@/realtime/run-progress";
 
 /**
- * Classify a page of a run's failure rows as NEW (this run is the failure
- * fingerprint's first CI appearance) or known (the same `errorSignature` was
- * seen in an earlier run). Returns `testResultId → isNewFailure` for exactly
- * the rows that could be classified — failures whose ingest-persisted
- * signature is non-null; passing/queued rows and errorless failures are
- * absent, and the row's `isNewFailure` stays undefined.
+ * Classify a page of a run's failure rows — given by testResult id — as NEW
+ * (this run is the failure fingerprint's first CI appearance) or known (the
+ * same `errorSignature` was seen in an earlier run). Returns
+ * `testResultId → isNewFailure` for exactly the rows that could be classified
+ * — failures whose ingest-persisted signature is non-null; passing/queued
+ * rows and errorless failures are absent, and the row's `isNewFailure` stays
+ * undefined.
  *
  * "Earlier" means an occurrence with `createdAt < run.createdAt` in CI
  * (synthetic monitor traffic excluded, matching the Failures page's
@@ -32,15 +32,14 @@ import type { RunProgressTest } from "@/realtime/run-progress";
 export async function loadNewFailureFlags(
   scope: TenantScope,
   runId: string,
-  rows: readonly RunProgressTest[],
+  ids: readonly string[],
 ): Promise<Map<string, boolean>> {
   const flags = new Map<string, boolean>();
-  if (rows.length === 0) return flags;
+  if (ids.length === 0) return flags;
 
   // The page rows' shared projection deliberately omits `errorSignature`
   // (public-contract shape), so re-read it for just this page's ids alongside
   // the run's createdAt — one wave, both cheap indexed reads.
-  const ids = rows.map((r) => r.id);
   const [runRows, sigRows] = await Promise.all([
     db
       .select({ createdAt: runs.createdAt, origin: runs.origin })
@@ -53,7 +52,7 @@ export async function loadNewFailureFlags(
       .where(
         and(
           childProjectScopeWhere(testResults.projectId, scope),
-          inArray(testResults.id, ids),
+          inArray(testResults.id, [...ids]),
           isNotNull(testResults.errorSignature),
         ),
       ),
