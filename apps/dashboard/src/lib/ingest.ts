@@ -1311,8 +1311,22 @@ function expectedTestsFromOpenPayload(payload: OpenRunPayload): number {
  * phantom pending tests forever. This is hand-written jsonb SQL the pglite
  * test lane can't fully vouch for — the statement shape is verified against
  * real Postgres 16 (see the 2026-07-06 worklog).
+ *
+ * A deterministic re-run may also reuse the idempotency key with DIFFERENT
+ * sharding (sharding disabled, or a changed shard total). Stale shard state
+ * would strand it: an unsharded /complete against a leftover
+ * `expectedShards > 1` takes the deferred-finalize path but inserts no
+ * `runShards` row, so the run never finalizes; a changed total 409s with
+ * `invalidShard`. Both branches therefore RESET stale shard state, and both
+ * gate the reset on `status <> 'running'` evaluated IN SQL — a duplicate open
+ * of a still-mid-flight run (a mixed-version fleet's shardless opener, or an
+ * open retry) must never wipe a sibling shard's backfill.
+ *
+ * Exported for the pglite suites — the reset arms only fire on a terminal
+ * row, which `openRun`'s public surface can't reach without a full re-run
+ * round trip.
  */
-async function reopenRunForWrites(
+export async function reopenRunForWrites(
   scope: TenantScope,
   runId: string,
   nowSeconds: number,
@@ -1320,10 +1334,31 @@ async function reopenRunForWrites(
 ): Promise<void> {
   const shard = payload.shard;
   if (!shard) {
-    await db
-      .update(runs)
-      .set({ lastActivityAt: nowSeconds })
-      .where(runByIdWhere(scope, runId));
+    // Unsharded re-open of a terminal run = an unsharded re-run: clear any
+    // stale shard state so its /complete takes the legacy immediate-finalize
+    // path, and re-base the expected total on THIS open's payload (the old
+    // summed-across-shards value no longer describes the suite).
+    const isRerun = sql`${runs.status} <> 'running'`;
+    await db.transaction(async (tx) => {
+      await tx
+        .update(runs)
+        .set({
+          lastActivityAt: nowSeconds,
+          expectedShards: sql`case when ${isRerun} then null else ${runs.expectedShards} end`,
+          shardExpectedTests: sql`case when ${isRerun} then null else ${runs.shardExpectedTests} end`,
+          expectedTotalTests: sql`case when ${isRerun} then cast(${expectedTestsFromOpenPayload(payload)} as integer) else ${runs.expectedTotalTests} end`,
+        })
+        .where(runByIdWhere(scope, runId));
+      await tx
+        .delete(runShards)
+        .where(
+          and(
+            eq(runShards.projectId, scope.projectId),
+            eq(runShards.runId, runId),
+            sql`exists (select 1 from ${runs} where ${runByIdWhere(scope, runId)} and ${runs.status} <> 'running')`,
+          ),
+        );
+    });
     return;
   }
   await applyShardExpectedTests(
@@ -1348,24 +1383,49 @@ export async function applyShardExpectedTests(
   expectedTests: number,
   nowSeconds: number,
 ): Promise<void> {
+  // A terminal run re-opened with a DIFFERENT shard total is a re-run whose
+  // sharding changed: its stored expected-tests map and total describe the
+  // previous configuration, so start the map over from '{}' and REPLACE the
+  // total instead of coalescing. Racing sibling opens stay safe: the reset arm
+  // fires for exactly one of them (the blocked UPDATE re-evaluates against the
+  // winner's row, whose total then matches), and each sibling re-merges its own
+  // slice as it opens.
+  const staleShardTotal = sql`${runs.status} <> 'running' and ${runs.expectedShards} is distinct from cast(${shard.total} as integer)`;
+  const baseMap = sql`case when ${staleShardTotal} then '{}'::jsonb else coalesce(${runs.shardExpectedTests}, '{}'::jsonb) end`;
   // The merged map, evaluated against the OLD row — SET expressions can't
   // reference each other's new values, so the same fragment appears in both
   // assignments (bound params duplicate; that's fine). `array[<text>]` is the
   // jsonb_set path (top-level key = the shard index); casts keep node-postgres'
   // text-typed bound params and the bigint `sum` driver-proof.
-  const mergedMap = sql`jsonb_set(coalesce(${runs.shardExpectedTests}, '{}'::jsonb), array[${String(shard.index)}], to_jsonb(cast(${expectedTests} as integer)))`;
-  await db
-    .update(runs)
-    .set({
-      shardExpectedTests: mergedMap,
-      expectedTotalTests: sql`cast((select sum(cast(value as integer)) from jsonb_each_text(${mergedMap})) as integer)`,
-      // Backfill expectedShards if the run's opener didn't set it (e.g. a
-      // mixed-version fleet where an older shard opened first). `coalesce`
-      // never lowers an already-set total.
-      expectedShards: sql`coalesce(${runs.expectedShards}, ${shard.total})`,
-      lastActivityAt: nowSeconds,
-    })
-    .where(runByIdWhere(scope, runId));
+  const mergedMap = sql`jsonb_set(${baseMap}, array[${String(shard.index)}], to_jsonb(cast(${expectedTests} as integer)))`;
+  await db.transaction(async (tx) => {
+    await tx
+      .update(runs)
+      .set({
+        shardExpectedTests: mergedMap,
+        expectedTotalTests: sql`cast((select sum(cast(value as integer)) from jsonb_each_text(${mergedMap})) as integer)`,
+        // Backfill expectedShards if the run's opener didn't set it (e.g. a
+        // mixed-version fleet where an older shard opened first). `coalesce`
+        // never lowers an already-set MID-FLIGHT total; only the terminal
+        // changed-total re-run above may replace it.
+        expectedShards: sql`case when ${staleShardTotal} then cast(${shard.total} as integer) else coalesce(${runs.expectedShards}, cast(${shard.total} as integer)) end`,
+        lastActivityAt: nowSeconds,
+      })
+      .where(runByIdWhere(scope, runId));
+    // Completion rows from a previous run's different sharding would otherwise
+    // count toward (or block) this re-run's deferred finalize. Keyed on the
+    // total mismatch, so racing same-total sibling opens never delete each
+    // other's rows and a plain retry is a no-op.
+    await tx
+      .delete(runShards)
+      .where(
+        and(
+          eq(runShards.projectId, scope.projectId),
+          eq(runShards.runId, runId),
+          sql`${runShards.shardTotal} <> cast(${shard.total} as integer)`,
+        ),
+      );
+  });
 }
 
 /**

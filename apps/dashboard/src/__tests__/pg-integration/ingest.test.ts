@@ -64,6 +64,7 @@ const { loadTestResultChildren } = await import("@/lib/test-result-children");
 const { buildTestSearchWhere } = await import("@/lib/command-search");
 const {
   runs,
+  runShards,
   teams,
   testResults,
   testResultAttempts,
@@ -77,7 +78,9 @@ beforeAll(async () => {
   // `teams` isn't touched by any insert in this file, but `appendRunResults`
   // bumps the team's `lastActivityAt` as part of the /results flush — the
   // table just needs to EXIST (the update affects zero rows, which is fine).
-  await resetTables(h.client, [runs, teams, testResults]);
+  // `runShards` is only touched by `applyShardExpectedTests`' stale-row
+  // cleanup in this file, but the DELETE references the table — it must exist.
+  await resetTables(h.client, [runs, runShards, teams, testResults]);
 });
 
 afterAll(async () => {
@@ -630,6 +633,86 @@ describe("sharded expected-total merge (applyShardExpectedTests jsonb re-sum)", 
       T + 9,
     );
     expect(await readRun("run-shardsum")).toEqual(before);
+  });
+
+  it("a terminal re-run with a CHANGED total resets the map, replaces expectedShards, and drops stale shard rows", async () => {
+    // Deterministic CI re-run reusing the idempotency key after the shard
+    // count changed (3 → 2): the stored map/total and the previous run's
+    // completion rows describe dead configuration — kept, they would 409
+    // every /complete (`invalidShard`) or finalize against the wrong count.
+    const rerun = buildRunInsertValues(
+      "run-reshard",
+      scope,
+      openerPayload({ idempotencyKey: "reshard-key" }),
+      T,
+    );
+    await h.db
+      .insert(runs)
+      .values({ ...rerun, status: "failed", completedAt: T + 100 });
+    await h.db.insert(runShards).values(
+      [1, 2, 3].map((i) => ({
+        id: `rs-stale-${i}`,
+        projectId: scope.projectId,
+        runId: "run-reshard",
+        shardIndex: i,
+        shardTotal: 3,
+        status: "failed",
+        durationMs: 5,
+        completedAt: T + 100,
+        createdAt: T,
+      })),
+    );
+
+    await applyShardExpectedTests(
+      scope,
+      "run-reshard",
+      { index: 1, total: 2 },
+      4,
+      T + 200,
+    );
+
+    expect(await readRun("run-reshard")).toMatchObject({
+      expectedShards: 2,
+      shardExpectedTests: { "1": 4 },
+      expectedTotalTests: 4,
+    });
+    const staleRows = await h.db
+      .select({ shardIndex: runShards.shardIndex })
+      .from(runShards)
+      .where(
+        and(
+          eq(runShards.projectId, scope.projectId),
+          eq(runShards.runId, "run-reshard"),
+        ),
+      );
+    expect(staleRows).toEqual([]);
+  });
+
+  it("a MID-FLIGHT open with a different total keeps the stored total (coalesce, no reset)", async () => {
+    // status='running': a misconfigured sibling must not rewrite the
+    // authoritative total mid-flight — /complete's `invalidShard` guard is
+    // the surface that reports the mismatch.
+    const midflight = buildRunInsertValues(
+      "run-midflight",
+      scope,
+      openerPayload({ idempotencyKey: "midflight-key" }),
+      T,
+    );
+    await h.db.insert(runs).values(midflight);
+
+    await applyShardExpectedTests(
+      scope,
+      "run-midflight",
+      { index: 2, total: 5 },
+      3,
+      T + 1,
+    );
+
+    expect(await readRun("run-midflight")).toMatchObject({
+      expectedShards: 3,
+      shardExpectedTests: { "1": 2, "2": 3 },
+      expectedTotalTests: 5,
+    });
   });
 });
 

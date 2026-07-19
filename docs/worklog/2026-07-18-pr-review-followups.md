@@ -33,7 +33,11 @@ origin isolation, fresh-instance bootstrap, and test-fixture cleanup.
   remove only listeners they installed. Config validation, ULID fixtures,
   URL-aware trace selectors, and self-hosting/bootstrap docs were tightened.
 
-No schema or migration changes were required.
+This follow-up commit required no logical schema changes. The PR as a whole
+carries the index-only migration
+`apps/dashboard/db/migrations/20260717080140_clean_psynapse.sql` (plus its
+snapshot/journal metadata and matching `db/schema.ts` index definitions) from
+the earlier hardening commit.
 
 ## Verification
 

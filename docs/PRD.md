@@ -162,7 +162,7 @@ The reporter has an opt-in `postPrComment` option: when a run finishes inside a 
 
 ## Self-hosting
 
-See [`SELF-HOSTING.md`](../SELF-HOSTING.md) for the canonical step-by-step guide. In one paragraph: clone the repo, authenticate with `void auth login`, set `BETTER_AUTH_SECRET` + `WRIGHTFUL_PUBLIC_URL` (via `void secret put`), and run `pnpm deploy:void` — the Void-managed path builds the app, applies the committed Drizzle migrations, and provisions Postgres through Hyperdrive plus the required R2, queue, and runtime resources. Then temporarily keep `ALLOW_OPEN_SIGNUP=true` through first-team creation, or enable `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM` for that step; disable the temporary bootstrap setting afterward, create a project, and mint an API key. Own-account Cloudflare deployments bring Postgres/R2 resources and run the explicit remote migration command as documented in the guide.
+See [`SELF-HOSTING.md`](../SELF-HOSTING.md) for the canonical step-by-step guide. In one paragraph: clone the repo, authenticate with `void auth login`, set `BETTER_AUTH_SECRET` + `WRIGHTFUL_PUBLIC_URL` (via `void secret put`), and run `pnpm deploy:void` (the workspace wrapper around `void deploy`) — the Void-managed path builds the app, applies the committed Drizzle migrations, and provisions Postgres through Hyperdrive plus the required R2, queue, and runtime resources. Then temporarily keep `ALLOW_OPEN_SIGNUP=true` through first-team creation, or enable `WRIGHTFUL_BOOTSTRAP_FIRST_TEAM` for that step; disable the temporary bootstrap setting afterward, create a project, and mint an API key. Own-account Cloudflare deployments bring Postgres/R2 resources and run the explicit remote migration command as documented in the guide.
 
 ## Key Design Decisions
 
