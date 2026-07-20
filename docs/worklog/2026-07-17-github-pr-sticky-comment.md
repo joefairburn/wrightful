@@ -279,3 +279,16 @@ its baseline and mislabel failures as known-vs-new. `resolveBaseRun` grew an
 optional `pr: { repo, prNumber }` predicate; the PR-comment path passes it,
 the diff page keeps the branch-wide default. Covered by a pglite test
 (same-branch run on another PR must not become the baseline).
+
+### Addendum: lost initial-POST recovery (Codex P2)
+
+An initial comment POST whose 2xx response is lost in transit leaves the
+comment on GitHub with no persisted id, so the next completed run's fresh
+POST would create a duplicate marker comment. Before any fresh POST the
+surface now scans one page of the PR's issue comments for the project-scoped
+marker and adopts (PATCHes) a hit instead of creating a new comment —
+mirroring the reporter's `findExistingComment`, except a failed listing
+throws (fail closed) rather than falling through to POST: the flaky-network
+conditions that break the listing are exactly the ones that lose POST
+responses, and the claim release means the next run retries. Covered by a
+pglite test (GET → PATCH of the recovered id, no POST).

@@ -278,28 +278,109 @@ async function claimPrCommentSlot(
   return changedRows(result) === 1 ? nowSeconds : null;
 }
 
+/**
+ * Find an existing marker comment on the PR — recovery for an initial POST
+ * whose 2xx response was lost in transit (timeout / dropped connection): the
+ * comment landed on GitHub but its id was never persisted, so a blind retry
+ * would create a duplicate. Mirrors the reporter's `findExistingComment`:
+ * one page of 100 comments; the sticky comment is created by the PR's first
+ * completed run, so it sits near the top of the (oldest-first) listing — a
+ * PR with 100+ comments before any run completed forgoes recovery rather
+ * than paginating forever. Unlike the reporter this THROWS on a failed
+ * listing instead of falling through to POST: the scan exists to prevent
+ * duplicates, and the flaky-network conditions that break the listing are
+ * exactly the ones that lose POST responses. The claim releases and the next
+ * completed run retries.
+ */
+async function findMarkerComment(
+  token: string,
+  repo: string,
+  prNumber: number,
+  marker: string,
+): Promise<number | null> {
+  const response = await githubFetch(
+    `${buildIssueCommentPath(repo, prNumber, null)}?per_page=100`,
+    { method: "GET" },
+    token,
+  );
+  if (!response.ok) {
+    throw new Error(
+      `GitHub PR-comment list failed: ${response.status} ${response.statusText}`,
+    );
+  }
+  const comments = (await response.json().catch(() => [])) as {
+    id?: number;
+    body?: string;
+  }[];
+  if (!Array.isArray(comments)) return null;
+  for (const c of comments) {
+    if (typeof c.id === "number" && c.body?.includes(marker)) return c.id;
+  }
+  return null;
+}
+
+/** PATCH the recorded comment; null when it 404s (comment was deleted). */
+async function patchComment(
+  token: string,
+  repo: string,
+  prNumber: number,
+  body: string,
+  commentId: number,
+): Promise<number | null> {
+  const response = await githubFetch(
+    buildIssueCommentPath(repo, prNumber, commentId),
+    { method: "PATCH", body: JSON.stringify({ body }) },
+    token,
+  );
+  if (response.ok) {
+    const json = (await response.json().catch(() => ({}))) as { id?: number };
+    return json.id ?? commentId;
+  }
+  if (response.status !== 404) {
+    throw new Error(
+      `GitHub PR-comment PATCH failed: ${response.status} ${response.statusText}`,
+    );
+  }
+  return null;
+}
+
 /** Update the sticky comment, recreating it if the recorded comment was deleted. */
 async function postComment(
   token: string,
   repo: string,
   prNumber: number,
+  projectId: string,
   body: string,
   existingCommentId: number | null,
 ): Promise<number | null> {
   if (existingCommentId !== null) {
-    const response = await githubFetch(
-      buildIssueCommentPath(repo, prNumber, existingCommentId),
-      { method: "PATCH", body: JSON.stringify({ body }) },
+    const patched = await patchComment(
       token,
+      repo,
+      prNumber,
+      body,
+      existingCommentId,
     );
-    if (response.ok) {
-      const json = (await response.json().catch(() => ({}))) as { id?: number };
-      return json.id ?? existingCommentId;
-    }
-    if (response.status !== 404) {
-      throw new Error(
-        `GitHub PR-comment PATCH failed: ${response.status} ${response.statusText}`,
+    if (patched !== null) return patched;
+  } else {
+    // No recorded id does NOT mean no comment: an earlier initial POST's 2xx
+    // can have been lost in transit. Adopt an existing marker comment rather
+    // than create a duplicate.
+    const recovered = await findMarkerComment(
+      token,
+      repo,
+      prNumber,
+      prCommentMarker(projectId),
+    );
+    if (recovered !== null) {
+      const patched = await patchComment(
+        token,
+        repo,
+        prNumber,
+        body,
+        recovered,
       );
+      if (patched !== null) return patched;
     }
   }
   return githubWriteId(
@@ -450,7 +531,14 @@ export async function postPrCommentSurface(
         const body = buildPrCommentBody(
           await buildContent(context, repo, prNumber),
         );
-        return postComment(context.token, repo, prNumber, body, existingId);
+        return postComment(
+          context.token,
+          repo,
+          prNumber,
+          projectId,
+          body,
+          existingId,
+        );
       },
       {
         attempts: PR_COMMENT_MUTEX_ATTEMPTS,

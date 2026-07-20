@@ -63,6 +63,11 @@ let fetchDelayMs = 15;
 let nextCommentId = 900;
 let failNextPost = false;
 let patchStatus = 200;
+/** The GET issue-comments listing the pre-POST marker-recovery scan reads. */
+let listedComments: { id: number; body: string }[] = [];
+
+/** POST/PATCH calls — the writes, excluding the marker-recovery GET scans. */
+const writeCalls = () => fetchCalls.filter((c) => c.method !== "GET");
 
 // Same seams as the check-run claim test: stub the token mint + `githubFetch`,
 // keep the real pure `parseRepoOwner`. The fetch delay keeps the winner's
@@ -83,6 +88,9 @@ vi.mock("@/lib/github-http", async () => {
       const body = typeof init.body === "string" ? init.body : null;
       fetchCalls.push({ method, path, body });
       await new Promise((resolve) => setTimeout(resolve, fetchDelayMs));
+      if (method === "GET") {
+        return new Response(JSON.stringify(listedComments), { status: 200 });
+      }
       if (method === "POST" && failNextPost) {
         return new Response("boom", {
           status: 500,
@@ -283,6 +291,7 @@ beforeEach(async () => {
   nextCommentId = 900;
   failNextPost = false;
   patchStatus = 200;
+  listedComments = [];
   mintInstallationToken.mockClear();
 });
 
@@ -293,10 +302,10 @@ describe("postPrCommentSurface (resolved context)", () => {
 
     await postPrComment("run-a", PROJECT_ID);
 
-    expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0]!.method).toBe("POST");
-    expect(fetchCalls[0]!.path).toBe("/repos/acme/web/issues/41/comments");
-    const body = JSON.parse(fetchCalls[0]!.body!) as { body: string };
+    // The empty marker-recovery GET precedes the fresh POST.
+    expect(fetchCalls.map((c) => c.method)).toEqual(["GET", "POST"]);
+    expect(fetchCalls[1]!.path).toBe("/repos/acme/web/issues/41/comments");
+    const body = JSON.parse(fetchCalls[1]!.body!) as { body: string };
     expect(body.body).toContain("<!-- wrightful:pr-summary:proj-1 -->");
     // No prior terminal run on the branch → the un-split Failures section.
     expect(body.body).toContain(
@@ -361,7 +370,7 @@ describe("postPrCommentSurface (resolved context)", () => {
     // The loser must lose the mutex claim, retry after the winner persists,
     // observe its own runId already recorded, and skip the duplicate write.
     expect(fetchCalls.filter((c) => c.method === "POST")).toHaveLength(1);
-    expect(fetchCalls).toHaveLength(1);
+    expect(writeCalls()).toHaveLength(1);
     // Both racers resolve the shared GitHub run context — including the
     // token mint — BEFORE either one claims, so both mint; only the claim
     // (not the mint) decides who POSTs.
@@ -382,8 +391,8 @@ describe("postPrCommentSurface (resolved context)", () => {
 
     await postPrComment("run-b", PROJECT_ID);
 
-    expect(fetchCalls).toHaveLength(1);
-    const body = (JSON.parse(fetchCalls[0]!.body!) as { body: string }).body;
+    expect(writeCalls()).toHaveLength(1);
+    const body = (JSON.parse(writeCalls()[0]!.body!) as { body: string }).body;
     expect(body).toContain(
       "**Failures (1)** — no baseline run to compare against",
     );
@@ -404,7 +413,7 @@ describe("postPrCommentSurface (resolved context)", () => {
     // Either run-b POSTs first (and run-a then observes the newer persisted
     // runId and skips), or run-a POSTs and run-b's mutex retry PATCHes the
     // fresh comment — in both interleavings the comment ends on run-b.
-    const last = JSON.parse(fetchCalls.at(-1)!.body!) as { body: string };
+    const last = JSON.parse(writeCalls().at(-1)!.body!) as { body: string };
     expect(last.body).toContain("/runs/run-b");
     const sticky = await readSticky();
     expect(sticky?.commentId).toBe(900);
@@ -429,7 +438,7 @@ describe("postPrCommentSurface (resolved context)", () => {
     // wins outright and run-b skips against the newer persisted runId.
     expect(fetchCalls.length).toBeGreaterThanOrEqual(1);
     expect(fetchCalls.every((c) => c.method === "PATCH")).toBe(true);
-    const last = JSON.parse(fetchCalls.at(-1)!.body!) as { body: string };
+    const last = JSON.parse(writeCalls().at(-1)!.body!) as { body: string };
     expect(last.body).toContain("/runs/run-c");
     const sticky = await readSticky();
     expect(sticky?.commentId).toBe(900);
@@ -467,6 +476,25 @@ describe("postPrCommentSurface (resolved context)", () => {
     // makes this a no-op — no network POST/PATCH either way.
     expect(mintInstallationToken).toHaveBeenCalledTimes(1);
     expect((await readSticky())?.runId).toBe("run-z");
+  });
+
+  it("adopts an existing marker comment instead of duplicating when the initial POST's response was lost", async () => {
+    await seedRun("run-a");
+    await seedResult("run-a", "t-1", "failed");
+    // A prior initial POST landed on GitHub, but its 2xx was lost before the
+    // id could be persisted — the sticky row still has commentId null.
+    listedComments = [
+      { id: 555, body: "unrelated human comment" },
+      { id: 777, body: `hi\n<!-- wrightful:pr-summary:${PROJECT_ID} -->` },
+    ];
+
+    await postPrComment("run-a", PROJECT_ID);
+
+    expect(fetchCalls.map((c) => c.method)).toEqual(["GET", "PATCH"]);
+    expect(fetchCalls[1]!.path).toBe("/repos/acme/web/issues/comments/777");
+    const sticky = await readSticky();
+    expect(sticky?.commentId).toBe(777);
+    expect(sticky?.runId).toBe("run-a");
   });
 
   it("reposts a fresh comment when the PATCH 404s (comment was deleted)", async () => {
