@@ -688,6 +688,67 @@ describe("sharded expected-total merge (applyShardExpectedTests jsonb re-sum)", 
     expect(staleRows).toEqual([]);
   });
 
+  it("a terminal re-run with the SAME total also resets the map, drops the completion rows, and re-arms the run", async () => {
+    // The most common CI re-run: same shard matrix, same idempotency key. The
+    // previous run's completion rows carry the SAME shardTotal, so a
+    // total-keyed delete would keep them and the re-run's first /complete
+    // would find a full count and finalize against dead sibling results. The
+    // reset latches on the terminal status instead, and the same UPDATE
+    // re-arms the run (status='running', completedAt=null) so the latch fires
+    // exactly once under racing sibling opens.
+    const rerun = buildRunInsertValues(
+      "run-samereshard",
+      scope,
+      openerPayload({ idempotencyKey: "samereshard-key" }),
+      T,
+    );
+    await h.db
+      .insert(runs)
+      .values({ ...rerun, status: "failed", completedAt: T + 100 });
+    await h.db.insert(runShards).values(
+      [1, 2, 3].map((i) => ({
+        id: `rs-same-${i}`,
+        projectId: scope.projectId,
+        runId: "run-samereshard",
+        shardIndex: i,
+        shardTotal: 3,
+        status: "failed",
+        durationMs: 5,
+        completedAt: T + 100,
+        createdAt: T,
+      })),
+    );
+
+    await applyShardExpectedTests(
+      scope,
+      "run-samereshard",
+      { index: 2, total: 3 },
+      5,
+      T + 200,
+    );
+
+    expect(await readRun("run-samereshard")).toMatchObject({
+      expectedShards: 3,
+      shardExpectedTests: { "2": 5 },
+      expectedTotalTests: 5,
+    });
+    const rearmed = await h.db
+      .select({ status: runs.status, completedAt: runs.completedAt })
+      .from(runs)
+      .where(eq(runs.id, "run-samereshard"));
+    expect(rearmed[0]).toEqual({ status: "running", completedAt: null });
+    const staleRows = await h.db
+      .select({ shardIndex: runShards.shardIndex })
+      .from(runShards)
+      .where(
+        and(
+          eq(runShards.projectId, scope.projectId),
+          eq(runShards.runId, "run-samereshard"),
+        ),
+      );
+    expect(staleRows).toEqual([]);
+  });
+
   it("a MID-FLIGHT open with a different total keeps the stored total (coalesce, no reset)", async () => {
     // status='running': a misconfigured sibling must not rewrite the
     // authoritative total mid-flight — /complete's `invalidShard` guard is

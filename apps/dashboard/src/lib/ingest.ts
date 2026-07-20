@@ -1300,10 +1300,9 @@ function expectedTestsFromOpenPayload(payload: OpenRunPayload): number {
  * merges that shard's planned-test count into `runs.shardExpectedTests` and
  * re-derives `expectedTotalTests` as the sum over the map — the only way to
  * know the full suite size, since each shard's `onBegin` sees only its own
- * slice. Everything happens in ONE UPDATE statement, so racing sibling opens
- * simply serialize on the row lock (a blocked UPDATE re-evaluates its SET
- * against the winner's committed row under READ COMMITTED) — no explicit
- * transaction or `FOR UPDATE` needed.
+ * slice. The merge arms are all evaluated in SQL inside one transaction that
+ * first takes `FOR UPDATE` on the run row, so racing sibling opens serialize
+ * and each loser re-evaluates against the winner's committed row.
  *
  * Idempotent per shard: `jsonb_set` keys on the shard index, so a reporter
  * retry or CI re-run of one shard REPLACES its count, and the exact re-sum
@@ -1312,15 +1311,20 @@ function expectedTestsFromOpenPayload(payload: OpenRunPayload): number {
  * test lane can't fully vouch for — the statement shape is verified against
  * real Postgres 16 (see the 2026-07-06 worklog).
  *
- * A deterministic re-run may also reuse the idempotency key with DIFFERENT
- * sharding (sharding disabled, or a changed shard total). Stale shard state
- * would strand it: an unsharded /complete against a leftover
- * `expectedShards > 1` takes the deferred-finalize path but inserts no
- * `runShards` row, so the run never finalizes; a changed total 409s with
- * `invalidShard`. Both branches therefore RESET stale shard state, and both
- * gate the reset on `status <> 'running'` evaluated IN SQL — a duplicate open
- * of a still-mid-flight run (a mixed-version fleet's shardless opener, or an
- * open retry) must never wipe a sibling shard's backfill.
+ * A deterministic re-run may also reuse the idempotency key with the SAME or
+ * different sharding. Stale shard state would strand or corrupt it: an
+ * unsharded /complete against a leftover `expectedShards > 1` takes the
+ * deferred-finalize path but inserts no `runShards` row, so the run never
+ * finalizes; a changed total 409s with `invalidShard`; and a same-total
+ * re-run would find the previous run's `runShards` completion rows already at
+ * the full count, letting its FIRST shard /complete finalize against the dead
+ * siblings' results. Both branches therefore RESET stale shard state on ANY
+ * terminal re-open, gated on `status <> 'running'` evaluated under the row
+ * lock — a duplicate open of a still-mid-flight run (a mixed-version fleet's
+ * shardless opener, or an open retry) must never wipe a sibling shard's
+ * backfill. The sharded branch additionally re-arms the run as in-flight
+ * (`status='running'`, `completedAt=null`) in the same UPDATE; that flip is
+ * the exactly-once latch for its reset arm (see `applyShardExpectedTests`).
  *
  * Exported for the pglite suites — the reset arms only fire on a terminal
  * row, which `openRun`'s public surface can't reach without a full re-run
@@ -1371,10 +1375,10 @@ export async function reopenRunForWrites(
 }
 
 /**
- * The single UPDATE behind {@link reopenRunForWrites}' sharded branch (see its
- * doc for the semantics). Exported so the `pg-integration/` suites can execute the
- * EXACT production statement against a real schema — this is hand-written
- * jsonb SQL the mocked unit lane can't vouch for.
+ * The locked transaction behind {@link reopenRunForWrites}' sharded branch
+ * (see its doc for the semantics). Exported so the `pg-integration/` suites can
+ * execute the EXACT production statements against a real schema — this is
+ * hand-written jsonb SQL the mocked unit lane can't vouch for.
  */
 export async function applyShardExpectedTests(
   scope: TenantScope,
@@ -1383,15 +1387,25 @@ export async function applyShardExpectedTests(
   expectedTests: number,
   nowSeconds: number,
 ): Promise<void> {
-  // A terminal run re-opened with a DIFFERENT shard total is a re-run whose
-  // sharding changed: its stored expected-tests map and total describe the
-  // previous configuration, so start the map over from '{}' and REPLACE the
-  // total instead of coalescing. Racing sibling opens stay safe: the reset arm
-  // fires for exactly one of them (the blocked UPDATE re-evaluates against the
-  // winner's row, whose total then matches), and each sibling re-merges its own
-  // slice as it opens.
-  const staleShardTotal = sql`${runs.status} <> 'running' and ${runs.expectedShards} is distinct from cast(${shard.total} as integer)`;
-  const baseMap = sql`case when ${staleShardTotal} then '{}'::jsonb else coalesce(${runs.shardExpectedTests}, '{}'::jsonb) end`;
+  // A terminal run re-opened with a shard identity is a RE-RUN: the stored
+  // expected-tests map and the previous run's `runShards` completion rows
+  // describe a dead execution. Kept, a SAME-total re-run's first shard
+  // /complete would see a full completion-row count and finalize against the
+  // dead siblings' results (and a changed total would 409 every /complete).
+  // So a terminal re-open starts the map over from '{}', REPLACES the total,
+  // drops every previous completion row, and re-arms the run as in-flight
+  // (status='running', completedAt=null). The status flip doubles as the
+  // exactly-once latch: sibling opens serialize on the row lock below, and
+  // the losers re-evaluate against the winner's now-'running' row, taking the
+  // coalesce arm (each sibling re-merges its own slice as it opens).
+  //
+  // Accepted trade-off: a duplicate open delayed past the run's finalize
+  // re-arms it and drops its completion rows, leaving the run 'running' for
+  // the stale-run watchdog to interrupt. Reaching this path requires the
+  // run's idempotency key, and the alternative — every same-total CI re-run
+  // silently finalizing off stale sibling rows — is strictly worse.
+  const isTerminalRerun = sql`${runs.status} <> 'running'`;
+  const baseMap = sql`case when ${isTerminalRerun} then '{}'::jsonb else coalesce(${runs.shardExpectedTests}, '{}'::jsonb) end`;
   // The merged map, evaluated against the OLD row — SET expressions can't
   // reference each other's new values, so the same fragment appears in both
   // assignments (bound params duplicate; that's fine). `array[<text>]` is the
@@ -1399,6 +1413,27 @@ export async function applyShardExpectedTests(
   // text-typed bound params and the bigint `sum` driver-proof.
   const mergedMap = sql`jsonb_set(${baseMap}, array[${String(shard.index)}], to_jsonb(cast(${expectedTests} as integer)))`;
   await db.transaction(async (tx) => {
+    // Lock order matches `completeShardedRun` (runs row first, then runShards)
+    // so a terminal re-open racing a delayed shard /complete cannot deadlock.
+    // The lock also freezes the status every arm below evaluates against.
+    await tx
+      .select({ id: runs.id })
+      .from(runs)
+      .where(runByIdWhere(scope, runId))
+      .for("update");
+    // The previous run's completion rows would count toward (or block) this
+    // re-run's deferred finalize. Runs BEFORE the update flips the terminal
+    // latch, guarded in SQL on the pre-update status so a mid-flight open (or
+    // a losing sibling re-open) deletes nothing.
+    await tx
+      .delete(runShards)
+      .where(
+        and(
+          eq(runShards.projectId, scope.projectId),
+          eq(runShards.runId, runId),
+          sql`exists (select 1 from ${runs} where ${runByIdWhere(scope, runId)} and ${runs.status} <> 'running')`,
+        ),
+      );
     await tx
       .update(runs)
       .set({
@@ -1407,24 +1442,13 @@ export async function applyShardExpectedTests(
         // Backfill expectedShards if the run's opener didn't set it (e.g. a
         // mixed-version fleet where an older shard opened first). `coalesce`
         // never lowers an already-set MID-FLIGHT total; only the terminal
-        // changed-total re-run above may replace it.
-        expectedShards: sql`case when ${staleShardTotal} then cast(${shard.total} as integer) else coalesce(${runs.expectedShards}, cast(${shard.total} as integer)) end`,
+        // re-run arm above may replace it.
+        expectedShards: sql`case when ${isTerminalRerun} then cast(${shard.total} as integer) else coalesce(${runs.expectedShards}, cast(${shard.total} as integer)) end`,
+        status: sql`case when ${isTerminalRerun} then 'running' else ${runs.status} end`,
+        completedAt: sql`case when ${isTerminalRerun} then null else ${runs.completedAt} end`,
         lastActivityAt: nowSeconds,
       })
       .where(runByIdWhere(scope, runId));
-    // Completion rows from a previous run's different sharding would otherwise
-    // count toward (or block) this re-run's deferred finalize. Keyed on the
-    // total mismatch, so racing same-total sibling opens never delete each
-    // other's rows and a plain retry is a no-op.
-    await tx
-      .delete(runShards)
-      .where(
-        and(
-          eq(runShards.projectId, scope.projectId),
-          eq(runShards.runId, runId),
-          sql`${runShards.shardTotal} <> cast(${shard.total} as integer)`,
-        ),
-      );
   });
 }
 

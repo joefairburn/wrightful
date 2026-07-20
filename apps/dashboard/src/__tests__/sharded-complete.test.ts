@@ -62,6 +62,9 @@ const { getTableConfig } = await import("void/schema-pg");
 function pgType(columnType: string): string {
   if (columnType.includes("BigInt")) return "bigint";
   if (columnType.includes("Integer")) return "integer";
+  // The sharded re-open path merges into runs.shardExpectedTests with real
+  // jsonb operators, so the column must not degrade to text here.
+  if (columnType.includes("Json")) return "jsonb";
   return "text";
 }
 
@@ -302,6 +305,48 @@ describe("reopenRunForWrites — re-run shard-state reset", () => {
     );
     expect(r.kind).toBe("ok");
     expect(await shardCount("run-rerun")).toBe(0);
+  });
+
+  it("a terminal SAME-total re-run cannot finalize off the previous run's shard rows", async () => {
+    await seedRun("run-sametotal", 2);
+    // The previous run finished: terminal row + both completion rows.
+    await completeShard("run-sametotal", 1, 2, "failed", NOW - 60);
+    await completeShard("run-sametotal", 2, 2, "passed", NOW - 50);
+    expect((await readRun("run-sametotal")).status).toBe("failed");
+    expect(await shardCount("run-sametotal")).toBe(2);
+
+    // CI re-runs the suite with the SAME shard total, reusing the idempotency
+    // key (the most common re-run shape). The duplicate open must drop the
+    // previous run's completion rows and re-arm the run as in-flight —
+    // otherwise the re-run's FIRST shard /complete sees a full count and
+    // finalizes against the dead siblings' results.
+    await reopenRunForWrites(SCOPE, "run-sametotal", NOW - 40, {
+      idempotencyKey: "run-sametotal",
+      run: { expectedTotalTests: 3 },
+      shard: { index: 1, total: 2 },
+    } as OpenRunPayload);
+    expect(await shardCount("run-sametotal")).toBe(0);
+    expect(await readRun("run-sametotal")).toEqual({
+      status: "running",
+      completedAt: null,
+    });
+
+    // First new shard completes — the run must stay running (count 1 of 2).
+    const r1 = await completeShard("run-sametotal", 1, 2, "passed", NOW - 20);
+    expect(r1).toEqual({ kind: "ok", status: "running" });
+    expect(await readRun("run-sametotal")).toEqual({
+      status: "running",
+      completedAt: null,
+    });
+
+    // The second shard finalizes the re-run on ITS OWN results only: both new
+    // shards passed, so the previous run's 'failed' must not leak through.
+    await completeShard("run-sametotal", 2, 2, "passed", NOW - 10);
+    expect(await readRun("run-sametotal")).toEqual({
+      status: "passed",
+      completedAt: NOW - 10,
+    });
+    expect(await shardCount("run-sametotal")).toBe(2);
   });
 
   it("a shardless duplicate open of a still-RUNNING sharded run clears nothing", async () => {

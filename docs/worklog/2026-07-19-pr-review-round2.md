@@ -58,4 +58,5 @@ Follow-ups for the second round of review threads on PR #58.
   4 skipped, workers lane 1369 passed. `pnpm check`: 0 errors, 143 existing
   warnings.
 
-No schema or migration changes.
+No schema or migration changes were made in this follow-up commit (the PR
+itself carries the earlier index-only migration; see the 2026-07-18 worklog).
