@@ -1,4 +1,4 @@
-# Cross-run failure clustering: persisted signatures, Failures page, new-vs-known badges
+# 2026-07-17 — Cross-run failure clustering: persisted signatures, Failures page, new-vs-known badges
 
 ## What changed
 
