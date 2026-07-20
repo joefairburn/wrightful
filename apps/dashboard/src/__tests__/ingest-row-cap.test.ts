@@ -8,6 +8,7 @@ import {
   it,
   vi,
 } from "vite-plus/test";
+import type { OpenRunPayload } from "@/lib/schemas";
 
 const h = await vi.hoisted(async () => {
   const schema = await import("../../db/schema");
@@ -34,10 +35,12 @@ vi.mock("@/realtime/publish", () => ({
   broadcastProjectRoom: () => Promise.resolve(),
 }));
 
-const { appendRunResults } = await import("@/lib/ingest");
+const { appendRunResults, openRun, RunRowCapExceededError } =
+  await import("@/lib/ingest");
 const { makeTenantScope } = await import("@/lib/scope");
 const {
   runs,
+  runShards,
   teams,
   testResults,
   testResultAttempts,
@@ -140,9 +143,11 @@ async function readState(runId: string) {
 }
 
 beforeAll(async () => {
+  // `runShards` backs the duplicate-open path's stale-shard cleanup DELETE.
   for (const t of [
     teams,
     runs,
+    runShards,
     testResults,
     testResultAttempts,
     testTags,
@@ -170,6 +175,7 @@ beforeEach(async () => {
     testResultAttempts,
     tests,
     testResults,
+    runShards,
     runs,
     teams,
   ]) {
@@ -253,6 +259,45 @@ describe("appendRunResults — per-run row cap", () => {
     expect(await readState("run-race")).toEqual({
       totalTests: 3,
       persistedRows: 3,
+    });
+  });
+});
+
+describe("openRun — planned-test prefill cap", () => {
+  function openPayload(idempotencyKey: string, plannedCount: number) {
+    return {
+      idempotencyKey,
+      run: {
+        plannedTests: Array.from({ length: plannedCount }, (_, i) => ({
+          testId: `planned-${i}`,
+          title: `case ${i}`,
+          file: "spec.ts",
+        })),
+      },
+    } as OpenRunPayload;
+  }
+
+  it("refuses a fresh open whose planned set exceeds the ceiling — nothing persists", async () => {
+    // The payload schema's MAX_PLANNED_TESTS (100k) sits above this instance's
+    // 3-row ceiling: without the open-time gate, the prefill would persist
+    // every planned row before the first append is ever checked.
+    await expect(
+      openRun(SCOPE, openPayload("cap-open", 4), NOW),
+    ).rejects.toBeInstanceOf(RunRowCapExceededError);
+    const rows = await h.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(eq(runs.idempotencyKey, "cap-open"));
+    expect(rows).toEqual([]);
+  });
+
+  it("a duplicate open with an oversized planned set is exempt (that path prefills nothing)", async () => {
+    await seedRun("run-dup-cap", 3);
+    const out = await openRun(SCOPE, openPayload("run-dup-cap", 4), NOW);
+    expect(out).toEqual({ runId: "run-dup-cap", duplicate: true });
+    expect(await readState("run-dup-cap")).toEqual({
+      totalTests: 3,
+      persistedRows: 0,
     });
   });
 });

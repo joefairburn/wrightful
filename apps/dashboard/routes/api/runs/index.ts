@@ -6,6 +6,7 @@ import {
   backdatingAllowed,
   openRun,
   RunQuotaOvershootError,
+  RunRowCapExceededError,
 } from "@/lib/ingest";
 import { checkQuota } from "@/lib/usage";
 
@@ -61,6 +62,18 @@ export const POST = defineHandler.withValidator({
     }));
   } catch (err) {
     if (err instanceof RunQuotaOvershootError) return quotaError();
+    // Same 413 contract as /results' rowCapExceeded — the reporter drops the
+    // run instead of retrying an open that can never fit.
+    if (err instanceof RunRowCapExceededError) {
+      return c.json(
+        {
+          error: `Planned test set exceeds this instance's ${err.limit}-row per-run test-result ceiling.`,
+          limit: err.limit,
+          count: err.count,
+        },
+        413,
+      );
+    }
     throw err;
   }
 

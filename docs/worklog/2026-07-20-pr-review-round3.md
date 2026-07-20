@@ -51,6 +51,11 @@ Follow-ups for the third round of review threads on PR #58.
   assertion updated to the new `delete → update` order (the `FOR UPDATE`
   lock is a read and is not recorded); the guarded no-prefill/no-broadcast
   invariant is unchanged.
-- Full `pnpm --filter @wrightful/dashboard test` and `pnpm check`.
+- Full `pnpm --filter @wrightful/dashboard test`, which runs the Vite+ test
+  runner over both lanes (`vp test run && vp test run -c
+vitest.workers.config.ts`), and `pnpm check`, which runs `vp check`
+  (format + lint + typecheck): 0 errors. The focused files above ran through
+  the same runner (`pnpm --filter @wrightful/dashboard exec vitest run
+<file>`). The Vite+ pre-commit hook ran on the commit (no `--no-verify`).
 
 No schema or migration changes were made in this follow-up commit.

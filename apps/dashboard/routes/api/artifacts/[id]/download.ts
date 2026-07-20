@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import { verifyArtifactToken } from "@/lib/artifact-tokens";
 import { serveArtifactBytes } from "@/lib/artifacts/serve";
 import { r2DirectConfig } from "@/lib/config";
+import { traceViewerOrigin } from "@/trace-viewer/origin";
 
 const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
 
@@ -13,8 +14,9 @@ const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
  * Token-authenticated artifact stream. The HMAC token (signed with
  * `ARTIFACT_TOKEN_SECRET`, falling back to `BETTER_AUTH_SECRET` when unset —
  * see `lib/artifact-tokens.ts#getKey`) carries the R2 key + content-type
- * directly, so we skip the DB on the hot path. CORS narrowed to the dashboard
- * + the Playwright trace viewer.
+ * directly, so we skip the DB on the hot path. CORS narrowed to the dashboard,
+ * the configured separate trace-viewer origin (when set), and the Playwright
+ * trace viewer.
  */
 // Exported for unit testing the token gate + delegation; the Void router only
 // binds the `GET` export below. Auth + translation only — the proxy-vs-302
@@ -102,6 +104,11 @@ function resolveAllowedOrigin(
   const origin = request.headers.get("origin");
   if (!origin) return dashboardOrigin;
   if (origin === dashboardOrigin) return origin;
+  // Separate-origin trace-viewer isolation: bridge.html on the configured
+  // cookieless host fetches the signed trace URL cross-origin, so that origin
+  // must be allowed or every separate-origin replay dies before parsing.
+  // `traceViewerOrigin()` is "" when unset, and `origin` is never "" here.
+  if (origin === traceViewerOrigin()) return origin;
   if (ALLOWED_CROSS_ORIGINS.has(origin)) return origin;
   return dashboardOrigin;
 }

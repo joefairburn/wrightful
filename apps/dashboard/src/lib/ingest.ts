@@ -929,6 +929,24 @@ export class RunQuotaOvershootError extends Error {
 }
 
 /**
+ * A fresh open whose planned-test set exceeds the per-run test-result ceiling
+ * (`WRIGHTFUL_MAX_TEST_RESULTS_PER_RUN`). Thrown BEFORE any write: the payload
+ * schema's own `MAX_PLANNED_TESTS` (100k) can sit above a lower
+ * operator-configured ceiling, and every prefilled planned test persists a
+ * `testResults` row — without this, the stated per-run maximum is bypassable
+ * at open even though `appendRunResults` enforces it on every append.
+ */
+export class RunRowCapExceededError extends Error {
+  constructor(
+    readonly limit: number,
+    readonly count: number,
+  ) {
+    super("planned-test set exceeds the per-run test-result ceiling");
+    this.name = "RunRowCapExceededError";
+  }
+}
+
+/**
  * Build the `runs` row for an open. PURE — the single place the run-row shape is
  * derived from the open payload, so the field mapping is unit-testable without a
  * live D1 (the `db.insert` call site can't run under the vitest harness). The
@@ -1052,6 +1070,15 @@ export async function openRun(
 
   const runId = ulid();
   const plannedTests = payload.run.plannedTests ?? [];
+
+  // The per-run row cap gates the open-time prefill too (fresh path only —
+  // the duplicate path above prefills nothing, and its appends are capped in
+  // `appendRunResults`). Checked before the transaction: the prefill count is
+  // exactly the planned set's size, so there's no concurrency to serialize.
+  const rowCap = env.WRIGHTFUL_MAX_TEST_RESULTS_PER_RUN;
+  if (rowCap > 0 && plannedTests.length > rowCap) {
+    throw new RunRowCapExceededError(rowCap, plannedTests.length);
+  }
 
   const runValues = buildRunInsertValues(runId, scope, payload, nowSeconds);
   const runsQuotaLimit = opts.runsQuotaLimit;
