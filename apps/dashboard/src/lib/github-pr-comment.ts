@@ -317,16 +317,21 @@ async function postComment(
  * diff page's last-*passed* run) as the diff baseline, via
  * `resolveBaseRun(..., { statuses: TERMINAL_RUN_STATUSES })`, so a failure
  * already present on the previous push's run classifies as known rather than
- * reading as new.
+ * reading as new. The baseline is scoped to THIS `(repo, prNumber)` — branch
+ * names are not unique across PRs (two fork PRs can both report head ref
+ * `fix`), so a branch-wide pick could adopt an unrelated PR's run and
+ * mislabel its failures as known-vs-new.
  */
 async function buildContent(
   context: GithubRunContext,
+  repo: string,
+  prNumber: number,
 ): Promise<PrCommentContent> {
   const { scope, runId } = context;
   const base = await resolveBaseRun(
     scope,
     { id: runId, branch: context.branch, createdAt: context.createdAt },
-    { statuses: TERMINAL_RUN_STATUSES },
+    { statuses: TERMINAL_RUN_STATUSES, pr: { repo, prNumber } },
   );
   const [diff, listedRows] = await Promise.all([
     computeRunDiff(scope, runId, base),
@@ -442,7 +447,9 @@ export async function postPrCommentSurface(
         },
       },
       async (existingId) => {
-        const body = buildPrCommentBody(await buildContent(context));
+        const body = buildPrCommentBody(
+          await buildContent(context, repo, prNumber),
+        );
         return postComment(context.token, repo, prNumber, body, existingId);
       },
       {

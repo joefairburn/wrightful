@@ -269,3 +269,13 @@ POST claim returned without retrying, stranding the comment on the older run.
   `github-surface-post.workers.test.ts` covers the fake-IO branches pglite
   can't reach deterministically (mutex give-up, no-id release, rethrow).
   Claim tests import schema via `@schema` per repo convention.
+
+### Addendum: PR-scoped diff baseline (Codex P2)
+
+Branch names are not unique across PRs — two fork PRs can both report head
+ref `fix` while `run.repo` stays the target repository — so the PR comment's
+branch-only `resolveBaseRun` could adopt an unrelated PR's terminal run as
+its baseline and mislabel failures as known-vs-new. `resolveBaseRun` grew an
+optional `pr: { repo, prNumber }` predicate; the PR-comment path passes it,
+the diff page keeps the branch-wide default. Covered by a pglite test
+(same-branch run on another PR must not become the baseline).

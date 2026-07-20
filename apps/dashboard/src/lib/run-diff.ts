@@ -298,6 +298,12 @@ export interface DiffRunRef {
  * run classifies as a *known* failure instead of reading as new just because
  * that push didn't fully pass.
  *
+ * `opts.pr` narrows the baseline to the SAME `(repo, prNumber)`: branch names
+ * are not unique across PRs (two fork PRs can both report head ref `fix`
+ * while `repo` stays the target repository), so the PR-comment path must not
+ * adopt an unrelated PR's run as its baseline and mislabel its failures as
+ * known-vs-new. The diff page keeps the branch-wide default.
+ *
  * Scoped by `(teamId, projectId)` via `runScopeWhere` — served by
  * `runs_project_branch_created_at_idx` `(projectId, branch, createdAt)`.
  *
@@ -313,7 +319,10 @@ export interface DiffRunRef {
 export async function resolveBaseRun(
   scope: TenantScope,
   headRun: Pick<DiffRunRef, "id" | "branch" | "createdAt">,
-  opts: { statuses?: readonly string[] } = {},
+  opts: {
+    statuses?: readonly string[];
+    pr?: { repo: string; prNumber: number };
+  } = {},
 ): Promise<DiffRunRef | null> {
   // No branch (null or empty/whitespace) → no "same branch" baseline. An empty
   // string must NOT fall through to `eq(branch, "")`, which would group every
@@ -322,6 +331,9 @@ export async function resolveBaseRun(
   if (!branch) return null;
 
   const statuses = opts.statuses ?? ["passed"];
+  const prFilter = opts.pr
+    ? [eq(runs.repo, opts.pr.repo), eq(runs.prNumber, opts.pr.prNumber)]
+    : [];
   const rows = await db
     .select({
       id: runs.id,
@@ -336,6 +348,7 @@ export async function resolveBaseRun(
       and(
         runScopeWhere(scope),
         eq(runs.branch, branch),
+        ...prFilter,
         inArray(runs.status, statuses),
         or(
           lt(runs.createdAt, headRun.createdAt),

@@ -369,6 +369,27 @@ describe("postPrCommentSurface (resolved context)", () => {
     expect((await readSticky())?.commentId).toBe(900);
   });
 
+  it("ignores another PR's same-branch run when picking the diff baseline", async () => {
+    // A different PR in the same project reported the same head-branch name
+    // (two fork PRs can both be `feat` while repo stays the target repo) and
+    // already ran with t-1 failing.
+    await seedRun("run-a", { createdAt: 1500, prNumber: 40 });
+    await seedResult("run-a", "t-1", "failed");
+    // This PR's first run also fails t-1. With no baseline of its own the
+    // failure must render unsplit — not as "Still failing" against PR 40.
+    await seedRun("run-b");
+    await seedResult("run-b", "t-1", "failed");
+
+    await postPrComment("run-b", PROJECT_ID);
+
+    expect(fetchCalls).toHaveLength(1);
+    const body = (JSON.parse(fetchCalls[0]!.body!) as { body: string }).body;
+    expect(body).toContain(
+      "**Failures (1)** — no baseline run to compare against",
+    );
+    expect(body).not.toContain("Still failing");
+  });
+
   it("lets the newer run's summary land even when it loses the first-comment POST race", async () => {
     await seedRun("run-a", { createdAt: 2000 });
     await seedResult("run-a", "t-1", "failed");
