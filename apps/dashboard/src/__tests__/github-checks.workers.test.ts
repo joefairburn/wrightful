@@ -81,6 +81,23 @@ describe("buildCheckRunOutput", () => {
     expect(out.summary).toContain("2m 0s");
     expect(out.summary).not.toContain("60s");
   });
+
+  it("carries a sub-minute duration whose tenth rounds to 60.0 into the minutes place instead of rendering '60.0s'", () => {
+    const out = buildCheckRunOutput(
+      {
+        status: "passed",
+        passed: 1,
+        failed: 0,
+        flaky: 0,
+        skipped: 0,
+        totalTests: 1,
+        durationMs: 59_960, // 59.96s: naive toFixed(1) yields "60.0s"
+      },
+      detailsUrl,
+    );
+    expect(out.summary).toContain("1m 0s");
+    expect(out.summary).not.toContain("60.0s");
+  });
 });
 
 describe("buildCheckRunPath", () => {

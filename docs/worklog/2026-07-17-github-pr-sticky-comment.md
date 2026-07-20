@@ -236,3 +236,36 @@ runId, initialId, io, post)` owns the correctness-critical ordering both
   `resolveGithubRunContext` + `postPrCommentSurface` directly (its fixtures
   carry a `commitSha`, so the orchestrator would also fire the check-run
   surface into the mocked fetch). No assertion values changed.
+
+## Follow-up 3: PR-comment write mutex (PR #60 review pass, 2026-07-20)
+
+Codex flagged (P1) that the sticky comment — ONE GitHub resource shared by
+every run on a PR — was only claim-protected for the FIRST POST. Two distinct
+runs finishing concurrently could (a) PATCH the comment concurrently, so the
+older run's body could land last at GitHub even though the DB `runId` CAS kept
+the newer id, and (b) on the very first comment, a newer run that lost the
+POST claim returned without retrying, stranding the comment on the older run.
+
+- **`postWithWriteMutex` (new, `src/lib/github-surface-post.ts`).** The
+  sticky-comment surface now serializes EVERY write (first POST and later
+  PATCHes) on the row's claim column: claim → re-read under the mutex →
+  write → persist `{commentId, runId}` (CAS on the claim) → release. A caller
+  that loses the claim waits and retries, bounded
+  (`4 attempts × 1.5s` — so a crashed holder's unexpired claim costs ingest
+  at most ~4.5s, not the 120s TTL). The persisted `runId` doubles as the
+  monotonic guard: a caller observing `runId >= its own` skips, which also
+  dedupes retried finalizes of the same run. `claimPrCommentSlot` dropped its
+  `commentId IS NULL` predicate (claim = write mutex now, not first-POST
+  slot); the persist-time `runId` OR-guard collapsed into the claim CAS.
+- **Check-run surface unchanged** on `postWithClaimedSlot`: the check run is
+  per-run, so concurrent posters render identical content and PATCH races are
+  benign. Both flows now release a held claim when GitHub's 2xx response
+  carries no id (CodeRabbit; previously that leaked the claim for the TTL).
+- **`formatDuration`** rounds to the displayed tenth before the `< 60`
+  comparison, so 59.96s renders `1m 0s` instead of `60.0s` (CodeRabbit).
+- **Tests.** `github-pr-comment-claim.test.ts` adds both cross-run races
+  (first-comment POST race and concurrent PATCHes; asserts the newest run's
+  body is the LAST write to reach GitHub in every interleaving). New
+  `github-surface-post.workers.test.ts` covers the fake-IO branches pglite
+  can't reach deterministically (mutex give-up, no-id release, rethrow).
+  Claim tests import schema via `@schema` per repo convention.

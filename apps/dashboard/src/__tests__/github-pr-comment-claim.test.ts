@@ -11,16 +11,17 @@ import {
 
 /**
  * DB-integration coverage for the sticky PR-comment surface: the sticky-row
- * find-or-create, claim-before-POST concurrency, the ULID stale-run guard, the
- * PATCH-404 repost, and the end-to-end new-vs-known/flaky content assembled
- * from real `testResults` rows. Runs against in-process pglite on the Node
- * lane, mirroring `github-checks-claim.test.ts` (whose header explains the
- * lane split); the pure rendering/bucketing tests stay in
+ * find-or-create, write-mutex concurrency (every write — first POST and
+ * later PATCHes — serializes on the claim column), the ULID stale-run guard,
+ * the PATCH-404 repost, and the end-to-end new-vs-known/flaky content
+ * assembled from real `testResults` rows. Runs against in-process pglite on
+ * the Node lane, mirroring `github-checks-claim.test.ts` (whose header
+ * explains the lane split); the pure rendering/bucketing tests stay in
  * `github-pr-comment.workers.test.ts`.
  */
 
 const h = await vi.hoisted(async () => {
-  const schema = await import("../../db/schema");
+  const schema = await import("@schema");
   const { PGlite } = await import("@electric-sql/pglite");
   const { drizzle } = await import("drizzle-orm/pglite");
   const client = new PGlite();
@@ -64,9 +65,9 @@ let failNextPost = false;
 let patchStatus = 200;
 
 // Same seams as the check-run claim test: stub the token mint + `githubFetch`,
-// keep the real pure `parseRepoOwner`. The fetch delay opens the window for
-// the losing racer's claim-reread to observe the winner's not-yet-persisted
-// comment id and take the "skip" branch.
+// keep the real pure `parseRepoOwner`. The fetch delay keeps the winner's
+// write in flight long enough that a concurrent racer reliably loses the
+// mutex claim and exercises the wait-and-retry path.
 vi.mock("@/lib/github-app", () => ({
   mintInstallationToken,
 }));
@@ -114,7 +115,7 @@ const {
   runs,
   teams,
   testResults,
-} = await import("../../db/schema");
+} = await import("@schema");
 const { eq } = await import("void/_db");
 const { getTableConfig } = await import("void/schema-pg");
 const { resetTables } = await import("./pg-integration/harness");
@@ -357,13 +358,62 @@ describe("postPrCommentSurface (resolved context)", () => {
       postPrComment("run-a", PROJECT_ID),
     ]);
 
-    // The loser must lose the claim, re-read, see no id landed, and skip.
+    // The loser must lose the mutex claim, retry after the winner persists,
+    // observe its own runId already recorded, and skip the duplicate write.
     expect(fetchCalls.filter((c) => c.method === "POST")).toHaveLength(1);
+    expect(fetchCalls).toHaveLength(1);
     // Both racers resolve the shared GitHub run context — including the
     // token mint — BEFORE either one claims, so both mint; only the claim
     // (not the mint) decides who POSTs.
     expect(mintInstallationToken).toHaveBeenCalledTimes(2);
     expect((await readSticky())?.commentId).toBe(900);
+  });
+
+  it("lets the newer run's summary land even when it loses the first-comment POST race", async () => {
+    await seedRun("run-a", { createdAt: 2000 });
+    await seedResult("run-a", "t-1", "failed");
+    await seedRun("run-b", { createdAt: 2500, commitSha: "cafef00d" });
+    await seedResult("run-b", "t-1", "failed");
+
+    await Promise.all([
+      postPrComment("run-a", PROJECT_ID),
+      postPrComment("run-b", PROJECT_ID),
+    ]);
+
+    // Either run-b POSTs first (and run-a then observes the newer persisted
+    // runId and skips), or run-a POSTs and run-b's mutex retry PATCHes the
+    // fresh comment — in both interleavings the comment ends on run-b.
+    const last = JSON.parse(fetchCalls.at(-1)!.body!) as { body: string };
+    expect(last.body).toContain("/runs/run-b");
+    const sticky = await readSticky();
+    expect(sticky?.commentId).toBe(900);
+    expect(sticky?.runId).toBe("run-b");
+    expect(sticky?.claimedAt).toBeNull();
+  });
+
+  it("serializes concurrent completions of different runs so the newest body lands last at GitHub", async () => {
+    await seedRun("run-b", { createdAt: 2500 });
+    await seedResult("run-b", "t-1", "failed");
+    await seedRun("run-c", { createdAt: 3000, commitSha: "cafef00d" });
+    await seedResult("run-c", "t-1", "failed");
+    await seedSticky(900, "run-a");
+
+    await Promise.all([
+      postPrComment("run-b", PROJECT_ID),
+      postPrComment("run-c", PROJECT_ID),
+    ]);
+
+    // Whichever completion claims first, the LAST write to reach GitHub must
+    // carry run-c: either run-b writes and run-c follows serially, or run-c
+    // wins outright and run-b skips against the newer persisted runId.
+    expect(fetchCalls.length).toBeGreaterThanOrEqual(1);
+    expect(fetchCalls.every((c) => c.method === "PATCH")).toBe(true);
+    const last = JSON.parse(fetchCalls.at(-1)!.body!) as { body: string };
+    expect(last.body).toContain("/runs/run-c");
+    const sticky = await readSticky();
+    expect(sticky?.commentId).toBe(900);
+    expect(sticky?.runId).toBe("run-c");
+    expect(sticky?.claimedAt).toBeNull();
   });
 
   it("releases the claim on a POST failure so a later call can post", async () => {

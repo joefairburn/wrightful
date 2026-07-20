@@ -28,7 +28,7 @@ import {
  */
 
 const h = await vi.hoisted(async () => {
-  const schema = await import("../../db/schema");
+  const schema = await import("@schema");
   const { PGlite } = await import("@electric-sql/pglite");
   const { drizzle } = await import("drizzle-orm/pglite");
   const client = new PGlite();
@@ -109,8 +109,7 @@ vi.mock("@/lib/github-http", async () => {
 });
 
 const { postGithubRunSurfaces } = await import("@/lib/github-run-surfaces");
-const { runs, teams, projects, githubInstallations } =
-  await import("../../db/schema");
+const { runs, teams, projects, githubInstallations } = await import("@schema");
 const { eq } = await import("void/_db");
 const { getTableConfig } = await import("void/schema-pg");
 const { resetTables } = await import("./pg-integration/harness");

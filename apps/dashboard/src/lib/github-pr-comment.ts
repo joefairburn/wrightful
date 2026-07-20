@@ -1,4 +1,4 @@
-import { and, db, eq, inArray, isNull, lt, lte, or } from "void/db";
+import { and, db, eq, inArray, isNull, lt, or } from "void/db";
 import { logger } from "void/log";
 import { ulid } from "ulid";
 import { githubPrComments, testResults } from "@schema";
@@ -10,7 +10,7 @@ import {
   runSummaryTable,
   statusToConclusion,
 } from "@/lib/github-run-render";
-import { githubWriteId, postWithClaimedSlot } from "@/lib/github-surface-post";
+import { githubWriteId, postWithWriteMutex } from "@/lib/github-surface-post";
 import { computeRunDiff, resolveBaseRun, verdictOf } from "@/lib/run-diff";
 import type { RunDiff } from "@/lib/run-diff";
 import { TERMINAL_RUN_STATUSES } from "@/lib/schemas";
@@ -18,8 +18,16 @@ import { childByRunWhere } from "@/lib/scope";
 
 /** Upserts the App-posted run summary into one comment per project and PR. */
 
-// Must outlive the token-mint and comment requests.
+// The claim column is a write MUTEX held across content-build + POST/PATCH
+// (see postWithWriteMutex): the TTL must outlive that whole sequence.
 const PR_COMMENT_CLAIM_TTL_SECONDS = 120;
+
+// A losing writer's bounded wait for the mutex. The holder's content build +
+// comment write normally completes well inside one retry delay, so the total
+// (attempts - 1) * delay ≈ 4.5s only accrues against a crashed holder's
+// unexpired claim.
+const PR_COMMENT_MUTEX_ATTEMPTS = 4;
+const PR_COMMENT_MUTEX_RETRY_MS = 1500;
 
 const MAX_LISTED_TESTS = 10;
 
@@ -213,19 +221,13 @@ export function bucketListedResults(
   };
 }
 
-interface StickyRow {
-  id: string;
-  commentId: number | null;
-  runId: string | null;
-}
-
 /** Find or create the row protected by the project/repository/PR unique index. */
 async function ensureStickyRow(
   projectId: string,
   repo: string,
   prNumber: number,
   nowSeconds: number,
-): Promise<StickyRow | null> {
+): Promise<string | null> {
   await db
     .insert(githubPrComments)
     .values({
@@ -238,11 +240,7 @@ async function ensureStickyRow(
     })
     .onConflictDoNothing();
   const rows = await db
-    .select({
-      id: githubPrComments.id,
-      commentId: githubPrComments.commentId,
-      runId: githubPrComments.runId,
-    })
+    .select({ id: githubPrComments.id })
     .from(githubPrComments)
     .where(
       and(
@@ -252,10 +250,10 @@ async function ensureStickyRow(
       ),
     )
     .limit(1);
-  return rows[0] ?? null;
+  return rows[0]?.id ?? null;
 }
 
-/** Claim the first-comment POST slot while no live claim or comment exists. */
+/** Claim the sticky comment's write mutex while no live claim exists. */
 async function claimPrCommentSlot(
   rowId: string,
   projectId: string,
@@ -268,7 +266,6 @@ async function claimPrCommentSlot(
       and(
         eq(githubPrComments.id, rowId),
         eq(githubPrComments.projectId, projectId),
-        isNull(githubPrComments.commentId),
         or(
           isNull(githubPrComments.claimedAt),
           lt(
@@ -371,6 +368,13 @@ async function buildContent(
  * GitHub outage neither fails ingest nor suppresses the sibling check-run
  * surface (see `postGithubRunSurfaces`). No-ops when the run has no
  * `prNumber` (nothing to comment on).
+ *
+ * The comment is ONE GitHub resource shared by every run on the PR, so all
+ * writes go through `postWithWriteMutex`: concurrent completions serialize on
+ * the row's claim column, and the persisted `runId` (ULIDs — lexicographic
+ * order == creation order) is the monotonic guard that stops an older
+ * finalize from overwriting a newer run's summary, at GitHub as well as in
+ * the DB.
  */
 export async function postPrCommentSurface(
   context: GithubRunContext,
@@ -380,46 +384,47 @@ export async function postPrCommentSurface(
     if (!repo || prNumber == null) return;
 
     const nowSeconds = Math.floor(Date.now() / 1000);
-    const sticky = await ensureStickyRow(projectId, repo, prNumber, nowSeconds);
-    if (!sticky) return;
-    // `runId`s are ULIDs, so lexicographic order == creation order; a sticky
-    // row already stamped by a GREATER runId was updated by a later run, so
-    // this (older) finalize must not clobber it.
-    if (sticky.runId !== null && sticky.runId > runId) return;
+    const stickyId = await ensureStickyRow(
+      projectId,
+      repo,
+      prNumber,
+      nowSeconds,
+    );
+    if (stickyId === null) return;
 
-    await postWithClaimedSlot(
+    await postWithWriteMutex(
       "pr-comment",
       runId,
-      sticky.commentId,
       {
-        claim: (now) => claimPrCommentSlot(sticky.id, projectId, now),
-        readId: async () => {
+        read: async () => {
           const rows = await db
-            .select({ commentId: githubPrComments.commentId })
+            .select({
+              id: githubPrComments.commentId,
+              runId: githubPrComments.runId,
+            })
             .from(githubPrComments)
             .where(
               and(
-                eq(githubPrComments.id, sticky.id),
+                eq(githubPrComments.id, stickyId),
                 eq(githubPrComments.projectId, projectId),
               ),
             )
             .limit(1);
-          return rows[0]?.commentId ?? null;
+          return rows[0] ?? { id: null, runId: null };
         },
+        claim: (now) => claimPrCommentSlot(stickyId, projectId, now),
         release: async (claim) => {
           await db
             .update(githubPrComments)
             .set({ claimedAt: null })
             .where(
               and(
-                eq(githubPrComments.id, sticky.id),
+                eq(githubPrComments.id, stickyId),
                 eq(githubPrComments.claimedAt, claim),
               ),
             );
         },
         persist: async (id, claim) => {
-          // Keep claimed POSTs and later-run PATCHes from overwriting newer
-          // state: CAS on our own claim, or on the runId monotonic guard.
           await db
             .update(githubPrComments)
             .set({
@@ -430,13 +435,8 @@ export async function postPrCommentSurface(
             })
             .where(
               and(
-                eq(githubPrComments.id, sticky.id),
-                claim !== null
-                  ? eq(githubPrComments.claimedAt, claim)
-                  : or(
-                      isNull(githubPrComments.runId),
-                      lte(githubPrComments.runId, runId),
-                    ),
+                eq(githubPrComments.id, stickyId),
+                eq(githubPrComments.claimedAt, claim),
               ),
             );
         },
@@ -444,6 +444,10 @@ export async function postPrCommentSurface(
       async (existingId) => {
         const body = buildPrCommentBody(await buildContent(context));
         return postComment(context.token, repo, prNumber, body, existingId);
+      },
+      {
+        attempts: PR_COMMENT_MUTEX_ATTEMPTS,
+        retryDelayMs: PR_COMMENT_MUTEX_RETRY_MS,
       },
     );
   } catch (err) {

@@ -30,11 +30,13 @@ export function statusToConclusion(status: string): CheckConclusion {
 
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
-  const seconds = ms / 1000;
+  // Round to the displayed tenth BEFORE the sub-minute comparison, so 59.96s
+  // carries into the minutes path instead of rendering as "60.0s".
+  const seconds = Math.round(ms / 100) / 10;
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
   // Round to whole seconds before splitting, so a leftover rounding up to 60
   // carries into the minutes place instead of rendering as "1m 60s".
-  const totalSeconds = Math.round(seconds);
+  const totalSeconds = Math.round(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   return `${minutes}m ${totalSeconds - minutes * 60}s`;
 }
