@@ -81,3 +81,158 @@ FKs (`projectId` cascade, `runId` set-null) and the unique
 - `pnpm --filter @wrightful/dashboard test` — both lanes green (includes the
   20 new tests).
 - `pnpm check` and `pnpm --filter @wrightful/dashboard typecheck` — clean.
+
+## Follow-up: dedupe the check-run / PR-comment surfaces
+
+A code-quality review found `github-pr-comment.ts` had been written by cloning
+`github-checks.ts` rather than sharing with it. Refactored, intending zero
+behavior change beyond two explicitly-accepted timing simplifications (below):
+
+- **Shared run-surface orchestrator.** New `apps/dashboard/src/lib/
+github-run-context.ts` resolves everything BOTH surfaces need for a
+  completed run in one pass: the run row (a superset join of `runs` +
+  `teams` + `projects` covering both surfaces' fields, including
+  `prNumber`/`branch`/`createdAt`), `parseRepoOwner`, the team-scoped
+  `githubInstallations` lookup (the confused-deputy authorization boundary —
+  its full rationale comment now lives here, the single enforcement site),
+  and a minted installation token — as `resolveGithubRunContext(runId,
+projectId): Promise<GithubRunContext | null>`. New
+  `apps/dashboard/src/lib/github-run-surfaces.ts` exports the single entry
+  point `postGithubRunSurfaces(runId, projectId)` that resolves this context
+  once and posts both surfaces via `Promise.all`; `ingest.ts`'s three call
+  sites (`completeRun`, `completeShardedRun`, `finalizeStaleRun`) now make one
+  awaited call each instead of two sequential ones.
+  - Context resolution and the orchestrator are split across TWO files (not
+    one) specifically to keep the module graph a DAG: `github-checks.ts` and
+    `github-pr-comment.ts` each import `resolveGithubRunContext` from the leaf
+    `github-run-context.ts` for their own standalone `maybePostGithubCheck` /
+    `maybePostGithubPrComment` entry points, and `github-run-surfaces.ts`
+    imports from all three. Folding context resolution into
+    `github-run-surfaces.ts` alongside the orchestrator would have made
+    `github-checks.ts` and `github-pr-comment.ts` import FROM it while it
+    imports THEIR `post*Surface` functions — a cycle oxlint's `import(no-cycle)`
+    correctly flags as a hard error.
+  - `github-checks.ts` / `github-pr-comment.ts` were refactored into
+    `postCheckRunSurface(context)` / `postPrCommentSurface(context)` (the
+    claim-before-POST logic, render, and POST/PATCH target — genuinely each
+    surface's own, unchanged) plus thin `maybePostGithubCheck` /
+    `maybePostGithubPrComment(runId, projectId)` wrappers that resolve context
+    and delegate — kept at their original names/signatures for the existing
+    claim-concurrency tests and any future standalone caller. Each surface
+    keeps its OWN try/catch + `logger.error` envelope, so a check-run failure
+    never suppresses the PR comment or vice versa.
+  - **Accepted behavior changes** (both from minting once instead of once per
+    surface):
+    1. A shared token-mint failure is now logged ONCE
+       (`"github run-context resolution failed"`) and skips BOTH surfaces,
+       instead of the check surface logging its own mint failure while the
+       comment surface separately re-mints and proceeds.
+    2. The token is now minted BEFORE either surface's claim decision (claim
+       TTL is 120s, comfortably covering it), so a caller that loses a claim
+       race, or finds a fresh live claim held by someone else, still mints a
+       token it ends up not using. Previously mint happened strictly after a
+       successful claim. Within each surface the claim-before-POST ordering
+       itself (claim → GitHub POST/PATCH → persist/release) is unchanged.
+       `github-checks-claim.test.ts` / `github-pr-comment-claim.test.ts` had
+       two `mintInstallationToken` call-count assertions each that assumed the
+       old mint-after-claim timing; updated in place with comments explaining
+       the new expected counts — no other assertion in either file changed.
+  - `resolveCommentBaseRun` (github-pr-comment.ts) was a near-verbatim copy of
+    `resolveBaseRun` (`run-diff.ts`), differing only in which statuses count as
+    a baseline. `resolveBaseRun` now takes an `opts.statuses` param (default
+    `["passed"]`); the PR-comment path passes the new
+    `TERMINAL_RUN_STATUSES` const (`schemas.ts`, derived into
+    `CompleteRunPayloadSchema`'s `z.enum` so the two can't drift) so failures
+    already present on the previous push's run classify as known. The local
+    copy is deleted.
+  - `buildCheckRunOutput`'s title ternary and 3-line stats table are now
+    `runHeadline` / `runSummaryTable`, exported from `github-checks.ts` next to
+    `formatDuration` and reused by `buildPrCommentBody` — the
+    "check-run headline parity" test now holds by construction instead of by
+    copy-paste.
+  - `github-pr-comment-claim.test.ts`'s hand-rolled `pgType`/`createTableSql`
+    are gone in favor of `resetTables`/`createTableSql` from
+    `pg-integration/harness.ts` (matching every other pglite integration test);
+    the unique `(projectId, repo, prNumber)` index — not expressible by the
+    harness's column-only DDL — is still created separately, as before.
+    `github-checks-claim.test.ts` / `sharded-complete.test.ts` were left on
+    their existing local-DDL pattern (out of scope for this pass).
+  - Minor: `bucketListedResults` no longer builds its `byTestId` lookup Map on
+    the no-diff early-return path (it was unused there); the stale-run guard
+    in `github-pr-comment.ts` gained a one-line comment on the ULID-ordering
+    invariant it relies on.
+
+### Files (follow-up)
+
+- `apps/dashboard/src/lib/github-run-context.ts` — new; `GithubRunContext` +
+  `resolveGithubRunContext`.
+- `apps/dashboard/src/lib/github-run-surfaces.ts` — new; `postGithubRunSurfaces`.
+- `apps/dashboard/src/lib/github-checks.ts`,
+  `apps/dashboard/src/lib/github-pr-comment.ts` — split into `post*Surface`
+  (context-taking) + thin `maybePost*` wrappers; shared `runHeadline` /
+  `runSummaryTable`.
+- `apps/dashboard/src/lib/run-diff.ts` — `resolveBaseRun(scope, headRun, opts?)`.
+- `apps/dashboard/src/lib/schemas.ts` — `TERMINAL_RUN_STATUSES`.
+- `apps/dashboard/src/lib/ingest.ts` — three call sites now call
+  `postGithubRunSurfaces`.
+- `apps/dashboard/src/__tests__/github-checks-claim.test.ts`,
+  `apps/dashboard/src/__tests__/github-pr-comment-claim.test.ts` — two
+  mint-call-count assertions each updated for the new mint-before-claim timing;
+  the latter also now uses the shared pglite harness.
+- `apps/dashboard/src/__tests__/run-diff.workers.test.ts` — the
+  `resolveBaseRun` scoping test asserts `inArray(status, [...])` instead of
+  `eq(status, "passed")`.
+- `apps/dashboard/src/__tests__/ingest-pipeline.workers.test.ts` — a comment
+  updated to name `postGithubRunSurfaces`.
+
+### Verification (follow-up)
+
+- `pnpm --filter @wrightful/dashboard test` — both lanes green: 615 + 4 skipped
+  (Node) and 1352 (workers) — no regressions.
+- `pnpm --filter @wrightful/reporter test` — 300 passed, unaffected.
+- `pnpm check` — 0 errors (141 pre-existing warnings in untouched files, none
+  new).
+
+## Follow-up 2: shared claim lifecycle + wrapper deletion (review pass)
+
+A structural review of the first follow-up found it had stopped one move short:
+the claim-before-POST state machine was still cloned across both surfaces, and
+the `maybePostGithubCheck` / `maybePostGithubPrComment` wrappers had zero
+production callers (kept only for the claim tests). Addressed:
+
+- **`src/lib/github-surface-post.ts` (new).** `postWithClaimedSlot(surface,
+runId, initialId, io, post)` owns the correctness-critical ordering both
+  surfaces previously duplicated — claim the POST slot, re-read the external
+  id after a lost race, release the claim on a failed POST (CAS on the token),
+  persist the posted id — with each surface supplying four single-query
+  `ClaimedSlotIO` operations against its own table. Also hosts
+  `githubWriteId` (POST/PATCH → throw on non-2xx → parse `{id}`), the fetch
+  envelope both surfaces previously duplicated; it lives here rather than in
+  `github-http.ts` so it calls the _imported_ `githubFetch` binding the claim
+  tests mock. The PR comment's PATCH-404-repost branch stays local to
+  `postComment` (it needs the 404/ok distinction).
+- **`src/lib/github-run-render.ts` (new).** `statusToConclusion`,
+  `formatDuration`, `runHeadline`, `runSummaryTable` moved out of
+  `github-checks.ts` — the PR-comment surface no longer imports pure render
+  helpers from its peer surface module.
+- **Wrappers deleted.** `maybePostGithubCheck` / `maybePostGithubPrComment`
+  are gone; `postGithubRunSurfaces` is the single production entry point, and
+  the surface modules now import `GithubRunContext` type-only (the runtime
+  leaf-module constraint, and its DAG doc essay, went away with the wrappers).
+  This also removes an inconsistency where the same resolution failure logged
+  different messages depending on entry point.
+- **`resolveGithubRunContext`** returns null early when the run has neither a
+  `commitSha` nor a `prNumber` (no surface could post — skips the
+  installation lookup and token mint), and the hand-copied 20-field return
+  literal collapsed into a destructure + spread of the row.
+- **Accepted behavior change:** on the PR-comment path, content assembly
+  (`buildContent`) now runs inside the shared post step, so a DB failure
+  while building the comment body releases a held claim instead of leaking it
+  until the 120s TTL. Claim/POST/persist ordering is otherwise unchanged.
+- **Tests.** `github-checks-claim.test.ts` now drives the production entry
+  point `postGithubRunSurfaces` (its fixtures have no `prNumber`, so the
+  comment surface no-ops) and uses the shared `resetTables` harness instead
+  of its local DDL. `github-pr-comment-claim.test.ts` composes
+  `resolveGithubRunContext` + `postPrCommentSurface` directly (its fixtures
+  carry a `commitSha`, so the orchestrator would also fire the check-run
+  surface into the mocked fetch). No assertion values changed.

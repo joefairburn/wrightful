@@ -18,8 +18,7 @@ import {
   isUniqueViolation,
   runBatch,
 } from "@/lib/db-batch";
-import { maybePostGithubCheck } from "@/lib/github-checks";
-import { maybePostGithubPrComment } from "@/lib/github-pr-comment";
+import { postGithubRunSurfaces } from "@/lib/github-run-surfaces";
 import { setCodeownersFile } from "@/lib/owners-repo";
 import {
   childByTestResultsWhere,
@@ -1663,12 +1662,9 @@ export async function completeRun(
     scope,
   );
   await bumpTeamActivity(scope.teamId, nowSeconds);
-  // Best-effort GitHub check run + sticky PR comment (each a no-op unless the
-  // App is configured + the repo's org installed it). Awaited per the
-  // no-fire-and-forget rule; both swallow their own errors so a GitHub outage
-  // never fails /complete.
-  await maybePostGithubCheck(runId, scope.projectId);
-  await maybePostGithubPrComment(runId, scope.projectId);
+  // Best-effort: posts both GitHub surfaces (check run + sticky PR comment)
+  // and swallows its own errors.
+  await postGithubRunSurfaces(runId, scope.projectId);
 
   return { kind: "ok", status: summary?.status ?? payload.status };
 }
@@ -1809,12 +1805,9 @@ async function completeShardedRun(
     await broadcastRunProgress(runId, scope.projectId, summary);
   }
 
-  // Post the merge-gating GitHub check (and sticky PR comment) only once the
-  // run is actually terminal — an in-progress (still-sharding) run must not
-  // publish a "completed" check.
+  // Do not publish completed GitHub surfaces until every shard is done.
   if (allDone) {
-    await maybePostGithubCheck(runId, scope.projectId);
-    await maybePostGithubPrComment(runId, scope.projectId);
+    await postGithubRunSurfaces(runId, scope.projectId);
   }
 
   return {
@@ -1885,12 +1878,8 @@ export async function finalizeStaleRun(
     { projectId: run.projectId },
     { requireStatusFlip: true },
   );
-  // Watchdog-finalized runs (CI killed before /complete) still post their check
-  // and PR comment — same best-effort, self-silencing path as completeRun. (The
-  // comment path's ULID stale-run guard keeps a late finalize of an old push
-  // from overwriting a newer run's summary.)
-  await maybePostGithubCheck(run.id, run.projectId);
-  await maybePostGithubPrComment(run.id, run.projectId);
+  // Watchdog-finalized runs still update the best-effort GitHub surfaces.
+  await postGithubRunSurfaces(run.id, run.projectId);
 }
 
 /** Counts a watchdog sweep emits: rows seen, finalized, and failed. */

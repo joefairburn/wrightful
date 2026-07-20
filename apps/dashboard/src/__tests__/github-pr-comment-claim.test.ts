@@ -10,7 +10,7 @@ import {
 } from "vite-plus/test";
 
 /**
- * DB-integration coverage for `maybePostGithubPrComment`: the sticky-row
+ * DB-integration coverage for the sticky PR-comment surface: the sticky-row
  * find-or-create, claim-before-POST concurrency, the ULID stale-run guard, the
  * PATCH-404 repost, and the end-to-end new-vs-known/flaky content assembled
  * from real `testResults` rows. Runs against in-process pglite on the Node
@@ -105,7 +105,8 @@ vi.mock("@/lib/github-http", async () => {
   };
 });
 
-const { maybePostGithubPrComment } = await import("@/lib/github-pr-comment");
+const { postPrCommentSurface } = await import("@/lib/github-pr-comment");
+const { resolveGithubRunContext } = await import("@/lib/github-run-context");
 const {
   githubInstallations,
   githubPrComments,
@@ -116,22 +117,14 @@ const {
 } = await import("../../db/schema");
 const { eq } = await import("void/_db");
 const { getTableConfig } = await import("void/schema-pg");
+const { resetTables } = await import("./pg-integration/harness");
 
-function pgType(columnType: string): string {
-  if (columnType.includes("BigInt")) return "bigint";
-  if (columnType.includes("Integer")) return "integer";
-  return "text";
-}
-
-function createTableSql(table: Parameters<typeof getTableConfig>[0]): string {
-  const cfg = getTableConfig(table);
-  const cols = cfg.columns.map((c) => {
-    const parts = [`"${c.name}"`, pgType(c.columnType)];
-    if (c.primary) parts.push("primary key");
-    if (c.notNull && !c.primary) parts.push("not null");
-    return parts.join(" ");
-  });
-  return `create table "${cfg.name}" (${cols.join(", ")});`;
+// Production reaches the surface through `postGithubRunSurfaces`; compose the
+// same resolve → post pair directly so these commitSha-bearing fixtures don't
+// also fire the check-run surface into the mocked fetch.
+async function postPrComment(runId: string, projectId: string): Promise<void> {
+  const context = await resolveGithubRunContext(runId, projectId);
+  if (context) await postPrCommentSurface(context);
 }
 
 const TEAM_ID = "team-1";
@@ -249,21 +242,17 @@ async function seedSticky(commentId: number | null, runId: string | null) {
 }
 
 beforeAll(async () => {
-  const tables = [
+  await resetTables(h.client, [
     teams,
     projects,
     githubInstallations,
     runs,
     testResults,
     githubPrComments,
-  ];
-  for (const t of tables) {
-    const { name } = getTableConfig(t);
-    await h.client.exec(`drop table if exists "${name}" cascade;`);
-    await h.client.exec(createTableSql(t));
-  }
-  // createTableSql emits columns only; the sticky-row find-or-create's racing
-  // safety relies on this unique identity, so create it for real.
+  ]);
+  // createTableSql (inside resetTables) emits columns only; the sticky-row
+  // find-or-create's racing safety relies on this unique identity, so create
+  // it for real.
   await h.client.exec(
     `create unique index "githubPrComments_project_repo_pr_idx"
      on "githubPrComments" ("projectId", "repo", "prNumber");`,
@@ -296,12 +285,12 @@ beforeEach(async () => {
   mintInstallationToken.mockClear();
 });
 
-describe("maybePostGithubPrComment", () => {
+describe("postPrCommentSurface (resolved context)", () => {
   it("POSTs a comment on first completion and persists commentId + runId", async () => {
     await seedRun("run-a");
     await seedResult("run-a", "t-1", "failed");
 
-    await maybePostGithubPrComment("run-a", PROJECT_ID);
+    await postPrComment("run-a", PROJECT_ID);
 
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0]!.method).toBe("POST");
@@ -334,7 +323,7 @@ describe("maybePostGithubPrComment", () => {
     await seedResult("run-b", "t-flaky", "flaky", { retryCount: 1 });
     await seedSticky(900, "run-a");
 
-    await maybePostGithubPrComment("run-b", PROJECT_ID);
+    await postPrComment("run-b", PROJECT_ID);
 
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0]!.method).toBe("PATCH");
@@ -364,13 +353,16 @@ describe("maybePostGithubPrComment", () => {
     await seedResult("run-a", "t-1", "failed");
 
     await Promise.all([
-      maybePostGithubPrComment("run-a", PROJECT_ID),
-      maybePostGithubPrComment("run-a", PROJECT_ID),
+      postPrComment("run-a", PROJECT_ID),
+      postPrComment("run-a", PROJECT_ID),
     ]);
 
     // The loser must lose the claim, re-read, see no id landed, and skip.
     expect(fetchCalls.filter((c) => c.method === "POST")).toHaveLength(1);
-    expect(mintInstallationToken).toHaveBeenCalledTimes(1);
+    // Both racers resolve the shared GitHub run context — including the
+    // token mint — BEFORE either one claims, so both mint; only the claim
+    // (not the mint) decides who POSTs.
+    expect(mintInstallationToken).toHaveBeenCalledTimes(2);
     expect((await readSticky())?.commentId).toBe(900);
   });
 
@@ -378,13 +370,13 @@ describe("maybePostGithubPrComment", () => {
     await seedRun("run-a");
     failNextPost = true;
 
-    await maybePostGithubPrComment("run-a", PROJECT_ID);
+    await postPrComment("run-a", PROJECT_ID);
     let sticky = await readSticky();
     expect(sticky?.commentId).toBeNull();
     expect(sticky?.claimedAt).toBeNull();
 
     failNextPost = false;
-    await maybePostGithubPrComment("run-a", PROJECT_ID);
+    await postPrComment("run-a", PROJECT_ID);
     sticky = await readSticky();
     expect(sticky?.commentId).toBe(900);
     expect(fetchCalls.filter((c) => c.method === "POST")).toHaveLength(2);
@@ -396,10 +388,13 @@ describe("maybePostGithubPrComment", () => {
     // run-z (ULID-newer) already rendered its summary.
     await seedSticky(900, "run-z");
 
-    await maybePostGithubPrComment("run-a", PROJECT_ID);
+    await postPrComment("run-a", PROJECT_ID);
 
     expect(fetchCalls).toHaveLength(0);
-    expect(mintInstallationToken).not.toHaveBeenCalled();
+    // The shared context resolution mints BEFORE the sticky-row staleness
+    // guard runs, so the token is still minted even though the guard then
+    // makes this a no-op — no network POST/PATCH either way.
+    expect(mintInstallationToken).toHaveBeenCalledTimes(1);
     expect((await readSticky())?.runId).toBe("run-z");
   });
 
@@ -409,7 +404,7 @@ describe("maybePostGithubPrComment", () => {
     patchStatus = 404;
     nextCommentId = 901;
 
-    await maybePostGithubPrComment("run-b", PROJECT_ID);
+    await postPrComment("run-b", PROJECT_ID);
 
     expect(fetchCalls.map((c) => c.method)).toEqual(["PATCH", "POST"]);
     const sticky = await readSticky();
@@ -420,7 +415,7 @@ describe("maybePostGithubPrComment", () => {
   it("no-ops without a prNumber", async () => {
     await seedRun("run-a", { prNumber: null });
 
-    await maybePostGithubPrComment("run-a", PROJECT_ID);
+    await postPrComment("run-a", PROJECT_ID);
 
     expect(fetchCalls).toHaveLength(0);
     expect(await readSticky()).toBeNull();
@@ -429,7 +424,7 @@ describe("maybePostGithubPrComment", () => {
   it("no-ops when called with a projectId that doesn't own the run", async () => {
     await seedRun("run-a");
 
-    await maybePostGithubPrComment("run-a", "other-project");
+    await postPrComment("run-a", "other-project");
 
     expect(fetchCalls).toHaveLength(0);
     expect(mintInstallationToken).not.toHaveBeenCalled();

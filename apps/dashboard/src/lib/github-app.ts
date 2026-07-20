@@ -99,7 +99,7 @@ export function userInstallationsInclude(
  * inputs — `state` (team slug) and `installation_id` — are both attacker-
  * suppliable, so without this check a signed-in owner of a throwaway team could
  * claim any unlinked installation id (won by enumeration) and drive that org's
- * repos via merge-gating check runs (`maybePostGithubCheck`).
+ * repos via merge-gating check runs (`postGithubRunSurfaces`).
  *
  * `GET /user/installations` (with the USER's OAuth token) returns exactly the
  * installations this user can manage — GitHub's own answer to "may this user

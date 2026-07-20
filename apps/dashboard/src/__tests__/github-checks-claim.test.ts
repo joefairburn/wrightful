@@ -10,18 +10,20 @@ import {
 } from "vite-plus/test";
 
 /**
- * Claim-before-POST concurrency coverage for `maybePostGithubCheck` (M7): two
+ * Claim-before-POST concurrency coverage for the check-run surface, driven
+ * through the production entry point `postGithubRunSurfaces` (M7): two
  * concurrent completions of the same run (`completeRun` racing
  * `finalizeStaleRun`, or a sharded run's last two shards landing together)
- * must never both POST a check run for the same commit. Runs against a real
- * Postgres (in-process pglite), following the `sharded-complete.test.ts`
- * pattern, so the atomic claim `UPDATE ... WHERE` actually executes rather
- * than just typechecking.
+ * must never both POST a check run for the same commit. The runs seeded here
+ * carry no `prNumber`, so the sibling PR-comment surface no-ops without
+ * touching the DB or network. Runs against a real Postgres (in-process
+ * pglite), following the `sharded-complete.test.ts` pattern, so the atomic
+ * claim `UPDATE ... WHERE` actually executes rather than just typechecking.
  *
  * Deliberately a plain `*.test.ts` (Node lane), NOT `*.workers.test.ts`: per
  * `vitest.workers.config.ts`, pglite/disk-bound DB-integration tests stay on
  * the Node lane and are excluded from the miniflare/workerd pool. The pure
- * (`realCheckRunId`, `statusToConclusion`, …) tests stay in
+ * (`buildCheckRunOutput`, `statusToConclusion`, …) tests stay in
  * `github-checks.workers.test.ts`.
  */
 
@@ -106,28 +108,12 @@ vi.mock("@/lib/github-http", async () => {
   };
 });
 
-const { maybePostGithubCheck } = await import("@/lib/github-checks");
+const { postGithubRunSurfaces } = await import("@/lib/github-run-surfaces");
 const { runs, teams, projects, githubInstallations } =
   await import("../../db/schema");
 const { eq } = await import("void/_db");
 const { getTableConfig } = await import("void/schema-pg");
-
-function pgType(columnType: string): string {
-  if (columnType.includes("BigInt")) return "bigint";
-  if (columnType.includes("Integer")) return "integer";
-  return "text";
-}
-
-function createTableSql(table: Parameters<typeof getTableConfig>[0]): string {
-  const cfg = getTableConfig(table);
-  const cols = cfg.columns.map((c) => {
-    const parts = [`"${c.name}"`, pgType(c.columnType)];
-    if (c.primary) parts.push("primary key");
-    if (c.notNull && !c.primary) parts.push("not null");
-    return parts.join(" ");
-  });
-  return `create table "${cfg.name}" (${cols.join(", ")});`;
-}
+const { resetTables } = await import("./pg-integration/harness");
 
 const TEAM_ID = "team-1";
 const PROJECT_ID = "proj-1";
@@ -138,9 +124,8 @@ async function seedTeamAndProject() {
     slug: "acme",
     name: "Acme",
     createdAt: 1000,
-    // The ad-hoc DDL below (createTableSql) doesn't carry column DEFAULTs, so
-    // an omitted `tier` would insert SQL `default` -> NULL against a NOT NULL
-    // column with no DB-level default. Set it explicitly.
+    // The harness DDL (createTableSql) carries no column DEFAULTs; set the
+    // NOT NULL `tier` explicitly (same note as github-pr-comment-claim.test.ts).
     tier: "free",
   });
   await h.db.insert(projects).values({
@@ -200,11 +185,7 @@ async function readClaimedAt(id: string): Promise<number | null> {
 }
 
 beforeAll(async () => {
-  for (const t of [teams, projects, githubInstallations, runs]) {
-    const { name } = getTableConfig(t);
-    await h.client.exec(`drop table if exists "${name}" cascade;`);
-    await h.client.exec(createTableSql(t));
-  }
+  await resetTables(h.client, [teams, projects, githubInstallations, runs]);
 });
 
 afterAll(async () => {
@@ -224,13 +205,13 @@ beforeEach(async () => {
   mintInstallationToken.mockClear();
 });
 
-describe("maybePostGithubCheck — claim-before-POST concurrency", () => {
+describe("postGithubRunSurfaces — check-run claim-before-POST concurrency", () => {
   it("posts exactly once when two calls race on the same unposted run", async () => {
     await seedRun("run-race-1");
 
     await Promise.all([
-      maybePostGithubCheck("run-race-1", PROJECT_ID),
-      maybePostGithubCheck("run-race-1", PROJECT_ID),
+      postGithubRunSurfaces("run-race-1", PROJECT_ID),
+      postGithubRunSurfaces("run-race-1", PROJECT_ID),
     ]);
 
     // Exactly one network round-trip total: the winner's single POST. The
@@ -238,7 +219,10 @@ describe("maybePostGithubCheck — claim-before-POST concurrency", () => {
     // still not landed, and skipped — NOT issued its own POST.
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0]!.method).toBe("POST");
-    expect(mintInstallationToken).toHaveBeenCalledTimes(1);
+    // Both racers resolve the shared GitHub run context — including the
+    // token mint — BEFORE either one claims (see `github-run-surfaces.ts`),
+    // so both mint; only the claim (not the mint) decides who POSTs.
+    expect(mintInstallationToken).toHaveBeenCalledTimes(2);
     expect(await readCheckRunId("run-race-1")).toBe(nextCheckRunId);
   });
 
@@ -246,14 +230,14 @@ describe("maybePostGithubCheck — claim-before-POST concurrency", () => {
     await seedRun("run-fail-1");
     failNextPost = true;
 
-    await maybePostGithubCheck("run-fail-1", PROJECT_ID);
+    await postGithubRunSurfaces("run-fail-1", PROJECT_ID);
     // Never throws (best-effort), and the failed claim is released back to
     // null rather than left dangling for the full TTL.
     expect(await readCheckRunId("run-fail-1")).toBeNull();
     expect(await readClaimedAt("run-fail-1")).toBeNull();
 
     failNextPost = false;
-    await maybePostGithubCheck("run-fail-1", PROJECT_ID);
+    await postGithubRunSurfaces("run-fail-1", PROJECT_ID);
 
     const posts = fetchCalls.filter((c) => c.method === "POST");
     expect(posts).toHaveLength(2);
@@ -271,7 +255,7 @@ describe("maybePostGithubCheck — claim-before-POST concurrency", () => {
       .set({ githubCheckClaimedAt: staleClaimedAt })
       .where(eq(runs.id, "run-expired-1"));
 
-    await maybePostGithubCheck("run-expired-1", PROJECT_ID);
+    await postGithubRunSurfaces("run-expired-1", PROJECT_ID);
 
     const posts = fetchCalls.filter((c) => c.method === "POST");
     expect(posts).toHaveLength(1);
@@ -289,10 +273,13 @@ describe("maybePostGithubCheck — claim-before-POST concurrency", () => {
       .set({ githubCheckClaimedAt: freshClaimedAt })
       .where(eq(runs.id, "run-fresh-1"));
 
-    await maybePostGithubCheck("run-fresh-1", PROJECT_ID);
+    await postGithubRunSurfaces("run-fresh-1", PROJECT_ID);
 
     expect(fetchCalls).toHaveLength(0);
-    expect(mintInstallationToken).not.toHaveBeenCalled();
+    // The shared context resolution mints BEFORE the claim check runs, so the
+    // token is still minted even though the live claim then makes this a
+    // no-op — no network POST/PATCH either way.
+    expect(mintInstallationToken).toHaveBeenCalledTimes(1);
     // Untouched — still the live claim, not clobbered or cleared, and no real
     // id has landed.
     expect(await readClaimedAt("run-fresh-1")).toBe(freshClaimedAt);
@@ -302,11 +289,11 @@ describe("maybePostGithubCheck — claim-before-POST concurrency", () => {
   it("no-ops (no read match, no claim, no POST) when called with a projectId that doesn't own the run", async () => {
     await seedRun("run-wrong-project-1");
 
-    // Every `runs` predicate in `maybePostGithubCheck` ANDs `projectId` — a
+    // Every `runs` predicate on this path ANDs `projectId` — a
     // caller passing a DIFFERENT project's id must find nothing, exactly like
     // `runByIdWhere` elsewhere in the codebase, instead of falling through to
     // a cross-tenant claim/POST against another team's run.
-    await maybePostGithubCheck("run-wrong-project-1", "other-project");
+    await postGithubRunSurfaces("run-wrong-project-1", "other-project");
 
     expect(fetchCalls).toHaveLength(0);
     expect(mintInstallationToken).not.toHaveBeenCalled();

@@ -8,15 +8,6 @@ import {
 import type { PrCommentContent } from "@/lib/github-pr-comment";
 import type { RunDiff } from "@/lib/run-diff";
 
-/**
- * Pure-function coverage for the sticky PR comment: marker scoping, markdown
- * rendering (headline parity with the check run, section layout, truncation,
- * link-text escaping), the issue-comments path encoding, and the diff→section
- * bucketing. The DB/claim/network orchestration is covered on the Node lane in
- * `github-pr-comment-claim.test.ts` (pglite), mirroring the github-checks
- * split.
- */
-
 const RUN_URL = "https://dash.example/t/acme/p/web/runs/run-1";
 
 function content(overrides: Partial<PrCommentContent> = {}): PrCommentContent {
