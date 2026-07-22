@@ -12,7 +12,7 @@ import {
 /**
  * Pins the unified status registry that replaced four conflicting per-component
  * encodings (raw hex in lib/status.ts, `var(--…)` inline in ~6 components,
- * Badge variants in status-badge, Tailwind `bg-*` classes in runs-filter-bar).
+ * Badge variants in status-badge, Tailwind `bg-*` classes in run/filter-bar).
  * Every presentation accessor now derives from `STATUS`, so these tests are the
  * single guard against a maintainer drifting one component's colour/label/order
  * out of agreement with the rest.

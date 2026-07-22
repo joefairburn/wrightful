@@ -12,8 +12,8 @@ import { AnalyticsKpiCard } from "@/components/analytics/kpi-card";
 import { MetricSparkline } from "@/components/analytics/metric-sparkline";
 import { DeferredSection } from "@/components/defer-error-boundary";
 import { PageHeader } from "@/components/page-header";
-import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { RunHistoryBranchFilter } from "@/components/run/history-branch-filter";
+import { ALL_BRANCHES } from "@/components/run/history-branch-filter.shared";
 import {
   ChartSkeleton,
   KpiCardSkeleton,

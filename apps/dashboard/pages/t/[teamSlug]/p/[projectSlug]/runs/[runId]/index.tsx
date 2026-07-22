@@ -5,26 +5,26 @@ import { ActorAvatar } from "@/components/actor-avatar";
 import { githubAvatarUrl } from "@/lib/github-avatar";
 import { DeferredSection } from "@/components/defer-error-boundary";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
-import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { RunHistoryBranchFilter } from "@/components/run/history-branch-filter";
+import { ALL_BRANCHES } from "@/components/run/history-branch-filter.shared";
 import {
   RunHistoryChart,
   type RunHistoryPoint,
   RunHistoryChartSkeleton,
-} from "@/components/run-history-chart";
+} from "@/components/run/history-chart";
 import {
   RunDurationLive,
   RunStatusGlyphLive,
   RunTestCountLive,
-} from "@/components/run-detail-live";
+} from "@/components/run/detail-live";
 import {
   BranchPill,
   CommitPill,
   EnvPill,
   PrPill,
-} from "@/components/run-meta-pills";
-import { RunProgress } from "@/components/run-progress";
-import { RunSummaryLive } from "@/components/run-summary-live";
+} from "@/components/run/meta-pills";
+import { RunProgress } from "@/components/run/progress";
+import { RunSummaryLive } from "@/components/run/summary-live";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import { makeHrefBuilder } from "@/lib/page-links";

@@ -16,7 +16,7 @@ export interface UseRunSummaryOptions {
 /**
  * Summary-only counterpart of `useRunRoom`, for leaves that only ever render
  * the run-wide aggregate — the sticky-header status glyph, duration, and tab
- * count (`run-detail-live.tsx`) and the summary tiles + OutcomeBar
+ * count (`run/detail-live.tsx`) and the summary tiles + OutcomeBar
  * (`RunSummaryLive`). Same room, same seeding, same reseed/reconnect policy —
  * it's a thin specialization of `useFeedRoom` exactly like `useRunRoom` (see
  * that hook for the reseed + coalesced-reconnect-refresh policy) — but folds

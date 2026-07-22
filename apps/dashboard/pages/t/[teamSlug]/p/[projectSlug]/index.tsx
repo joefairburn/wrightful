@@ -1,7 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { PageToolbar } from "@/components/page-toolbar";
-import { RunListRow } from "@/components/run-list-row";
-import { RunsFilterBar } from "@/components/runs-filter-bar";
+import { RunListRow } from "@/components/run/list-row";
+import { RunsFilterBar } from "@/components/run/filter-bar";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
 import {
   Empty,
@@ -86,7 +86,7 @@ export default function RunsListPage({
   // Href carrying filter-bar state plus a keyset cursor + its ancestor stack
   // (`?history=`, comma-joined, oldest first). `toSearchParams(filters)` never
   // includes `cursor`/`history` (outside `RunsFilters`), so changing a filter
-  // drops back to the first page — see `runs-filter-bar.tsx`'s `applyFilters`.
+  // drops back to the first page — see `run/filter-bar.tsx`'s `applyFilters`.
   const hrefForCursor = (cursor: string | null, history: string[]): string => {
     const params = toSearchParams(filters);
     if (cursor) params.set("cursor", cursor);

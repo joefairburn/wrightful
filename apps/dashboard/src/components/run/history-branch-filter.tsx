@@ -5,7 +5,7 @@ import {
   ComboboxFilterPopup,
   FilterTriggerButton,
 } from "@/components/filter-controls";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { ALL_BRANCHES } from "@/components/run/history-branch-filter.shared";
 import {
   Combobox,
   ComboboxItem,

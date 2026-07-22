@@ -5,8 +5,8 @@ import { FlakyTestRow } from "@/components/flaky-test-row";
 import { KpiInline } from "@/components/kpi-inline";
 import { PageHeader } from "@/components/page-header";
 import { PageToolbar } from "@/components/page-toolbar";
-import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { RunHistoryBranchFilter } from "@/components/run/history-branch-filter";
+import { ALL_BRANCHES } from "@/components/run/history-branch-filter.shared";
 import { TablePaginationFooterSkeleton } from "@/components/skeletons";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";
 import {

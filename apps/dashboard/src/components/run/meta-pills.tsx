@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 
 /**
  * Run-metadata chips (branch / PR / environment / commit) shared by the runs
- * list rows (`run-list-row.tsx`) and the run-detail header. Each renders an
+ * list rows (`run/list-row.tsx`) and the run-detail header. Each renders an
  * external `<a>` when an href is available (built by `@/lib/pr-url`) and a
  * plain `<span>` otherwise.
  *
