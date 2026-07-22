@@ -258,6 +258,8 @@ export const userGithubAccounts = pgTable(
  * "back to where you were" behavior across sessions. Soft-references project
  * + team so deletes don't break sign-in.
  */
+// These FK children are intentionally unindexed: navigation updates them often,
+// while parent deletion is rare and userState has only one row per user.
 export const userState = pgTable("userState", {
   userId: text("userId").primaryKey(),
   lastTeamId: text("lastTeamId").references(() => teams.id, {
@@ -640,6 +642,8 @@ export const runShards = pgTable(
       t.runId,
       t.shardIndex,
     ),
+    /** Supports the `runShards.runId → runs` cascade. */
+    index("runShards_runId_idx").on(t.runId),
   ],
 );
 
@@ -1066,6 +1070,10 @@ export const monitorExecutions = pgTable(
      * seek the small non-terminal slice in steady state and walk it in createdAt order.
      */
     index("monitorExecutions_state_created_at_idx").on(t.state, t.createdAt),
+    /** Supports `runId` nulling while excluding executions without a run. */
+    index("monitorExecutions_runId_idx")
+      .on(t.runId)
+      .where(sql`${t.runId} is not null`),
   ],
 );
 

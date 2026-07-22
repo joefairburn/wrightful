@@ -93,8 +93,8 @@ export async function setup(project: TestProject): Promise<void> {
   project.provide("seededCommitSha", SEEDED_COMMIT_SHA);
 }
 
-export function teardown(): void {
-  fixture?.teardown();
+export async function teardown(): Promise<void> {
+  await fixture?.teardown();
   fixture = undefined;
 }
 

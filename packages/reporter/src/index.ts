@@ -40,6 +40,8 @@ import {
 import {
   joinStdio,
   MAX_MESSAGE,
+  MAX_PLANNED_TESTS,
+  MAX_RESULTS_PER_BATCH,
   MAX_STACK,
   MAX_TITLE,
   truncate,
@@ -294,6 +296,14 @@ export default class WrightfulReporter implements Reporter {
     const plannedTests = allTests.map((t) =>
       buildTestDescriptor(t, this.rootDir),
     );
+    const plannedTestsToSend = plannedTests.slice(0, MAX_PLANNED_TESTS);
+    if (plannedTestsToSend.length < plannedTests.length) {
+      warn(
+        `suite has ${plannedTests.length} tests, over the dashboard's planned-test cap of ${MAX_PLANNED_TESTS}; ` +
+          `sending the first ${MAX_PLANNED_TESTS} as queued placeholders. Every test's result still streams — ` +
+          `only the surplus pre-run placeholders are omitted.`,
+      );
+    }
 
     const ci = detectCI();
     this.ci = ci;
@@ -332,7 +342,7 @@ export default class WrightfulReporter implements Reporter {
         reporterVersion: REPORTER_VERSION,
         playwrightVersion: this.playwrightVersion,
         expectedTotalTests: plannedTests.length,
-        plannedTests,
+        plannedTests: plannedTestsToSend,
         origin: runOrigin,
         monitorId,
       },
@@ -368,7 +378,17 @@ export default class WrightfulReporter implements Reporter {
     // before /complete (the batcher only awaits it on a flush).
     this.openPromise = openPromise;
 
-    const batchSize = this.options.batchSize ?? DEFAULT_BATCH_SIZE;
+    const requestedBatchSize = this.options.batchSize ?? DEFAULT_BATCH_SIZE;
+    if (requestedBatchSize > MAX_RESULTS_PER_BATCH) {
+      warn(
+        `batchSize ${requestedBatchSize} exceeds the dashboard's per-batch cap of ${MAX_RESULTS_PER_BATCH}; ` +
+          `clamping to ${MAX_RESULTS_PER_BATCH} (larger batches are rejected wholesale).`,
+      );
+    }
+    const batchSize = Math.max(
+      1,
+      Math.min(requestedBatchSize, MAX_RESULTS_PER_BATCH),
+    );
     const flushIntervalMs =
       this.options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
 

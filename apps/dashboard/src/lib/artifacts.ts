@@ -4,7 +4,7 @@ import { logger } from "void/log";
 import { storage } from "void/storage";
 import { artifacts, runs, testResults } from "@schema";
 import { safeContentType } from "@/lib/content-types";
-import { isUniqueViolation, runBatch } from "@/lib/db-batch";
+import { isUniqueViolation } from "@/lib/db-batch";
 import {
   chunkInsertRows,
   RUN_WRITE_GUARD_COLUMNS,
@@ -17,7 +17,20 @@ import {
   type TenantScope,
 } from "@/lib/scope";
 import type { RegisterArtifactsPayload } from "@/lib/schemas";
-import { checkQuota, monthStartSeconds, usageBumpStatement } from "@/lib/usage";
+import {
+  checkQuota,
+  monthStartSeconds,
+  usageBumpStatement,
+  usageGuardedBumpStatement,
+} from "@/lib/usage";
+
+/** Rolls back artifact registration when its atomic quota bump is rejected. */
+class ArtifactQuotaOvershootError extends Error {
+  constructor(readonly limit: number) {
+    super("artifact byte quota exceeded");
+    this.name = "ArtifactQuotaOvershootError";
+  }
+}
 
 /**
  * Artifact write pipeline — the storage half of the streaming ingest contract.
@@ -508,6 +521,7 @@ export async function registerArtifacts(
     // whose traces grew is gated exactly like new bytes.
     const freshBytes = rowsToInsert.reduce((sum, r) => sum + r.sizeBytes, 0);
     const netNewBytes = freshBytes + updateBytesDelta;
+    let quotaLimit = Number.POSITIVE_INFINITY;
     if (netNewBytes > 0) {
       const quota = await checkQuota(
         scope.teamId,
@@ -515,39 +529,51 @@ export async function registerArtifacts(
         netNewBytes,
         nowSeconds,
       );
+      quotaLimit = quota.limit;
       if (quota.status === "blocked") {
         return { kind: "quotaExceeded", limit: quota.limit, used: quota.used };
       }
     }
 
     try {
-      // Insert the fresh rows, REFRESH the reused rows whose bytes changed, and
-      // meter the net new bytes + fresh row count in ONE atomic write, built
-      // against the transaction executor (see `runBatch`). `artifactCount` counts
-      // only inserts — a refresh replaces an existing artifact, it doesn't add one.
-      await runBatch((tx) => {
-        const bump = usageBumpStatement(
-          scope.teamId,
-          monthStartSeconds(nowSeconds),
-          { artifactBytes: netNewBytes, artifactCount: rowsToInsert.length },
-          nowSeconds,
-          tx,
-        );
-        return [
-          ...chunkInsertRows(rowsToInsert).map((chunk) =>
-            tx.insert(artifacts).values(chunk),
-          ),
-          ...rowsToUpdate.map((r) =>
-            tx
-              .update(artifacts)
-              .set({ sizeBytes: r.sizeBytes, contentType: r.contentType })
-              .where(childByIdWhere(artifacts, scope, r.id)),
-          ),
-          ...(bump ? [bump] : []),
-        ];
+      await db.transaction(async (tx) => {
+        for (const chunk of chunkInsertRows(rowsToInsert)) {
+          await tx.insert(artifacts).values(chunk);
+        }
+        for (const r of rowsToUpdate) {
+          await tx
+            .update(artifacts)
+            .set({ sizeBytes: r.sizeBytes, contentType: r.contentType })
+            .where(childByIdWhere(artifacts, scope, r.id));
+        }
+        if (netNewBytes > 0) {
+          const applied = await usageGuardedBumpStatement(
+            scope.teamId,
+            monthStartSeconds(nowSeconds),
+            { artifactBytes: netNewBytes, artifactCount: rowsToInsert.length },
+            { dimension: "artifactBytes", limit: quotaLimit },
+            nowSeconds,
+            tx,
+          );
+          if (applied.length === 0) {
+            throw new ArtifactQuotaOvershootError(quotaLimit);
+          }
+        } else {
+          const bump = usageBumpStatement(
+            scope.teamId,
+            monthStartSeconds(nowSeconds),
+            { artifactBytes: netNewBytes, artifactCount: rowsToInsert.length },
+            nowSeconds,
+            tx,
+          );
+          if (bump) await bump;
+        }
       });
       return { kind: "ok", uploads: await finalizeUploads(uploads) };
     } catch (err) {
+      if (err instanceof ArtifactQuotaOvershootError) {
+        return { kind: "quotaExceeded", limit: err.limit, used: err.limit };
+      }
       if (!isUniqueViolation(err) || attempt > 0) throw err;
     }
   }

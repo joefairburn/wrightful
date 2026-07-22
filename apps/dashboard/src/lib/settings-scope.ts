@@ -15,10 +15,8 @@ import { makeTenantScope, type TenantScope } from "@/lib/scope";
  * status and NO redirect URL — every call site decides how to render it:
  * the page seams ({@link requireOwnerScope} / {@link requireOwnedProjectScope})
  * map it to a 404 Response (don't leak existence to non-owners) and build the
- * `here` redirect URL; the JSON API handlers map it to their chosen status.
- * Concentrating the slug-read + owner gate here means the page-vs-API status
- * difference is a single explicit line at each call site instead of two
- * independently hand-rolled gates.
+ * `here` redirect URL; JSON handlers render the same leak-safe 404 as a JSON
+ * response.
  */
 export class AuthzError extends Error {
   constructor(message = "not authorized") {
@@ -38,7 +36,6 @@ export interface MemberTeam extends OwnedTeam {
   role: TeamRole;
 }
 
-/**
 /**
  * Resolve `teamSlug`'s membership row for `userId`, preferring the `memberTeams`
  * list `middleware/01.context.ts` already populated (free — a by-product of
@@ -113,8 +110,7 @@ export interface OwnedProject {
  * to `"mintKeys"` — the project-resource capability the API-key page and
  * monitors enforce — which preserves the historical owner-only behaviour
  * (only `owner` holds `mintKeys`). Kept pure so the gate is unit-testable
- * independent of the DB resolve and of how each tier renders the failure
- * (404 page vs 403 JSON).
+ * independent of the DB resolve.
  */
 export function gateOwnedProject(
   project: OwnedProject | null,
@@ -128,8 +124,7 @@ export function gateOwnedProject(
  * Status-agnostic owner-resolution core for a team: read `teamSlug` from the
  * route, require the signed-in user be the team's owner, and return the owned
  * team — or throw {@link AuthzError} on a missing slug / missing team /
- * non-owner. Carries no HTTP status, so the page seam can render 404 (no
- * existence leak) while the JSON API handler renders 403/404 of its choosing.
+ * non-owner. Carries no HTTP status so each caller chooses its response shape.
  */
 export async function resolveOwnedTeam(c: Context): Promise<OwnedTeam> {
   const user = requireAuth(c);

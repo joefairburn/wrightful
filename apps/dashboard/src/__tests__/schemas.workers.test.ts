@@ -74,6 +74,51 @@ describe("ingest payload bounds", () => {
     const r = AppendResultsPayloadSchema.safeParse(wrap({ attempts }));
     expect(r.success).toBe(false);
   });
+
+  it("rejects duplicate attempt indices within one result (avoids the retried 500)", () => {
+    const attempts = [
+      { attempt: 0, status: "passed", durationMs: 1 },
+      { attempt: 0, status: "failed", durationMs: 2 },
+    ];
+    const r = AppendResultsPayloadSchema.safeParse(wrap({ attempts }));
+    expect(r.success).toBe(false);
+  });
+
+  it("accepts distinct attempt indices", () => {
+    const attempts = [
+      { attempt: 0, status: "failed", durationMs: 1 },
+      { attempt: 1, status: "passed", durationMs: 2 },
+    ];
+    const r = AppendResultsPayloadSchema.safeParse(wrap({ attempts }));
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("ShardSchema range validation", () => {
+  const openWith = (shard: unknown) =>
+    OpenRunPayloadSchema.safeParse({
+      idempotencyKey: "run-key",
+      run: { plannedTests: [] },
+      shard,
+    });
+
+  it("accepts a shard index within 1..total", () => {
+    expect(openWith({ index: 2, total: 4 }).success).toBe(true);
+    expect(openWith({ index: 4, total: 4 }).success).toBe(true);
+  });
+
+  it("rejects a shard index greater than total (bogus index can't satisfy the finalize count early)", () => {
+    expect(openWith({ index: 7, total: 4 }).success).toBe(false);
+  });
+
+  it("rejects an out-of-range shard on /complete too", () => {
+    const r = CompleteRunPayloadSchema.safeParse({
+      status: "passed",
+      durationMs: 10,
+      shard: { index: 5, total: 3 },
+    });
+    expect(r.success).toBe(false);
+  });
 });
 
 describe("OpenRunPayloadSchema", () => {

@@ -3,6 +3,7 @@ import {
   isIngestRoute,
   isMcpRoute,
   isQueryApiRoute,
+  isTenantApiRoute,
 } from "@/lib/ingest-routes";
 
 /**
@@ -124,6 +125,42 @@ describe("isMcpRoute", () => {
   it("is a subset of the query surface", () => {
     for (const p of ["/api/mcp", "/api/mcp/"]) {
       expect(isQueryApiRoute(p)).toBe(true);
+    }
+  });
+});
+
+const TENANT_API_PATHS = [
+  "/api/t/acme/p/web",
+  "/api/t/acme/p/web/export/runs",
+  "/api/t/acme/p/web/search",
+  "/api/t/acme/p/web/quarantine",
+  "/api/t/acme/p/web/runs/run_1/summary",
+  "/api/t/acme/p/web/runs/run_1/tests/tr_1/replay",
+];
+
+describe("isTenantApiRoute", () => {
+  it("matches the session tenant API family, including the CSV export", () => {
+    for (const p of TENANT_API_PATHS) expect(isTenantApiRoute(p)).toBe(true);
+  });
+
+  it("does NOT match other API surfaces or page routes, and anchors at start", () => {
+    expect(isTenantApiRoute("/api/t/acme")).toBe(false);
+    expect(isTenantApiRoute("/api/t/acme/p")).toBe(false);
+    expect(isTenantApiRoute("/api/teams/acme/members")).toBe(false);
+    expect(isTenantApiRoute("/api/v1/runs")).toBe(false);
+    expect(isTenantApiRoute("/api/runs")).toBe(false);
+    expect(isTenantApiRoute("/api/auth/sign-in")).toBe(false);
+    expect(isTenantApiRoute("/t/acme/p/web")).toBe(false);
+    expect(isTenantApiRoute("/x/api/t/acme/p/web")).toBe(false);
+  });
+
+  it("is disjoint from both Bearer-authenticated surfaces", () => {
+    for (const p of TENANT_API_PATHS) {
+      expect(isIngestRoute(p)).toBe(false);
+      expect(isQueryApiRoute(p)).toBe(false);
+    }
+    for (const p of [...QUERY_PATHS, ...INGEST_PATHS]) {
+      expect(isTenantApiRoute(p)).toBe(false);
     }
   });
 });

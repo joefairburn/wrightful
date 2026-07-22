@@ -184,12 +184,10 @@ describe("quarantineTest", () => {
       set: Record<string, unknown>;
     };
     expect(cfg.target.map((col) => col.name)).toEqual(["projectId", "testId"]);
-    // The update set refreshes mode/reason and re-stamps createdBy/createdAt
-    // (documented intended behavior — re-quarantining updates the row).
     expect(cfg.set.mode).toBe("skip");
     expect(cfg.set.reason).toBe("flaky");
-    expect(cfg.set.createdBy).toBe("user_1");
-    expect(cfg.set.createdAt).toBe(1700);
+    expect(cfg.set).not.toHaveProperty("createdBy");
+    expect(cfg.set).not.toHaveProperty("createdAt");
   });
 
   it("returns the actual PERSISTED row via .returning() on the UPDATE branch, not a fabricated one", async () => {

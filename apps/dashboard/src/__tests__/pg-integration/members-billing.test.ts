@@ -957,15 +957,7 @@ describe("reconcileUsage (set-based rebase, Postgres path)", () => {
     expect(b?.artifactCount).toBe(0);
   });
 
-  it("rebases a team's stale counter row to zero when it has NO current-period runs/artifacts (the drift-correction case)", async () => {
-    // This is the whole point of reconcile: a retention sweep (or any other
-    // drift) can leave a usageCounters row holding stale, non-zero values for
-    // a team with zero current-period activity. The LEFT JOIN from `teams` —
-    // not a GROUP BY over `runs`/`artifacts` alone — is what lets a team with
-    // no matching rows still get a row in the aggregate result, so the bulk
-    // upsert overwrites the stale counter with zero instead of leaving it
-    // untouched (which a plain GROUP BY over the fact tables would do, since
-    // an inactive team would simply be absent from that result set).
+  it("corrects a stale counter above the recomputed row count", async () => {
     await h.db.insert(teams).values({
       id: "rt-stale",
       slug: "rt-stale",
@@ -982,8 +974,6 @@ describe("reconcileUsage (set-based rebase, Postgres path)", () => {
       artifactCount: 42,
       updatedAt: RNOW - 1000,
     });
-    // No projects/runs/artifacts rows at all for this team this period.
-
     const result = await reconcileUsage(RNOW);
     expect(result.teamsReconciled).toBe(1);
 
@@ -994,6 +984,6 @@ describe("reconcileUsage (set-based rebase, Postgres path)", () => {
     expect(row?.runsCount).toBe(0);
     expect(row?.artifactBytes).toBe(0);
     expect(row?.artifactCount).toBe(0);
-    expect(row?.updatedAt).toBe(RNOW); // the row WAS touched, not skipped
+    expect(row?.updatedAt).toBe(RNOW);
   });
 });

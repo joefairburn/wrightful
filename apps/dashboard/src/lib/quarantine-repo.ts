@@ -51,14 +51,7 @@ export async function listQuarantine(
   return rows;
 }
 
-/**
- * Quarantine a test — or update an already-quarantined one. Upserts on the
- * unique `(projectId, testId)` so re-quarantining the same test updates its
- * `mode`/`reason` (and re-stamps `createdBy`/`createdAt`) instead of erroring
- * on the constraint. Returns the resulting row via `.returning()` — on the
- * update branch that's the pre-existing row's real `id`/`createdAt`, not the
- * fresh `ulid()` generated for the (possibly-unused) insert values.
- */
+/** Quarantine a test, preserving original provenance on updates. */
 export async function quarantineTest(
   scope: TenantScope,
   input: QuarantineEntry,
@@ -82,8 +75,6 @@ export async function quarantineTest(
       set: {
         reason: input.reason,
         mode: input.mode,
-        createdBy,
-        createdAt: now,
       },
     })
     .returning();
