@@ -2,7 +2,7 @@ import { Link, PREFETCH_REALTIME } from "@/components/ui/link";
 import type React from "react";
 import { use, useMemo } from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
-import { githubAvatarUrl } from "@/lib/github-avatar";
+import { githubAvatarUrl } from "@/lib/github/avatar";
 import { DeferredSection } from "@/components/defer-error-boundary";
 import { DetailHeaderBar, HeaderCrumbs } from "@/components/page-header";
 import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";

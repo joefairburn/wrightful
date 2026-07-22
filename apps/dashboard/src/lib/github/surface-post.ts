@@ -1,5 +1,5 @@
 import { logger } from "void/log";
-import { githubFetch } from "@/lib/github-http";
+import { githubFetch } from "@/lib/github/http";
 
 /**
  * The claim/CAS write mechanics shared by both GitHub run surfaces. Each
@@ -190,7 +190,7 @@ export async function postWithWriteMutex(
  * Write (POST/PATCH) a GitHub resource and return the `id` from its JSON
  * response — the shape both surfaces persist. Throws on a non-2xx response;
  * returns null when the response carries no id. Lives here (not in
- * `@/lib/github-http`) so it goes through the imported `githubFetch` binding
+ * `@/lib/github/http`) so it goes through the imported `githubFetch` binding
  * the surface tests mock.
  */
 export async function githubWriteId(

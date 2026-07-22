@@ -8,7 +8,7 @@ import {
   mintAppJwt,
   parseRepoOwner,
   verifyWebhookSignature,
-} from "@/lib/github-http";
+} from "@/lib/github/http";
 
 /**
  * GitHub App auth primitives (the env-free `github-http.ts` core). The pure

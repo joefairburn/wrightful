@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   type MirrorableAccount,
   runGithubAccountMirror,
-} from "@/lib/github-account-mirror";
+} from "@/lib/github/account-mirror";
 
 // `runGithubAccountMirror` is the orchestration the two `auth.ts` account
 // hooks shared byte-for-byte: chain the default `after` FIRST, only mirror

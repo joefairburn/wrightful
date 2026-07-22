@@ -1,5 +1,5 @@
 import { env } from "void/env";
-import { githubFetch, mintAppJwt } from "@/lib/github-http";
+import { githubFetch, mintAppJwt } from "@/lib/github/http";
 
 /**
  * GitHub App authentication — the env-reading layer: read the App's identity,

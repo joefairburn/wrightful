@@ -1,5 +1,5 @@
 import { logger } from "void/log";
-import { githubFetch } from "@/lib/github-http";
+import { githubFetch } from "@/lib/github/http";
 
 /**
  * The write side of the `userGithubAccounts` mirror.

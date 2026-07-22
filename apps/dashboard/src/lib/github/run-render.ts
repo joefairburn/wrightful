@@ -1,7 +1,7 @@
 /**
  * Pure presentation shared by both GitHub run surfaces — the merge-gating
- * check run (`@/lib/github-checks`) and the sticky PR comment
- * (`@/lib/github-pr-comment`) — so the merge-gate decision, headline, and
+ * check run (`@/lib/github/checks`) and the sticky PR comment
+ * (`@/lib/github/pr-comment`) — so the merge-gate decision, headline, and
  * stats table render identically on both. Everything here is PURE: no env,
  * DB, or network.
  */

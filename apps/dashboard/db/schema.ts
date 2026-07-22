@@ -524,7 +524,7 @@ export const runs = pgTable(
      * Epoch-seconds when a caller claimed the right to POST this run's check run,
      * or null. Makes concurrent `completeRun` + `finalizeStaleRun` race-safe: only
      * one caller's claim `UPDATE ... WHERE` matches (`claimCheckRunSlot` in
-     * `@/lib/github-checks`), so only one POSTs while the loser backs off. A claim
+     * `@/lib/github/checks`), so only one POSTs while the loser backs off. A claim
      * older than `CHECK_CLAIM_TTL_SECONDS` (same file) is stale/reclaimable — its
      * poster crashed before finishing. Cleared once the real id lands in
      * `githubCheckRunId`, or if the POST fails.

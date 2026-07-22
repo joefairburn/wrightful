@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   userInstallationsInclude,
   verifyUserAdministersInstallation,
-} from "@/lib/github-app";
+} from "@/lib/github/app";
 
 /**
  * H1 regression coverage: the GitHub App setup callback must only link an

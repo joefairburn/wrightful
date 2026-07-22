@@ -3,14 +3,14 @@ import { logger } from "void/log";
 import { ulid } from "ulid";
 import { githubPrComments, testResults } from "@schema";
 import { changedRows } from "@/lib/db-batch";
-import { githubFetch } from "@/lib/github-http";
-import type { GithubRunContext } from "@/lib/github-run-context";
+import { githubFetch } from "@/lib/github/http";
+import type { GithubRunContext } from "@/lib/github/run-context";
 import {
   runHeadline,
   runSummaryTable,
   statusToConclusion,
-} from "@/lib/github-run-render";
-import { githubWriteId, postWithWriteMutex } from "@/lib/github-surface-post";
+} from "@/lib/github/run-render";
+import { githubWriteId, postWithWriteMutex } from "@/lib/github/surface-post";
 import { computeRunDiff, resolveBaseRun, verdictOf } from "@/lib/run-diff";
 import type { RunDiff } from "@/lib/run-diff";
 import { TERMINAL_RUN_STATUSES } from "@/lib/schemas";

@@ -23,7 +23,7 @@ import { authAccount, authUser } from "../../db/better-auth-tables";
  * `.toLowerCase()` is an invite-hijack vector).
  *
  * NOTE: the *write* side of `userGithubAccounts` (mirroring the GitHub login
- * captured at OAuth sign-in) lives in `@/lib/github-account-mirror`, invoked
+ * captured at OAuth sign-in) lives in `@/lib/github/account-mirror`, invoked
  * from `auth.ts`'s Better Auth database hook. It is separate because `auth.ts`
  * is loaded at `void prepare` config time (before the runtime db/schema
  * bindings exist), so the capture-and-upsert uses dynamic imports.
