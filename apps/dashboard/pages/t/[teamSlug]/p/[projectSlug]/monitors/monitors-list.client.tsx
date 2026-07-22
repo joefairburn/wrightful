@@ -12,7 +12,7 @@ import {
   SummaryPill,
 } from "@/components/monitors/monitor-status";
 import { PageToolbar } from "@/components/page-toolbar";
-import { META_PILL_CLASSES } from "@/components/run-meta-pills";
+import { META_PILL_CLASSES } from "@/components/run/meta-pills";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { SegmentedControl } from "@/components/segmented-control";
 import { TablePaginationFooter } from "@/components/table-pagination-footer";

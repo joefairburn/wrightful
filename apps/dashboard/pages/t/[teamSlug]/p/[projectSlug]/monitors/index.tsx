@@ -1,6 +1,6 @@
 import { Activity, ExternalLink, Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { META_PILL_CLASSES } from "@/components/run-meta-pills";
+import { META_PILL_CLASSES } from "@/components/run/meta-pills";
 import {
   Empty,
   EmptyContent,

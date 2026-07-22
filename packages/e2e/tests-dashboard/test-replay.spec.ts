@@ -168,7 +168,7 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     await openSeededRun(FAILURES_BRANCH);
 
     // Navigate into a test known to have a trace: the row carrying the
-    // list-level Replay button. `TestRow` (run-progress-row.tsx) renders each
+    // list-level Replay button. `TestRow` (run/progress-row.tsx) renders each
     // row as a `<div className="group …">` with the detail `<Link>` and the
     // `<ReplayRowButton>` as siblings (a control nested inside an <a> is
     // invalid HTML). Recover the row by filtering row containers to the one

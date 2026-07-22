@@ -10,7 +10,7 @@ import {
   RUN_HISTORY_CHART_MAX_POINTS,
   RunHistoryChart,
   RunHistoryChartSkeleton,
-} from "@/components/run-history-chart";
+} from "@/components/run/history-chart";
 import { KpiCardSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusGlyph } from "@/components/status-glyph";

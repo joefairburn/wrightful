@@ -11,8 +11,8 @@ import {
   CommitPill,
   EnvPill,
   PrPill,
-} from "@/components/run-meta-pills";
-import { RunTestsPopover } from "@/components/run-tests-popover";
+} from "@/components/run/meta-pills";
+import { RunTestsPopover } from "@/components/run/tests-popover";
 import { StatusGlyph } from "@/components/status-glyph";
 import { TableCell, TableRow } from "@/components/ui/table";
 import type { RunListRowData } from "@/realtime/events";
