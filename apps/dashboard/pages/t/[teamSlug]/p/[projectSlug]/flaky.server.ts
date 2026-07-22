@@ -16,6 +16,7 @@ import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { runRows } from "@/lib/runs/db";
 import { type OwnerEntry, resolveTestOwners } from "@/lib/owners-repo";
+import { deferredNoStore, pageProjectFields } from "@/lib/page-loader";
 import { type TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -102,19 +103,9 @@ export const loader = defineHandler(async (c) => {
   // per-test fan-out) defers together below.
   const branches = await loadProjectBranches(scope);
 
-  // A deferred loader streams a variant-specific body (NDJSON on SPA nav /
-  // chunked HTML on document load, keyed by `Vary: X-VoidPages`); SWR/max-age
-  // caching would let the browser replay the wrong variant. Deferred pages must
-  // not be stored. (Was `private, max-age=300, stale-while-revalidate=900`.)
-  c.header("Cache-Control", "private, no-store");
+  deferredNoStore(c);
   return {
-    project: {
-      id: project.id,
-      teamId: project.teamId,
-      slug: project.slug,
-      name: project.name,
-      teamSlug: project.teamSlug,
-    },
+    project: pageProjectFields(project),
     range,
     branchParam,
     branchAll,
@@ -299,7 +290,12 @@ async function loadRecentFailures(
         tr."testId" as "testId",
         tr.id as "testResultId",
         tr."runId" as "runId",
-        tr."createdAt" as "createdAt",
+        -- createdAt is int8: this raw runRows read bypasses Drizzle's decoders,
+        -- so node-postgres returns it as a STRING (pglite returns a number,
+        -- hiding it). Cast to double precision so createdAt is a JS number on
+        -- real pg -- RecentFailureRow.createdAt is typed number and feeds
+        -- formatRelativeTime, which does arithmetic on it.
+        cast(tr."createdAt" as double precision) as "createdAt",
         tr."errorMessage" as "errorMessage",
         runs."commitSha" as "commitSha",
         runs.branch as branch,

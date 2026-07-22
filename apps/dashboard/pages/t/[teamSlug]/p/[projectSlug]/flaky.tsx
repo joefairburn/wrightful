@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/cn";
 import { makeHrefBuilder } from "@/lib/page-links";
 import type { Props } from "./flaky.server";
 
@@ -141,7 +142,7 @@ function FlakyKpiSkeleton() {
           key={i}
         >
           <Skeleton className="h-3 w-20" />
-          <Skeleton className={`h-[13px] ${valueW}`} />
+          <Skeleton className={cn("h-[13px]", valueW)} />
         </div>
       ))}
     </>

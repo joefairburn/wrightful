@@ -1,6 +1,6 @@
 {
   "id": "16c9619a-da2a-42bf-80c3-2d9ad269c4b7",
-  "prevId": "91f4ea27-f277-495f-aaf6-030d9537dafd",
+  "prevId": "852b7fcb-f857-4b8e-b374-fc07e3c1e6b9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -984,6 +984,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "monitorExecutions_runId_idx": {
+          "name": "monitorExecutions_runId_idx",
+          "columns": [
+            {
+              "expression": "runId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"monitorExecutions\".\"runId\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -1519,6 +1535,21 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "runShards_runId_idx": {
+          "name": "runShards_runId_idx",
+          "columns": [
+            {
+              "expression": "runId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

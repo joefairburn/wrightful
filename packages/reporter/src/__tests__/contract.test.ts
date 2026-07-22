@@ -15,6 +15,8 @@ import {
   OpenRunPayloadSchema,
   OpenRunResponseSchema,
   MAX as DASHBOARD_MAX,
+  MAX_PLANNED_TESTS as DASHBOARD_MAX_PLANNED_TESTS,
+  MAX_RESULTS_PER_BATCH as DASHBOARD_MAX_RESULTS_PER_BATCH,
   QuarantineResponseSchema,
   RegisterArtifactsPayloadSchema,
   RegisterArtifactsResponseSchema,
@@ -30,6 +32,8 @@ import {
 import { MAX_CODEOWNERS_BYTES } from "../codeowners-file.js";
 import {
   MAX_MESSAGE,
+  MAX_PLANNED_TESTS,
+  MAX_RESULTS_PER_BATCH,
   MAX_STACK,
   MAX_TITLE,
   truncate,
@@ -1020,5 +1024,10 @@ describe("reporter ↔ dashboard preflight caps", () => {
     // env/payload value can't 400 the (reject-on-oversize) open-run call.
     expect(MAX_SHORT_FIELD_LENGTH).toBe(DASHBOARD_MAX.SHORT);
     expect(MAX_NAME_FIELD_LENGTH).toBe(DASHBOARD_MAX.NAME);
+  });
+
+  it("the reporter's batch + planned-test array caps equal the dashboard's", () => {
+    expect(MAX_RESULTS_PER_BATCH).toBe(DASHBOARD_MAX_RESULTS_PER_BATCH);
+    expect(MAX_PLANNED_TESTS).toBe(DASHBOARD_MAX_PLANNED_TESTS);
   });
 });

@@ -91,3 +91,10 @@ const MCP_RE = /^\/api\/mcp(?:\/|$)/;
 export function isMcpRoute(path: string): boolean {
   return MCP_RE.test(path);
 }
+
+/** Session-authenticated tenant API routes, throttled by client IP. */
+const TENANT_API_RE = /^\/api\/t\/[^/]+\/p\/[^/]+(?:\/|$)/;
+
+export function isTenantApiRoute(path: string): boolean {
+  return TENANT_API_RE.test(path);
+}

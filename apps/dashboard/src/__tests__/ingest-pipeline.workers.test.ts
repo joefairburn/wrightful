@@ -318,10 +318,13 @@ describe("openRun", () => {
     const out = await openRun(scope, payload, NOW);
 
     expect(out).toEqual({ runId: "run-existing", duplicate: true });
-    // No fresh run insert, no prefill transaction, and no broadcast on the
-    // duplicate path — the winning shard already created the run and sent the
-    // snapshot.
-    expect(transactionSpy).not.toHaveBeenCalled();
+    // No fresh run insert, no prefill, and no broadcast on the duplicate path —
+    // the winning shard already created the run and sent the snapshot. The one
+    // transaction is the re-arm/shard-state-reset pair (an UPDATE guarding the
+    // stale re-run state plus the conditional runShards DELETE) — critically,
+    // zero INSERTs (the guarded no-prefill invariant).
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(txStatements.map((s) => s.__kind)).toEqual(["update", "delete"]);
     expect(broadcastRunSpy).not.toHaveBeenCalled();
   });
 
@@ -343,18 +346,22 @@ describe("openRun", () => {
     const out = await openRun(scope, payload, NOW);
 
     expect(out).toEqual({ runId: "run-existing", duplicate: true });
-    expect(transactionSpy).not.toHaveBeenCalled();
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    // Even with multiple prefill chunks' worth of planned tests, the duplicate
+    // transaction is ONLY the re-arm/reset pair — no INSERT statements.
+    expect(txStatements.map((s) => s.__kind)).toEqual(["update", "delete"]);
     expect(broadcastRunSpy).not.toHaveBeenCalled();
   });
 
-  it("on a SHARDED duplicate open: merges the shard's count without a prefill transaction or broadcast", async () => {
-    // [0] idempotency SELECT → existing run. The shard-count merge + re-sum is
-    // a SINGLE pooled UPDATE (`jsonb_set` into runs.shardExpectedTests; racing
-    // sibling opens serialize on the row lock), so — like the non-sharded
-    // duplicate — NO transaction runs: still no prefill (the guarded invariant
-    // from the tests above) and no broadcast. The jsonb statement's pg-side
-    // behavior is covered by the real-Postgres verification in the worklog,
-    // not this mock. The opener's own map seed is pinned in
+  it("on a SHARDED duplicate open: merges the shard's count without a prefill or broadcast", async () => {
+    // [0] idempotency SELECT → existing run. One transaction: a `FOR UPDATE`
+    // lock on the run row (a read — not recorded below), the guarded
+    // stale-runShards DELETE (before the merge UPDATE flips the terminal
+    // latch), then the `jsonb_set` merge + re-sum UPDATE — still no prefill
+    // (the guarded invariant from the tests above) and no broadcast. The
+    // statements' pg-side behavior is covered by the real-Postgres
+    // verification in the worklog and pg-integration/ingest.test.ts, not this
+    // mock. The opener's own map seed is pinned in
     // build-run-insert-values.workers.test.ts.
     awaitResults = [[{ id: "run-existing" }]];
     const payload: OpenRunPayload = {
@@ -369,7 +376,8 @@ describe("openRun", () => {
     const out = await openRun(scope, payload, NOW);
 
     expect(out).toEqual({ runId: "run-existing", duplicate: true });
-    expect(transactionSpy).not.toHaveBeenCalled();
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    expect(txStatements.map((s) => s.__kind)).toEqual(["delete", "update"]);
     expect(broadcastRunSpy).not.toHaveBeenCalled();
     expect(broadcastProjectSpy).not.toHaveBeenCalled();
   });

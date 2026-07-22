@@ -64,6 +64,8 @@ import { tenantScopeForUserBySlugs, type TenantScope } from "@/lib/scope";
  * All tools are read-only (`readOnlyHint`); payloads are JSON text blocks so
  * any MCP client can consume them, plus a real image block from
  * `get_artifact` for screenshots small enough to inline.
+ * OAuth scopes are not an authorization boundary while this surface remains
+ * read-only; project access is checked for each call.
  */
 export type McpAuthz =
   | { kind: "project"; scope: TenantScope }

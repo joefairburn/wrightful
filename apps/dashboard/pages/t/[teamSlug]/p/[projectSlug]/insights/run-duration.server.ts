@@ -14,6 +14,7 @@ import {
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { runRow, runRows } from "@/lib/runs/db";
+import { deferredNoStore, pageProjectFields } from "@/lib/page-loader";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;
@@ -72,20 +73,9 @@ export const loader = defineHandler(async (c) => {
   const branches = await loadProjectBranches(scope);
   const branchSql = branchFragment(branchFilter);
 
-  // A deferred loader streams a variant-specific body (NDJSON on SPA nav /
-  // chunked HTML on document load, keyed by `Vary: X-VoidPages`); SWR/max-age
-  // caching would let the browser replay the wrong variant. Deferred pages must
-  // not be stored — the perceived-load win comes from streaming, not the cache.
-  // (Was `private, max-age=300, stale-while-revalidate=900`.)
-  c.header("Cache-Control", "private, no-store");
+  deferredNoStore(c);
   return {
-    project: {
-      id: project.id,
-      teamId: project.teamId,
-      slug: project.slug,
-      name: project.name,
-      teamSlug: project.teamSlug,
-    },
+    project: pageProjectFields(project),
     range,
     segment,
     days,

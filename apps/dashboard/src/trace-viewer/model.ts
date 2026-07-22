@@ -8,9 +8,9 @@ import {
   previousActionByEndTime,
 } from "./vendor/model-util";
 import type { ActionTraceEvent } from "./vendor/trace";
+import { TRACE_VIEWER_SCOPE, traceViewerScopeUrl } from "./origin";
 
-// Snapshot fallback behavior mirrors Playwright's official trace viewer.
-export const TRACE_VIEWER_SCOPE = "/trace-viewer/";
+export { TRACE_VIEWER_SCOPE };
 
 export type SnapshotTabId = "action" | "before" | "after";
 
@@ -102,7 +102,7 @@ export function snapshotIframeUrl(
     params.set("pointX", String(snapshot.point.x));
     params.set("pointY", String(snapshot.point.y));
   }
-  return `${TRACE_VIEWER_SCOPE}snapshot/${snapshot.pageId}?${params.toString()}`;
+  return `${traceViewerScopeUrl()}snapshot/${snapshot.pageId}?${params.toString()}`;
 }
 
 export type SnapshotInfo = SnapshotInfoError | ResolvedSnapshotInfo;
@@ -141,7 +141,7 @@ export function snapshotPopoutUrl(
   const params = new URLSearchParams();
   params.set("r", absoluteSnapshotUrl);
   params.set("trace", traceUrl);
-  return `${TRACE_VIEWER_SCOPE}snapshot.html?${params.toString()}`;
+  return `${traceViewerScopeUrl()}snapshot.html?${params.toString()}`;
 }
 
 export function snapshotInfoPath(traceUrl: string, snapshot: Snapshot): string {
@@ -167,7 +167,7 @@ export function sha1DownloadUrl(
   params.set("trace", traceUrl);
   params.set("dn", name);
   params.set("dct", contentType);
-  return `${TRACE_VIEWER_SCOPE}sha1/${sha1}?${params.toString()}`;
+  return `${traceViewerScopeUrl()}sha1/${sha1}?${params.toString()}`;
 }
 
 export function isRealSourceFile(file: string): boolean {

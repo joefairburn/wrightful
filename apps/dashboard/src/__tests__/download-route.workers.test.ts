@@ -13,7 +13,11 @@ import type { Context } from "hono";
  */
 
 vi.mock("void", () => ({ defineHandler: (fn: unknown) => fn }));
-vi.mock("void/env", () => ({ env: {} }));
+// The configured separate trace-viewer origin exercises the CORS allow-list
+// (`resolveAllowedOrigin`); everything else reads env keys that stay unset.
+vi.mock("void/env", () => ({
+  env: { VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN: "https://traces.example.com" },
+}));
 
 const r2DirectConfig = vi.fn();
 vi.mock("@/lib/config", () => ({ r2DirectConfig }));
@@ -176,5 +180,40 @@ describe("download route — direct-R2 branch", () => {
     expect(res.status).toBe(401);
     expect(signGetUrl).not.toHaveBeenCalled();
     expect(readArtifact).not.toHaveBeenCalled();
+  });
+
+  it("echoes the configured separate trace-viewer origin in CORS (bridge fetches cross-origin)", async () => {
+    verifyArtifactToken.mockResolvedValue({
+      r2Key: "k",
+      contentType: "application/zip",
+      exp: Math.floor(Date.now() / 1000) + 1000,
+    });
+    r2DirectConfig.mockReturnValue(CFG);
+
+    const res = await handle(
+      ctx("GET", URL_WITH_TOKEN, { Origin: "https://traces.example.com" }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://traces.example.com",
+    );
+  });
+
+  it("falls back to the dashboard origin for any other cross-origin caller", async () => {
+    verifyArtifactToken.mockResolvedValue({
+      r2Key: "k",
+      contentType: "application/zip",
+      exp: Math.floor(Date.now() / 1000) + 1000,
+    });
+    r2DirectConfig.mockReturnValue(CFG);
+
+    const res = await handle(
+      ctx("GET", URL_WITH_TOKEN, { Origin: "https://evil.example.com" }),
+    );
+
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://dash.example.com",
+    );
   });
 });

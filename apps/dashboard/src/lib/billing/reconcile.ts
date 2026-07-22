@@ -1,4 +1,4 @@
-import { db, eq, isNotNull } from "void/db";
+import { db, eq, isNotNull, sql } from "void/db";
 import { env } from "void/env";
 import { logger } from "void/log";
 import { Polar } from "@polar-sh/sdk";
@@ -22,6 +22,15 @@ import { BILLING_PERIOD_GRACE_SECONDS } from "@/lib/billing/tier";
  *
  * Reached only via `PolarBillingProvider` (billing on); the early
  * `!env.POLAR_ACCESS_TOKEN` return is a defensive belt for a direct call.
+ * The randomly ordered, bounded sample rotates coverage without unbounded
+ * Polar subrequests in a single invocation. `order by random() limit k` is a
+ * deliberate simplicity trade-off: it scans every Polar-LINKED team, but that
+ * set's cardinality is paying customers (not event data) and the sort is a
+ * top-k heap, so the weekly selection stays sub-second far past 10^5 linked
+ * teams. If the fleet outgrows that, replace it with a persisted keyset
+ * cursor (a stored last-seen id that wraps around) rather than a random
+ * string start — uniform random ULID bounds mostly sort past every real id
+ * and would resample the wraparound prefix.
  */
 export async function reconcileBilling(
   nowSeconds: number,
@@ -39,7 +48,9 @@ export async function reconcileBilling(
       currentPeriodEnd: teams.currentPeriodEnd,
     })
     .from(teams)
-    .where(isNotNull(teams.polarCustomerId));
+    .where(isNotNull(teams.polarCustomerId))
+    .orderBy(sql`random()`)
+    .limit(env.WRIGHTFUL_BILLING_RECONCILE_BATCH_SIZE);
   let corrected = 0;
   for (const t of rows) {
     if (t.polarCustomerId == null) continue; // narrowed by isNotNull; belt-and-braces

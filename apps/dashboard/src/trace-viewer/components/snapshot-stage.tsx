@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { snapshotIframeUrl } from "../model";
 import type { SnapshotSet, SnapshotTabId } from "../model";
+import { snapshotSandbox } from "../origin";
 import { useElementSize } from "../use-element-size";
 import { bindEscapeAcrossFrames } from "./escape-frames";
 
@@ -240,8 +241,13 @@ function SnapshotFrame({
   onEscape?: () => void;
   /** Fires after the document loads (back-buffer promotion hook). */
   onLoaded?: () => void;
-}): React.ReactElement {
+}): React.ReactElement | null {
   const escapeCleanupRef = useRef<(() => void) | null>(null);
+  const [pageOrigin, setPageOrigin] = useState("");
+
+  useEffect(() => {
+    setPageOrigin(window.location.origin);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -250,11 +256,19 @@ function SnapshotFrame({
     };
   }, []);
 
+  // The sandbox attribute must be right BEFORE the document starts loading:
+  // granting `allow-scripts` after the iframe has navigated does not enable
+  // scripts in the already-loaded document. `pageOrigin` is only known
+  // client-side (an effect fills it, keeping SSR/hydration consistent), so
+  // hold the iframe off that first origin-less render — otherwise a
+  // separate-origin snapshot loads script-less and stays that way.
+  if (pageOrigin === "") return null;
+
   return (
     <iframe
       title={`DOM snapshot (${TAB_LABELS[id]})`}
       src={url}
-      sandbox="allow-same-origin allow-scripts"
+      sandbox={snapshotSandbox(pageOrigin)}
       aria-hidden={!isActive}
       inert={!isActive}
       className={cn(

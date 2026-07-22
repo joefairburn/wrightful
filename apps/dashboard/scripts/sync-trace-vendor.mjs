@@ -43,6 +43,9 @@
 // Two files (protocol-types.ts, language.ts) are HAND-EXTRACTED subsets of a
 // much larger upstream file (not verbatim copies) — this script deliberately
 // does not touch them; it just flags them for manual re-verification.
+// playwright-core's trace service worker sanitizes untrusted DOM snapshots.
+// Review sanitizer changes before updating the pin; see the trace-viewer
+// origin-isolation worklog.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {

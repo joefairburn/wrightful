@@ -1,6 +1,10 @@
 import { defineMiddleware } from "void";
 import { checkRateLimit, clientIp, tooManyRequests } from "@/lib/rate-limit";
-import { isIngestRoute, isQueryApiRoute } from "@/lib/ingest-routes";
+import {
+  isIngestRoute,
+  isQueryApiRoute,
+  isTenantApiRoute,
+} from "@/lib/ingest-routes";
 
 /**
  * Global rate-limit gate. Runs AFTER `02.api-auth.ts` so the ingest paths can
@@ -19,9 +23,10 @@ import { isIngestRoute, isQueryApiRoute } from "@/lib/ingest-routes";
  *        ingest: a read pull / CSV export is lower-frequency than streaming
  *        per-test ingest, and one export request may itself page several times.
  *        Same per-tenant keying + IP fallback as ingest.)
- *   - /api/artifacts/:id/download    → ARTIFACT_RATE_LIMITER keyed by artifactId
- *       (per-file, since the trace viewer fetches many ranged chunks of one
- *        trace; bounds unbounded byte egress through the Worker).
+ *   - /api/artifacts/:id/download    → ARTIFACT_RATE_LIMITER keyed by IP+artifactId
+ *       (per-file per-caller, so one caller cannot exhaust another's budget).
+ *   - /api/t/:team/p/:project/*      → QUERY_RATE_LIMITER    keyed by client IP
+ *       (session-authenticated reads and exports have no API key to use).
  *
  * `checkRateLimit` fails open when the binding is missing (local dev), so this
  * is inert under miniflare and active on the deployed worker. A 429 is a plain
@@ -54,7 +59,7 @@ export default defineMiddleware(async (c, next) => {
     const allowed = await checkRateLimit(
       c.env,
       "ARTIFACT_RATE_LIMITER",
-      download[1],
+      `${clientIp(c.req.raw)}:${download[1]}`,
     );
     if (!allowed) return tooManyRequests(60);
     await next();
@@ -81,6 +86,17 @@ export default defineMiddleware(async (c, next) => {
     const apiKey = c.get("apiKey");
     const key = apiKey?.id ?? c.get("mcpAuth")?.userId ?? clientIp(c.req.raw);
     const allowed = await checkRateLimit(c.env, "QUERY_RATE_LIMITER", key);
+    if (!allowed) return tooManyRequests(60);
+    await next();
+    return;
+  }
+
+  if (isTenantApiRoute(path)) {
+    const allowed = await checkRateLimit(
+      c.env,
+      "QUERY_RATE_LIMITER",
+      clientIp(c.req.raw),
+    );
     if (!allowed) return tooManyRequests(60);
     await next();
     return;

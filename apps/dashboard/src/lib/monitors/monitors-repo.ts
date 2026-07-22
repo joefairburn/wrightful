@@ -489,9 +489,8 @@ export async function claimExecution(
       and(
         eq(monitorExecutions.projectId, execution.projectId),
         eq(monitorExecutions.id, execution.id),
-        // `error` is re-enterable to support infra retries; without a
-        // persisted infra/real distinction this also lets a duplicate
-        // redelivery re-run a settled real-error outcome (see docstring).
+        // `error` remains claimable because infra failures are retryable and the
+        // schema does not yet distinguish them from settled test failures.
         inArray(monitorExecutions.state, ["queued", "error"]),
       ),
     )

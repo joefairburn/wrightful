@@ -54,7 +54,7 @@ Database and deployment commands:
 ```bash
 pnpm --filter @wrightful/dashboard db:generate       # generate committed Drizzle migrations
 pnpm --filter @wrightful/dashboard db:migrate:remote # own-account remote Postgres
-pnpm deploy                                          # Void-managed deployment
+pnpm deploy:void                                     # Void-managed deployment
 pnpm --filter @wrightful/dashboard deploy:cf         # own-account Cloudflare deployment
 ```
 

@@ -1,15 +1,13 @@
 "use client";
 
-import { TRACE_VIEWER_SCOPE } from "./model";
+import { traceViewerScopeUrl } from "./origin";
 
 /**
  * Where the SW bridge document lives (inside the service-worker scope owned
  * by `TRACE_VIEWER_SCOPE` — see `bridge.html` for why the dashboard page
- * itself must never be the SW-controlled client). Single source of truth for
- * the bridge location, shared by the viewer's own bridge
- * (`use-trace-model.ts`) and the hover prewarm (`warm.ts`).
+ * itself must never be the SW-controlled client).
  */
-export const BRIDGE_PATH = `${TRACE_VIEWER_SCOPE}bridge.html`;
+export const BRIDGE_PATH = `${traceViewerScopeUrl()}bridge.html`;
 
 /**
  * Create + mount the hidden bridge iframe. With a `traceUrl` the bridge loads
@@ -25,9 +23,18 @@ export function mountBridgeIframe(
   iframe.style.display = "none";
   iframe.setAttribute("aria-hidden", "true");
   iframe.title = title;
-  iframe.src = traceUrl
-    ? `${BRIDGE_PATH}?trace=${encodeURIComponent(traceUrl)}`
-    : BRIDGE_PATH;
+  iframe.src = bridgeIframeSrc(traceUrl);
   document.body.appendChild(iframe);
   return iframe;
+}
+
+/** Build the bridge URL with an explicit postMessage host origin. */
+export function bridgeIframeSrc(traceUrl: string | undefined): string {
+  const params = new URLSearchParams();
+  if (traceUrl) params.set("trace", traceUrl);
+  const host =
+    typeof window !== "undefined" ? window.location.origin : undefined;
+  if (host) params.set("host", host);
+  const query = params.toString();
+  return query ? `${BRIDGE_PATH}?${query}` : BRIDGE_PATH;
 }

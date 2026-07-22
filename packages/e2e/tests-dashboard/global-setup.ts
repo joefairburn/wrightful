@@ -181,7 +181,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
       "utf8",
     );
   } catch (err) {
-    fixture.teardown();
+    await fixture.teardown();
     globalThis.__wrightfulDashboardFixture = undefined;
     throw err;
   }
