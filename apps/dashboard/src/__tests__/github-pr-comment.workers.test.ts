@@ -114,6 +114,24 @@ describe("buildPrCommentBody", () => {
     expect(body).not.toContain("Compare to base");
   });
 
+  it("neutralizes backticks/newlines in untrusted filenames and shas so they can't escape their code spans", () => {
+    const body = buildPrCommentBody(
+      content({
+        status: "failed",
+        failed: 1,
+        commitSha: "``evil\nsha1234",
+        newFailures: [
+          // Git permits both backticks and newlines in path components; a raw
+          // interpolation would close the span and inject the @-mention.
+          { title: "t", file: "x`\n@maintainer`.spec.ts", testResultId: null },
+        ],
+      }),
+    );
+    expect(body).toContain("- t — `x @maintainer.spec.ts`");
+    expect(body).not.toContain("x`");
+    expect(body).toContain("_Commit: `evil sh`_");
+  });
+
   it("truncates a section past 10 tests with an '…and N more' line", () => {
     const many = Array.from({ length: 13 }, (_, i) => ({
       title: `test ${i}`,

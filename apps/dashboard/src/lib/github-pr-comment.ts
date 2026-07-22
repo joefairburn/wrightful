@@ -67,6 +67,18 @@ function escapeMdLinkText(text: string): string {
     .trim();
 }
 
+/**
+ * Sanitize untrusted ingest text for a Markdown inline code span. Backslash
+ * escapes don't work inside code spans, so backticks are STRIPPED rather than
+ * escaped, and whitespace runs (git permits newlines in path components)
+ * collapse to one space — otherwise a hostile filename or commit sha could
+ * close the span and inject arbitrary Markdown (mentions, links) into the
+ * App-posted comment.
+ */
+function mdCodeSpanText(text: string): string {
+  return text.replace(/`/g, "").replace(/\s+/g, " ").trim();
+}
+
 function testListLines(
   tests: readonly PrCommentTestLine[],
   runUrl: string,
@@ -76,7 +88,7 @@ function testListLines(
     const linked = t.testResultId
       ? `[${label}](${runUrl}/tests/${t.testResultId})`
       : label;
-    return `- ${linked} — \`${t.file}\``;
+    return `- ${linked} — \`${mdCodeSpanText(t.file)}\``;
   });
   if (tests.length > MAX_LISTED_TESTS) {
     lines.push(`- …and ${tests.length - MAX_LISTED_TESTS} more`);
@@ -141,12 +153,16 @@ export function buildPrCommentBody(content: PrCommentContent): string {
       (content.hasBase ? ` · [Compare to base →](${content.runUrl}/diff)` : ""),
   ];
   if (content.commitSha) {
-    const baseSuffix = content.baseCommitSha
-      ? ` · Base: \`${content.baseCommitSha.slice(0, 7)}\``
-      : "";
+    // Shas are ingest-validated for length only, so they get the same
+    // code-span sanitization as filenames (sanitize BEFORE slicing, so a
+    // stripped backtick can't shorten the displayed prefix).
+    const baseSha = content.baseCommitSha
+      ? mdCodeSpanText(content.baseCommitSha).slice(0, 7)
+      : null;
+    const baseSuffix = baseSha ? ` · Base: \`${baseSha}\`` : "";
     lines.push(
       "",
-      `_Commit: \`${content.commitSha.slice(0, 7)}\`${baseSuffix}_`,
+      `_Commit: \`${mdCodeSpanText(content.commitSha).slice(0, 7)}\`${baseSuffix}_`,
     );
   }
   return lines.join("\n");

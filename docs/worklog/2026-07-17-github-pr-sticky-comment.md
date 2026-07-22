@@ -292,3 +292,14 @@ throws (fail closed) rather than falling through to POST: the flaky-network
 conditions that break the listing are exactly the ones that lose POST
 responses, and the claim release means the next run retries. Covered by a
 pglite test (GET → PATCH of the recovered id, no POST).
+
+### Addendum: code-span sanitization for untrusted text (Codex P2)
+
+`t.file` (and the commit shas) were interpolated into the comment's Markdown
+code spans raw. Git permits backticks and newlines in path components, so a
+hostile test filename could close the span and inject arbitrary Markdown —
+including @-mentions — into the App-posted comment. `mdCodeSpanText` now
+strips backticks (backslash escapes don't work inside code spans) and
+collapses whitespace runs before interpolation; shas sanitize before the
+7-char slice so a stripped backtick can't shorten the displayed prefix.
+Titles were already covered by `escapeMdLinkText`.
