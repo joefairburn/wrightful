@@ -264,7 +264,7 @@ function HistogramChart({
       return {
         key: String(i),
         label,
-        segments: [{ count: cnt, color: "var(--color-primary)" }],
+        segments: [{ count: cnt, color: "var(--color-chart-4)" }],
         total: cnt,
         tooltip: (
           <>

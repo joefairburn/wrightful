@@ -25,7 +25,7 @@ import { rate } from "@/lib/rate";
 import type { Props } from "./suite-size.server";
 
 const COUNT_SERIES: LineChartSeries[] = [
-  { key: "count", label: "Tests", color: "var(--color-foreground)" },
+  { key: "count", label: "Tests", color: "var(--color-chart-4)" },
 ];
 
 /**
