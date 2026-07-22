@@ -1,6 +1,6 @@
 {
-  "id": "5ea672d6-e1eb-472d-b3bf-0f0d31d5129e",
-  "prevId": "91f4ea27-f277-495f-aaf6-030d9537dafd",
+  "id": "1ab113a1-18c4-4e07-b2cc-8fdd94ef0a14",
+  "prevId": "16c9619a-da2a-42bf-80c3-2d9ad269c4b7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -497,6 +497,120 @@
           "columnsFrom": ["teamId"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.githubPrComments": {
+      "name": "githubPrComments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "repo": {
+          "name": "repo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prNumber": {
+          "name": "prNumber",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "commentId": {
+          "name": "commentId",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runId": {
+          "name": "runId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claimedAt": {
+          "name": "claimedAt",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "githubPrComments_project_repo_pr_idx": {
+          "name": "githubPrComments_project_repo_pr_idx",
+          "columns": [
+            {
+              "expression": "projectId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "repo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "prNumber",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "githubPrComments_projectId_projects_id_fk": {
+          "name": "githubPrComments_projectId_projects_id_fk",
+          "tableFrom": "githubPrComments",
+          "tableTo": "projects",
+          "columnsFrom": ["projectId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "githubPrComments_runId_runs_id_fk": {
+          "name": "githubPrComments_runId_runs_id_fk",
+          "tableFrom": "githubPrComments",
+          "tableTo": "runs",
+          "columnsFrom": ["runId"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

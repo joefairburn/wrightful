@@ -9,7 +9,8 @@ Failure clustering became a first-class, cross-run feature built on a
   failure fingerprint, computed at ingest, plus a partial index
   `testResults_project_signature_createdAt_idx (projectId, errorSignature,
 createdAt) WHERE errorSignature IS NOT NULL`. Migration
-  `20260717220925_chubby_blockbuster.sql`.
+  `20260722100729_dear_smiling_tiger.sql` (regenerated on top of main's
+  `githubPrComments` migration when the branch merged main).
 - **Ingest.** `buildResultInsertStatements` stamps each final result with
   `failureSignature(status, errorMessage, errorStack)` (new in
   `src/lib/error-signature.ts`); the queued prefill writes `null`; the

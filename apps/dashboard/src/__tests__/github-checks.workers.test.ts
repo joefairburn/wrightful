@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  buildCheckRunOutput,
-  buildCheckRunPath,
-  statusToConclusion,
-} from "@/lib/github-checks";
+import { buildCheckRunOutput, buildCheckRunPath } from "@/lib/github-checks";
+import { statusToConclusion } from "@/lib/github-run-render";
 
 /**
  * Pure core of the GitHub check-run pipeline: the merge-gate decision and the
- * rendered output. `maybePostGithubCheck` (DB + GitHub API) is integration-only
+ * rendered output. `postCheckRunSurface` (DB + GitHub API) is integration-only
  * — see `github-checks-claim.test.ts` (pglite-backed, Node lane) for the
  * claim-before-POST concurrency coverage; it can't live here because pglite
  * is deliberately Node-lane-only (see `vitest.workers.config.ts`).
@@ -83,6 +80,23 @@ describe("buildCheckRunOutput", () => {
     );
     expect(out.summary).toContain("2m 0s");
     expect(out.summary).not.toContain("60s");
+  });
+
+  it("carries a sub-minute duration whose tenth rounds to 60.0 into the minutes place instead of rendering '60.0s'", () => {
+    const out = buildCheckRunOutput(
+      {
+        status: "passed",
+        passed: 1,
+        failed: 0,
+        flaky: 0,
+        skipped: 0,
+        totalTests: 1,
+        durationMs: 59_960, // 59.96s: naive toFixed(1) yields "60.0s"
+      },
+      detailsUrl,
+    );
+    expect(out.summary).toContain("1m 0s");
+    expect(out.summary).not.toContain("60.0s");
   });
 });
 

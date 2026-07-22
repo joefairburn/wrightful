@@ -371,6 +371,31 @@ export const githubInstallations = pgTable(
   ],
 );
 
+/** One App-posted sticky comment per project, repository, and pull request. */
+export const githubPrComments = pgTable(
+  "githubPrComments",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("projectId")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    repo: text("repo").notNull(),
+    prNumber: integer("prNumber").notNull(),
+    commentId: big("commentId"),
+    runId: text("runId").references(() => runs.id, { onDelete: "set null" }),
+    claimedAt: big("claimedAt"),
+    createdAt: big("createdAt").notNull(),
+    updatedAt: big("updatedAt").notNull(),
+  },
+  (t) => [
+    uniqueIndex("githubPrComments_project_repo_pr_idx").on(
+      t.projectId,
+      t.repo,
+      t.prNumber,
+    ),
+  ],
+);
+
 // ---------- Test data (runs and children) ----------
 
 export const runs = pgTable(
@@ -490,7 +515,7 @@ export const runs = pgTable(
     }),
     /**
      * The GitHub check-run id created for this run, or null. Lets the terminal
-     * path (`completeRun` / `finalizeStaleRun` → `maybePostGithubCheck`) PATCH
+     * path (`completeRun` / `finalizeStaleRun` → `postGithubRunSurfaces`) PATCH
      * the existing check on a re-complete instead of POSTing a duplicate.
      * Always a real check-run id, or null — never a sentinel.
      */
