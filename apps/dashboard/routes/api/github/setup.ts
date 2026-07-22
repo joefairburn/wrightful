@@ -8,7 +8,8 @@ import { getUserGithubAccessToken } from "@/lib/auth-users";
 import { resolveTeamBySlug } from "@/lib/authz";
 import { githubAppEnabled } from "@/lib/config";
 import {
-  fetchInstallationAccountLogin,
+  fetchGithubUserLogin,
+  fetchInstallationAccount,
   verifyUserAdministersInstallation,
 } from "@/lib/github-app";
 import { isUniqueViolation } from "@/lib/db-batch";
@@ -71,32 +72,11 @@ export const GET = defineHandler(async (c) => {
       "Connect your GitHub account (sign in with GitHub) before linking an installation.",
     );
   }
-  const ownership = await verifyUserAdministersInstallation(
-    githubToken,
-    installationId,
-  );
-  if (ownership === "denied") {
-    return GENERAL_FLASH.fail(
-      c,
-      here,
-      "githubError",
-      "You don't have admin access to this GitHub installation, so it can't be linked to your team.",
-    );
-  }
-  if (ownership === "error") {
-    return GENERAL_FLASH.fail(
-      c,
-      here,
-      "githubError",
-      "Could not verify your access to this GitHub installation. Please try again.",
-    );
-  }
-
-  // `nowSeconds` is reused below for the githubInstallations row timestamps; the
-  // App creds + JWT clock for the lookup now live inside the github-app seam.
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const accountLogin = await fetchInstallationAccountLogin(installationId);
-  if (!accountLogin) {
+  // Resolve the installation's owner up front (via the App JWT — trusted,
+  // server-side). It's both the persistence key (`accountLogin`) and, for a
+  // personal install, the ownership proof.
+  const account = await fetchInstallationAccount(installationId);
+  if (!account) {
     return GENERAL_FLASH.fail(
       c,
       here,
@@ -104,6 +84,47 @@ export const GET = defineHandler(async (c) => {
       "Could not read the GitHub installation. Please try again.",
     );
   }
+
+  // Ownership proof, two routes. A `User`-type installation is administered
+  // ONLY by that account, so matching the signed-in token's own login (via
+  // `GET /user`, which any valid user token can call) is a complete admin proof
+  // — and it sidesteps `/user/installations`, which a minimal-scope
+  // (`user:email`) OAuth token can be refused. Org installs, and any personal
+  // install whose owner doesn't match, defer to GitHub's own installation list.
+  // An attacker can therefore only ever fast-path an install on THEIR OWN
+  // account; every other case still hits the `/user/installations` barrier.
+  let authorized = false;
+  if (account.type === "User") {
+    const userLogin = await fetchGithubUserLogin(githubToken);
+    authorized =
+      !!userLogin && userLogin.toLowerCase() === account.login.toLowerCase();
+  }
+  if (!authorized) {
+    const ownership = await verifyUserAdministersInstallation(
+      githubToken,
+      installationId,
+    );
+    if (ownership === "denied") {
+      return GENERAL_FLASH.fail(
+        c,
+        here,
+        "githubError",
+        "You don't have admin access to this GitHub installation, so it can't be linked to your team.",
+      );
+    }
+    if (ownership === "error") {
+      return GENERAL_FLASH.fail(
+        c,
+        here,
+        "githubError",
+        "Could not verify your access to this GitHub installation. Please try again.",
+      );
+    }
+  }
+
+  // `nowSeconds` is reused below for the githubInstallations row timestamps.
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const accountLogin = account.login;
 
   // A GitHub installation links to exactly ONE team. `installation_id` is an
   // enumerable, attacker-suppliable integer, so a blind upsert keyed on it would

@@ -1,4 +1,5 @@
 import { env } from "void/env";
+import { logger } from "void/log";
 import { githubFetch, mintAppJwt } from "@/lib/github-http";
 
 /**
@@ -108,6 +109,13 @@ export function userInstallationsInclude(
  * non-OK/parse/network failure. Do NOT downgrade this to trusting
  * `installation_id` — it's the sole barrier between an enumerable integer and
  * another org's merge gate.
+ *
+ * This is the ORG path (and the fallback for any personal install the caller's
+ * fast path didn't already authorize): the setup callback short-circuits a
+ * `User`-type installation whose owner login matches the signed-in user before
+ * calling this, because a minimal-scope (`user:email`) OAuth token can be
+ * rejected by `/user/installations`. The `logger.warn` on the non-OK/throw
+ * paths surfaces the otherwise-swallowed GitHub status for diagnosis.
  */
 export async function verifyUserAdministersInstallation(
   userAccessToken: string,
@@ -120,7 +128,15 @@ export async function verifyUserAdministersInstallation(
         { method: "GET" },
         userAccessToken,
       );
-      if (!response.ok) return "error";
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        logger.warn("github verify: GET /user/installations non-OK", {
+          status: response.status,
+          installationId,
+          detail: detail.slice(0, 200),
+        });
+        return "error";
+      }
       const body = (await response.json().catch(() => null)) as {
         installations?: { id?: number }[];
       } | null;
@@ -133,19 +149,25 @@ export async function verifyUserAdministersInstallation(
       if (installations.length < 100) break;
     }
     return "denied";
-  } catch {
+  } catch (err) {
+    logger.warn("github verify: GET /user/installations threw", {
+      installationId,
+      message: err instanceof Error ? err.message : String(err),
+    });
     return "error";
   }
 }
 
 /**
- * Resolve the account login an installation is installed on (the repo owner).
- * Reads the App creds + JWT clock internally; the caller supplies only the
- * `installationId`.
+ * Resolve the account an installation is installed on — its `login` (the repo
+ * owner) and `type` (`"User"` for a personal install, `"Organization"` for an
+ * org). Reads the App creds + JWT clock internally; the caller supplies only
+ * the `installationId`. Null on any non-OK/unparseable response or a missing
+ * login.
  */
-export async function fetchInstallationAccountLogin(
+export async function fetchInstallationAccount(
   installationId: number,
-): Promise<string | null> {
+): Promise<{ login: string; type: string } | null> {
   const { appId, privateKeyPem } = appCredentials();
   const jwt = await mintAppJwt(
     appId,
@@ -159,7 +181,45 @@ export async function fetchInstallationAccountLogin(
   );
   if (!response.ok) return null;
   const body = (await response.json().catch(() => ({}))) as {
-    account?: { login?: string };
+    account?: { login?: string; type?: string };
   };
-  return body.account?.login ?? null;
+  const login = body.account?.login;
+  if (!login) return null;
+  return { login, type: body.account?.type ?? "" };
+}
+
+/**
+ * Resolve just the account login an installation is installed on (the repo
+ * owner) — the setup callback's persistence key. Thin wrapper over
+ * {@link fetchInstallationAccount}.
+ */
+export async function fetchInstallationAccountLogin(
+  installationId: number,
+): Promise<string | null> {
+  return (await fetchInstallationAccount(installationId))?.login ?? null;
+}
+
+/**
+ * The GitHub login for a user access token (`GET /user`). Unlike
+ * `/user/installations`, this works with any valid user token regardless of
+ * OAuth scope, so it doubles as a token-validity probe: null means the token is
+ * missing/expired/rejected (logged), not that the user has no login. Used by
+ * the setup callback's personal-account ownership fast path.
+ */
+export async function fetchGithubUserLogin(
+  userAccessToken: string,
+): Promise<string | null> {
+  const response = await githubFetch(
+    "/user",
+    { method: "GET" },
+    userAccessToken,
+  );
+  if (!response.ok) {
+    logger.warn("github verify: GET /user non-OK", {
+      status: response.status,
+    });
+    return null;
+  }
+  const body = (await response.json().catch(() => ({}))) as { login?: string };
+  return body.login ?? null;
 }
