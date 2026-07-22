@@ -9,8 +9,8 @@ import {
 } from "@/components/analytics/line-chart";
 import { DeferredSection } from "@/components/defer-error-boundary";
 import { PageHeader } from "@/components/page-header";
-import { RunHistoryBranchFilter } from "@/components/run-history-branch-filter";
-import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
+import { RunHistoryBranchFilter } from "@/components/run/history-branch-filter";
+import { ALL_BRANCHES } from "@/components/run/history-branch-filter.shared";
 import { ChartSkeleton, KpiCardSkeleton } from "@/components/skeletons";
 import { Card, CardPanel } from "@/components/ui/card";
 import { alignBuckets } from "@/lib/analytics/bucketing";

@@ -4,8 +4,8 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { fetch } from "void/client";
 import { memo, useMemo } from "react";
-import { GroupRowsSkeleton } from "@/components/run-progress-skeletons";
-import { GroupStatusCount, TestRow } from "@/components/run-progress-row";
+import { GroupRowsSkeleton } from "@/components/run/progress-skeletons";
+import { GroupStatusCount, TestRow } from "@/components/run/progress-row";
 import { StatusGlyph } from "@/components/status-glyph";
 import {
   type GroupByAxis,

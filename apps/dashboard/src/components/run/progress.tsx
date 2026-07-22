@@ -7,11 +7,11 @@ import {
 } from "@tanstack/react-query";
 import { fetch } from "void/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TestGroup } from "@/components/run-progress-group";
+import { TestGroup } from "@/components/run/progress-group";
 import {
   GroupHeaderSkeleton,
   TestsListSkeleton,
-} from "@/components/run-progress-skeletons";
+} from "@/components/run/progress-skeletons";
 import { ReplayModalHost } from "@/components/trace-viewer-dialog";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import {

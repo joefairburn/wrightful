@@ -3,7 +3,7 @@ import { scaleLinear } from "@visx/scale";
 import { Line } from "@visx/shape";
 import { Link } from "@void/react";
 import { ChartTooltipProvider } from "@/components/analytics/chart-tooltip";
-import { RunHistoryBarTrigger } from "@/components/run-history-bar-hover";
+import { RunHistoryBarTrigger } from "@/components/run/history-bar-hover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/cn";
 import { statusToken } from "@/lib/status";

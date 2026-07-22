@@ -17,7 +17,7 @@ import { QuarantineControl } from "@/components/quarantine-control";
 import {
   RunHistoryChart,
   RunHistoryChartSkeleton,
-} from "@/components/run-history-chart";
+} from "@/components/run/history-chart";
 import { StatusBadge } from "@/components/status-badge";
 import { TestErrorAlert } from "@/components/test-error-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";

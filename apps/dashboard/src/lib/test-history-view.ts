@@ -1,4 +1,4 @@
-import type { RunHistoryPoint } from "@/components/run-history-chart";
+import type { RunHistoryPoint } from "@/components/run/history-chart";
 import { statusGroupKey } from "@/lib/status";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 
