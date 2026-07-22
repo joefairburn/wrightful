@@ -1,4 +1,4 @@
-import { and, db, desc, eq, lt, or } from "void/db";
+import { and, db, desc, eq, inArray, lt, or } from "void/db";
 import { runs, testResults } from "@schema";
 import { childByRunWhere, runByIdWhere, runScopeWhere } from "@/lib/scope";
 import type { TenantScope } from "@/lib/scope";
@@ -287,10 +287,22 @@ export interface DiffRunRef {
 
 /**
  * Resolve the natural baseline for a head run: the most recent run on the SAME
- * branch as `headRun` with status `passed`, created BEFORE the head run —
- * excluding the head run itself and any later runs. Returns `null` when there
- * is no suitable base (no prior passing run on the branch, or the head run has
- * no branch).
+ * branch as `headRun` with a status in `opts.statuses` (default: just
+ * `passed`), created BEFORE the head run — excluding the head run itself and
+ * any later runs. Returns `null` when there is no suitable base (no prior
+ * matching run on the branch, or the head run has no branch).
+ *
+ * `opts.statuses` lets a caller widen the baseline beyond `passed`: the
+ * sticky PR-comment path (`@/lib/github-pr-comment`) passes
+ * `TERMINAL_RUN_STATUSES` so a failure already present on the previous push's
+ * run classifies as a *known* failure instead of reading as new just because
+ * that push didn't fully pass.
+ *
+ * `opts.pr` narrows the baseline to the SAME `(repo, prNumber)`: branch names
+ * are not unique across PRs (two fork PRs can both report head ref `fix`
+ * while `repo` stays the target repository), so the PR-comment path must not
+ * adopt an unrelated PR's run as its baseline and mislabel its failures as
+ * known-vs-new. The diff page keeps the branch-wide default.
  *
  * Scoped by `(teamId, projectId)` via `runScopeWhere` — served by
  * `runs_project_branch_created_at_idx` `(projectId, branch, createdAt)`.
@@ -307,6 +319,10 @@ export interface DiffRunRef {
 export async function resolveBaseRun(
   scope: TenantScope,
   headRun: Pick<DiffRunRef, "id" | "branch" | "createdAt">,
+  opts: {
+    statuses?: readonly string[];
+    pr?: { repo: string; prNumber: number };
+  } = {},
 ): Promise<DiffRunRef | null> {
   // No branch (null or empty/whitespace) → no "same branch" baseline. An empty
   // string must NOT fall through to `eq(branch, "")`, which would group every
@@ -314,6 +330,10 @@ export async function resolveBaseRun(
   const branch = headRun.branch?.trim();
   if (!branch) return null;
 
+  const statuses = opts.statuses ?? ["passed"];
+  const prFilter = opts.pr
+    ? [eq(runs.repo, opts.pr.repo), eq(runs.prNumber, opts.pr.prNumber)]
+    : [];
   const rows = await db
     .select({
       id: runs.id,
@@ -328,7 +348,8 @@ export async function resolveBaseRun(
       and(
         runScopeWhere(scope),
         eq(runs.branch, branch),
-        eq(runs.status, "passed"),
+        ...prFilter,
+        inArray(runs.status, statuses),
         or(
           lt(runs.createdAt, headRun.createdAt),
           and(eq(runs.createdAt, headRun.createdAt), lt(runs.id, headRun.id)),

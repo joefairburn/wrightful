@@ -18,7 +18,7 @@ import {
   isUniqueViolation,
   runBatch,
 } from "@/lib/db-batch";
-import { maybePostGithubCheck } from "@/lib/github-checks";
+import { postGithubRunSurfaces } from "@/lib/github-run-surfaces";
 import { setCodeownersFile } from "@/lib/owners-repo";
 import {
   childByTestResultsWhere,
@@ -1662,10 +1662,9 @@ export async function completeRun(
     scope,
   );
   await bumpTeamActivity(scope.teamId, nowSeconds);
-  // Best-effort GitHub check run (no-op unless the App is configured + the
-  // repo's org installed it). Awaited per the no-fire-and-forget rule; it
-  // swallows its own errors so a GitHub outage never fails /complete.
-  await maybePostGithubCheck(runId, scope.projectId);
+  // Best-effort: posts both GitHub surfaces (check run + sticky PR comment)
+  // and swallows its own errors.
+  await postGithubRunSurfaces(runId, scope.projectId);
 
   return { kind: "ok", status: summary?.status ?? payload.status };
 }
@@ -1806,9 +1805,10 @@ async function completeShardedRun(
     await broadcastRunProgress(runId, scope.projectId, summary);
   }
 
-  // Post the merge-gating GitHub check only once the run is actually terminal —
-  // an in-progress (still-sharding) run must not publish a "completed" check.
-  if (allDone) await maybePostGithubCheck(runId, scope.projectId);
+  // Do not publish completed GitHub surfaces until every shard is done.
+  if (allDone) {
+    await postGithubRunSurfaces(runId, scope.projectId);
+  }
 
   return {
     kind: "ok",
@@ -1878,9 +1878,8 @@ export async function finalizeStaleRun(
     { projectId: run.projectId },
     { requireStatusFlip: true },
   );
-  // Watchdog-finalized runs (CI killed before /complete) still post their check
-  // — same best-effort, self-silencing path as completeRun.
-  await maybePostGithubCheck(run.id, run.projectId);
+  // Watchdog-finalized runs still update the best-effort GitHub surfaces.
+  await postGithubRunSurfaces(run.id, run.projectId);
 }
 
 /** Counts a watchdog sweep emits: rows seen, finalized, and failed. */

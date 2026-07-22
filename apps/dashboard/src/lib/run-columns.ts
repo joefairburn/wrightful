@@ -15,7 +15,7 @@ import { runs } from "@schema";
  * future secret column added to `runs`.
  *
  * `githubCheckClaimedAt` is withheld for a different reason: not a secret, just
- * server-side coordination state (the claim `maybePostGithubCheck` in
+ * server-side coordination state (the claim `postCheckRunSurface` in
  * `@/lib/github-checks` CASes on to dedupe concurrent check-run POSTs) that no
  * page component reads.
  *

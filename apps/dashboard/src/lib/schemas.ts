@@ -218,8 +218,22 @@ export const AppendResultsPayloadSchema = z.object({
 });
 export type AppendResultsPayload = z.infer<typeof AppendResultsPayloadSchema>;
 
+/**
+ * A run's terminal statuses (the `status` values `completeRun` accepts and
+ * that a finished run can settle into). Canonical list — derive, don't
+ * restate: `CompleteRunPayloadSchema.status` below builds its `z.enum` from
+ * this, and `@/lib/github-pr-comment` reuses it (as `TERMINAL_RUN_STATUSES`)
+ * to select the previous terminal run as a PR-comment diff baseline.
+ */
+export const TERMINAL_RUN_STATUSES = [
+  "passed",
+  "failed",
+  "timedout",
+  "interrupted",
+] as const;
+
 export const CompleteRunPayloadSchema = z.object({
-  status: z.enum(["passed", "failed", "timedout", "interrupted"]),
+  status: z.enum(TERMINAL_RUN_STATUSES),
   durationMs: z.number().int().min(0),
   shard: ShardSchema.optional(),
   completedAt: BackdateSeconds,

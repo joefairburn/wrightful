@@ -108,7 +108,7 @@ export const GET = defineHandler(async (c) => {
   // A GitHub installation links to exactly ONE team. `installation_id` is an
   // enumerable, attacker-suppliable integer, so a blind upsert keyed on it would
   // let any signed-in team owner REPOINT another team's connected installation
-  // to themselves — and then abuse its token (via `maybePostGithubCheck`) to
+  // to themselves — and then abuse its token (via `postGithubRunSurfaces`) to
   // post merge-gating check runs on that org's repos. Look up the current link
   // first and refuse to steal one that belongs to a different team; re-running
   // setup for the SAME team stays idempotent.
