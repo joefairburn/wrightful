@@ -1,5 +1,6 @@
 import { Link, PREFETCH_STABLE } from "@/components/ui/link";
 import { RowLink } from "@/components/row-link";
+import { ChevronsUpDown, ChevronDown, ChevronUp } from "lucide-react";
 import { Fragment, use } from "react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import { DeferredSection } from "@/components/defer-error-boundary";
@@ -31,6 +32,11 @@ import { groupCatalogRows } from "@/lib/group-catalog-rows";
 import { makeHrefBuilder } from "@/lib/page-links";
 import { statusToken } from "@/lib/status";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
+import {
+  defaultTestsSortDirection,
+  type TestsSortDirection,
+  type TestsSortKey,
+} from "@/lib/tests-catalog-sort";
 import type { Props, TestsPageRow } from "./tests.server";
 
 const GROUP_OPTIONS = ["none", "file", "suite"] as const;
@@ -62,6 +68,7 @@ export default function TestsPage({
   tags,
   availableTags,
   group,
+  sort,
   catalog,
   requestedPage,
   pathname,
@@ -75,6 +82,11 @@ export default function TestsPage({
     q,
     tag: tagParam,
     group,
+    sort: sort.key === "last-seen" ? null : sort.key,
+    direction:
+      sort.direction === defaultTestsSortDirection(sort.key)
+        ? null
+        : sort.direction,
     // The raw URL page (eager) preserves the current page across a group
     // toggle; the clamped page streams with the deferred slice.
     page: requestedPage > 1 ? String(requestedPage) : null,
@@ -92,10 +104,19 @@ export default function TestsPage({
     });
   };
   const groupValue: GroupOption = group ?? "none";
+  const sortHref = (key: TestsSortKey): string => {
+    const direction: TestsSortDirection =
+      sort.key === key
+        ? sort.direction === "asc"
+          ? "desc"
+          : "asc"
+        : defaultTestsSortDirection(key);
+    return hrefWith({ sort: key, direction, page: null });
+  };
 
   // A deferred region that fails latches its error boundary; clear it when the
   // filters/page change so the SPA-nav re-fetch re-attempts the region.
-  const resetKey = `${range}:${branchParam ?? ""}:${q}:${tagParam ?? ""}:${requestedPage}`;
+  const resetKey = `${range}:${branchParam ?? ""}:${q}:${tagParam ?? ""}:${sort.key}:${sort.direction}:${requestedPage}`;
 
   return (
     <>
@@ -107,6 +128,8 @@ export default function TestsPage({
           {branchParam ? (
             <input name="branch" type="hidden" value={branchParam} />
           ) : null}
+          <input name="sort" type="hidden" value={sort.key} />
+          <input name="direction" type="hidden" value={sort.direction} />
           <SearchFilterInput
             defaultValue={q}
             name="q"
@@ -158,7 +181,10 @@ export default function TestsPage({
         </div>
       )}
 
-      <DeferredSection resetKey={resetKey} skeleton={<TestsCatalogSkeleton />}>
+      <DeferredSection
+        resetKey={resetKey}
+        skeleton={<TestsCatalogSkeleton sort={sort} sortHref={sortHref} />}
+      >
         <TestsCatalogRegion
           base={base}
           branchFilter={branchFilter}
@@ -167,6 +193,8 @@ export default function TestsPage({
           pageHref={pageHref}
           q={q}
           range={range}
+          sort={sort}
+          sortHref={sortHref}
         />
       </DeferredSection>
     </>
@@ -184,6 +212,8 @@ function TestsCatalogRegion({
   q,
   range,
   branchFilter,
+  sort,
+  sortHref,
 }: {
   catalog: Props["catalog"];
   base: string;
@@ -192,6 +222,8 @@ function TestsCatalogRegion({
   q: string;
   range: string;
   branchFilter: string | null;
+  sort: Props["sort"];
+  sortHref: (key: TestsSortKey) => string;
 }) {
   const { rows, totalUniqueTests, currentPage, totalPages, fromRow, toRow } =
     use(catalog);
@@ -221,7 +253,7 @@ function TestsCatalogRegion({
     <>
       <div className="flex-1 overflow-y-auto min-h-0">
         <Table className="table-fixed" stickyHeader>
-          <TestsCatalogHead />
+          <TestsCatalogHead sort={sort} sortHref={sortHref} />
           <TableBody>
             {group
               ? groupCatalogRows(rows, group).map((g) => (
@@ -281,20 +313,112 @@ function TestsCatalogRegion({
 
 /** Shared 6-column header used by the live table and its skeleton so the
  *  fixed column widths can't drift between states. */
-function TestsCatalogHead() {
+function TestsCatalogHead({
+  sort,
+  sortHref,
+}: {
+  sort: Props["sort"];
+  sortHref: (key: TestsSortKey) => string;
+}) {
   return (
     <TableHeader className="sticky top-0 z-20 bg-bg-0/95 backdrop-blur-sm">
       <TableRow>
         <TableHead className="w-10 px-4" />
-        <TableHead className="px-4">Test</TableHead>
-        <TableHead className="w-[90px] px-4 text-right">Total runs</TableHead>
+        <SortableHead
+          href={sortHref("test")}
+          label="Test"
+          sort={sort}
+          sortKey="test"
+        />
+        <SortableHead
+          align="right"
+          className="w-[90px]"
+          href={sortHref("runs")}
+          label="Total runs"
+          sort={sort}
+          sortKey="runs"
+        />
         <TableHead className="w-[200px] px-4">Mix</TableHead>
-        <TableHead className="w-[110px] px-4 text-right">
-          Avg duration
-        </TableHead>
-        <TableHead className="w-[100px] px-4 text-right">Last seen</TableHead>
+        <SortableHead
+          align="right"
+          className="w-[110px]"
+          href={sortHref("duration")}
+          label="Avg duration"
+          sort={sort}
+          sortKey="duration"
+        />
+        <SortableHead
+          align="right"
+          className="w-[100px]"
+          href={sortHref("last-seen")}
+          label="Last seen"
+          sort={sort}
+          sortKey="last-seen"
+        />
       </TableRow>
     </TableHeader>
+  );
+}
+
+function SortableHead({
+  label,
+  sortKey,
+  sort,
+  href,
+  align = "left",
+  className,
+}: {
+  label: string;
+  sortKey: TestsSortKey;
+  sort: Props["sort"];
+  href: string;
+  align?: "left" | "right";
+  className?: string;
+}) {
+  const active = sort.key === sortKey;
+  const nextDirection = active
+    ? sort.direction === "asc"
+      ? "descending"
+      : "ascending"
+    : defaultTestsSortDirection(sortKey) === "asc"
+      ? "ascending"
+      : "descending";
+  return (
+    <TableHead
+      aria-sort={
+        active
+          ? sort.direction === "asc"
+            ? "ascending"
+            : "descending"
+          : undefined
+      }
+      className={cn("p-0", className)}
+    >
+      <Link
+        aria-label={`Sort by ${label}, ${nextDirection}`}
+        className={cn(
+          "flex h-10 w-full items-center gap-1 px-4 text-fg-3 transition-colors hover:text-fg-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          align === "right" && "justify-end",
+        )}
+        href={href}
+      >
+        {label}
+        <span
+          aria-hidden
+          className="inline-flex size-3 items-center justify-center"
+        >
+          {active ? (
+            sort.direction === "asc" ? (
+              <ChevronUp className="size-3" />
+            ) : (
+              <ChevronDown className="size-3" />
+            )
+          ) : (
+            <ChevronsUpDown className="size-3 opacity-45" />
+          )}
+        </span>
+      </Link>
+    </TableHead>
   );
 }
 
@@ -302,12 +426,18 @@ function TestsCatalogHead() {
  *  single-line under `leading-none` (`h-[13px]` ≈ 38px row). Row count is a
  *  fixed placeholder — the real count only exists post-query; the table is the
  *  terminal region, so it resizes in place without shifting anything above. */
-function TestsCatalogSkeleton() {
+function TestsCatalogSkeleton({
+  sort,
+  sortHref,
+}: {
+  sort: Props["sort"];
+  sortHref: (key: TestsSortKey) => string;
+}) {
   return (
     <>
       <div className="flex-1 overflow-y-auto min-h-0">
         <Table className="table-fixed" stickyHeader>
-          <TestsCatalogHead />
+          <TestsCatalogHead sort={sort} sortHref={sortHref} />
           <TableBody>
             {Array.from({ length: SKELETON_ROWS }, (_, i) => (
               <TableRow key={i}>

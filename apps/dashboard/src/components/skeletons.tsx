@@ -73,7 +73,7 @@ export function ChartSkeleton({
 
 /**
  * Fallback matching {@link TablePaginationFooter}'s box (border-t, px-6 py-3):
- * a "Showing …" line on the left and, when `showPager`, the page-number strip
+ * a "Showing …" line on the left and, when `showPager`, the previous/next strip
  * on the right — so a paginated table reserves the same footer height in both
  * states and doesn't jump when the deferred rows resolve. Pass `showPager`
  * exactly as the real footer decides it (usually `totalPages > 1`; always for
@@ -90,12 +90,12 @@ export function TablePaginationFooterSkeleton({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-4 border-t border-line-1 px-6 py-3",
+        "flex min-h-15 items-center justify-between gap-4 border-t border-line-1 px-6 py-3 sm:min-h-14",
         className,
       )}
     >
       <Skeleton className="h-4 w-40" />
-      {showPager ? <Skeleton className="h-8 w-56" /> : null}
+      {showPager ? <Skeleton className="h-8 w-64" /> : null}
     </div>
   );
 }

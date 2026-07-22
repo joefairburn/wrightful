@@ -2,14 +2,11 @@ import { Link } from "@/components/ui/link";
 import {
   Pagination,
   PaginationContent,
-  PaginationEllipsis,
   PaginationItem,
-  PaginationLink,
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
 import { cn } from "@/lib/cn";
-import { buildPageWindow } from "@/lib/page-window";
 
 export interface TablePaginationFooterProps {
   /** 1-indexed start row of the current page (0 when there are no items). */
@@ -21,12 +18,11 @@ export interface TablePaginationFooterProps {
   /** Singular noun used in the summary, e.g. `"test"` → "tests". */
   itemNoun: string;
   /**
-   * Numbered-page wiring — omit all three for unpaginated lists (the footer
-   * then renders only the "Showing …" line). Mutually exclusive with
+   * Offset-page wiring. The footer derives previous/next links from these
+   * values; omit all three for unpaginated lists. Mutually exclusive with
    * `prevHref`/`nextHref` (a table is either offset- or keyset-paginated, never
-   * both). `currentPage`/`totalPages` without `pageHref` are the cursor mode's
-   * "Page X of Y" label (keyset knows where you are but can't link to an
-   * arbitrary page).
+   * both). `currentPage`/`totalPages` without `pageHref` supply the cursor
+   * mode's "Page X of Y" label.
    */
   currentPage?: number;
   totalPages?: number;
@@ -43,12 +39,11 @@ export interface TablePaginationFooterProps {
 }
 
 /**
- * Footer strip for paginated tables: "Showing X–Y of N items" on the
- * left, page-number Pagination on the right. Used by tests / slowest-
- * tests / runs-list.
+ * Footer strip for tables: "Showing X–Y of N items" on the left and a shared
+ * previous/next pager on the right when the list is paginated.
  *
- * Caller is responsible for hiding the footer when there's only one
- * page (most callers do; not all).
+ * The minimum height includes enough room for the pager even when a list is
+ * unpaginated, so table footers do not change height between pages.
  */
 export function TablePaginationFooter({
   fromRow,
@@ -63,7 +58,7 @@ export function TablePaginationFooter({
   className,
 }: TablePaginationFooterProps): React.ReactElement {
   const plural = totalCount === 1 ? itemNoun : `${itemNoun}s`;
-  const numberedPaginated =
+  const offsetPaginated =
     pageHref != null &&
     currentPage != null &&
     totalPages != null &&
@@ -71,11 +66,22 @@ export function TablePaginationFooter({
   const cursorPaginated =
     (prevHref !== undefined || nextHref !== undefined) &&
     (prevHref != null || nextHref != null);
+  const showPager = offsetPaginated || cursorPaginated;
+  const resolvedPrevHref = offsetPaginated
+    ? currentPage > 1
+      ? pageHref(currentPage - 1)
+      : null
+    : prevHref;
+  const resolvedNextHref = offsetPaginated
+    ? currentPage < totalPages
+      ? pageHref(currentPage + 1)
+      : null
+    : nextHref;
 
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-4 border-t border-line-1 shrink-0 px-6 py-3 text-xs font-mono text-fg-3",
+        "flex min-h-15 items-center justify-between gap-4 border-t border-line-1 shrink-0 px-6 py-3 text-xs font-mono text-fg-3 sm:min-h-14",
         className,
       )}
     >
@@ -84,14 +90,7 @@ export function TablePaginationFooter({
           ? `No ${plural}`
           : `Showing ${fromRow}–${toRow} of ${totalCount.toLocaleString()} ${plural}`}
       </span>
-      {numberedPaginated && (
-        <PaginationStrip
-          currentPage={currentPage}
-          pageHref={pageHref}
-          totalPages={totalPages}
-        />
-      )}
-      {cursorPaginated && (
+      {showPager && (
         <div className="flex items-center gap-3">
           {currentPage != null && totalPages != null && totalPages > 1 && (
             <span>
@@ -99,15 +98,18 @@ export function TablePaginationFooter({
               {totalPages.toLocaleString()}
             </span>
           )}
-          <CursorPaginationStrip nextHref={nextHref} prevHref={prevHref} />
+          <PaginationStrip
+            nextHref={resolvedNextHref}
+            prevHref={resolvedPrevHref}
+          />
         </div>
       )}
     </div>
   );
 }
 
-/** The prev/next-only strip for keyset-paginated tables (no numbered pages). */
-function CursorPaginationStrip({
+/** The shared prev/next-only strip for offset- and keyset-paginated tables. */
+function PaginationStrip({
   prevHref,
   nextHref,
 }: {
@@ -131,69 +133,6 @@ function CursorPaginationStrip({
             render={nextHref ? <Link href={nextHref} /> : undefined}
             aria-disabled={!nextHref}
             className={cn(!nextHref && "pointer-events-none opacity-50")}
-          />
-        </PaginationItem>
-      </PaginationContent>
-    </Pagination>
-  );
-}
-
-/** The page-number strip — split out so the required props stay non-optional. */
-function PaginationStrip({
-  currentPage,
-  totalPages,
-  pageHref,
-}: {
-  currentPage: number;
-  totalPages: number;
-  pageHref: (page: number) => string;
-}): React.ReactElement {
-  const pageWindow = buildPageWindow(currentPage, totalPages);
-  const prevHref = currentPage > 1 ? pageHref(currentPage - 1) : undefined;
-  const nextHref =
-    currentPage < totalPages ? pageHref(currentPage + 1) : undefined;
-  return (
-    <Pagination className="mx-0 w-auto justify-end">
-      <PaginationContent>
-        {/* `render={<Link/>}` swaps the literal `<a>` for @void/react's
-         * SPA <Link> — a page change re-runs the loader without a full
-         * document navigation. Disabled prev/next keep the plain <a>
-         * (no href, pointer-events-none). */}
-        <PaginationItem>
-          <PaginationPrevious
-            href={prevHref}
-            render={prevHref ? <Link href={prevHref} /> : undefined}
-            aria-disabled={currentPage === 1}
-            className={cn(
-              currentPage === 1 && "pointer-events-none opacity-50",
-            )}
-          />
-        </PaginationItem>
-        {pageWindow.map((entry, i) =>
-          entry === "ellipsis" ? (
-            <PaginationItem key={`ellipsis-${i}`}>
-              <PaginationEllipsis />
-            </PaginationItem>
-          ) : (
-            <PaginationItem key={entry}>
-              <PaginationLink
-                href={pageHref(entry)}
-                isActive={entry === currentPage}
-                render={<Link href={pageHref(entry)} />}
-              >
-                {entry}
-              </PaginationLink>
-            </PaginationItem>
-          ),
-        )}
-        <PaginationItem>
-          <PaginationNext
-            href={nextHref}
-            render={nextHref ? <Link href={nextHref} /> : undefined}
-            aria-disabled={currentPage >= totalPages}
-            className={cn(
-              currentPage >= totalPages && "pointer-events-none opacity-50",
-            )}
           />
         </PaginationItem>
       </PaginationContent>

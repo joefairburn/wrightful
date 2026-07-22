@@ -26,6 +26,11 @@ import { paginateOffsetTable } from "@/lib/page-window";
 import { parsePage } from "@/lib/runs-filters";
 import type { TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
+import {
+  parseTestsSort,
+  testsCatalogOrderBy,
+  type TestsSortState,
+} from "@/lib/tests-catalog-sort";
 
 export type Props = InferProps<typeof loader>;
 
@@ -70,8 +75,8 @@ interface AggregateRow {
 
 /**
  * Test catalog loader. Two-pass query:
- *  1. Paginate testIds by `max(testResults.createdAt) DESC` with a windowed
- *     `count(*) OVER ()` to fold pagination math into the same statement.
+ *  1. Paginate testIds by the selected aggregate with a windowed `count(*)
+ *     OVER ()` to fold pagination math into the same statement.
  *  2. Aggregate per-test counters + latest title/file/status for the page slice.
  *
  * Plain `defineHandler` with manual `searchParams` parsing (matching the
@@ -99,6 +104,10 @@ export const loader = defineHandler(async (c) => {
   const group: CatalogGroupMode | null =
     groupRaw === "file" || groupRaw === "suite" ? groupRaw : null;
   const requestedPage = parsePage(url.searchParams.get("page"));
+  const sort = parseTestsSort(
+    url.searchParams.get("sort"),
+    url.searchParams.get("direction"),
+  );
 
   const [branches, availableTags] = await Promise.all([
     loadProjectBranches(scope),
@@ -122,6 +131,7 @@ export const loader = defineHandler(async (c) => {
     tags,
     availableTags,
     group,
+    sort,
     // The URL page (raw, eager) drives the toolbar hrefs that preserve the
     // current page across a group toggle; the clamped `currentPage` streams
     // with the deferred slice.
@@ -147,7 +157,15 @@ export const loader = defineHandler(async (c) => {
         pageSize: PAGE_SIZE,
         count: { fromSlice: (rows) => rows[0]?.totalDistinct ?? 0 },
         pageQuery: (offset) =>
-          runPageQuery(scope, windowStartSec, branchSql, qSql, tagSql, offset),
+          runPageQuery(
+            scope,
+            windowStartSec,
+            branchSql,
+            qSql,
+            tagSql,
+            sort,
+            offset,
+          ),
         mapRows: async (pageRows) => {
           const lastSeenById = new Map(
             pageRows.map((r) => [r.testId, r.lastSeen]),
@@ -201,8 +219,27 @@ async function runPageQuery(
   branchSql: ReturnType<typeof sql>,
   qSql: ReturnType<typeof sql>,
   tagSql: ReturnType<typeof sql>,
+  sort: TestsSortState,
   offset: number,
 ): Promise<PageQueryRow[]> {
+  const orderBy = testsCatalogOrderBy(sort);
+  // Keep the default last-seen query as lean as it was before sorting. The
+  // selected heading alone opts into the extra aggregate (or catalog join)
+  // needed for its ORDER BY; those values never cross the loader boundary.
+  const sortProjection =
+    sort.key === "test"
+      ? sql`, coalesce(t.title, max(tr.title), tr."testId") as "title"`
+      : sort.key === "runs"
+        ? sql`, count(*) as "n"`
+        : sort.key === "duration"
+          ? sql`, avg(tr."durationMs") as "avgDurationMs"`
+          : sql``;
+  const catalogJoin =
+    sort.key === "test"
+      ? sql`left join "tests" t
+          on t."projectId" = tr."projectId" and t."testId" = tr."testId"`
+      : sql``;
+  const catalogGroup = sort.key === "test" ? sql`, t.title` : sql``;
   return runRows<PageQueryRow>(sql`
     with grouped as (
       select
@@ -210,22 +247,25 @@ async function runPageQuery(
         -- createdAt is int8: a raw runRows read bypasses Drizzle's decoders, so
         -- node-postgres returns max() as a STRING (pglite returns a number,
         -- hiding it). numAggExpr casts it so lastSeen is a JS number on real pg.
-        ${numAggExpr(`max(tr."createdAt")`, { alias: `"lastSeen"` })},
-        ${intAggExpr("count(*) over ()", { alias: `"totalDistinct"` })}
+        ${numAggExpr(`max(tr."createdAt")`, { alias: `"lastSeen"` })}
+        ${sortProjection}
       from "testResults" tr
+      ${catalogJoin}
       ${testResultsScopeJoin(scope)}
         and runs."createdAt" >= ${windowStartSec}
         ${branchSql}
         ${qSql}
         ${tagSql}
-      group by tr."testId"
+      group by tr."testId"${catalogGroup}
     )
-    select "testId", "lastSeen", "totalDistinct"
+    select
+      "testId",
+      "lastSeen",
+      ${intAggExpr("count(*) over ()", { alias: `"totalDistinct"` })}
     from grouped
-    -- "testId" is a unique per-project tiebreaker so OFFSET pagination is stable:
-    -- without it, tests sharing a max(createdAt) can be skipped or duplicated
-    -- across page boundaries.
-    order by "lastSeen" desc, "testId"
+    -- Every order fragment includes testId as a unique per-project tiebreaker
+    -- so OFFSET pagination stays stable when aggregate values are equal.
+    order by ${orderBy}
     limit ${PAGE_SIZE}
     offset ${offset}
   `);
