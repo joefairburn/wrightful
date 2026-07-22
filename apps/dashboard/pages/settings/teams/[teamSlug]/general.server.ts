@@ -2,6 +2,7 @@ import { all } from "better-all";
 import { defineHandler, type InferProps } from "void";
 import { and, db, eq, ne, sql } from "void/db";
 import { env } from "void/env";
+import { logger } from "void/log";
 import {
   githubInstallations,
   memberships,
@@ -11,6 +12,10 @@ import {
 } from "@schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { githubAppEnabled } from "@/lib/config";
+import {
+  fetchInstallationDetails,
+  fetchInstallationRepositories,
+} from "@/lib/github-app";
 import { numericSql } from "@/lib/db/sql-ops";
 import { runBatch } from "@/lib/db-batch";
 import { scheduleProjectArtifactCleanup } from "@/lib/project-teardown";
@@ -27,9 +32,9 @@ const hereFor = (team: { slug: string }) =>
 
 /**
  * This page's form-flash slots — one declaration shared by the actions below,
- * the loader, and the cross-route GitHub setup callback
- * (`routes/api/github/setup.ts`, the only `githubError` writer), so a typo'd
- * slot is a compile error rather than a silently-dropped banner.
+ * the loader, this page's disconnect action, and the cross-route GitHub setup
+ * callback (`routes/api/github/setup.ts`), so a typo'd slot is a compile error
+ * rather than a silently-dropped banner.
  */
 export const GENERAL_FLASH = defineFlashSlots([
   "generalError",
@@ -73,7 +78,10 @@ export const loader = defineHandler(async (c) => {
     async installations() {
       return githubEnabled
         ? db
-            .select({ accountLogin: githubInstallations.accountLogin })
+            .select({
+              installationId: githubInstallations.installationId,
+              accountLogin: githubInstallations.accountLogin,
+            })
             .from(githubInstallations)
             .where(eq(githubInstallations.teamId, team.id))
         : [];
@@ -84,6 +92,66 @@ export const loader = defineHandler(async (c) => {
     githubEnabled && appSlug
       ? `https://github.com/apps/${appSlug}/installations/new?state=${encodeURIComponent(team.slug)}`
       : null;
+
+  // The DB owns only the team↔installation link. Repository membership is
+  // GitHub-owned state, so resolve it live with an installation token. Isolate
+  // each installation and each upstream call: a revoked/stale installation
+  // must not take down General settings or hide its Disconnect control.
+  const installationSettings = await Promise.all(
+    installations.map(async (installation) => {
+      const fallbackSettingsUrl = `https://github.com/organizations/${encodeURIComponent(installation.accountLogin)}/settings/installations/${installation.installationId}`;
+      // `viewSettings` includes normal members, but an installation can expose
+      // names of private repos that have never sent a run to Wrightful. Keep
+      // that broader GitHub inventory owner-only along with the controls.
+      if (team.role !== "owner") {
+        return {
+          installationId: installation.installationId,
+          accountLogin: installation.accountLogin,
+          settingsUrl: fallbackSettingsUrl,
+          repositorySelection: null,
+          repositories: null,
+          repositoryCount: null,
+          repositoriesTruncated: false,
+        };
+      }
+
+      const [details, repositoryAccess] = await Promise.all([
+        fetchInstallationDetails(installation.installationId).catch((err) => {
+          logger.warn("github settings: installation details failed", {
+            teamId: team.id,
+            installationId: installation.installationId,
+            message: err instanceof Error ? err.message : String(err),
+          });
+          return null;
+        }),
+        fetchInstallationRepositories(installation.installationId).catch(
+          (err) => {
+            logger.warn("github settings: repository list failed", {
+              teamId: team.id,
+              installationId: installation.installationId,
+              message: err instanceof Error ? err.message : String(err),
+            });
+            return null;
+          },
+        ),
+      ]);
+      const accountLogin = details?.login ?? installation.accountLogin;
+      return {
+        installationId: installation.installationId,
+        accountLogin,
+        settingsUrl:
+          details?.settingsUrl ??
+          `https://github.com/organizations/${encodeURIComponent(accountLogin)}/settings/installations/${installation.installationId}`,
+        repositorySelection: details?.repositorySelection ?? null,
+        repositories: repositoryAccess?.repositories ?? null,
+        repositoryCount: repositoryAccess?.totalCount ?? null,
+        repositoriesTruncated: repositoryAccess?.truncated ?? false,
+      };
+    }),
+  );
+  installationSettings.sort((a, b) =>
+    a.accountLogin.localeCompare(b.accountLogin),
+  );
 
   return {
     team,
@@ -96,7 +164,7 @@ export const loader = defineHandler(async (c) => {
     },
     github: {
       enabled: githubEnabled,
-      installations: installations.map((i) => i.accountLogin),
+      installations: installationSettings,
       installUrl,
     },
     ...GENERAL_FLASH.read(url),
@@ -225,6 +293,76 @@ export const actions = {
         here,
         "retentionError",
         "Could not save retention settings.",
+      );
+    }
+
+    return c.redirect(here);
+  }),
+
+  /** Disconnect one GitHub App installation from this team (owner-only). */
+  disconnectGithub: defineHandler(async (c) => {
+    const { team, here } = await requireOwnerScope(c, hereFor);
+    const form = await c.req.formData();
+    const installationId = Number(readField(form, "installationId"));
+    if (!Number.isInteger(installationId) || installationId <= 0) {
+      return GENERAL_FLASH.fail(
+        c,
+        here,
+        "githubError",
+        "Could not identify that GitHub organization.",
+      );
+    }
+
+    // Scope the lookup and delete to this team. An attacker-supplied id for a
+    // different tenant is indistinguishable from a missing row and can never
+    // disconnect the other team's installation.
+    const rows = await db
+      .select({ accountLogin: githubInstallations.accountLogin })
+      .from(githubInstallations)
+      .where(
+        and(
+          eq(githubInstallations.teamId, team.id),
+          eq(githubInstallations.installationId, installationId),
+        ),
+      )
+      .limit(1);
+    const installation = rows[0];
+    if (!installation) {
+      return GENERAL_FLASH.fail(
+        c,
+        here,
+        "githubError",
+        "That GitHub organization is no longer connected.",
+      );
+    }
+
+    await recordAudit(c, {
+      teamId: team.id,
+      action: AUDIT_ACTIONS.GITHUB_INSTALLATION_DISCONNECT,
+      targetType: "github_installation",
+      targetId: installation.accountLogin,
+      metadata: { installationId },
+    });
+
+    try {
+      await db
+        .delete(githubInstallations)
+        .where(
+          and(
+            eq(githubInstallations.teamId, team.id),
+            eq(githubInstallations.installationId, installationId),
+          ),
+        );
+    } catch (err) {
+      logMutationFailure("disconnect github installation failed", err, {
+        teamId: team.id,
+        installationId,
+      });
+      return GENERAL_FLASH.fail(
+        c,
+        here,
+        "githubError",
+        "Could not disconnect the GitHub organization. Please try again.",
       );
     }
 

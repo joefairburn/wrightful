@@ -30,6 +30,33 @@ function appCredentials(): { appId: string; privateKeyPem: string } {
   return { appId, privateKeyPem };
 }
 
+/** The installation metadata needed by the settings UI. */
+export interface GithubInstallationDetails {
+  login: string;
+  type: string;
+  /** GitHub's canonical page for changing repository access or uninstalling. */
+  settingsUrl: string;
+  repositorySelection: "all" | "selected";
+}
+
+/** A repository currently accessible to an installation token. */
+export interface GithubInstallationRepository {
+  id: number;
+  fullName: string;
+  private: boolean;
+}
+
+export interface GithubInstallationRepositories {
+  repositories: GithubInstallationRepository[];
+  totalCount: number;
+  /** True only when GitHub reports more than the defensive pagination cap. */
+  truncated: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 /**
  * Exchange the App JWT for a short-lived installation access token, which is
  * what actually authorizes repo-scoped calls (posting a check run). Reads the
@@ -62,6 +89,75 @@ export async function mintInstallationToken(
   if (!body.token)
     throw new Error("GitHub installation-token response had no token");
   return body.token;
+}
+
+const INSTALLATION_REPOSITORIES_MAX_PAGES = 10;
+
+/**
+ * List repositories the App installation can currently access. This uses an
+ * installation token (read-only for this endpoint), not the signed-in user's
+ * OAuth token. Repository grants themselves stay GitHub-managed: GitHub's
+ * add/remove REST endpoints require a classic PAT with `repo`, which Wrightful
+ * deliberately never asks users to hand over.
+ */
+export async function fetchInstallationRepositories(
+  installationId: number,
+): Promise<GithubInstallationRepositories> {
+  const token = await mintInstallationToken(installationId);
+  return fetchInstallationRepositoriesWithToken(token);
+}
+
+/** Token-level repository listing seam, exported for focused HTTP tests. */
+export async function fetchInstallationRepositoriesWithToken(
+  token: string,
+): Promise<GithubInstallationRepositories> {
+  const repositories: GithubInstallationRepository[] = [];
+  let totalCount = 0;
+
+  for (let page = 1; page <= INSTALLATION_REPOSITORIES_MAX_PAGES; page++) {
+    const response = await githubFetch(
+      `/installation/repositories?per_page=100&page=${page}`,
+      { method: "GET" },
+      token,
+    );
+    if (!response.ok) {
+      throw new Error(
+        `GitHub installation repositories failed: ${response.status} ${response.statusText}`,
+      );
+    }
+    const body: unknown = await response.json().catch(() => null);
+    if (!isRecord(body)) {
+      throw new Error("GitHub repositories response was invalid");
+    }
+
+    if (page === 1 && typeof body.total_count === "number") {
+      totalCount = body.total_count;
+    }
+    const pageRows = Array.isArray(body.repositories) ? body.repositories : [];
+    for (const repo of pageRows) {
+      if (
+        !isRecord(repo) ||
+        typeof repo.id !== "number" ||
+        typeof repo.full_name !== "string" ||
+        repo.full_name === ""
+      ) {
+        continue;
+      }
+      repositories.push({
+        id: repo.id,
+        fullName: repo.full_name,
+        private: typeof repo.private === "boolean" ? repo.private : false,
+      });
+    }
+    if (pageRows.length < 100 || repositories.length >= totalCount) break;
+  }
+
+  repositories.sort((a, b) => a.fullName.localeCompare(b.fullName));
+  return {
+    repositories,
+    totalCount: Math.max(totalCount, repositories.length),
+    truncated: repositories.length < totalCount,
+  };
 }
 
 /**
@@ -168,6 +264,19 @@ export async function verifyUserAdministersInstallation(
 export async function fetchInstallationAccount(
   installationId: number,
 ): Promise<{ login: string; type: string } | null> {
+  const details = await fetchInstallationDetails(installationId);
+  return details ? { login: details.login, type: details.type } : null;
+}
+
+/**
+ * Resolve an installation's account plus its canonical GitHub settings URL and
+ * repository-selection mode. Null on a missing/revoked installation or an
+ * unparseable response so the dashboard can keep rendering a disconnect
+ * control for a stale local link.
+ */
+export async function fetchInstallationDetails(
+  installationId: number,
+): Promise<GithubInstallationDetails | null> {
   const { appId, privateKeyPem } = appCredentials();
   const jwt = await mintAppJwt(
     appId,
@@ -182,10 +291,23 @@ export async function fetchInstallationAccount(
   if (!response.ok) return null;
   const body = (await response.json().catch(() => ({}))) as {
     account?: { login?: string; type?: string };
+    html_url?: string;
+    repository_selection?: string;
   };
   const login = body.account?.login;
   if (!login) return null;
-  return { login, type: body.account?.type ?? "" };
+  const type = body.account?.type ?? "";
+  const fallbackSettingsUrl =
+    type === "Organization"
+      ? `https://github.com/organizations/${encodeURIComponent(login)}/settings/installations/${installationId}`
+      : `https://github.com/settings/installations/${installationId}`;
+  return {
+    login,
+    type,
+    settingsUrl: body.html_url ?? fallbackSettingsUrl,
+    repositorySelection:
+      body.repository_selection === "all" ? "all" : "selected",
+  };
 }
 
 /**
