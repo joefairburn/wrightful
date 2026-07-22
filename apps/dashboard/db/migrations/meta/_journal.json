@@ -120,6 +120,13 @@
       "when": 1784275300287,
       "tag": "20260717080140_clean_psynapse",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784324415125,
+      "tag": "20260717214015_nosy_daimon_hellstrom",
+      "breakpoints": true
     }
   ]
 }

@@ -424,13 +424,17 @@ describe("resolveBaseRun", () => {
     const branchEq = leaves.find(
       (op) => op.__op === "eq" && readEq(op).column === "branch",
     );
-    const statusEq = leaves.find(
-      (op) => op.__op === "eq" && readEq(op).column === "status",
+    // status is an `inArray` (not `eq`) so `resolveBaseRun`'s optional
+    // `opts.statuses` can widen it beyond the default `["passed"]`.
+    const statusIn = leaves.find(
+      (op) =>
+        op.__op === "inArray" &&
+        (op.args[0] as { name?: unknown })?.name === "status",
     );
     expect(teamEq && readEq(teamEq).value).toBe("team_abc");
     expect(projectEq && readEq(projectEq).value).toBe("proj_xyz");
     expect(branchEq && readEq(branchEq).value).toBe("main");
-    expect(statusEq && readEq(statusEq).value).toBe("passed");
+    expect(statusIn?.args[1]).toEqual(["passed"]);
 
     // Same-second-safe "before head" boundary:
     //   or(lt(createdAt, head), and(eq(createdAt, head), lt(id, head.id)))

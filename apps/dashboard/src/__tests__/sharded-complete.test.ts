@@ -44,7 +44,7 @@ vi.mock("void/db", async () => {
   const ops = await vi.importActual<Record<string, unknown>>("void/_db");
   return { ...ops, db: h.db };
 });
-// Empty env → GitHub App off, so `maybePostGithubCheck` is a no-op (no network).
+// Empty env → GitHub App off, so `postGithubRunSurfaces` is a no-op (no network).
 vi.mock("void/env", () => ({ env: {} }));
 // The realtime broadcasts are out of scope here — swallow them.
 vi.mock("@/realtime/publish", () => ({

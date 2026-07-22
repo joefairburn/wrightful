@@ -185,7 +185,7 @@ vi.mock("@/realtime/publish", () => ({
   broadcastRunRoom: broadcastRunSpy,
 }));
 
-// completeRun calls `maybePostGithubCheck`, which reads the GitHub App env to
+// completeRun calls `postGithubRunSurfaces`, which reads the GitHub App env to
 // decide whether to fire. Empty env → App disabled → an immediate no-op (no DB
 // read, no GitHub call), keeping these ingest-pipeline assertions unchanged.
 vi.mock("void/env", () => ({ env: {} }));
