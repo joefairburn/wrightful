@@ -49,6 +49,23 @@ export function isSeparateTraceViewerOrigin(
   );
 }
 
+/**
+ * True when `pageOrigin` IS the configured separate (cookieless) viewer
+ * origin. False whenever no separate origin is configured. The server-side
+ * question ("which host is serving this request?") — the inverse perspective
+ * of `isSeparateTraceViewerOrigin`, which asks from a dashboard page whether
+ * the viewer lives elsewhere. The defensive-headers middleware keys the
+ * script-less snapshot CSP on it: snapshot scripts are only ever safe on the
+ * cookieless host itself, so every OTHER origin (the dashboard included,
+ * configured or not) keeps the strict policy.
+ */
+export function isTraceViewerHost(pageOrigin: string): boolean {
+  const viewerOrigin = traceViewerOrigin();
+  return (
+    viewerOrigin !== "" && normalizedHttpOrigin(pageOrigin) === viewerOrigin
+  );
+}
+
 export function traceViewerScopeUrl(): string {
   return `${traceViewerOrigin()}${TRACE_VIEWER_SCOPE}`;
 }

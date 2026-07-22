@@ -126,7 +126,12 @@ vendored Playwright SW sanitizer as a single point of failure for stored XSS.
 - **Safe same-origin default**: `snapshotSandbox()` drops `allow-scripts`
   unless the viewer runs on a genuinely different origin, and
   `/trace-viewer/snapshot/*` gets a `script-src 'none'` CSP
-  (`middleware/00.defensive-headers.ts`). Cost: snapshot fidelity scripts
+  (`middleware/00.defensive-headers.ts`). The strict CSP is keyed on
+  `isTraceViewerHost` — it applies on EVERY serving origin except the
+  configured cookieless viewer host itself, so the dashboard-hosted snapshot
+  scope (the same Worker serves both hostnames) can never hand
+  attacker-craftable snapshot HTML a scripting CSP under the session origin,
+  configured or not. Cost of the default: snapshot fidelity scripts
   (scroll/canvas/point marker) don't run; static DOM still renders.
 - **Configurable cookieless origin**: `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN`
   (declared in `env.ts`, read through `void/env`, normalized to an http(s)

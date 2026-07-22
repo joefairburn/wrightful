@@ -13,6 +13,7 @@ import {
 import type { Snapshot } from "@/trace-viewer/model";
 import {
   isSeparateTraceViewerOrigin,
+  isTraceViewerHost,
   snapshotSandbox,
   traceViewerBridgeOrigin,
   traceViewerOrigin,
@@ -35,6 +36,9 @@ describe("trace-viewer origin — same-origin default", () => {
     expect(traceViewerOrigin()).toBe("");
     expect(isSeparateTraceViewerOrigin("https://dash.example")).toBe(false);
     expect(traceViewerScopeUrl()).toBe("/trace-viewer/");
+    // Unconfigured, NO host is "the viewer host" — every origin keeps the
+    // strict snapshot CSP.
+    expect(isTraceViewerHost("https://dash.example")).toBe(false);
   });
 
   it("keeps the bridge origin equal to the hosting page origin", () => {
@@ -72,6 +76,16 @@ describe("trace-viewer origin — separate cookieless origin", () => {
   it("targets the configured origin for the bridge, never the page", () => {
     config.VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN = SEPARATE;
     expect(traceViewerBridgeOrigin("https://dash.example")).toBe(SEPARATE);
+  });
+
+  it("identifies ONLY the configured host as the viewer host (server-side CSP gate)", () => {
+    config.VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN = `${SEPARATE}/path/`;
+    expect(isTraceViewerHost(SEPARATE)).toBe(true);
+    // The dashboard origin is never the viewer host — it must keep the
+    // script-less snapshot CSP even in separate-origin mode.
+    expect(isTraceViewerHost("https://dash.example")).toBe(false);
+    expect(isTraceViewerHost("")).toBe(false);
+    expect(isTraceViewerHost("not-a-url")).toBe(false);
   });
 
   it("re-enables snapshot scripts safely (cross-origin to the session)", () => {

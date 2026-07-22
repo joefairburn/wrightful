@@ -1,6 +1,6 @@
 import { defineMiddleware } from "void";
 import type { Context } from "hono";
-import { isSeparateTraceViewerOrigin } from "@/trace-viewer/origin";
+import { isTraceViewerHost } from "@/trace-viewer/origin";
 
 /**
  * Security headers that must be present regardless of deployment topology.
@@ -71,9 +71,16 @@ function traceViewerPolicy(
   pageOrigin: string,
 ): Readonly<Record<string, string>> {
   const base = { ...GLOBAL_HEADERS, ...TRACE_VIEWER_HEADERS };
+  // The script-less snapshot CSP applies on EVERY origin except the configured
+  // cookieless viewer host itself. The same Worker serves both hostnames in
+  // separate-origin mode, so `/trace-viewer/snapshot/*` stays reachable on the
+  // dashboard origin — where attacker-craftable snapshot HTML must never get
+  // `script-src 'self' 'unsafe-inline' …` under the session origin. Only on
+  // the viewer host are snapshot scripts safe by design (no cookies, no
+  // dashboard DOM), mirroring `snapshotSandbox`'s allow-scripts decision.
   if (
     path.startsWith("/trace-viewer/snapshot/") &&
-    !isSeparateTraceViewerOrigin(pageOrigin)
+    !isTraceViewerHost(pageOrigin)
   ) {
     return {
       ...base,
