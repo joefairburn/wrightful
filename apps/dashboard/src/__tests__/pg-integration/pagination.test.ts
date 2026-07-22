@@ -35,8 +35,8 @@ vi.mock("@/realtime/publish", () => ({
 const { resetTables } = await import("./harness");
 const { makeTenantScope } = await import("@/lib/scope");
 const { loadRunGroupSkeleton, encodeGroupCursor } =
-  await import("@/lib/run-groups-page");
-const { loadRunResultsPage } = await import("@/lib/run-results-page");
+  await import("@/lib/runs/groups-page");
+const { loadRunResultsPage } = await import("@/lib/runs/results-page");
 const { testResults } = await import("../../../db/schema");
 const { eq } = await import("void/_db");
 

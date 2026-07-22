@@ -1,7 +1,7 @@
 import { defineHandler } from "void";
 import { runs } from "@schema";
 import { getApiKey } from "@/lib/api-auth";
-import { loadRunColumns, RUN_SUMMARY_COLUMNS } from "@/lib/run-read-model";
+import { loadRunColumns, RUN_SUMMARY_COLUMNS } from "@/lib/runs/read-model";
 import { tenantScopeForApiKey } from "@/lib/scope";
 
 /**

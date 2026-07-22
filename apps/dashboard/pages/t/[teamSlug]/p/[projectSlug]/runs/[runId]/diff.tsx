@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
-import type { FlakyDelta, PresenceChange, StatusChange } from "@/lib/run-diff";
+import type { FlakyDelta, PresenceChange, StatusChange } from "@/lib/runs/diff";
 import { statusLabel } from "@/lib/status";
 import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import type { Props } from "./diff.server";

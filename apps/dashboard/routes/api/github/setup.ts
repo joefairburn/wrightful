@@ -11,7 +11,7 @@ import {
   fetchInstallationAccountLogin,
   verifyUserAdministersInstallation,
 } from "@/lib/github-app";
-import { isUniqueViolation } from "@/lib/db-batch";
+import { isUniqueViolation } from "@/lib/db/batch";
 import { gateTeamScope } from "@/lib/settings-scope";
 // Import the general settings page's flash declaration so the `githubError` slot
 // name is compile-checked against what its loader reads (this route is the only writer).

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { BatchExecutor } from "@/lib/db-batch";
+import type { BatchExecutor } from "@/lib/db/batch";
 
 // Mechanism A (the verified email.workers.test.ts:18-25 pattern): back `void/env`
 // with a mutable config object created in `vi.hoisted` — so it's initialized

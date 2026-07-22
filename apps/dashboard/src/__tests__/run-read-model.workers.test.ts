@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { TenantScope } from "@/lib/scope";
 
 /**
- * `@/lib/run-read-model` is the canonical by-id run read-model: ONE
+ * `@/lib/runs/read-model` is the canonical by-id run read-model: ONE
  * tenant-scoped fetch+unwrap (`loadRunColumns`) behind the three run-summary
  * surfaces (MCP `get_run`, public `GET /api/v1/runs/:runId`, the session
  * `/runs/:runId/summary` route) and ONE shared base projection
@@ -61,7 +61,7 @@ vi.mock("void/db", async () => {
 
 const { runs } = await import("@schema");
 const { loadRunColumns, RUN_SUMMARY_COLUMNS } =
-  await import("@/lib/run-read-model");
+  await import("@/lib/runs/read-model");
 
 type RecordedOp = { __op: string; args: readonly unknown[] };
 

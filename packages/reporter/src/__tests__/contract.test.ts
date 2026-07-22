@@ -7,7 +7,7 @@ import {
   isReplayTraceArtifact,
   REPLAY_TRACE_ARTIFACT_NAMES as DASHBOARD_REPLAY_TRACE_ARTIFACT_NAMES,
   REPLAY_TRACE_CONTENT_TYPES as DASHBOARD_REPLAY_TRACE_CONTENT_TYPES,
-} from "../../../../apps/dashboard/src/lib/trace-artifacts.js";
+} from "../../../../apps/dashboard/src/lib/artifacts/trace.js";
 import {
   AppendResultsPayloadSchema,
   AppendResultsResponseSchema,

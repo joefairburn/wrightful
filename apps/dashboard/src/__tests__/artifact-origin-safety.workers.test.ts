@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { ArtifactRead } from "@/lib/artifacts";
+import type { ArtifactRead } from "@/lib/artifacts/store";
 import { serveArtifactBytes } from "@/lib/artifacts/serve";
 import type { R2DirectConfig } from "@/lib/config";
 import { SAFE_CONTENT_TYPES, safeContentType } from "@/lib/content-types";

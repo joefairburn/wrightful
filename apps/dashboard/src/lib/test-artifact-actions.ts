@@ -4,7 +4,7 @@ import type { ArtifactAction } from "@/components/artifact-actions";
 import {
   signArtifactDownloadToken,
   signedDownloadHref,
-} from "@/lib/artifact-tokens";
+} from "@/lib/artifacts/tokens";
 import { childByTestResultWhere, type TenantScope } from "@/lib/scope";
 
 // Order within an attempt: trace first (most useful for debugging), then the

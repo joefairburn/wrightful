@@ -2,7 +2,7 @@ import { ulid } from "ulid";
 import { and, asc, db, eq, lte, sql } from "void/db";
 import { monitorExecutions, monitors } from "@schema";
 import type { Monitor } from "@schema";
-import { runBatch } from "@/lib/db-batch";
+import { runBatch } from "@/lib/db/batch";
 import type { MonitorJob } from "@/lib/monitors/types";
 
 /**

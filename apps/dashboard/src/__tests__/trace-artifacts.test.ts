@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   isReplayTraceArtifact,
   selectReplayTracesByAttempt,
-} from "@/lib/trace-artifacts";
+} from "@/lib/artifacts/trace";
 
 describe("replay trace artifact policy", () => {
   it("requires both a canonical Playwright name and ZIP content type", () => {

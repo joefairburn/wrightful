@@ -1,5 +1,5 @@
 import { defer, defineHandler, type InferProps } from "void";
-import { computeRunDiff, resolveRunDiffTargets } from "@/lib/run-diff";
+import { computeRunDiff, resolveRunDiffTargets } from "@/lib/runs/diff";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;

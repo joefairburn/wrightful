@@ -2,7 +2,7 @@ import { defer, defineHandler, type InferProps } from "void";
 import { sql } from "void/db";
 import { loadProjectBranches } from "@/lib/branches-query";
 import { loadProjectTags } from "@/lib/tags-query";
-import { runRows } from "@/lib/db-run";
+import { runRows } from "@/lib/runs/db";
 import { intAggExpr, numAggExpr } from "@/lib/db/sql-ops";
 import {
   branchFragment,
@@ -22,7 +22,7 @@ import {
 } from "@/lib/analytics/per-test";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { paginateOffsetTable } from "@/lib/page-window";
-import { parsePage } from "@/lib/runs-filters";
+import { parsePage } from "@/lib/runs/filters";
 import type { TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 

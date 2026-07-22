@@ -862,7 +862,7 @@ export const artifacts = pgTable(
     // routes through `numericSql`, so the read side is unaffected.
     sizeBytes: big("sizeBytes").notNull(),
     /**
-     * R2 object key. Built by `buildArtifactR2Key` in `src/lib/artifacts.ts`:
+     * R2 object key. Built by `buildArtifactR2Key` in `src/lib/artifacts/store.ts`:
      * `t/<teamId>/p/<projectId>/runs/<runId>/<testResultId>/<artifactId>/<safe-filename>`.
      */
     r2Key: text("r2Key").notNull(),
@@ -894,7 +894,7 @@ export const artifacts = pgTable(
      * the same artifact set; this tuple is what makes two registrations "the
      * same artifact" so the reporter's PUT overwrites one R2 object instead of
      * minting a duplicate row + double-billing storage/egress. It is the DB
-     * mirror of `artifactIdentity()` in `src/lib/artifacts.ts` — keep the two
+     * mirror of `artifactIdentity()` in `src/lib/artifacts/store.ts` — keep the two
      * in sync (e.g. if `snapshotName` ever joins the identity for visual diffs,
      * add it to BOTH). `role` is nullable and Postgres treats NULLs as distinct
      * in unique indexes (by default), which would let role-less artifacts (the common case)

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { TenantScope } from "@/lib/scope";
-import type { RunTestStatus } from "@/lib/run-diff";
+import type { RunTestStatus } from "@/lib/runs/diff";
 
 /**
  * Run-diff tests (roadmap 2.4). Two surfaces:
@@ -50,7 +50,7 @@ vi.mock("void/db", async () => {
   return { ...stub, db };
 });
 
-const { diffRuns, resolveBaseRun, verdictOf } = await import("@/lib/run-diff");
+const { diffRuns, resolveBaseRun, verdictOf } = await import("@/lib/runs/diff");
 
 type RecordedOp = { __op: string; args: readonly unknown[] };
 

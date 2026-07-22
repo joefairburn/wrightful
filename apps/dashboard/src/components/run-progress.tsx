@@ -28,7 +28,7 @@ import {
 } from "@/lib/group-tests-by-file";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useInfiniteScrollSentinel } from "@/lib/hooks/use-infinite-scroll-sentinel";
-import type { RunGroupHeader, RunGroupSkeleton } from "@/lib/run-groups-page";
+import type { RunGroupHeader, RunGroupSkeleton } from "@/lib/runs/groups-page";
 import {
   currentSummary,
   type RunProgressSummary,

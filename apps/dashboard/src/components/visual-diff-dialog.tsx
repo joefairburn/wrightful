@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
-import { useSearchParam } from "@/lib/use-search-param";
+import { useSearchParam } from "@/lib/hooks/use-search-param";
 
 const MODES = ["diff", "expected", "actual", "slider", "side-by-side"] as const;
 type Mode = (typeof MODES)[number];

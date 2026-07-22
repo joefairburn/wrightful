@@ -117,7 +117,7 @@ const {
   planArtifactRegistration,
   registerArtifacts,
   storeArtifactUpload,
-} = await import("@/lib/artifacts");
+} = await import("@/lib/artifacts/store");
 
 const scope: TenantScope = {
   teamId: "team-1" as AuthorizedTeamId,

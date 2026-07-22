@@ -5,7 +5,7 @@ import { ulid } from "ulid";
 import { memberships, projects, teams as teamsTable } from "@schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { openSignupAllowed } from "@/lib/config";
-import { runBatch } from "@/lib/db-batch";
+import { runBatch } from "@/lib/db/batch";
 import { SLUG_MAX_LEN } from "@/lib/slug";
 
 /**

@@ -4,7 +4,7 @@ import { runs, testResults, testTags } from "@schema";
 import { ciRunsJoinOn } from "@/lib/analytics/filters";
 import { statusCounter } from "@/lib/analytics/per-test";
 import { listTeamMembers } from "@/lib/auth-users";
-import { runRow } from "@/lib/db-run";
+import { runRow } from "@/lib/runs/db";
 import { intAggExpr, numAggExpr } from "@/lib/db/sql-ops";
 import { parseTitleSegments } from "@/lib/group-tests-by-file";
 import { resolveTestOwners } from "@/lib/owners-repo";

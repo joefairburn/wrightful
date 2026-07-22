@@ -25,7 +25,7 @@ import { runByIdWhere, type TenantScope } from "@/lib/scope";
  *   - the runs-LIST/CSV shape (`RUN_COLUMNS` / `ExportedRun` in
  *     `@/lib/export.ts`) — the paginated list read-model;
  *   - the SSR page-props allowlist (`RUN_PUBLIC_COLUMNS` in
- *     `@/lib/run-columns.ts`) — "every column except the `idempotencyKey`
+ *     `@/lib/runs/columns.ts`) — "every column except the `idempotencyKey`
  *     write credential", a security boundary, not a summary contract.
  */
 

@@ -18,10 +18,10 @@ import {
 } from "@/components/ui/dialog";
 import { AnsiPre } from "@/components/ansi-pre";
 import { TraceViewerDialog } from "@/components/trace-viewer-dialog";
-import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
+import { isReplayTraceArtifact } from "@/lib/artifacts/trace";
 import { VisualDiffRailButton } from "@/components/visual-diff-dialog";
 import { cn } from "@/lib/cn";
-import { useCopiedFlag } from "@/lib/use-copied-flag";
+import { useCopiedFlag } from "@/lib/hooks/use-copied-flag";
 
 /**
  * Sticky right rail on the test detail page. Three optional sections:

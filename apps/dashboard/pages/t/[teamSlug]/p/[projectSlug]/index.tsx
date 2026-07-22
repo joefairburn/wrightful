@@ -22,7 +22,7 @@ import {
   DEFAULT_ORIGIN_FILTER,
   hasAnyFilter,
   toSearchParams,
-} from "@/lib/runs-filters";
+} from "@/lib/runs/filters";
 import type { Props } from "./index.server";
 
 /**

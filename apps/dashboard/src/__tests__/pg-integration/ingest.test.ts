@@ -45,7 +45,7 @@ vi.mock("@/realtime/publish", () => ({
 }));
 
 const { resetTables } = await import("./harness");
-const { runBatch } = await import("@/lib/db-batch");
+const { runBatch } = await import("@/lib/db/batch");
 const {
   appendRunResults,
   applyShardExpectedTests,

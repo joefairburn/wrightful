@@ -1,5 +1,5 @@
 import { logger } from "void/log";
-import { isUniqueViolation } from "@/lib/db-batch";
+import { isUniqueViolation } from "@/lib/db/batch";
 import { describeError } from "@/lib/error-cause";
 
 /**

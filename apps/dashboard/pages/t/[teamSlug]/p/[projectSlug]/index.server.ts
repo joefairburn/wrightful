@@ -7,12 +7,12 @@ import {
   hasAnyFilter,
   parseRunsFilters,
   type RunsFilters,
-} from "@/lib/runs-filters";
+} from "@/lib/runs/filters";
 import { numericSql } from "@/lib/db/sql-ops";
 import { buildRunsPageWhere } from "@/lib/export";
-import { decodeCursor, encodeCursor } from "@/lib/run-results-page";
-import { scopedRunsWhere } from "@/lib/runs-filters-where";
-import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
+import { decodeCursor, encodeCursor } from "@/lib/runs/results-page";
+import { scopedRunsWhere } from "@/lib/runs/filters-where";
+import { RUN_PUBLIC_COLUMNS } from "@/lib/runs/columns";
 import { runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 
@@ -38,7 +38,7 @@ function parseHistoryStack(raw: string | null): string[] {
  * Pagination is opaque-cursor (`?cursor=`), reusing the export/public-query
  * surface's `(createdAt, id)` DESC keyset walk + wire codec
  * (`buildRunsPageWhere` in `@/lib/export`, `decode`/`encodeCursor` in
- * `@/lib/run-results-page`) rather than forking, but with the dashboard's own
+ * `@/lib/runs/results-page`) rather than forking, but with the dashboard's own
  * `RUN_PUBLIC_COLUMNS` projection (the export column set omits `teamId`/
  * `ciBuildId` this page needs). A malformed/absent cursor degrades to the
  * first page (codec contract). "Previous" is an ancestor-cursor stack in

@@ -1,7 +1,10 @@
 import { defineHandler } from "void";
 import { env } from "void/env";
 import { getApiKey } from "@/lib/api-auth";
-import { type ArtifactPutSigner, registerArtifacts } from "@/lib/artifacts";
+import {
+  type ArtifactPutSigner,
+  registerArtifacts,
+} from "@/lib/artifacts/store";
 import { signPutUrl } from "@/lib/artifacts/presign";
 import { r2DirectConfig } from "@/lib/config";
 import { tenantScopeForApiKey } from "@/lib/scope";

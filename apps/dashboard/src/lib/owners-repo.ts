@@ -4,8 +4,8 @@ import { projects, testOwners, testResults } from "@schema";
 import type { TestOwner } from "@schema";
 import { listTeamMembers } from "@/lib/auth-users";
 import { matchOwners, parseCodeowners } from "@/lib/codeowners";
-import { runBatch } from "@/lib/db-batch";
-import { runRows } from "@/lib/db-run";
+import { runBatch } from "@/lib/db/batch";
+import { runRows } from "@/lib/runs/db";
 import type { TenantScope } from "@/lib/scope";
 
 /**

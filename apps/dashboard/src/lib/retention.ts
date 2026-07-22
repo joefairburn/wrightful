@@ -1,7 +1,7 @@
 import { and, db, eq, inArray, lt, sql } from "void/db";
 import { artifacts, projects, teams, testResults } from "@schema";
-import { deleteArtifactObjectsByKeys } from "@/lib/artifacts";
-import { runBatch } from "@/lib/db-batch";
+import { deleteArtifactObjectsByKeys } from "@/lib/artifacts/store";
+import { runBatch } from "@/lib/db/batch";
 import { chunkByParams, PG_MAX_BOUND_PARAMS } from "@/lib/ingest";
 
 /**

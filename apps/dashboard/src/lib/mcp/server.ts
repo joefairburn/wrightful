@@ -14,8 +14,8 @@ import {
   selfHostedTraceViewerUrl,
   signArtifactDownloadToken,
   signedDownloadHref,
-} from "@/lib/artifact-tokens";
-import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
+} from "@/lib/artifacts/tokens";
+import { isReplayTraceArtifact } from "@/lib/artifacts/trace";
 import { loadRunsListPage } from "@/lib/export";
 import {
   loadMcpFlakyDiagnosis,
@@ -37,7 +37,7 @@ import {
   RUN_ORIGIN_FILTERS,
   RUN_STATUSES,
   type RunsFilters,
-} from "@/lib/runs-filters";
+} from "@/lib/runs/filters";
 import { tenantScopeForUserBySlugs, type TenantScope } from "@/lib/scope";
 
 /**

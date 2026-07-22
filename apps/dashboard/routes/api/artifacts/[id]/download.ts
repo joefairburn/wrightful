@@ -1,7 +1,7 @@
 import { defineHandler } from "void";
 import { env } from "void/env";
 import type { Context } from "hono";
-import { verifyArtifactToken } from "@/lib/artifact-tokens";
+import { verifyArtifactToken } from "@/lib/artifacts/tokens";
 import { serveArtifactBytes } from "@/lib/artifacts/serve";
 import { r2DirectConfig } from "@/lib/config";
 
@@ -12,7 +12,7 @@ const ALLOWED_CROSS_ORIGINS = new Set(["https://trace.playwright.dev"]);
  *
  * Token-authenticated artifact stream. The HMAC token (signed with
  * `ARTIFACT_TOKEN_SECRET`, falling back to `BETTER_AUTH_SECRET` when unset —
- * see `lib/artifact-tokens.ts#getKey`) carries the R2 key + content-type
+ * see `lib/artifacts/tokens.ts#getKey`) carries the R2 key + content-type
  * directly, so we skip the DB on the hot path. CORS narrowed to the dashboard
  * + the Playwright trace viewer.
  */

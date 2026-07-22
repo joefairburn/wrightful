@@ -2,7 +2,7 @@ import { and, db, eq, inArray, isNull, lt, or } from "void/db";
 import { logger } from "void/log";
 import { ulid } from "ulid";
 import { githubPrComments, testResults } from "@schema";
-import { changedRows } from "@/lib/db-batch";
+import { changedRows } from "@/lib/db/batch";
 import { githubFetch } from "@/lib/github-http";
 import type { GithubRunContext } from "@/lib/github-run-context";
 import {
@@ -11,8 +11,8 @@ import {
   statusToConclusion,
 } from "@/lib/github-run-render";
 import { githubWriteId, postWithWriteMutex } from "@/lib/github-surface-post";
-import { computeRunDiff, resolveBaseRun, verdictOf } from "@/lib/run-diff";
-import type { RunDiff } from "@/lib/run-diff";
+import { computeRunDiff, resolveBaseRun, verdictOf } from "@/lib/runs/diff";
+import type { RunDiff } from "@/lib/runs/diff";
 import { TERMINAL_RUN_STATUSES } from "@/lib/schemas";
 import { childByRunWhere } from "@/lib/scope";
 

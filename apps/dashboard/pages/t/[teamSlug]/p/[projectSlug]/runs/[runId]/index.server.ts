@@ -4,7 +4,7 @@ import { and, db, desc, eq } from "void/db";
 import { runs } from "@schema";
 import { ALL_BRANCHES } from "@/components/run-history-branch-filter.shared";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
+import { RUN_PUBLIC_COLUMNS } from "@/lib/runs/columns";
 import { runByIdWhere, runScopeWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 

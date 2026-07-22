@@ -6,7 +6,7 @@ import {
   prCommentMarker,
 } from "@/lib/github-pr-comment";
 import type { PrCommentContent } from "@/lib/github-pr-comment";
-import type { RunDiff } from "@/lib/run-diff";
+import type { RunDiff } from "@/lib/runs/diff";
 
 const RUN_URL = "https://dash.example/t/acme/p/web/runs/run-1";
 

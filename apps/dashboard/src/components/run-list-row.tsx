@@ -17,7 +17,7 @@ import { StatusGlyph } from "@/components/status-glyph";
 import { TableCell, TableRow } from "@/components/ui/table";
 import type { RunListRowData } from "@/realtime/events";
 import { branchUrl, commitUrl, prUrl } from "@/lib/pr-url";
-import { runOutcomeTotals } from "@/lib/run-outcome";
+import { runOutcomeTotals } from "@/lib/runs/outcome";
 import { formatRelativeTime } from "@/lib/time-format";
 
 interface RunListRowProps {

@@ -4,10 +4,10 @@ import { artifacts, testResults } from "@schema";
 import {
   signArtifactDownloadToken,
   signedDownloadHref,
-} from "@/lib/artifact-tokens";
+} from "@/lib/artifacts/tokens";
 import { childByTestResultWhere, childProjectScopeWhere } from "@/lib/scope";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
-import { selectReplayTracesByAttempt } from "@/lib/trace-artifacts";
+import { selectReplayTracesByAttempt } from "@/lib/artifacts/trace";
 
 export type TestReplayResponse = {
   /** The test's title, so a deep-linked modal can render its header. */

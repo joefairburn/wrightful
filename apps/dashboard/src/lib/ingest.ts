@@ -11,13 +11,13 @@ import {
   testTags,
   teams,
 } from "@schema";
-import type { BatchBuilder, BatchExecutor } from "@/lib/db-batch";
+import type { BatchBuilder, BatchExecutor } from "@/lib/db/batch";
 import {
   changedRows,
   isForeignKeyViolation,
   isUniqueViolation,
   runBatch,
-} from "@/lib/db-batch";
+} from "@/lib/db/batch";
 import { postGithubRunSurfaces } from "@/lib/github-run-surfaces";
 import { setCodeownersFile } from "@/lib/owners-repo";
 import {
@@ -717,7 +717,7 @@ export function summaryFromBatchResults(
  * Read how many rows a non-`.returning()` statement changed, from its element in
  * a transaction result. The dialect-specific shape (node-postgres `rowCount` in
  * prod, pglite `affectedRows` on the test lane) is owned by `changedRows`
- * (`@/lib/db-batch`); this is the run-scoped alias kept so `reconcileAndBroadcast`
+ * (`@/lib/db/batch`); this is the run-scoped alias kept so `reconcileAndBroadcast`
  * reads "did the guarded UPDATE flip a row?" through a name local to the ingest
  * pipeline (the head-of-batch counterpart to `summaryFromBatchResults`).
  */

@@ -25,7 +25,7 @@ import {
   RUN_STATUSES,
   type RunStatus,
   toSearchParams,
-} from "@/lib/runs-filters";
+} from "@/lib/runs/filters";
 import { statusLabel, statusToken } from "@/lib/status";
 import { formatDateLabel, toIsoDate } from "@/lib/time-format";
 

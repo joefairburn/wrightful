@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildRunsWhere } from "@/lib/runs-filters-where";
+import { buildRunsWhere } from "@/lib/runs/filters-where";
 import {
   EMPTY_FILTERS,
   hasAnyFilter,
   parseRunsFilters,
   toSearchParams,
-} from "@/lib/runs-filters";
+} from "@/lib/runs/filters";
 
 /**
  * The `pr` / `commit` run filters (added for the MCP + public query API's

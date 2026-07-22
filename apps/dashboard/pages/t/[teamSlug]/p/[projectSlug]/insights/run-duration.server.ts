@@ -13,7 +13,7 @@ import {
 } from "@/lib/analytics/params";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { runRow, runRows } from "@/lib/db-run";
+import { runRow, runRows } from "@/lib/runs/db";
 import { requireTenantContext } from "@/lib/tenant-context";
 
 export type Props = InferProps<typeof loader>;

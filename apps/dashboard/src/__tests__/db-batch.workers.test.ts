@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 /**
- * `runBatch` (`@/lib/db-batch`) is the atomicity seam: callers hand it a builder
+ * `runBatch` (`@/lib/db/batch`) is the atomicity seam: callers hand it a builder
  * `(tx) => statements[]` and it runs every statement inside a single Postgres
  * `db.transaction`, returning the awaited per-statement results in order. The
  * builder form is load-bearing — statements MUST be built against the passed
@@ -22,7 +22,7 @@ vi.mock("void/db", () => ({
   db: { transaction: transactionSpy },
 }));
 
-const { runBatch, isForeignKeyViolation } = await import("@/lib/db-batch");
+const { runBatch, isForeignKeyViolation } = await import("@/lib/db/batch");
 
 describe("runBatch", () => {
   it("runs the builder's statements in a transaction, returning results in order", async () => {

@@ -47,7 +47,7 @@ const warmMock = vi.mocked(warmTraceViewer);
 // `useSearchParam` needs Void's router context; the dialog's contract with it
 // is just [value, set] — stub it with a controllable pair.
 const searchParam = { value: "", set: vi.fn() };
-vi.mock("@/lib/use-search-param", () => ({
+vi.mock("@/lib/hooks/use-search-param", () => ({
   useSearchParam: () => [searchParam.value, searchParam.set] as const,
 }));
 

@@ -1,10 +1,10 @@
 import { defineHandler } from "void";
-import { loadRunColumns, RUN_SUMMARY_COLUMNS } from "@/lib/run-read-model";
+import { loadRunColumns, RUN_SUMMARY_COLUMNS } from "@/lib/runs/read-model";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 
 /**
  * The wire shape of `/summary` — exactly the shared run-summary base
- * (`RUN_SUMMARY_COLUMNS` in `@/lib/run-read-model`). Adopting the base ADDED
+ * (`RUN_SUMMARY_COLUMNS` in `@/lib/runs/read-model`). Adopting the base ADDED
  * `environment` / `repo` / `origin` to this response (additive only — the
  * hovercard consumer reads a subset, so nothing it renders changed).
  */

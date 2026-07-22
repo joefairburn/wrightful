@@ -7,7 +7,7 @@ import {
   encodeRankedCursor,
   MAX_RUN_RESULTS_LIMIT,
   normalizeTestStatus,
-} from "@/lib/run-results-page";
+} from "@/lib/runs/results-page";
 
 /**
  * `loadRunResultsPage` is the one canonical "page of a run's testResults as

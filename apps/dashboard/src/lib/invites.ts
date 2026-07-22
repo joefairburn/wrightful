@@ -4,7 +4,7 @@ import { ulid } from "ulid";
 import { memberships, teamInvites, teams } from "@schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { buildInviteMatchConds, getUserIdentity } from "@/lib/auth-users";
-import { changedRows, runBatch } from "@/lib/db-batch";
+import { changedRows, runBatch } from "@/lib/db/batch";
 
 /**
  * Shared accept/decline core for tokenless (directed-invite) redemption.
