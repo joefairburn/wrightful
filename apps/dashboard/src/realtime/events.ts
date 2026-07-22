@@ -43,6 +43,15 @@ export interface RunProgressTest {
    * reload, which is fine: replay is a finished-run action).
    */
   hasTrace?: boolean;
+  /**
+   * Whether this row's failure fingerprint (`testResults.errorSignature`) is
+   * appearing for the FIRST time in CI history → drives the "New" badge in
+   * the Tests tab. Like `hasTrace`, populated ONLY on the paginated
+   * `GET …/results` read (`loadNewFailureFlags` in `lib/failure-novelty.ts`);
+   * the live broadcast path leaves it `undefined`, and it stays `undefined`
+   * on non-failure rows and failures with no error text.
+   */
+  isNewFailure?: boolean;
 }
 
 /**

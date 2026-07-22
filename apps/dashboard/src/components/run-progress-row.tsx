@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { Link } from "@void/react";
 import { memo } from "react";
+import { NewFailurePill } from "@/components/new-failure-pill";
 import { StatusGlyph } from "@/components/status-glyph";
 import { ReplayRowButton } from "@/components/trace-viewer-dialog";
 import { basename } from "@/lib/basename";
@@ -113,6 +114,9 @@ export const TestRow = memo(function TestRow({
               ×{test.retryCount + 1}
             </span>
           ) : null}
+          {/* First CI appearance of this row's failure fingerprint — see
+           * `isNewFailure` on RunProgressTest (paginated reads only). */}
+          {test.isNewFailure ? <NewFailurePill /> : null}
         </div>
         {meta ? (
           <span

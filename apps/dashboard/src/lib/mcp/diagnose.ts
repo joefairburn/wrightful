@@ -17,7 +17,7 @@ import {
   type RankedFlaky,
 } from "@/lib/analytics/flaky-ranking";
 import { buildTestSearchWhere } from "@/lib/command-search";
-import { normalizeErrorSignature } from "@/lib/error-signature";
+import { FAILURE_STATUSES } from "@/lib/error-signature";
 import {
   childProjectScopeWhere,
   ciRunsScopeWhere,
@@ -25,20 +25,13 @@ import {
   type TenantScope,
 } from "@/lib/scope";
 
-/**
- * Statuses whose rows carry a failure worth fingerprinting and co-relating.
- * Hand-listed like `run-diff.ts`'s FAILING_STATUSES: `interrupted` never
- * appears on the per-test wire enum and `queued`/`skipped` carry no error.
- */
-const FAILURE_STATUSES = ["flaky", "failed", "timedout"] as const;
-
 const MAX_WINDOW_ROWS_PER_TEST = 500;
 /**
- * Aggregate window-row budget across ALL selected tests. The per-test cap
- * alone still lets a max-size call (50 tests × 500 rows × 2 KB error heads)
- * hold ~50 M chars of error text in Worker memory; splitting one budget
- * across the selection bounds the aggregate instead. At the default
- * `limit: 10` each test keeps the full 500 rows.
+ * Aggregate window-row budget across ALL selected tests, so a max-size call
+ * (50 tests × 500 rows) cannot hold the whole window in Worker memory at
+ * once. Rows are lighter than they used to be (the persisted ≤240-char
+ * `errorSignature` replaced a 2 KB `errorHead` fetch) but the aggregate
+ * bound stays. At the default `limit: 10` each test keeps the full 500 rows.
  */
 const WINDOW_ROW_BUDGET = 5000;
 const MAX_CO_FAILURE_RUNS = 200;
@@ -48,29 +41,6 @@ const MAX_CO_FAILURES_PER_TEST = 10;
 /** Signature groups returned per test — `distinctSignatures` reports the uncapped total. */
 const MAX_SIGNATURES_PER_TEST = 10;
 const MAX_MATCHED_TESTS = 50;
-/**
- * Only this many leading chars of an error are fetched: a signature uses the
- * first meaningful line ({@link normalizeErrorSignature}), and ingest allows
- * messages/stacks up to 64/128 KB — pulling those whole for thousands of
- * window rows would swamp Worker memory. Full text stays behind
- * `get_test_result`.
- */
-const ERROR_HEAD_CHARS = 2048;
-
-function isFailureStatus(status: string): boolean {
-  return (FAILURE_STATUSES as readonly string[]).includes(status);
-}
-
-/**
- * Byte-bounded error head — message first, stack as fallback. A blank or
- * whitespace-only message counts as absent (`nullif(trim(…), '')`), so a
- * useful stack is not shadowed by an empty non-null message.
- */
-function errorHeadSql() {
-  return sql<
-    string | null
-  >`left(coalesce(nullif(trim(${testResults.errorMessage}), ''), ${testResults.errorStack}), ${ERROR_HEAD_CHARS})`;
-}
 
 export interface McpFlakyDiagnosisOptions {
   days: number;
@@ -92,7 +62,6 @@ export interface McpTestHistoryOptions {
 }
 
 type WindowRow = Awaited<ReturnType<typeof loadWindowRows>>[number];
-type EnrichedRow = WindowRow & { signature: string | null };
 type CoFailureRow = Awaited<ReturnType<typeof loadCoFailureRows>>[number];
 
 function windowStart(days: number): number {
@@ -127,7 +96,9 @@ async function loadWindowRows(
       title: testResults.title,
       file: testResults.file,
       status: testResults.status,
-      errorHead: errorHeadSql().as("errorHead"),
+      // The ingest-persisted fingerprint — already null for non-failure rows,
+      // so no status gate or normalize pass is needed on read.
+      signature: testResults.errorSignature,
       createdAt: testResults.createdAt,
       rowNumber:
         sql<number>`cast(row_number() over (partition by ${testResults.testId} order by ${testResults.createdAt} desc, ${testResults.id} desc) as integer)`.as(
@@ -147,7 +118,7 @@ async function loadWindowRows(
       title: windowed.title,
       file: windowed.file,
       status: windowed.status,
-      errorHead: windowed.errorHead,
+      signature: windowed.signature,
       createdAt: windowed.createdAt,
     })
     .from(windowed)
@@ -312,7 +283,7 @@ interface DossierContext {
 /** One test's diagnosis entry, from its (newest-first) window rows + cross-test context. Pure. */
 function buildTestDossier(
   rankedRow: RankedFlaky,
-  ownRows: EnrichedRow[],
+  ownRows: WindowRow[],
   ctx: DossierContext,
 ) {
   const latest = ownRows[0];
@@ -441,23 +412,20 @@ export async function loadMcpFlakyDiagnosis(
     latestByTestStatus.set(row.testId, byStatus);
   }
 
-  // One enrichment pass: fingerprint each failure row once, group rows per
+  // One grouping pass over the ingest-persisted signatures: group rows per
   // test, and collect each test's flaky runs (newest-first) for co-failure
   // analysis.
-  const rowsByTest = new Map<string, EnrichedRow[]>();
+  const rowsByTest = new Map<string, WindowRow[]>();
   const signatureOwners = new Map<string, Set<string>>();
   const flakyRunIdsByTest = new Map<string, Set<string>>();
   for (const row of rows) {
-    const signature = isFailureStatus(row.status)
-      ? normalizeErrorSignature(row.errorHead)
-      : null;
     const ownRows = rowsByTest.get(row.testId) ?? [];
-    ownRows.push({ ...row, signature });
+    ownRows.push(row);
     rowsByTest.set(row.testId, ownRows);
-    if (signature) {
-      const owners = signatureOwners.get(signature) ?? new Set<string>();
+    if (row.signature) {
+      const owners = signatureOwners.get(row.signature) ?? new Set<string>();
       owners.add(row.testId);
-      signatureOwners.set(signature, owners);
+      signatureOwners.set(row.signature, owners);
     }
     if (row.status === "flaky") {
       const runIds = flakyRunIdsByTest.get(row.testId) ?? new Set<string>();
@@ -582,7 +550,7 @@ export async function loadMcpTestHistory(
       durationMs: testResults.durationMs,
       workerIndex: testResults.workerIndex,
       shardIndex: testResults.shardIndex,
-      errorHead: errorHeadSql().as("errorHead"),
+      errorSignature: testResults.errorSignature,
     })
     .from(testResults)
     .innerJoin(runs, ciRunsJoinOn())
@@ -641,7 +609,7 @@ export async function loadMcpTestHistory(
       ),
       workerIndex: row.workerIndex,
       shardIndex: row.shardIndex,
-      errorSignature: normalizeErrorSignature(row.errorHead),
+      errorSignature: row.errorSignature,
     })),
   };
 }

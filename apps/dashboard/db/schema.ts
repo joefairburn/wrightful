@@ -662,6 +662,20 @@ export const testResults = pgTable(
     retryCount: integer("retryCount").notNull().default(0),
     errorMessage: text("errorMessage"),
     errorStack: text("errorStack"),
+    /**
+     * Normalized failure fingerprint, computed AT INGEST from the final
+     * result's error (`failureSignature` in `src/lib/error-signature.ts` —
+     * message first, stack fallback, volatile values masked, ≤240 chars).
+     * Null for non-failure statuses and failures with no error text. Stored
+     * (not derived on read) so cross-run grouping — the Failures page's
+     * signature aggregate and the run page's new-vs-known classification —
+     * is one indexed query instead of a normalize pass over the retained
+     * failure history. Freezes the normalizer's output at write time: a
+     * regex change in `normalizeErrorSignature` needs a backfill over
+     * retained rows or old/new rows group apart (recorded in
+     * docs/worklog/2026-07-17-failure-signature-clustering.md).
+     */
+    errorSignature: text("errorSignature"),
     workerIndex: integer("workerIndex"),
     /** Playwright shard that ran this test (config.shard.current, 1-based); null for a non-sharded run. */
     shardIndex: integer("shardIndex"),
@@ -706,6 +720,15 @@ export const testResults = pgTable(
       t.testId,
       t.createdAt,
     ),
+    // Backs the failure-clustering reads: the Failures page's per-signature
+    // window aggregate and the first-seen/last-seen probes behind it and the
+    // run page's new-vs-known badges (`min/max(createdAt)` per signature is an
+    // index seek). Partial — the overwhelming majority of rows are passing and
+    // carry a NULL signature, so the index stays proportional to retained
+    // FAILURES, not results.
+    index("testResults_project_signature_createdAt_idx")
+      .on(t.projectId, t.errorSignature, t.createdAt)
+      .where(sql`${t.errorSignature} is not null`),
     // NB: the ⌘K test-search trigram GIN indexes used to live here, over the
     // ENTIRE retained result history. They moved to the `tests` catalog table
     // below (bounded by suite size, not history) — see `docs/schema-rework-plan.md`

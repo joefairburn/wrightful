@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   branchFragment,
   ciRunsJoinFragment,
+  ciRunsJoinFragmentAs,
   ciRunsJoinOn,
   ciRunsScopeRawWhere,
   searchFragment,
@@ -95,11 +96,9 @@ describe("ciRunsJoinFragment", () => {
     // joined `runs` when a branch filter was active, which let monitor-run
     // results through every no-branch analytics pass (flaky sparklines,
     // suite-size tests-added). The join is now load-bearing for correctness.
-    const op = readSql(ciRunsJoinFragment());
-    expect(op.strings.join("")).toBe(
-      `inner join runs on runs.id = tr."runId" and runs.origin <> 'synthetic'`,
+    expect(renderSql(ciRunsJoinFragment())).toBe(
+      `inner join runs runs on runs.id = tr."runId" and runs.origin <> 'synthetic'`,
     );
-    expect(op.args).toEqual([]);
   });
 
   it("emits the exact join testResultsScopeJoin opens with, so the policy can't drift", () => {
@@ -109,11 +108,29 @@ describe("ciRunsJoinFragment", () => {
       teamSlug: "acme",
       projectSlug: "web",
     });
-    const join = readSql(ciRunsJoinFragment()).strings.join("");
-    const scoped = readSql(testResultsScopeJoin(scope))
-      .strings.join("")
-      .replace(/\s+/g, " ");
+    const join = renderSql(ciRunsJoinFragment());
+    const scoped = renderSql(testResultsScopeJoin(scope)).replace(/\s+/g, " ");
     expect(scoped.startsWith(join)).toBe(true);
+  });
+});
+
+describe("ciRunsJoinFragmentAs", () => {
+  it("re-emits the same CI-policy join under caller-supplied aliases", () => {
+    // The failures loader's correlated first-seen subquery scans
+    // `"testResults" prior` — the policy clause must follow the aliases, not
+    // get re-typed at the call site.
+    expect(renderSql(ciRunsJoinFragmentAs("prior", "prior_run"))).toBe(
+      `inner join runs prior_run on prior_run.id = prior."runId" and prior_run.origin <> 'synthetic'`,
+    );
+  });
+
+  it("rejects non-identifier aliases (the sql.raw injection guard)", () => {
+    expect(() => ciRunsJoinFragmentAs("tr; drop table runs", "runs")).toThrow(
+      /unsafe SQL identifier/,
+    );
+    expect(() => ciRunsJoinFragmentAs("tr", "runs --")).toThrow(
+      /unsafe SQL identifier/,
+    );
   });
 });
 
@@ -179,13 +196,14 @@ describe("testResultsScopeJoin", () => {
   });
 
   it("emits the testResults→runs join plus the tenant WHERE clause", () => {
-    const op = readSql(testResultsScopeJoin(scope));
-    const text = op.strings.join("").replace(/\s+/g, " ").trim();
-    // The join (with the synthetic-traffic exclusion baked into its ON clause,
-    // so every analytics surface inherits it) + the leading
+    const text = renderSql(testResultsScopeJoin(scope))
+      .replace(/\s+/g, " ")
+      .trim();
+    // The join (delegated to ciRunsJoinFragmentAs, so the synthetic-traffic
+    // exclusion is inherited from the one policy fragment) + the leading
     // `where tr."projectId" =` the loaders all open with.
     expect(text).toBe(
-      `inner join runs on runs.id = tr."runId" and runs.origin <> 'synthetic' where tr."projectId" =`,
+      `inner join runs runs on runs.id = tr."runId" and runs.origin <> 'synthetic' where tr."projectId" = ?`,
     );
   });
 
@@ -193,8 +211,11 @@ describe("testResultsScopeJoin", () => {
     const op = readSql(testResultsScopeJoin(scope));
     // The tenant boundary lives in `args` (a bound param), not the SQL text —
     // injection-safe, and the single source of the cross-tenant predicate.
-    expect(op.args).toEqual(["proj_42"]);
-    expect(op.strings.join("")).not.toContain("proj_42");
+    // The join sub-fragment also lands in `args`, so filter to the bound
+    // string params (same idiom as the searchFragment pin below).
+    const bound = op.args.filter((a) => typeof a === "string");
+    expect(bound).toEqual(["proj_42"]);
+    expect(renderSql(op)).not.toContain("proj_42");
   });
 
   it("scopes by projectId only — never leaks teamId into the predicate", () => {

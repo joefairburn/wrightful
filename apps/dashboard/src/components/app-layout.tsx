@@ -4,6 +4,7 @@ import {
   CheckSquare,
   CreditCard,
   FileClock,
+  Fingerprint,
   FlaskConical,
   Gauge,
   List,
@@ -38,13 +39,14 @@ import type {
   WorkspaceListItem,
 } from "@/lib/shared-bundle";
 
-type NavId = "runs" | "monitors" | "flaky" | "insights" | "tests";
+type NavId = "runs" | "monitors" | "failures" | "flaky" | "insights" | "tests";
 
 function deriveActiveNav(pathname: string): NavId {
   // Run-scoped pages (incl. the run's test-detail page at /runs/:id/tests/:id)
   // belong to "runs" — check this before the project-level /tests/ match below.
   if (/\/runs(\/|$)/.test(pathname)) return "runs";
   if (/\/monitors(\/|$)/.test(pathname)) return "monitors";
+  if (/\/failures(\/|$)/.test(pathname)) return "failures";
   if (/\/flaky(\/|$)/.test(pathname)) return "flaky";
   if (/\/insights(\/|$)/.test(pathname)) return "insights";
   if (/\/tests(\/|$)/.test(pathname)) return "tests";
@@ -296,6 +298,12 @@ function AppSidebarMiddle({ pathname, base }: AppSidebarMiddleProps) {
           icon: Radar,
           id: "monitors",
           cacheFor: PREFETCH_REALTIME,
+        },
+        {
+          href: `${base}/failures`,
+          label: "Failures",
+          icon: Fingerprint,
+          id: "failures",
         },
         {
           href: `${base}/flaky`,

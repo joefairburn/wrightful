@@ -12,6 +12,7 @@ import {
   teams,
 } from "@schema";
 import type { BatchBuilder, BatchExecutor } from "@/lib/db-batch";
+import { failureSignature } from "@/lib/error-signature";
 import {
   changedRows,
   isForeignKeyViolation,
@@ -207,6 +208,7 @@ function buildQueuePrefillStatements(
     retryCount: 0,
     errorMessage: null,
     errorStack: null,
+    errorSignature: null,
     workerIndex: null,
     // The opening shard stamps its planned (still-queued) rows with its own
     // index so they group by shard before they run; each shard's real result
@@ -309,6 +311,7 @@ function resultUpsertSet() {
     retryCount: sql`excluded."retryCount"`,
     errorMessage: sql`excluded."errorMessage"`,
     errorStack: sql`excluded."errorStack"`,
+    errorSignature: sql`excluded."errorSignature"`,
     workerIndex: sql`excluded."workerIndex"`,
     shardIndex: sql`excluded."shardIndex"`,
     updatedAt: sql`excluded."updatedAt"`,
@@ -367,6 +370,7 @@ function buildResultInsertStatements(
     retryCount: number;
     errorMessage: string | null;
     errorStack: string | null;
+    errorSignature: string | null;
     workerIndex: number | null;
     shardIndex: number | null;
     createdAt: number;
@@ -428,6 +432,14 @@ function buildResultInsertStatements(
       retryCount: result.retryCount,
       errorMessage: result.errorMessage ?? null,
       errorStack: result.errorStack ?? null,
+      // The stored failure fingerprint — computed once here at ingest so every
+      // reader (Failures page, run-page novelty badges, MCP diagnosis) groups
+      // by the same value instead of re-deriving it from the error text.
+      errorSignature: failureSignature(
+        result.status,
+        result.errorMessage ?? null,
+        result.errorStack ?? null,
+      ),
       workerIndex: result.workerIndex ?? null,
       shardIndex: result.shardIndex ?? null,
       createdAt: nowSeconds,
