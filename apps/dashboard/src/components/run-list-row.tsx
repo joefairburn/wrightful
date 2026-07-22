@@ -3,7 +3,7 @@ import { RowLink } from "@/components/row-link";
 import { memo } from "react";
 import type React from "react";
 import { ActorAvatar } from "@/components/actor-avatar";
-import { githubAvatarUrl } from "@/lib/github-avatar";
+import { githubAvatarUrl } from "@/lib/github/avatar";
 import { LiveDuration } from "@/components/live-duration";
 import { OutcomeBar } from "@/components/outcome-bar";
 import {

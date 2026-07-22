@@ -74,20 +74,20 @@ let nextCheckRunId = 555;
 let failNextPost = false;
 
 // Stub the network-touching bits — `mintInstallationToken` from the env-reading
-// `@/lib/github-app` layer and `githubFetch` from the env-free
-// `@/lib/github-http` core — but keep the real `parseRepoOwner` (pure) via
+// `@/lib/github/app` layer and `githubFetch` from the env-free
+// `@/lib/github/http` core — but keep the real `parseRepoOwner` (pure) via
 // `importActual`. A small delay on the fetch is
 // what opens the window for the LOSING concurrent call's claim-reread to
 // observe the winner's still-in-flight (not-yet-persisted) claim, exercising
 // the "lost the race, real id hasn't landed yet, skip" branch instead of the
 // "winner already finished, PATCH their id" branch.
-vi.mock("@/lib/github-app", () => ({
+vi.mock("@/lib/github/app", () => ({
   mintInstallationToken,
 }));
-vi.mock("@/lib/github-http", async () => {
+vi.mock("@/lib/github/http", async () => {
   const actual =
-    await vi.importActual<typeof import("@/lib/github-http")>(
-      "@/lib/github-http",
+    await vi.importActual<typeof import("@/lib/github/http")>(
+      "@/lib/github/http",
     );
   return {
     ...actual,
@@ -108,7 +108,7 @@ vi.mock("@/lib/github-http", async () => {
   };
 });
 
-const { postGithubRunSurfaces } = await import("@/lib/github-run-surfaces");
+const { postGithubRunSurfaces } = await import("@/lib/github/run-surfaces");
 const { runs, teams, projects, githubInstallations } = await import("@schema");
 const { eq } = await import("void/_db");
 const { getTableConfig } = await import("void/schema-pg");

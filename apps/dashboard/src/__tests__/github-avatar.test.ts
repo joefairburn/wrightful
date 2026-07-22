@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { githubAvatarUrl } from "@/lib/github-avatar";
+import { githubAvatarUrl } from "@/lib/github/avatar";
 
 /**
  * `runs.actor` holds a real GitHub login only on GitHub-provider runs; every

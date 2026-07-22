@@ -3,7 +3,7 @@ import { mcp } from "better-auth/plugins";
 import { checkout, polar, portal, webhooks } from "@polar-sh/better-auth";
 import { Polar } from "@polar-sh/sdk";
 import { ulid } from "ulid";
-import type { MirrorableAccount } from "@/lib/github-account-mirror";
+import type { MirrorableAccount } from "@/lib/github/account-mirror";
 
 // NB: `better-auth` is now ALSO a direct dependency (pinned to the same 1.6.x
 // void resolves) purely for the `mcp` plugin import above — the OAuth provider
@@ -43,7 +43,7 @@ type AccountContext = Parameters<AccountAfter>[1];
  *     resolve. Better Auth only stores the numeric `accountId`; we need the
  *     human-readable login as well. The capture-and-upsert (and its
  *     config-time-safe dynamic imports) lives in
- *     `@/lib/github-account-mirror`; both hooks delegate to
+ *     `@/lib/github/account-mirror`; both hooks delegate to
  *     `runGithubAccountMirror`, which owns the chain-default-then-guard
  *     ordering and logs (rather than swallows) capture failures.
  */
@@ -121,7 +121,7 @@ function mirrorGithubAccount(
   account: MirrorableAccount,
   chainDefault: () => Promise<void> | void,
 ): Promise<void> {
-  return import("@/lib/github-account-mirror").then((m) =>
+  return import("@/lib/github/account-mirror").then((m) =>
     m.runGithubAccountMirror(account, chainDefault),
   );
 }

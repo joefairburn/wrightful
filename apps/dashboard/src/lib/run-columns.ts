@@ -16,7 +16,7 @@ import { runs } from "@schema";
  *
  * `githubCheckClaimedAt` is withheld for a different reason: not a secret, just
  * server-side coordination state (the claim `postCheckRunSurface` in
- * `@/lib/github-checks` CASes on to dedupe concurrent check-run POSTs) that no
+ * `@/lib/github/checks` CASes on to dedupe concurrent check-run POSTs) that no
  * page component reads.
  *
  * Project THIS instead of `.select()` in any loader that returns a run row to the

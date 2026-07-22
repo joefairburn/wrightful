@@ -3,7 +3,7 @@ import { db, eq } from "void/db";
 import { env } from "void/env";
 import { logger } from "void/log";
 import { githubInstallations } from "@schema";
-import { verifyWebhookSignature } from "@/lib/github-http";
+import { verifyWebhookSignature } from "@/lib/github/http";
 
 /**
  * POST /api/github/webhook — GitHub App webhook receiver.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildCheckRunOutput, buildCheckRunPath } from "@/lib/github-checks";
-import { statusToConclusion } from "@/lib/github-run-render";
+import { buildCheckRunOutput, buildCheckRunPath } from "@/lib/github/checks";
+import { statusToConclusion } from "@/lib/github/run-render";
 
 /**
  * Pure core of the GitHub check-run pipeline: the merge-gate decision and the

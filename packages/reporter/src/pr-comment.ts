@@ -83,7 +83,7 @@ function statusEmoji(status: RunSummary["status"]): string {
 
 /**
  * Hand-kept copy of the dashboard's check-run `formatDuration`
- * (`apps/dashboard/src/lib/github-checks.ts`) — the reporter is a separately
+ * (`apps/dashboard/src/lib/github/checks.ts`) — the reporter is a separately
  * published package and can't import the dashboard lib, but both render the
  * same summary table, so keep them in lockstep. Both round to whole seconds
  * before splitting into minutes/seconds so a remainder rounding up to 60

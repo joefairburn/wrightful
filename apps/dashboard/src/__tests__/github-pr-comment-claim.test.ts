@@ -73,13 +73,13 @@ const writeCalls = () => fetchCalls.filter((c) => c.method !== "GET");
 // keep the real pure `parseRepoOwner`. The fetch delay keeps the winner's
 // write in flight long enough that a concurrent racer reliably loses the
 // mutex claim and exercises the wait-and-retry path.
-vi.mock("@/lib/github-app", () => ({
+vi.mock("@/lib/github/app", () => ({
   mintInstallationToken,
 }));
-vi.mock("@/lib/github-http", async () => {
+vi.mock("@/lib/github/http", async () => {
   const actual =
-    await vi.importActual<typeof import("@/lib/github-http")>(
-      "@/lib/github-http",
+    await vi.importActual<typeof import("@/lib/github/http")>(
+      "@/lib/github/http",
     );
   return {
     ...actual,
@@ -114,8 +114,8 @@ vi.mock("@/lib/github-http", async () => {
   };
 });
 
-const { postPrCommentSurface } = await import("@/lib/github-pr-comment");
-const { resolveGithubRunContext } = await import("@/lib/github-run-context");
+const { postPrCommentSurface } = await import("@/lib/github/pr-comment");
+const { resolveGithubRunContext } = await import("@/lib/github/run-context");
 const {
   githubInstallations,
   githubPrComments,

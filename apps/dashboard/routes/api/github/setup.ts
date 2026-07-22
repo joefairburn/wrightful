@@ -10,7 +10,7 @@ import { githubAppEnabled } from "@/lib/config";
 import {
   fetchInstallationAccountLogin,
   verifyUserAdministersInstallation,
-} from "@/lib/github-app";
+} from "@/lib/github/app";
 import { isUniqueViolation } from "@/lib/db-batch";
 import { gateTeamScope } from "@/lib/settings-scope";
 // Import the general settings page's flash declaration so the `githubError` slot

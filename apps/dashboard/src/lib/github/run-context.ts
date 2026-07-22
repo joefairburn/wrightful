@@ -1,16 +1,16 @@
 import { and, db, eq } from "void/db";
 import { env } from "void/env";
 import { githubInstallations, projects, runs, teams } from "@schema";
-import { mintInstallationToken } from "@/lib/github-app";
-import { parseRepoOwner } from "@/lib/github-http";
+import { mintInstallationToken } from "@/lib/github/app";
+import { parseRepoOwner } from "@/lib/github/http";
 import { makeTenantScope } from "@/lib/scope";
 import type { TenantScope } from "@/lib/scope";
 
 /**
  * Everything both GitHub run surfaces — the merge-gating check run
- * (`@/lib/github-checks`) and the sticky PR comment (`@/lib/github-pr-comment`)
+ * (`@/lib/github/checks`) and the sticky PR comment (`@/lib/github/pr-comment`)
  * — need for a completed run, resolved once by `postGithubRunSurfaces`
- * (`@/lib/github-run-surfaces`): the run row fields both surfaces render
+ * (`@/lib/github/run-surfaces`): the run row fields both surfaces render
  * (plus `prNumber`/`branch`/`createdAt` for the PR-comment diff baseline),
  * the canonical run URL, the tenant scope, and a minted installation token.
  */

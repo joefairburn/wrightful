@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import type { ClaimedSlotIO, WriteMutexIO } from "@/lib/github-surface-post";
+import type { ClaimedSlotIO, WriteMutexIO } from "@/lib/github/surface-post";
 import {
   postWithClaimedSlot,
   postWithWriteMutex,
-} from "@/lib/github-surface-post";
+} from "@/lib/github/surface-post";
 
 /**
- * Fake-IO coverage for the branches of `@/lib/github-surface-post` the
+ * Fake-IO coverage for the branches of `@/lib/github/surface-post` the
  * pglite-backed surface tests (`github-checks-claim.test.ts`,
  * `github-pr-comment-claim.test.ts`) can't reach deterministically: the
  * write-mutex give-up after exhausted attempts, the release paths when

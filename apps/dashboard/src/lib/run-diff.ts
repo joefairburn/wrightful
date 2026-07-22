@@ -293,7 +293,7 @@ export interface DiffRunRef {
  * matching run on the branch, or the head run has no branch).
  *
  * `opts.statuses` lets a caller widen the baseline beyond `passed`: the
- * sticky PR-comment path (`@/lib/github-pr-comment`) passes
+ * sticky PR-comment path (`@/lib/github/pr-comment`) passes
  * `TERMINAL_RUN_STATUSES` so a failure already present on the previous push's
  * run classifies as a *known* failure instead of reading as new just because
  * that push didn't fully pass.

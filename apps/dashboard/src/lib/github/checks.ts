@@ -2,13 +2,13 @@ import { and, db, eq, isNull, lt, or } from "void/db";
 import { logger } from "void/log";
 import { runs } from "@schema";
 import { changedRows } from "@/lib/db-batch";
-import type { GithubRunContext } from "@/lib/github-run-context";
+import type { GithubRunContext } from "@/lib/github/run-context";
 import {
   runHeadline,
   runSummaryTable,
   statusToConclusion,
-} from "@/lib/github-run-render";
-import { githubWriteId, postWithClaimedSlot } from "@/lib/github-surface-post";
+} from "@/lib/github/run-render";
+import { githubWriteId, postWithClaimedSlot } from "@/lib/github/surface-post";
 
 /**
  * TTL (seconds) for a `githubCheckClaimedAt` claim (see {@link claimCheckRunSlot}).

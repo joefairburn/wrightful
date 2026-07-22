@@ -18,7 +18,7 @@ import {
   isUniqueViolation,
   runBatch,
 } from "@/lib/db-batch";
-import { postGithubRunSurfaces } from "@/lib/github-run-surfaces";
+import { postGithubRunSurfaces } from "@/lib/github/run-surfaces";
 import { setCodeownersFile } from "@/lib/owners-repo";
 import {
   childByTestResultsWhere,
