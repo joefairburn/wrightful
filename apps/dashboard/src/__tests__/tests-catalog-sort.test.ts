@@ -2,15 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   DEFAULT_TESTS_SORT,
   parseTestsSort,
-  testsCatalogOrderBy,
+  testsCatalogSortSql,
 } from "@/lib/tests-catalog-sort";
-
-function rawText(expr: unknown): string {
-  const chunk = expr as { strings: unknown };
-  return Array.isArray(chunk.strings)
-    ? chunk.strings.join("")
-    : String(chunk.strings);
-}
 
 describe("parseTestsSort", () => {
   it("defaults to newest seen first", () => {
@@ -48,19 +41,43 @@ describe("parseTestsSort", () => {
   });
 });
 
-describe("testsCatalogOrderBy", () => {
+describe("testsCatalogSortSql", () => {
   it("emits stable ordering for every sortable column", () => {
+    expect(testsCatalogSortSql({ key: "test", direction: "asc" }).orderBy).toBe(
+      'lower("title") asc, "title" asc, "testId" asc',
+    );
     expect(
-      rawText(testsCatalogOrderBy({ key: "test", direction: "asc" })),
-    ).toBe('lower("title") asc, "title" asc, "testId" asc');
-    expect(
-      rawText(testsCatalogOrderBy({ key: "runs", direction: "desc" })),
+      testsCatalogSortSql({ key: "runs", direction: "desc" }).orderBy,
     ).toBe('"n" desc, "testId" asc');
     expect(
-      rawText(testsCatalogOrderBy({ key: "duration", direction: "asc" })),
+      testsCatalogSortSql({ key: "duration", direction: "asc" }).orderBy,
     ).toBe('"avgDurationMs" asc nulls last, "testId" asc');
     expect(
-      rawText(testsCatalogOrderBy({ key: "last-seen", direction: "desc" })),
+      testsCatalogSortSql({ key: "last-seen", direction: "desc" }).orderBy,
     ).toBe('"lastSeen" desc, "testId" asc');
+  });
+
+  it("pins the testId tiebreaker to asc regardless of direction", () => {
+    // Uniform across columns so OFFSET pages can't skip/duplicate rows that
+    // share an aggregate value; the `test` column used to flip it with dir.
+    for (const direction of ["asc", "desc"] as const) {
+      expect(testsCatalogSortSql({ key: "test", direction }).orderBy).toMatch(
+        /"testId" asc$/,
+      );
+    }
+  });
+
+  it("only the selected column pulls in its extra projection/join", () => {
+    expect(
+      testsCatalogSortSql({ key: "last-seen", direction: "desc" }),
+    ).toEqual({
+      projection: "",
+      join: "",
+      group: "",
+      orderBy: '"lastSeen" desc, "testId" asc',
+    });
+    const test = testsCatalogSortSql({ key: "test", direction: "asc" });
+    expect(test.join).toContain('join "tests" t');
+    expect(test.group).toBe(", t.title");
   });
 });

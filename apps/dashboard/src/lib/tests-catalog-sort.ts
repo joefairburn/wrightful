@@ -1,5 +1,3 @@
-import { sql } from "void/db";
-
 export const TESTS_SORT_KEYS = [
   "test",
   "runs",
@@ -43,24 +41,65 @@ export function parseTestsSort(
 }
 
 /**
- * ORDER BY for the grouped page query. All identifiers come from the closed
- * TestsSortKey union above; the URL value is never interpolated directly.
+ * The full SQL contract for one catalog sort, in one place per key: the extra
+ * grouped-CTE column its ORDER BY needs, any catalog join/group it depends on,
+ * and the ORDER BY itself. Co-locating them keeps the projected alias (e.g.
+ * `"n"`) and the ORDER BY that consumes it from drifting apart.
+ *
+ * Every field is a constant fragment built from the closed `TestsSortKey` /
+ * `TestsSortDirection` unions — the raw URL value is never interpolated — so the
+ * caller can safely splice these via `sql.raw`. Pure strings (no `void/db`
+ * import) keep this module importable from the client page too.
  */
-export function testsCatalogOrderBy({
+export interface TestsCatalogSortSql {
+  /** Extra grouped-CTE column(s), with leading comma, or "". */
+  projection: string;
+  /** Extra `from` join this sort depends on, or "". */
+  join: string;
+  /** Extra `group by` column(s), with leading comma, or "". */
+  group: string;
+  /**
+   * Full ORDER BY list. Always ends in `"testId" asc` — a unique per-project
+   * tiebreaker so OFFSET pagination stays stable when aggregate values are equal.
+   */
+  orderBy: string;
+}
+
+export function testsCatalogSortSql({
   key,
   direction,
-}: TestsSortState): ReturnType<typeof sql> {
-  const suffix = direction === "asc" ? "asc" : "desc";
+}: TestsSortState): TestsCatalogSortSql {
+  const dir = direction === "asc" ? "asc" : "desc";
+  const tiebreak = `"testId" asc`;
   switch (key) {
     case "test":
-      return sql.raw(
-        `lower("title") ${suffix}, "title" ${suffix}, "testId" ${suffix}`,
-      );
+      return {
+        projection: `, coalesce(t.title, max(tr.title), tr."testId") as "title"`,
+        join: `left join "tests" t
+          on t."projectId" = tr."projectId" and t."testId" = tr."testId"`,
+        group: `, t.title`,
+        orderBy: `lower("title") ${dir}, "title" ${dir}, ${tiebreak}`,
+      };
     case "runs":
-      return sql.raw(`"n" ${suffix}, "testId" asc`);
+      return {
+        projection: `, count(*) as "n"`,
+        join: "",
+        group: "",
+        orderBy: `"n" ${dir}, ${tiebreak}`,
+      };
     case "duration":
-      return sql.raw(`"avgDurationMs" ${suffix} nulls last, "testId" asc`);
+      return {
+        projection: `, avg(tr."durationMs") as "avgDurationMs"`,
+        join: "",
+        group: "",
+        orderBy: `"avgDurationMs" ${dir} nulls last, ${tiebreak}`,
+      };
     case "last-seen":
-      return sql.raw(`"lastSeen" ${suffix}, "testId" asc`);
+      return {
+        projection: "",
+        join: "",
+        group: "",
+        orderBy: `"lastSeen" ${dir}, ${tiebreak}`,
+      };
   }
 }

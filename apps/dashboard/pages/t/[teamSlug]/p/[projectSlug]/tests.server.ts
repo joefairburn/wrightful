@@ -28,7 +28,7 @@ import type { TenantScope } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 import {
   parseTestsSort,
-  testsCatalogOrderBy,
+  testsCatalogSortSql,
   type TestsSortState,
 } from "@/lib/tests-catalog-sort";
 
@@ -222,24 +222,13 @@ async function runPageQuery(
   sort: TestsSortState,
   offset: number,
 ): Promise<PageQueryRow[]> {
-  const orderBy = testsCatalogOrderBy(sort);
-  // Keep the default last-seen query as lean as it was before sorting. The
-  // selected heading alone opts into the extra aggregate (or catalog join)
-  // needed for its ORDER BY; those values never cross the loader boundary.
-  const sortProjection =
-    sort.key === "test"
-      ? sql`, coalesce(t.title, max(tr.title), tr."testId") as "title"`
-      : sort.key === "runs"
-        ? sql`, count(*) as "n"`
-        : sort.key === "duration"
-          ? sql`, avg(tr."durationMs") as "avgDurationMs"`
-          : sql``;
-  const catalogJoin =
-    sort.key === "test"
-      ? sql`left join "tests" t
-          on t."projectId" = tr."projectId" and t."testId" = tr."testId"`
-      : sql``;
-  const catalogGroup = sort.key === "test" ? sql`, t.title` : sql``;
+  // Keep the default last-seen query as lean as it was before sorting: the
+  // selected heading's descriptor opts into the one extra aggregate (or catalog
+  // join) its ORDER BY needs, and only that. Those values never cross the loader
+  // boundary — the second-pass aggregate query recomputes the columns the page
+  // actually renders. The descriptor's fragments come from a closed vocabulary
+  // (see tests-catalog-sort.ts), so `sql.raw` here is safe.
+  const { projection, join, group, orderBy } = testsCatalogSortSql(sort);
   return runRows<PageQueryRow>(sql`
     with grouped as (
       select
@@ -248,24 +237,22 @@ async function runPageQuery(
         -- node-postgres returns max() as a STRING (pglite returns a number,
         -- hiding it). numAggExpr casts it so lastSeen is a JS number on real pg.
         ${numAggExpr(`max(tr."createdAt")`, { alias: `"lastSeen"` })}
-        ${sortProjection}
+        ${sql.raw(projection)}
       from "testResults" tr
-      ${catalogJoin}
+      ${sql.raw(join)}
       ${testResultsScopeJoin(scope)}
         and runs."createdAt" >= ${windowStartSec}
         ${branchSql}
         ${qSql}
         ${tagSql}
-      group by tr."testId"${catalogGroup}
+      group by tr."testId"${sql.raw(group)}
     )
     select
       "testId",
       "lastSeen",
       ${intAggExpr("count(*) over ()", { alias: `"totalDistinct"` })}
     from grouped
-    -- Every order fragment includes testId as a unique per-project tiebreaker
-    -- so OFFSET pagination stays stable when aggregate values are equal.
-    order by ${orderBy}
+    order by ${sql.raw(orderBy)}
     limit ${PAGE_SIZE}
     offset ${offset}
   `);

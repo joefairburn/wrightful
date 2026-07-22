@@ -360,6 +360,12 @@ function TestsCatalogHead({
   );
 }
 
+// Deliberately separate from the trace viewer's SortableHead
+// (src/trace-viewer/components/network-tab.tsx): that one is a client
+// button-onClick tri-state (asc→desc→natural) toggle over an in-memory array;
+// this one is a server-driven two-state Link that navigates the URL to re-run
+// the loader's SQL sort. Unifying them would need a button-vs-link + tri-vs-two
+// mode flag that hides more than it shares.
 function SortableHead({
   label,
   sortKey,
