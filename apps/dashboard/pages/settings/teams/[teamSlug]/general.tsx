@@ -186,20 +186,22 @@ export default function SettingsTeamGeneralPage({
                         </div>
                         {isOwner && (
                           <div className="flex items-center gap-2">
-                            <Button
-                              render={
-                                <a
-                                  href={installation.settingsUrl}
-                                  rel="noreferrer"
-                                  target="_blank"
-                                />
-                              }
-                              size="sm"
-                              variant="outline"
-                            >
-                              Add or remove repositories
-                              <ExternalLink className="size-3.5" />
-                            </Button>
+                            {installation.settingsUrl && (
+                              <Button
+                                render={
+                                  <a
+                                    href={installation.settingsUrl}
+                                    rel="noreferrer"
+                                    target="_blank"
+                                  />
+                                }
+                                size="sm"
+                                variant="outline"
+                              >
+                                Add or remove repositories
+                                <ExternalLink className="size-3.5" />
+                              </Button>
+                            )}
                             <form
                               action={`${here}?disconnectGithub`}
                               method="post"

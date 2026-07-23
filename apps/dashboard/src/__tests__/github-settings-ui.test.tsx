@@ -13,7 +13,12 @@ const SettingsTeamGeneralPage = (
 ).default;
 type Props = Parameters<typeof SettingsTeamGeneralPage>[0];
 
-function makeProps(role: "owner" | "member" = "owner"): Props {
+function makeProps(
+  role: "owner" | "member" = "owner",
+  settingsUrl:
+    | string
+    | null = "https://github.com/organizations/acme/settings/installations/42",
+): Props {
   return {
     team: { id: "team_1", slug: "acme", name: "Acme", role },
     projectCount: 1,
@@ -31,8 +36,7 @@ function makeProps(role: "owner" | "member" = "owner"): Props {
         {
           installationId: 42,
           accountLogin: "acme",
-          settingsUrl:
-            "https://github.com/organizations/acme/settings/installations/42",
+          settingsUrl,
           repositorySelection: "selected",
           repositories: [
             { id: 7, fullName: "acme/api", private: true },
@@ -86,5 +90,19 @@ describe("GitHub checks settings", () => {
       screen.queryByRole("link", { name: /add or remove repositories/i }),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: /disconnect/i })).toBeNull();
+  });
+
+  it("omits the management link when GitHub installation details are unavailable", () => {
+    render(<SettingsTeamGeneralPage {...makeProps("owner", null)} />);
+
+    expect(screen.getByText("acme/api")).toBeTruthy();
+    expect(
+      screen.queryByRole("link", { name: /add or remove repositories/i }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Disconnect acme from Wrightful",
+      }),
+    ).toBeTruthy();
   });
 });

@@ -13,13 +13,17 @@ The loader reads repository access live with a short-lived installation token;
 no repository grant state is duplicated in Postgres. Upstream failures are
 isolated per installation so a stale or revoked installation still renders its
 local disconnect control. Repository reads paginate up to a defensive
-1,000-repository cap and disclose when the displayed list is truncated.
+1,000-repository cap and disclose when the displayed list is truncated. The
+repository-management link renders only when GitHub returns its canonical,
+account-type-aware installation URL; Wrightful does not guess an organization
+URL for a personal installation when that metadata request fails.
 
 Disconnecting deletes only the team-scoped `githubInstallations` link, which
 immediately prevents future Wrightful check-run and PR-comment token resolution.
 It does not uninstall the GitHub App, so an owner can reconnect it later. The
 mutation is owner-only, tenant-scoped by both `teamId` and `installationId`, and
-recorded as `github_installation.disconnect` in the audit log.
+recorded as `github_installation.disconnect` in the audit log after the delete
+succeeds.
 
 ## Why repository changes remain on GitHub
 

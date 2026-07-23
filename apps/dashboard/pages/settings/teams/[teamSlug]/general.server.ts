@@ -99,7 +99,6 @@ export const loader = defineHandler(async (c) => {
   // must not take down General settings or hide its Disconnect control.
   const installationSettings = await Promise.all(
     installations.map(async (installation) => {
-      const fallbackSettingsUrl = `https://github.com/organizations/${encodeURIComponent(installation.accountLogin)}/settings/installations/${installation.installationId}`;
       // `viewSettings` includes normal members, but an installation can expose
       // names of private repos that have never sent a run to Wrightful. Keep
       // that broader GitHub inventory owner-only along with the controls.
@@ -107,7 +106,7 @@ export const loader = defineHandler(async (c) => {
         return {
           installationId: installation.installationId,
           accountLogin: installation.accountLogin,
-          settingsUrl: fallbackSettingsUrl,
+          settingsUrl: null,
           repositorySelection: null,
           repositories: null,
           repositoryCount: null,
@@ -139,9 +138,10 @@ export const loader = defineHandler(async (c) => {
       return {
         installationId: installation.installationId,
         accountLogin,
-        settingsUrl:
-          details?.settingsUrl ??
-          `https://github.com/organizations/${encodeURIComponent(accountLogin)}/settings/installations/${installation.installationId}`,
+        // `html_url` is type-aware (`User` vs `Organization`). Do not guess an
+        // org URL when the details request fails: that would send a valid
+        // personal installation to a nonexistent settings page.
+        settingsUrl: details?.settingsUrl ?? null,
         repositorySelection: details?.repositorySelection ?? null,
         repositories: repositoryAccess?.repositories ?? null,
         repositoryCount: repositoryAccess?.totalCount ?? null,
@@ -336,14 +336,6 @@ export const actions = {
       );
     }
 
-    await recordAudit(c, {
-      teamId: team.id,
-      action: AUDIT_ACTIONS.GITHUB_INSTALLATION_DISCONNECT,
-      targetType: "github_installation",
-      targetId: installation.accountLogin,
-      metadata: { installationId },
-    });
-
     try {
       await db
         .delete(githubInstallations)
@@ -365,6 +357,17 @@ export const actions = {
         "Could not disconnect the GitHub organization. Please try again.",
       );
     }
+
+    // This link has no dependent audit row that would cascade on delete, so
+    // record the event only after the mutation lands. A failed delete must not
+    // leave behind an audit entry claiming the installation was disconnected.
+    await recordAudit(c, {
+      teamId: team.id,
+      action: AUDIT_ACTIONS.GITHUB_INSTALLATION_DISCONNECT,
+      targetType: "github_installation",
+      targetId: installation.accountLogin,
+      metadata: { installationId },
+    });
 
     return c.redirect(here);
   }),
