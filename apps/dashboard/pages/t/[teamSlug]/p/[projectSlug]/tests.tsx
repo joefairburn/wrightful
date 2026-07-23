@@ -4,6 +4,7 @@ import { ChevronsUpDown, ChevronDown, ChevronUp } from "lucide-react";
 import { Fragment, use } from "react";
 import { AnalyticsButtonGroup } from "@/components/analytics/button-group";
 import { DeferredSection } from "@/components/defer-error-boundary";
+import { NavBusyGuard } from "@/components/nav-busy-guard";
 import { OutcomeBar } from "@/components/outcome-bar";
 import { PageHeader } from "@/components/page-header";
 import { PageToolbar } from "@/components/page-toolbar";
@@ -31,12 +32,13 @@ import { cn } from "@/lib/cn";
 import { groupCatalogRows } from "@/lib/group-catalog-rows";
 import { makeHrefBuilder } from "@/lib/page-links";
 import { statusToken } from "@/lib/status";
-import { formatDuration, formatRelativeTime } from "@/lib/time-format";
 import {
   defaultTestsSortDirection,
   type TestsSortDirection,
   type TestsSortKey,
 } from "@/lib/tests-catalog-sort";
+import { formatDuration, formatRelativeTime } from "@/lib/time-format";
+import { useIsNavigating } from "@/lib/use-is-navigating";
 import type { Props, TestsPageRow } from "./tests.server";
 
 const GROUP_OPTIONS = ["none", "file", "suite"] as const;
@@ -159,25 +161,27 @@ export default function TestsPage({
           <span className="mr-1 text-caption font-medium tracking-[0.1px] text-fg-3">
             Tags
           </span>
-          {availableTags.map((tag) => {
-            const active = selectedTags.has(tag);
-            return (
-              <Link
-                aria-label={`${active ? "Remove" : "Add"} tag filter: ${tag}`}
-                aria-pressed={active}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 font-mono text-micro transition-colors",
-                  active
-                    ? "border-bg-3 bg-accent-soft text-info"
-                    : "border-line-1 text-fg-3 hover:text-fg-1",
-                )}
-                href={tagHref(tag)}
-                key={tag}
-              >
-                {tag}
-              </Link>
-            );
-          })}
+          <NavBusyGuard>
+            {availableTags.map((tag) => {
+              const active = selectedTags.has(tag);
+              return (
+                <Link
+                  aria-label={`${active ? "Remove" : "Add"} tag filter: ${tag}`}
+                  aria-pressed={active}
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 font-mono text-micro transition-colors",
+                    active
+                      ? "border-bg-3 bg-accent-soft text-info"
+                      : "border-line-1 text-fg-3 hover:text-fg-1",
+                  )}
+                  href={tagHref(tag)}
+                  key={tag}
+                >
+                  {tag}
+                </Link>
+              );
+            })}
+          </NavBusyGuard>
         </div>
       )}
 
@@ -320,8 +324,16 @@ function TestsCatalogHead({
   sort: Props["sort"];
   sortHref: (key: TestsSortKey) => string;
 }) {
+  // Disable the sort links while a navigation is in flight (this head renders
+  // in both the live table and the streaming skeleton, so both are covered):
+  // re-sorting before the current visit's deferred props resolve would dispose
+  // it and reject them (see `useIsNavigating`).
+  const busy = useIsNavigating();
   return (
-    <TableHeader className="sticky top-0 z-20 bg-bg-0/95 backdrop-blur-sm">
+    <TableHeader
+      className="sticky top-0 z-20 bg-bg-0/95 backdrop-blur-sm"
+      inert={busy}
+    >
       <TableRow>
         <TableHead className="w-10 px-4" />
         <SortableHead
