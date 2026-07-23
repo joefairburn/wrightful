@@ -4,6 +4,7 @@ import {
   segmentedItemClasses,
 } from "@/components/segmented-control";
 import { cn } from "@/lib/cn";
+import { useIsNavigating } from "@/lib/use-is-navigating";
 
 export interface AnalyticsButtonGroupProps<T extends string> {
   options: readonly T[];
@@ -15,13 +16,16 @@ export interface AnalyticsButtonGroupProps<T extends string> {
 }
 
 /**
- * Anchor-based segmented button group backing a URL query param. RSC-safe
- * (no client JS needed — navigation re-runs the RSC and updates
- * highlighting via `value`).
+ * Anchor-based segmented button group backing a URL query param. Selection
+ * happens by link, not by state, so navigation cost stays cheap and the loader
+ * re-runs on navigation to update highlighting via `value`.
+ *
+ * Goes inert while a page navigation is in flight so switching options quickly
+ * can't start an overlapping visit that disposes the pending one and rejects
+ * its deferred props (see `useIsNavigating`).
  *
  * Visually identical to `<SegmentedControl>` — both render through the shared
- * class helpers in `segmented-control.tsx` — but selection happens by link,
- * not by state, so navigation cost stays cheap.
+ * class helpers in `segmented-control.tsx`.
  */
 export function AnalyticsButtonGroup<T extends string>({
   options,
@@ -30,8 +34,9 @@ export function AnalyticsButtonGroup<T extends string>({
   labelFor,
   className,
 }: AnalyticsButtonGroupProps<T>) {
+  const busy = useIsNavigating();
   return (
-    <div className={cn(SEGMENTED_GROUP_CLASSES, className)}>
+    <div className={cn(SEGMENTED_GROUP_CLASSES, className)} inert={busy}>
       {options.map((o) => (
         <Link
           key={o}
