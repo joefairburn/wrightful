@@ -11,6 +11,12 @@ findings accordingly. Function/file names below are in `apps/dashboard`.
   over `runs`, `testResults`, `testResultAttempts`, `testTags`,
   `testAnnotations`, `artifacts`, `monitors`, `monitorExecutions`, or
   `quarantinedTests` that lacks a project filter.
+- Exception: trusted fleet-wide maintenance runs from crons/queues (e.g. the
+  stale-run sweep via `staleRunFilter`, the monitor scheduler's `dueMonitorsWhere`
+  select) deliberately enumerate rows across projects, then apply per-row scope
+  before any mutation. Do NOT flag these cross-project SELECTs as leaks. Instead
+  verify they run only from a cron/queue handler (not a user-facing route),
+  expose no tenant data in a response, and scope their writes per row.
 - List/aggregate queries over `runs` additionally AND `teamId` (via
   `runScopeWhere` / `ciRunsScopeWhere`) for defense-in-depth. A lookup keyed by
   a globally-unique ULID — a single run by `id`, or a child row by its own
@@ -40,8 +46,13 @@ findings accordingly. Function/file names below are in `apps/dashboard`.
 - Ingest and query APIs authenticate with project-scoped Bearer keys via
   `middleware/02.api-auth.ts`. Do not assume every `/api/*` route shares one
   auth model: `/api/t/*` is session auth, `/api/mcp` is OAuth/API-key,
-  artifact download is a signed token. Flag new `/api/*` routes that read tenant
-  data without an explicit auth check.
+  artifact download is a signed token. Auth for the Bearer surfaces is
+  centralized in `02.api-auth.ts`, so a correctly-wired ingest/query handler has
+  NO handler-local check — it just calls `getApiKey(c)` then
+  `tenantScopeForApiKey(...)`. Before flagging a route as unauthenticated, check
+  that the middleware's route matcher (`isIngestRoute` / `isQueryApiRoute` in
+  `src/lib/ingest-routes.ts`) actually covers its path; flag only when the path
+  falls OUTSIDE the matcher yet reads tenant data.
 - The MCP OAuth authorize path forces `prompt=consent` (`forceConsentRedirect`)
   to stop drive-by token minting for signed-in users. Do not remove or weaken
   that redirect, and keep dynamic client registration paired with the consent
