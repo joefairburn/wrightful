@@ -7,10 +7,16 @@ findings accordingly. Function/file names below are in `apps/dashboard`.
 
 ## Tenant isolation (highest priority)
 
-- Every run-scoped query MUST filter by a branded `projectId` (and by `teamId`
-  on the `runs` table). Flag any query over `runs`, `testResults`,
-  `testResultAttempts`, `testTags`, `testAnnotations`, `artifacts`, `monitors`,
-  `monitorExecutions`, or `quarantinedTests` that lacks a project/team filter.
+- Every run-scoped query MUST filter by a branded `projectId`. Flag any query
+  over `runs`, `testResults`, `testResultAttempts`, `testTags`,
+  `testAnnotations`, `artifacts`, `monitors`, `monitorExecutions`, or
+  `quarantinedTests` that lacks a project filter.
+- List/aggregate queries over `runs` additionally AND `teamId` (via
+  `runScopeWhere` / `ciRunsScopeWhere`) for defense-in-depth. A lookup keyed by
+  a globally-unique ULID — a single run by `id`, or a child row by its own
+  primary key — is correctly scoped by `projectId` ALONE (`runByIdWhere`,
+  `childByIdWhere`); the id cannot belong to another project, so do NOT flag
+  these for missing `teamId`.
 - The ONLY sanctioned way to turn a raw string into a branded
   `AuthorizedProjectId` / `AuthorizedTeamId` is `makeTenantScope(...)` in
   `src/lib/scope.ts`. Flag any `as AuthorizedProjectId`, `as AuthorizedTeamId`,
