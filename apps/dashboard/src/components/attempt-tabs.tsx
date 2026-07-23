@@ -1,7 +1,7 @@
 import type React from "react";
 import { TabBar, TabBarTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
-import { useSearchParam } from "@/lib/use-search-param";
+import { useSearchParam } from "@/lib/hooks/use-search-param";
 
 /**
  * URL-driven attempt tabs for the test detail page.

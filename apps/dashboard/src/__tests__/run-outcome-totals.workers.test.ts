@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { runOutcomeTotals } from "@/lib/run-outcome";
+import { runOutcomeTotals } from "@/lib/runs/outcome";
 
 /**
  * Pins the Outcome column's denominator/pending math (`<RunListRow>` renders

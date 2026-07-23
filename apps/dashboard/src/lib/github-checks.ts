@@ -1,7 +1,7 @@
 import { and, db, eq, isNull, lt, or } from "void/db";
 import { logger } from "void/log";
 import { runs } from "@schema";
-import { changedRows } from "@/lib/db-batch";
+import { changedRows } from "@/lib/db/batch";
 import type { GithubRunContext } from "@/lib/github-run-context";
 import {
   runHeadline,

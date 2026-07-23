@@ -2,8 +2,8 @@ import { ulid } from "ulid";
 import { and, asc, db, desc, eq, inArray, lt, or, sql } from "void/db";
 import { monitorExecutions, monitors } from "@schema";
 import type { Monitor, MonitorExecution } from "@schema";
-import { runBatch } from "@/lib/db-batch";
-import { runRows } from "@/lib/db-run";
+import { runBatch } from "@/lib/db/batch";
+import { runRows } from "@/lib/runs/db";
 import { numericSql } from "@/lib/db/sql-ops";
 import { monitorBadgeUpdate } from "@/lib/monitors/executor";
 import {

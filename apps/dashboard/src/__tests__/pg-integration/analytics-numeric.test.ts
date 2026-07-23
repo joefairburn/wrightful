@@ -40,8 +40,8 @@ vi.mock("@/realtime/publish", () => ({
 
 const { resetTables } = await import("./harness");
 const { changedRows, runBatch, isUniqueViolation } =
-  await import("@/lib/db-batch");
-const { runRows } = await import("@/lib/db-run");
+  await import("@/lib/db/batch");
+const { runRows } = await import("@/lib/runs/db");
 const { bucketExpr } = await import("@/lib/analytics/bucketing-sql");
 const { numericSql } = await import("@/lib/db/sql-ops");
 const { latestPerTestRn } = await import("@/lib/analytics/per-test");

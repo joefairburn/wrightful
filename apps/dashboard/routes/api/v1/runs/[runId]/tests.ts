@@ -5,7 +5,7 @@ import { buildRunTestsCsv, csvExportResponse } from "@/lib/export";
 import {
   DEFAULT_RUN_RESULTS_LIMIT,
   loadRunResultsPage,
-} from "@/lib/run-results-page";
+} from "@/lib/runs/results-page";
 import { tenantScopeForApiKey } from "@/lib/scope";
 
 /**

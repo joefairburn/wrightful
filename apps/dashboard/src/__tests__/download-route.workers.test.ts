@@ -24,7 +24,7 @@ vi.mock("@/lib/config", () => ({ r2DirectConfig }));
 
 const verifyArtifactToken = vi.fn();
 const ARTIFACT_TOKEN_TTL_SECONDS = 60 * 60;
-vi.mock("@/lib/artifact-tokens", () => ({
+vi.mock("@/lib/artifacts/tokens", () => ({
   verifyArtifactToken,
   ARTIFACT_TOKEN_TTL_SECONDS,
 }));
@@ -33,7 +33,7 @@ const signGetUrl = vi.fn();
 vi.mock("@/lib/artifacts/presign", () => ({ signGetUrl }));
 
 const readArtifact = vi.fn();
-vi.mock("@/lib/artifacts", () => ({
+vi.mock("@/lib/artifacts/store", () => ({
   readArtifact,
   buildArtifactResponse: () => new Response("body", { status: 200 }),
   artifactContentDisposition: (key: string) =>

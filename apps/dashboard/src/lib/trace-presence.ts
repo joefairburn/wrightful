@@ -4,7 +4,7 @@ import { childProjectScopeWhere, type TenantScope } from "@/lib/scope";
 import {
   isReplayTraceArtifact,
   REPLAY_TRACE_ARTIFACT_NAMES,
-} from "@/lib/trace-artifacts";
+} from "@/lib/artifacts/trace";
 import type { RunProgressTest } from "@/realtime/run-progress";
 
 /**

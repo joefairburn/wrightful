@@ -9,8 +9,8 @@ import {
 } from "@schema";
 import { ciRunsJoinOn } from "@/lib/analytics/filters";
 import { rankFlakyTests } from "@/lib/analytics/flaky-ranking";
-import { loadRunColumns, RUN_SUMMARY_COLUMNS } from "@/lib/run-read-model";
-import { paginateRunTests } from "@/lib/run-results-page";
+import { loadRunColumns, RUN_SUMMARY_COLUMNS } from "@/lib/runs/read-model";
+import { paginateRunTests } from "@/lib/runs/results-page";
 import {
   childByIdWhere,
   childByTestResultWhere,
@@ -59,7 +59,7 @@ export function truncateText(text: string | null, max: number): string | null {
  * summary base plus this surface's agent-debugging extras (which CI produced the
  * run, which Playwright version ran it). Deliberately omits v1's
  * `expectedTotalTests` — the two contracts are pinned independently (see
- * `@/lib/run-read-model`).
+ * `@/lib/runs/read-model`).
  */
 const MCP_RUN_COLUMNS = {
   ...RUN_SUMMARY_COLUMNS,

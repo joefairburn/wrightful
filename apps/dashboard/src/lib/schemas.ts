@@ -2,7 +2,7 @@ import { z } from "zod";
 // Relative (not `@/`) so the reporter's wire-contract test can import this
 // module cross-package without the dashboard's path alias.
 import { isSafeContentType } from "./content-types";
-import { isReplayTraceArtifact } from "./trace-artifacts";
+import { isReplayTraceArtifact } from "./artifacts/trace";
 
 /**
  * Wire-protocol schemas for the streaming-ingest API (v3).

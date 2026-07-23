@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, db, eq, ne, or, sql } from "void/db";
 import { memberships, type MembershipRole } from "@schema";
-import type { BatchExecutor } from "@/lib/db-batch";
+import type { BatchExecutor } from "@/lib/db/batch";
 import { ASSIGNABLE_ROLES } from "@/lib/roles";
 
 /**

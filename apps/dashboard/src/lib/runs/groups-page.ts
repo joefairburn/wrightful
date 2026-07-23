@@ -4,7 +4,7 @@ import type { GroupByAxis, StatusFilterValue } from "@/lib/group-tests-by-file";
 import { STATUS_BUCKET_MEMBERS, statusMatchSql } from "@/lib/ingest";
 import { decodeKeyset, encodeKeyset } from "@/lib/keyset-cursor";
 import { numericSql } from "@/lib/db/sql-ops";
-import { escapeLike, likeEscaped } from "@/lib/runs-filters-where";
+import { escapeLike, likeEscaped } from "@/lib/runs/filters-where";
 import { childByRunWhere, runByIdWhere, type TenantScope } from "@/lib/scope";
 
 /** A non-null Drizzle SQL fragment (`void/db` doesn't export the `SQL` type). */

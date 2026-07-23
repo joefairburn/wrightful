@@ -7,7 +7,7 @@ import {
   DEFAULT_RUNS_LIST_LIMIT,
   loadRunsListPage,
 } from "@/lib/export";
-import { parseRunsFilters } from "@/lib/runs-filters";
+import { parseRunsFilters } from "@/lib/runs/filters";
 import { tenantScopeForApiKey } from "@/lib/scope";
 
 /**

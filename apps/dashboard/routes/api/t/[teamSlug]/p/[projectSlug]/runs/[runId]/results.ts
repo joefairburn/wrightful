@@ -1,10 +1,10 @@
 import { defineHandler } from "void";
 import { z } from "zod";
-import { GROUP_BY_AXES, STATUS_FILTER_VALUES } from "@/lib/run-groups-page";
+import { GROUP_BY_AXES, STATUS_FILTER_VALUES } from "@/lib/runs/groups-page";
 import {
   DEFAULT_RUN_RESULTS_LIMIT,
   loadRunResultsPage,
-} from "@/lib/run-results-page";
+} from "@/lib/runs/results-page";
 import { resolveTenantApiScope } from "@/lib/tenant-api-scope";
 import { attachHasTrace } from "@/lib/trace-presence";
 
@@ -39,7 +39,7 @@ const QuerySchema = z.object({
  * Cursor-paginated full set of testResults for a run. Used both as the
  * initial-load source for the run-detail tests list and as the client-side
  * back-paginator for runs that exceed the visible window. The query/paging
- * contract lives in `loadRunResultsPage` (`@/lib/run-results-page`); this
+ * contract lives in `loadRunResultsPage` (`@/lib/runs/results-page`); this
  * handler is auth + query translation, plus the UI-only `hasTrace` enrichment
  * (`attachHasTrace`) that gates the list's per-row "Replay" button — kept out of
  * the shared loader so it never leaks into the public v1 / export / MCP surfaces.

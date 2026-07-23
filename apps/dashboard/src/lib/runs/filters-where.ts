@@ -1,7 +1,7 @@
 import { parseISO } from "date-fns";
 import { and, eq, gte, inArray, like, lte, or, sql } from "void/db";
 import { runs } from "@schema";
-import type { RunsFilters } from "@/lib/runs-filters";
+import type { RunsFilters } from "@/lib/runs/filters";
 import { runScopeWhere, type TenantScope } from "@/lib/scope";
 
 type SqlFragment = NonNullable<ReturnType<typeof and>>;

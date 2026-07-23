@@ -14,8 +14,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { useSearchParam } from "@/lib/use-search-param";
-import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
+import { useSearchParam } from "@/lib/hooks/use-search-param";
+import { isReplayTraceArtifact } from "@/lib/artifacts/trace";
 import { TraceViewer } from "@/trace-viewer/components/trace-viewer";
 import { releaseWarmedTrace, warmTraceViewer } from "@/trace-viewer/warm";
 

@@ -4,7 +4,7 @@ import { logger } from "void/log";
 import { storage } from "void/storage";
 import { artifacts, runs, testResults } from "@schema";
 import { safeContentType } from "@/lib/content-types";
-import { isUniqueViolation } from "@/lib/db-batch";
+import { isUniqueViolation } from "@/lib/db/batch";
 import {
   chunkInsertRows,
   RUN_WRITE_GUARD_COLUMNS,

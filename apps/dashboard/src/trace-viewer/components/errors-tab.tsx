@@ -6,7 +6,7 @@ import { AnsiPre } from "@/components/ansi-pre";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { stripAnsi } from "@/lib/ansi";
-import { useCopiedFlag } from "@/lib/use-copied-flag";
+import { useCopiedFlag } from "@/lib/hooks/use-copied-flag";
 import { actionTitle } from "../model";
 import type { ErrorDescription, TraceModel } from "../vendor/model-util";
 import { TabEmpty } from "./detail-shared";

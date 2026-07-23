@@ -12,7 +12,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { githubAppEnabled } from "@/lib/config";
 import { numericSql } from "@/lib/db/sql-ops";
-import { runBatch } from "@/lib/db-batch";
+import { runBatch } from "@/lib/db/batch";
 import { scheduleProjectArtifactCleanup } from "@/lib/project-teardown";
 import { logMutationFailure, mutationErrorMessage } from "@/lib/action-errors";
 import { defineFlashSlots } from "@/lib/flash";

@@ -12,7 +12,7 @@ vi.mock("void/db", async () => {
   return { ...ops, db: h.db };
 });
 
-vi.mock("@/lib/artifacts", () => ({
+vi.mock("@/lib/artifacts/store", () => ({
   deleteProjectArtifactObjects: h.deleteSpy,
 }));
 

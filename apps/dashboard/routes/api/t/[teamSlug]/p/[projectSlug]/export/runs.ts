@@ -1,7 +1,7 @@
 import { defineHandler } from "void";
 import { env } from "void/env";
 import { buildRunsCsv, csvExportResponse } from "@/lib/export";
-import { parseRunsFilters } from "@/lib/runs-filters";
+import { parseRunsFilters } from "@/lib/runs/filters";
 import { resolveProjectApiScope } from "@/lib/tenant-api-scope";
 
 /**

@@ -3,7 +3,7 @@ import {
   type ArtifactRead,
   buildArtifactHeaders,
   buildArtifactResponse,
-} from "@/lib/artifacts";
+} from "@/lib/artifacts/store";
 
 /**
  * The artifact READ pipeline's HTTP-protocol math (`buildArtifactResponse` +

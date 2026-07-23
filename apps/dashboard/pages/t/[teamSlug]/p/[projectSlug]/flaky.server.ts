@@ -14,7 +14,7 @@ import {
 import { latestPerTestRn } from "@/lib/analytics/per-test";
 import { makeRangeParser } from "@/lib/analytics/range";
 import { loadProjectBranches } from "@/lib/branches-query";
-import { runRows } from "@/lib/db-run";
+import { runRows } from "@/lib/runs/db";
 import { type OwnerEntry, resolveTestOwners } from "@/lib/owners-repo";
 import { deferredNoStore, pageProjectFields } from "@/lib/page-loader";
 import { type TenantScope } from "@/lib/scope";

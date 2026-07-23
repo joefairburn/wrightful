@@ -1,4 +1,4 @@
-import { parsePage } from "@/lib/runs-filters";
+import { parsePage } from "@/lib/runs/filters";
 
 export interface ResolveOffsetPageInput {
   /** Total matching rows across all pages (e.g. `count(*)`). */
@@ -146,7 +146,7 @@ export interface OffsetTablePage<Out> {
 
 /**
  * The one offset-paginated table read — the offset mirror of the cursor-model
- * `paginateRunTests` (`src/lib/run-results-page.ts`). The `?page=` coercion,
+ * `paginateRunTests` (`src/lib/runs/results-page.ts`). The `?page=` coercion,
  * count→clamp ordering, slice fetch at the clamped offset, over-the-end refetch,
  * and slice-accurate `toRow` all live here once; callers supply only a count
  * source, a `pageQuery`, and an optional `mapRows` — so a loader can't

@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/cn";
 import { UserAvatar } from "@/components/user-avatar";
 import { formatRelativeTime } from "@/lib/time-format";
-import { useCopiedFlag } from "@/lib/use-copied-flag";
+import { useCopiedFlag } from "@/lib/hooks/use-copied-flag";
 import type { MembershipRole } from "@schema";
 import type { Props } from "./members.server";
 

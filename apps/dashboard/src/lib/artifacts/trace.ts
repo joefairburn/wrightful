@@ -1,4 +1,4 @@
-import { safeContentType } from "./content-types";
+import { safeContentType } from "../content-types";
 
 /**
  * The complete replay-eligibility contract. `type: "trace"` is reporter input,

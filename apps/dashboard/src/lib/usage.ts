@@ -3,7 +3,7 @@ import { and, db, eq, gte, sql } from "void/db";
 import { env } from "void/env";
 import { effectiveTier } from "@/lib/billing/tier";
 import { billingEnabled } from "@/lib/config";
-import type { BatchExecutor } from "@/lib/db-batch";
+import type { BatchExecutor } from "@/lib/db/batch";
 import { numericSql } from "@/lib/db/sql-ops";
 import {
   artifacts,

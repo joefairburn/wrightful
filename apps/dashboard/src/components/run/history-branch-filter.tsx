@@ -12,7 +12,7 @@ import {
   ComboboxTrigger,
 } from "@/components/ui/combobox";
 import { useIsNavigating } from "@/lib/use-is-navigating";
-import { useNavigatingSearchParam } from "@/lib/use-search-param";
+import { useNavigatingSearchParam } from "@/lib/hooks/use-search-param";
 
 function branchLabel(v: string): string {
   return v === ALL_BRANCHES ? "All branches" : v;

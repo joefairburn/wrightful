@@ -1,7 +1,7 @@
 import { defineHandler, type InferProps } from "void";
 import { getSession } from "void/auth";
 import { sql } from "void/db";
-import { runRow } from "@/lib/db-run";
+import { runRow } from "@/lib/runs/db";
 
 export type Props = InferProps<typeof loader>;
 

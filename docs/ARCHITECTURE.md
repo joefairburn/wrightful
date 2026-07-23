@@ -28,7 +28,7 @@ The dashboard is the `@wrightful/dashboard` app in `apps/dashboard`, built on [V
 
 ## Storage
 
-One **Postgres database** — over Cloudflare Hyperdrive in production, a direct `DATABASE_URL` in local dev — accessed through Drizzle (`db` from `void/db`, tables from `@schema`, schema source `apps/dashboard/db/schema.ts` in pg-core). Postgres result-shape coercions (node-postgres returns `int8`/`numeric` as strings, where pglite returns numbers) live in `numericSql` (`src/lib/db/sql-ops.ts`) and the raw-read `cast(… as integer)` idiom; multi-statement atomicity goes through `runBatch` (a `db.transaction`) in `src/lib/db-batch.ts`. See [`SELF-HOSTING.md`](../SELF-HOSTING.md) for deploy specifics and the Postgres-only worklog (`docs/worklog/2026-06-16-postgres-only.md`) for the D1-removal rationale.
+One **Postgres database** — over Cloudflare Hyperdrive in production, a direct `DATABASE_URL` in local dev — accessed through Drizzle (`db` from `void/db`, tables from `@schema`, schema source `apps/dashboard/db/schema.ts` in pg-core). Postgres result-shape coercions (node-postgres returns `int8`/`numeric` as strings, where pglite returns numbers) live in `numericSql` (`src/lib/db/sql-ops.ts`) and the raw-read `cast(… as integer)` idiom; multi-statement atomicity goes through `runBatch` (a `db.transaction`) in `src/lib/db/batch.ts`. See [`SELF-HOSTING.md`](../SELF-HOSTING.md) for deploy specifics and the Postgres-only worklog (`docs/worklog/2026-06-16-postgres-only.md`) for the D1-removal rationale.
 
 - **Control tables.** `teams` (incl. `tier` + per-team retention windows), `projects`, `memberships`, `teamInvites`, `apiKeys`, `userGithubAccounts`, `userState`, `usageCounters` (per-team-month run/test-result/artifact-byte meters), `githubInstallations` (GitHub App install → team), `githubPrComments` (sticky PR-summary comment id per `(project, repo, prNumber)`).
 - **Tenant tables.** `runs` (carries `origin`, `monitorId`, `githubCheckRunId`, `lastActivityAt`, `expectedTotalTests`), `testResults`, `testResultAttempts`, `testTags`, `testAnnotations`, `artifacts`, plus the test-management tables `quarantinedTests`, `testOwners`, and the synthetic-monitoring tables `monitors` + `monitorExecutions`. Every run-scoped child carries denormalized `teamId` (on `runs`) and `projectId` so scope is enforced without joining through `runs`. Reached only through the auth-checked `TenantScope` from `src/lib/scope.ts` / `src/lib/tenant-context.ts`.
@@ -83,7 +83,7 @@ Seven Void crons (each a unique cron expression — the 5-minute reaper family i
 - Base UI primitives wrapped as a local component library in `apps/dashboard/src/components/ui/` (~50 components). Don't import `@base-ui-components/react` directly from page code — go through the wrappers.
 - Tailwind v4 with theme tokens in `apps/dashboard/src/styles.css` under `@theme { … }`. No `tailwind.config.*`.
 - New components come from the COSS registry (`components.json`): `npx shadcn@latest add @coss/<name>`.
-- URL-backed UI state uses `useSearchParam` / `useNavigatingSearchParam` (`src/lib/use-search-param.ts`) — no nuqs.
+- URL-backed UI state uses `useSearchParam` / `useNavigatingSearchParam` (`src/lib/hooks/use-search-param.ts`) — no nuqs.
 
 ## Configuration
 

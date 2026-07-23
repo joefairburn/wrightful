@@ -11,7 +11,7 @@ import {
   groupPredicate,
   statusFilterMembers,
   testSearchPredicate,
-} from "@/lib/run-groups-page";
+} from "@/lib/runs/groups-page";
 import { childByRunWhere, runByIdWhere, type TenantScope } from "@/lib/scope";
 import type { RunProgressTest } from "@/realtime/run-progress";
 

@@ -13,7 +13,7 @@ import { defineMiddleware } from "void";
  * cross-tenant leak once the shared cache is on. Stamping `private, no-store`
  * on every response that didn't set an explicit policy makes edge caching
  * opt-in: /assets/* chunks (Void's asset entry + void.json routing.headers)
- * and artifact downloads (`src/lib/artifacts.ts`) declare `public, …`
+ * and artifact downloads (`src/lib/artifacts/store.ts`) declare `public, …`
  * themselves.
  *
  * Must sort BEFORE `00.errors.ts` (outermost) so the stamp lands on the FINAL

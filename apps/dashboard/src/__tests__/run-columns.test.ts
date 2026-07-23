@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { getTableConfig } from "void/schema-pg";
 import { runs } from "../../db/schema";
-import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
+import { RUN_PUBLIC_COLUMNS } from "@/lib/runs/columns";
 
 /**
  * `RUN_PUBLIC_COLUMNS` is the allowlist of `runs` columns safe to serialize into

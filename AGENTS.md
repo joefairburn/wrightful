@@ -132,7 +132,7 @@ Own-account deployments require the explicit remote migration command; see
   external links and intentional island-page navigation.
 - URL state uses `useSearchParam` for shallow client updates and
   `useNavigatingSearchParam` when loaders must rerun. Both live in
-  `src/lib/use-search-param.ts`; nuqs is not part of the current application.
+  `src/lib/hooks/use-search-param.ts`; nuqs is not part of the current application.
 - Tailwind v4 tokens live in `apps/dashboard/src/styles.css`; there is no
   `tailwind.config.*`. Use `cn()` for merged or conditional classes.
 - Reuse the shared status pills, metadata pills, tab bars, filter components,

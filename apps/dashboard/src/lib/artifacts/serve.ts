@@ -1,9 +1,9 @@
-import { ARTIFACT_TOKEN_TTL_SECONDS } from "@/lib/artifact-tokens";
+import { ARTIFACT_TOKEN_TTL_SECONDS } from "@/lib/artifacts/tokens";
 import {
   artifactContentDisposition,
   buildArtifactResponse,
   readArtifact,
-} from "@/lib/artifacts";
+} from "@/lib/artifacts/store";
 import { signGetUrl } from "@/lib/artifacts/presign";
 import type { R2DirectConfig } from "@/lib/config";
 import { safeContentType } from "@/lib/content-types";

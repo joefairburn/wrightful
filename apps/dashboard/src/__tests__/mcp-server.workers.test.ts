@@ -44,7 +44,7 @@ import {
 import {
   TRACE_TOKEN_TTL_SECONDS,
   verifyArtifactToken,
-} from "@/lib/artifact-tokens";
+} from "@/lib/artifacts/tokens";
 import { ERROR_MESSAGE_SNIPPET_CHARS, truncateText } from "@/lib/mcp/queries";
 import type { TenantScope } from "@/lib/scope";
 

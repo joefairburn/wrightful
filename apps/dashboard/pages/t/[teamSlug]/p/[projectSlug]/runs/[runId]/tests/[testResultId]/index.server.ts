@@ -4,7 +4,7 @@ import { runs, testResults } from "@schema";
 import { listTeamMembers } from "@/lib/auth-users";
 import { resolveTestOwners } from "@/lib/owners-repo";
 import { loadQuarantineByTestId } from "@/lib/quarantine-repo";
-import { RUN_PUBLIC_COLUMNS } from "@/lib/run-columns";
+import { RUN_PUBLIC_COLUMNS } from "@/lib/runs/columns";
 import { childByTestIdWhere, runByIdWhere } from "@/lib/scope";
 import { requireTenantContext } from "@/lib/tenant-context";
 import { TEST_DETAIL_FLASH } from "@/lib/test-detail-flash";

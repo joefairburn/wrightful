@@ -4,7 +4,7 @@ import { auditLog } from "@schema";
 import { getUsersByIds } from "@/lib/auth-users";
 import { numericSql } from "@/lib/db/sql-ops";
 import { paginateOffsetTable, resolveOffsetPage } from "@/lib/page-window";
-import { parsePage } from "@/lib/runs-filters";
+import { parsePage } from "@/lib/runs/filters";
 import { requireRoleScope } from "@/lib/settings-scope";
 
 export type Props = InferProps<typeof loader>;

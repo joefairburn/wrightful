@@ -6,9 +6,9 @@ import {
   decodeCursor,
   encodeCursor,
   loadRunResultsPage,
-} from "@/lib/run-results-page";
-import type { RunsFilters } from "@/lib/runs-filters";
-import { scopedRunsWhere } from "@/lib/runs-filters-where";
+} from "@/lib/runs/results-page";
+import type { RunsFilters } from "@/lib/runs/filters";
+import { scopedRunsWhere } from "@/lib/runs/filters-where";
 import { runByIdWhere, type TenantScope } from "@/lib/scope";
 
 /**

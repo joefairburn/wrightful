@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { and, db, eq } from "void/db";
 import { logger } from "void/log";
 import { projects } from "@schema";
-import { deleteProjectArtifactObjects } from "@/lib/artifacts";
+import { deleteProjectArtifactObjects } from "@/lib/artifacts/store";
 
 /**
  * Schedule the best-effort R2 byte sweep for a project whose rows are already

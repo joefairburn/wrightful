@@ -35,7 +35,7 @@ const signArtifactDownloadTokenMock = vi.fn(async () => ({
   token: "TOKEN",
   expiresInSeconds: 60 * 60,
 }));
-vi.mock("@/lib/artifact-tokens", () => ({
+vi.mock("@/lib/artifacts/tokens", () => ({
   signArtifactDownloadToken: signArtifactDownloadTokenMock,
   signedDownloadHref: (id: string, t: string) =>
     `/api/artifacts/${id}/download?t=${t}`,

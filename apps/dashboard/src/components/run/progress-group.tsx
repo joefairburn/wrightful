@@ -16,8 +16,8 @@ import {
   worstStatusInGroup,
 } from "@/lib/group-tests-by-file";
 import { useInfiniteScrollSentinel } from "@/lib/hooks/use-infinite-scroll-sentinel";
-import type { RunGroupHeader } from "@/lib/run-groups-page";
-import type { RunResultsResponse } from "@/lib/run-results-page";
+import type { RunGroupHeader } from "@/lib/runs/groups-page";
+import type { RunResultsResponse } from "@/lib/runs/results-page";
 import type { RunProgressTest } from "@/realtime/run-progress";
 
 /** How long a running run's per-group row page stays fresh (matches the skeleton). */

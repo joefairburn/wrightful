@@ -6,7 +6,7 @@ import {
   base64urlEncode,
   timingSafeEqualBytes,
 } from "@/lib/token-crypto";
-import { isReplayTraceArtifact } from "@/lib/trace-artifacts";
+import { isReplayTraceArtifact } from "@/lib/artifacts/trace";
 
 /**
  * Lifetime of an artifact-download token (1 hour). Exported because two other

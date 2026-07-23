@@ -29,7 +29,7 @@ const ARTIFACT_TOKEN_SECRET = inject("artifactTokenSecret");
 const SEEDED_BRANCH = inject("seededBranch");
 const SEEDED_COMMIT_SHA = inject("seededCommitSha");
 
-// Mirrors apps/dashboard/src/lib/artifact-tokens.ts#signArtifactToken.
+// Mirrors apps/dashboard/src/lib/artifacts/tokens.ts#signArtifactToken.
 // Artifact downloads are gated by a short-lived HMAC token the dashboard mints
 // server-side on authenticated pages; the e2e suite holds the same secret, so
 // we can forge a valid token rather than scrape one out of the rendered HTML.

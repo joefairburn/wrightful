@@ -20,7 +20,7 @@ const {
   verifyArtifactToken,
   signedDownloadHref,
   selfHostedTraceViewerUrl,
-} = await import("@/lib/artifact-tokens");
+} = await import("@/lib/artifacts/tokens");
 
 const payload = {
   r2Key: "t/team/p/proj/runs/r/tr/a.png",

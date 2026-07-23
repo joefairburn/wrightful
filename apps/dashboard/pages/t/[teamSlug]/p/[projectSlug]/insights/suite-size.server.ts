@@ -15,7 +15,7 @@ import {
   ciRunsJoinOn,
 } from "@/lib/analytics/filters";
 import { intAggExpr, numericSql } from "@/lib/db/sql-ops";
-import { runRow } from "@/lib/db-run";
+import { runRow } from "@/lib/runs/db";
 import {
   normalizeBranchFilter,
   resolveAnalyticsWindow,

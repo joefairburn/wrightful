@@ -80,7 +80,7 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     // the replay endpoint. Each attempt entry carries only `{ attempt,
     // downloadHref }` — the signed artifact-download URL
     // (`/api/artifacts/:id/download?t=<token>`, see `signedDownloadHref` in
-    // `src/lib/artifact-tokens.ts`) that the native workbench's service
+    // `src/lib/artifacts/tokens.ts`) that the native workbench's service
     // worker range-reads directly; there's no separate trace-viewer URL
     // field. The modal replays the LAST attempt.
     const [resp] = await Promise.all([
