@@ -4,14 +4,17 @@ packages:
 
 allowBuilds:
   better-sqlite3: true
+  cpu-features: false
   esbuild: true
+  protobufjs: false
   sharp: true
+  ssh2: false
   workerd: true
 
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@0.2.2
-  vitest: 4.1.9
-  vite-plus: 0.2.2
+  vite: npm:@voidzero-dev/vite-plus-core@0.2.6
+  vitest: 4.1.10
+  vite-plus: 0.2.6
 overrides:
   vite: "catalog:"
   vitest: "catalog:"
@@ -22,3 +25,17 @@ peerDependencyRules:
   allowedVersions:
     vite: "*"
     vitest: "*"
+minimumReleaseAgeExclude:
+  - "@voidzero-dev/vite-plus-core@0.2.6"
+  - "@voidzero-dev/vite-plus-darwin-arm64@0.2.6"
+  - "@voidzero-dev/vite-plus-darwin-x64@0.2.6"
+  - "@voidzero-dev/vite-plus-linux-arm64-gnu@0.2.6"
+  - "@voidzero-dev/vite-plus-linux-arm64-musl@0.2.6"
+  - "@voidzero-dev/vite-plus-linux-x64-gnu@0.2.6"
+  - "@voidzero-dev/vite-plus-linux-x64-musl@0.2.6"
+  - "@voidzero-dev/vite-plus-win32-arm64-msvc@0.2.6"
+  - "@voidzero-dev/vite-plus-win32-x64-msvc@0.2.6"
+  - vite-plus@0.2.6
+patchedDependencies:
+  "@cloudflare/vite-plugin@1.46.0": patches/@cloudflare__vite-plugin@1.46.0.patch
+  void@0.10.10: patches/void@0.10.10.patch
