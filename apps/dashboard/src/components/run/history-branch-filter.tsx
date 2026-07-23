@@ -11,6 +11,7 @@ import {
   ComboboxItem,
   ComboboxTrigger,
 } from "@/components/ui/combobox";
+import { useIsNavigating } from "@/lib/use-is-navigating";
 import { useNavigatingSearchParam } from "@/lib/hooks/use-search-param";
 
 function branchLabel(v: string): string {
@@ -53,6 +54,11 @@ export function RunHistoryBranchFilter({
 
   const [branch, setBranch] = useNavigatingSearchParam("branch", defaultValue);
 
+  // Disable the picker while a navigation is in flight: selecting another
+  // branch before the current visit's deferred props resolve would dispose it
+  // and reject them (see `useIsNavigating`).
+  const busy = useIsNavigating();
+
   // If the default value (current run's branch) isn't among the project's
   // distinct branches, fold it back into the list so it renders as an
   // option.
@@ -65,6 +71,7 @@ export function RunHistoryBranchFilter({
 
   return (
     <Combobox<string>
+      disabled={busy}
       items={items}
       itemToStringLabel={branchLabel}
       onValueChange={(next: string | null) => {
