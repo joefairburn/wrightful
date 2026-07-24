@@ -75,25 +75,34 @@ function groupSeverity(failed: number, flaky: number): number {
 
 /**
  * Opaque base64 cursor for group pagination: the last group's
- * `${severity}:${key}` under the `(severity DESC, key ASC)` ordering. Shares
- * the row cursor's wire codec (`keyset-cursor`); a `null` key encodes as the
- * empty string (the NULL fallback group). `null`/malformed → first page.
+ * `${severity}:${kind}:${key}` under the `(severity DESC, key ASC)` ordering.
+ * The explicit kind tag keeps a real empty-string project name distinct from
+ * the NULL fallback group. `null`/malformed → first page.
  */
 export function encodeGroupCursor(
   severity: number,
   key: string | null,
 ): string {
-  return encodeKeyset([String(severity), key ?? ""]);
+  return encodeKeyset([
+    String(severity),
+    key === null ? "null" : "value",
+    key ?? "",
+  ]);
 }
 
 function decodeGroupCursor(
   raw: string | null,
-): { severity: number; key: string } | null {
-  const segments = decodeKeyset(raw, 2);
+): { severity: number; key: string | null } | null {
+  const segments = decodeKeyset(raw, 3);
   if (!segments) return null;
   const severity = Number(segments[0]);
   if (!Number.isFinite(severity)) return null;
-  return { severity, key: segments[1] ?? "" };
+  const kind = segments[1];
+  if (kind !== "null" && kind !== "value") return null;
+  return {
+    severity,
+    key: kind === "null" ? null : (segments[2] ?? ""),
+  };
 }
 
 /** One group's header: the raw axis value + its 4-bucket counts, worst-first. */
@@ -274,7 +283,7 @@ export async function loadRunGroupSkeleton(
   const axisIsNumeric = opts.groupBy === "shard";
   let having: SqlFragment | undefined;
   if (cursor) {
-    if (cursor.key === "") {
+    if (cursor.key === null) {
       // Cursor sits on the NULL fallback group, which under `asc(axisCol)`
       // (NULLS LAST) sorts after every non-null key in its tier — nothing else
       // remains in that tier, so only lower-severity tiers continue.

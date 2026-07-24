@@ -1,6 +1,6 @@
 import { ulid } from "ulid";
 import { and, asc, db, desc, eq, inArray, lt, or, sql } from "void/db";
-import { monitorExecutions, monitors } from "@schema";
+import { monitorExecutions, monitors, projects } from "@schema";
 import type { Monitor, MonitorExecution } from "@schema";
 import { runBatch } from "@/lib/db/batch";
 import { runRows } from "@/lib/runs/db";
@@ -16,9 +16,10 @@ import type {
   UpdateMonitorInput,
 } from "@/lib/monitors/monitor-schemas";
 import type { ExecutionResult, MonitorType } from "@/lib/monitors/types";
+import { lockTeamForChildMutation } from "@/lib/team-lock";
 
 /**
- * The D1 data layer for synthetic monitoring — the deep module the page actions
+ * The Postgres data layer for synthetic monitoring — the deep module the page actions
  * (user-facing) and the queue consumer (system-internal) both speak to. Every
  * write carries `projectId` (and `teamId` where the table has it) for the same
  * logical tenant isolation the `runs` pipeline uses; there is no DO boundary, so
@@ -80,11 +81,22 @@ function monitorByIdWhere(scope: TenantScope, monitorId: string) {
 // ─── User-facing (branded TenantScope) ──────────────────────────────────────
 
 /**
+ * A per-project/type monitor quota was reached while holding the project's
+ * transaction lock.
+ */
+export class MonitorLimitExceededError extends Error {
+  constructor(readonly limit: number) {
+    super("monitor limit exceeded");
+    this.name = "MonitorLimitExceededError";
+  }
+}
+
+/**
  * Create a monitor and arm its schedule. `nextRunAt` is set to `now +
  * intervalSeconds` when `enabled`, else `null` — a paused monitor keeps its row
  * but is invisible to the sweep's `enabled = 1 AND nextRunAt <= now` SELECT.
  * `lastEnqueuedAt`/`lastRunAt`/`lastStatus` are null until the first execution.
- * The `(projectId, name)` unique index rejects a duplicate name with a D1
+ * The `(projectId, name)` unique index rejects a duplicate name with a Postgres
  * constraint error the caller maps to a form error.
  */
 export async function createMonitor(
@@ -92,6 +104,7 @@ export async function createMonitor(
   input: CreateMonitorInput,
   createdBy: string,
   now: number,
+  opts: { limit?: number } = {},
 ): Promise<Monitor> {
   const id = ulid();
   const row = {
@@ -122,7 +135,43 @@ export async function createMonitor(
     createdAt: now,
     updatedAt: now,
   };
-  await db.insert(monitors).values(row);
+  await db.transaction(async (tx) => {
+    // Team teardown takes the parent update lock before cascading projects and
+    // monitors. Take the compatible child-writer lock before the project quota
+    // lock so neither side can hold one row while waiting on the other.
+    if (!(await lockTeamForChildMutation(tx, scope.teamId))) {
+      throw new Error("team not found");
+    }
+    if (opts.limit !== undefined && Number.isFinite(opts.limit)) {
+      // Every type-specific create locks the same project row before counting.
+      // Concurrent differently-named inserts therefore serialize instead of
+      // both observing count = limit - 1.
+      const owner = await tx
+        .select({ id: projects.id })
+        .from(projects)
+        .where(
+          and(
+            eq(projects.id, scope.projectId),
+            eq(projects.teamId, scope.teamId),
+          ),
+        )
+        .for("update");
+      if (owner.length === 0) throw new Error("project not found");
+      const counts = await tx
+        .select({ count: numericSql(sql`count(*)`) })
+        .from(monitors)
+        .where(
+          and(
+            eq(monitors.projectId, scope.projectId),
+            eq(monitors.type, input.type),
+          ),
+        );
+      if ((counts[0]?.count ?? 0) >= opts.limit) {
+        throw new MonitorLimitExceededError(opts.limit);
+      }
+    }
+    await tx.insert(monitors).values(row);
+  });
   return row as Monitor;
 }
 
@@ -500,7 +549,7 @@ export async function claimExecution(
 
 /**
  * Record an execution's terminal outcome AND bump the parent monitor's
- * `lastStatus` / `lastRunAt`, in one atomic D1 batch (both writes land or
+ * `lastStatus` / `lastRunAt`, in one Postgres transaction (both writes land or
  * neither does). The execution row takes the result's `state`, `runId`,
  * `durationMs`, `errorMessage`, and `completedAt = now`; the monitor's
  * denormalized "last result" columns mirror it so the list page can render the

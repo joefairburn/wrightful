@@ -46,7 +46,8 @@ vi.mock("@/lib/audit", async () => {
 });
 
 const { resetTables } = await import("./harness");
-const { acceptDirectedInvite } = await import("@/lib/invites");
+const { acceptDirectedInvite, consumeTokenInvite } =
+  await import("@/lib/invites");
 const { memberships, teamInvites, teams } = await import("../../../db/schema");
 const { and, eq } = await import("void/_db");
 
@@ -224,5 +225,38 @@ describe("acceptDirectedInvite", () => {
       error: "Invite not addressed to this account",
     });
     expect(await membershipCount("u-noemail", "t6")).toBe(0);
+  });
+});
+
+describe("consumeTokenInvite", () => {
+  it("allows exactly one concurrent consumer of an open single-use link", async () => {
+    await seedTeam("t-open", "open");
+    await h.db.insert(teamInvites).values({
+      id: "inv-open",
+      teamId: "t-open",
+      tokenHash: "hash-open",
+      role: "member",
+      createdBy: "u-inviter",
+      createdAt: NOW,
+      expiresAt: FUTURE,
+      email: null,
+      githubLogin: null,
+    });
+
+    const settled = await Promise.allSettled([
+      consumeTokenInvite("u-open-a", "inv-open", NOW),
+      consumeTokenInvite("u-open-b", "inv-open", NOW),
+    ]);
+    const winners = settled.filter(
+      (result) => result.status === "fulfilled" && result.value !== null,
+    );
+    const memberRows = await h.db
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .where(eq(memberships.teamId, "t-open"));
+
+    expect(winners).toHaveLength(1);
+    expect(memberRows).toHaveLength(1);
+    expect(await inviteExists("inv-open")).toBe(false);
   });
 });
