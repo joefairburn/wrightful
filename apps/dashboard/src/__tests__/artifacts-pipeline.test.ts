@@ -60,6 +60,10 @@ function makeBuilder(kind: string): BuilderNode {
   ] as const) {
     node[m] = chain;
   }
+  // Direct-R2 finalization revalidates and key-share-locks the live project
+  // before minting a capability. This orchestration suite mocks the DB boundary;
+  // the real lock ordering has a dedicated Postgres integration regression.
+  node.for = () => Promise.resolve([{ id: "proj-1" }]);
   node.then = (onFulfilled?: (value: unknown) => unknown) => {
     const rows = awaitResults.shift() ?? [];
     return Promise.resolve(onFulfilled ? onFulfilled(rows) : rows);
@@ -119,7 +123,6 @@ const {
   safeKeySegment,
   artifactIdentity,
   buildArtifactR2Key,
-  filenameFromKey,
   findOversizedArtifact,
   planArtifactRegistration,
   registerArtifacts,
@@ -283,37 +286,6 @@ describe("buildArtifactR2Key", () => {
       "a/b/shot.png",
     );
     expect(key).toBe("t/team-1/p/proj-1/runs/run-1/tr-1/art-1/shot.png");
-  });
-});
-
-// ─── construct ⇆ reverse round-trip (download Content-Disposition filename) ──
-
-/**
- * `buildArtifactR2Key` and `filenameFromKey` are mutually-inverse on the
- * trailing segment: the download hot path skips the DB (the signed token
- * carries only `{ r2Key, contentType }`, not the original name), so the served
- * filename is whatever `filenameFromKey` recovers from the key. This property
- * pins the construct ⇆ reverse invariant in one place — a future key-layout
- * change in `buildArtifactR2Key` (e.g. a date partition) that broke the
- * trailing-segment convention would fail here instead of silently corrupting
- * the `Content-Disposition` of every download.
- */
-describe("filenameFromKey ⇆ buildArtifactR2Key round-trip", () => {
-  it("recovers the sanitized filename from a constructed key", () => {
-    for (const name of [
-      "shot.png",
-      "a/b/trace.zip",
-      "weird name!.txt",
-      "...hidden",
-    ]) {
-      const key = buildArtifactR2Key(scope, "run-1", "tr-1", "art-1", name);
-      expect(filenameFromKey(key)).toBe(safeKeySegment(name));
-    }
-  });
-
-  it("falls back to 'artifact' for a degenerate key", () => {
-    expect(filenameFromKey("")).toBe("artifact");
-    expect(filenameFromKey("t/team/p/proj/runs/r/tr/art/")).toBe("artifact");
   });
 });
 
@@ -799,7 +771,9 @@ describe("registerArtifacts", () => {
       signPut,
     );
     if (result.kind !== "ok") throw new Error("expected ok");
-    expect(transactionSpy).not.toHaveBeenCalled(); // pure reuse, no insert
+    // Pure reuse needs no write transaction, but direct-R2 capability minting
+    // now holds one short live-project lock transaction through signing.
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
     const upload = result.uploads[0];
     expect(signPut).toHaveBeenCalledWith("reused/key.png", {
       contentType: "image/png",

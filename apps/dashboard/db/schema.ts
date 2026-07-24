@@ -138,6 +138,36 @@ export const projects = pgTable(
 );
 
 /**
+ * Transactional outbox for R2 prefixes left behind by project/team deletion.
+ *
+ * Deliberately has NO foreign keys: the row must outlive both the project and,
+ * for whole-team teardown, the team whose database rows were deleted. The
+ * project ULID is globally unique and doubles as the job id, making repeated
+ * scheduling idempotent without minting a second identifier.
+ */
+export const projectArtifactCleanupJobs = pgTable(
+  "projectArtifactCleanupJobs",
+  {
+    projectId: text("projectId").primaryKey(),
+    teamId: text("teamId").notNull(),
+    /** Number of claimed attempts, including bounded incomplete sweeps. */
+    attempts: integer("attempts").notNull().default(0),
+    /** Epoch-seconds retry/lease gate used by the cleanup cron. */
+    nextAttemptAt: big("nextAttemptAt").notNull(),
+    /** Last storage error, cleared after the next successful R2 pass. */
+    lastError: text("lastError"),
+    createdAt: big("createdAt").notNull(),
+    updatedAt: big("updatedAt").notNull(),
+  },
+  (t) => [
+    index("projectArtifactCleanupJobs_due_idx").on(
+      t.nextAttemptAt,
+      t.createdAt,
+    ),
+  ],
+);
+
+/**
  * User → team join row. `userId` references the void-managed `user.id`
  * column but is declared without a Drizzle .references() call so this
  * schema can be migrated independently of void's auth bootstrap.
@@ -219,8 +249,9 @@ export const memberGroups = pgTable(
 /**
  * Group ↔ member join row. `userId` is a logical ref to the void-owned
  * `user.id` (no `.references()`, like `memberships.userId`). Cascade-deletes
- * with the group; a member leaving the team is dropped by the
- * `setGroupMembers` write (and re-intersected with live members on read).
+ * with the group; normal member removal deletes the team's links in the same
+ * transaction. Reads still re-intersect with live memberships so logical-FK
+ * orphans from exceptional cleanup failures cannot authorize notifications.
  */
 export const memberGroupMembers = pgTable(
   "memberGroupMembers",
@@ -1251,6 +1282,8 @@ export const auditLog = pgTable(
 
 export type Team = typeof teams.$inferSelect;
 export type Project = typeof projects.$inferSelect;
+export type ProjectArtifactCleanupJob =
+  typeof projectArtifactCleanupJobs.$inferSelect;
 export type Membership = typeof memberships.$inferSelect;
 export type TeamInvite = typeof teamInvites.$inferSelect;
 export type UserGithubAccount = typeof userGithubAccounts.$inferSelect;

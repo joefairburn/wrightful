@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { and, db, eq, ne, or, sql } from "void/db";
-import { memberships, type MembershipRole } from "@schema";
+import {
+  memberGroupMembers,
+  memberGroups,
+  memberships,
+  type MembershipRole,
+} from "@schema";
 import type { BatchExecutor } from "@/lib/db/batch";
 import { ASSIGNABLE_ROLES } from "@/lib/roles";
 
@@ -66,13 +71,39 @@ export function notLastOwner(teamId: string) {
  * gives every caller the same lock-acquisition order, avoiding a lock-order
  * deadlock between racing peers.
  */
-async function lockOwnerRows(tx: BatchExecutor, teamId: string) {
+export async function lockOwnerRows(
+  tx: BatchExecutor,
+  teamId: string,
+): Promise<void> {
   await tx
     .select({ id: memberships.id })
     .from(memberships)
     .where(and(eq(memberships.teamId, teamId), eq(memberships.role, "owner")))
     .orderBy(memberships.id)
     .for("update");
+}
+
+/**
+ * Remove group links owned by one team after its membership delete succeeds.
+ * `memberGroupMembers.userId` is intentionally only a logical user reference,
+ * so the team predicate must come through the owning group.
+ */
+async function removeTeamGroupLinks(
+  tx: BatchExecutor,
+  teamId: string,
+  userId: string,
+): Promise<void> {
+  await tx.delete(memberGroupMembers).where(
+    and(
+      eq(memberGroupMembers.userId, userId),
+      sql`exists (
+        select 1
+        from ${memberGroups}
+        where ${memberGroups.id} = ${memberGroupMembers.groupId}
+          and ${memberGroups.teamId} = ${teamId}
+      )`,
+    ),
+  );
 }
 
 /** Outcome of a last-owner-guarded write. */
@@ -161,7 +192,10 @@ export async function removeMemberGuarded(
       )
       .returning({ id: memberships.id });
 
-    if (deleted.length > 0) return { ok: true };
+    if (deleted.length > 0) {
+      await removeTeamGroupLinks(tx, teamId, targetUserId);
+      return { ok: true };
+    }
 
     const stillThere = await tx
       .select({ role: memberships.role })
@@ -209,8 +243,8 @@ export async function leaveTeamGuarded(
       )
       .returning({ id: memberships.id });
 
-    return deleted.length > 0
-      ? { ok: true }
-      : { ok: false, reason: "lastOwner" };
+    if (deleted.length === 0) return { ok: false, reason: "lastOwner" };
+    await removeTeamGroupLinks(tx, teamId, userId);
+    return { ok: true };
   });
 }

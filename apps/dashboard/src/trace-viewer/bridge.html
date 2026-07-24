@@ -106,11 +106,19 @@
             );
 
           await navigator.serviceWorker.register("sw.bundle.js");
+          // Registration resolving only means the registration exists; wait
+          // until the scope has an active worker before asking whether this
+          // iframe is controlled by it.
+          await navigator.serviceWorker.ready;
           if (!navigator.serviceWorker.controller) {
             await new Promise((resolve) => {
               navigator.serviceWorker.oncontrollerchange = () => resolve();
             });
           }
+          // Let the host start its trace-load watchdog only once this iframe
+          // is an actual SW-controlled client. Slow worker activation should
+          // not consume the trace parsing/fetch budget.
+          send("ready", {});
 
           if (!trace) {
             // Warm mode: SW registered + active; nothing to load.

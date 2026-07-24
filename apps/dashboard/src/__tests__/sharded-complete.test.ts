@@ -256,7 +256,7 @@ describe("completeRun — sharded deferred finalize", () => {
   });
 });
 
-describe("reopenRunForWrites — re-run shard-state reset", () => {
+describe("reopenRunForWrites — terminal runs stay closed", () => {
   // These use real-clock-adjacent timestamps: the runs under test are TERMINAL,
   // so `completeRun`'s idle-closure guard (which compares against the real
   // clock) must see recent activity.
@@ -273,7 +273,7 @@ describe("reopenRunForWrites — re-run shard-state reset", () => {
     return rows[0]!;
   }
 
-  it("an unsharded re-open of a terminal sharded run clears stale shard state for the legacy /complete path", async () => {
+  it("an unsharded duplicate cannot mutate a terminal sharded run", async () => {
     await seedRun("run-rerun", 2);
     // The previous (sharded) run finished: terminal row + both shard rows.
     await completeShard("run-rerun", 1, 2, "failed", NOW - 60);
@@ -281,33 +281,20 @@ describe("reopenRunForWrites — re-run shard-state reset", () => {
     expect((await readRun("run-rerun")).status).toBe("failed");
     expect(await shardCount("run-rerun")).toBe(2);
 
-    // CI re-runs the suite UNSHARDED, reusing the idempotency key. The
-    // duplicate open must clear the stale shard state — otherwise the re-run's
-    // shardless /complete takes the deferred-finalize path against shard rows
-    // it can never satisfy or update.
-    await reopenRunForWrites(SCOPE, "run-rerun", NOW, {
+    const reopened = await reopenRunForWrites(SCOPE, "run-rerun", NOW, {
       idempotencyKey: "run-rerun",
       run: {},
     } as OpenRunPayload);
+    expect(reopened).toBe(false);
     expect(await readShardState("run-rerun")).toEqual({
-      expectedShards: null,
+      expectedShards: 2,
       shardExpectedTests: null,
     });
-    expect(await shardCount("run-rerun")).toBe(0);
-
-    // The shardless /complete now finalizes immediately (legacy path; the
-    // severity merge keeps the worst status across the runs, as it always has).
-    const r = await completeRun(
-      SCOPE,
-      "run-rerun",
-      { status: "passed", durationMs: 50 },
-      NOW,
-    );
-    expect(r.kind).toBe("ok");
-    expect(await shardCount("run-rerun")).toBe(0);
+    expect(await shardCount("run-rerun")).toBe(2);
+    expect((await readRun("run-rerun")).status).toBe("failed");
   });
 
-  it("a terminal SAME-total re-run cannot finalize off the previous run's shard rows", async () => {
+  it("a same-total duplicate cannot re-arm a terminal run", async () => {
     await seedRun("run-sametotal", 2);
     // The previous run finished: terminal row + both completion rows.
     await completeShard("run-sametotal", 1, 2, "failed", NOW - 60);
@@ -315,38 +302,22 @@ describe("reopenRunForWrites — re-run shard-state reset", () => {
     expect((await readRun("run-sametotal")).status).toBe("failed");
     expect(await shardCount("run-sametotal")).toBe(2);
 
-    // CI re-runs the suite with the SAME shard total, reusing the idempotency
-    // key (the most common re-run shape). The duplicate open must drop the
-    // previous run's completion rows and re-arm the run as in-flight —
-    // otherwise the re-run's FIRST shard /complete sees a full count and
-    // finalizes against the dead siblings' results.
-    await reopenRunForWrites(SCOPE, "run-sametotal", NOW - 40, {
-      idempotencyKey: "run-sametotal",
-      run: { expectedTotalTests: 3 },
-      shard: { index: 1, total: 2 },
-    } as OpenRunPayload);
-    expect(await shardCount("run-sametotal")).toBe(0);
-    expect(await readRun("run-sametotal")).toEqual({
-      status: "running",
-      completedAt: null,
-    });
-
-    // First new shard completes — the run must stay running (count 1 of 2).
-    const r1 = await completeShard("run-sametotal", 1, 2, "passed", NOW - 20);
-    expect(r1).toEqual({ kind: "ok", status: "running" });
-    expect(await readRun("run-sametotal")).toEqual({
-      status: "running",
-      completedAt: null,
-    });
-
-    // The second shard finalizes the re-run on ITS OWN results only: both new
-    // shards passed, so the previous run's 'failed' must not leak through.
-    await completeShard("run-sametotal", 2, 2, "passed", NOW - 10);
-    expect(await readRun("run-sametotal")).toEqual({
-      status: "passed",
-      completedAt: NOW - 10,
-    });
+    const reopened = await reopenRunForWrites(
+      SCOPE,
+      "run-sametotal",
+      NOW - 40,
+      {
+        idempotencyKey: "run-sametotal",
+        run: { expectedTotalTests: 3 },
+        shard: { index: 1, total: 2 },
+      } as OpenRunPayload,
+    );
+    expect(reopened).toBe(false);
     expect(await shardCount("run-sametotal")).toBe(2);
+    expect(await readRun("run-sametotal")).toEqual({
+      status: "failed",
+      completedAt: NOW - 50,
+    });
   });
 
   it("a shardless duplicate open of a still-RUNNING sharded run clears nothing", async () => {
@@ -354,12 +325,13 @@ describe("reopenRunForWrites — re-run shard-state reset", () => {
     await completeShard("run-mixedfleet", 1, 2, "passed", NOW - 60);
     expect((await readRun("run-mixedfleet")).status).toBe("running");
 
-    // A mixed-version fleet's shardless open retry mid-flight: the run is not
-    // terminal, so the reset arms must not fire.
-    await reopenRunForWrites(SCOPE, "run-mixedfleet", NOW, {
+    // A mixed-version fleet's shardless open retry mid-flight only refreshes
+    // liveness; it leaves the active shard state intact.
+    const reopened = await reopenRunForWrites(SCOPE, "run-mixedfleet", NOW, {
       idempotencyKey: "run-mixedfleet",
       run: {},
     } as OpenRunPayload);
+    expect(reopened).toBe(true);
     expect((await readShardState("run-mixedfleet")).expectedShards).toBe(2);
     expect(await shardCount("run-mixedfleet")).toBe(1);
 

@@ -202,7 +202,8 @@ describe("removeMemberGuarded — last-owner-safe removal", () => {
     resultQueue = [[], [{ id: "m_1" }]];
     const result = await removeMemberGuarded("team_1", "user_2");
     expect(result).toEqual({ ok: true });
-    expect(findOwnerCountGuard(capturedWhere)).toBe(true);
+    expect(findOwnerCountGuard(calls[1]?.where)).toBe(true);
+    expect(calls.map((c) => c.kind)).toEqual(["select", "delete", "delete"]);
   });
 
   it("reports `lastOwner` when removing the sole owner is blocked (0 rows, still present)", async () => {
@@ -236,7 +237,7 @@ describe("lockOwnerRows — cross-row write-skew guard (owner-row SELECT ... FOR
   it("locks the team's owner rows FIRST, before the guarded DELETE, for removeMemberGuarded", async () => {
     resultQueue = [[], [{ id: "m_1" }]];
     await removeMemberGuarded("team_1", "user_2");
-    expect(calls.map((c) => c.kind)).toEqual(["select", "delete"]);
+    expect(calls.map((c) => c.kind)).toEqual(["select", "delete", "delete"]);
     expect(calls[0]?.forUpdate).toBe(true);
     expect(isOwnerRowLockWhere(calls[0]?.where, "team_1")).toBe(true);
   });
@@ -244,7 +245,7 @@ describe("lockOwnerRows — cross-row write-skew guard (owner-row SELECT ... FOR
   it("locks the team's owner rows FIRST, before the guarded DELETE, for leaveTeamGuarded", async () => {
     resultQueue = [[], [{ id: "m_1" }]];
     await leaveTeamGuarded("team_1", "user_2");
-    expect(calls.map((c) => c.kind)).toEqual(["select", "delete"]);
+    expect(calls.map((c) => c.kind)).toEqual(["select", "delete", "delete"]);
     expect(calls[0]?.forUpdate).toBe(true);
     expect(isOwnerRowLockWhere(calls[0]?.where, "team_1")).toBe(true);
   });
@@ -255,7 +256,7 @@ describe("leaveTeamGuarded — last-owner-safe self-leave", () => {
     resultQueue = [[], [{ id: "m_1" }]];
     const result = await leaveTeamGuarded("team_1", "user_2");
     expect(result).toEqual({ ok: true });
-    expect(findOwnerCountGuard(capturedWhere)).toBe(true);
+    expect(findOwnerCountGuard(calls[1]?.where)).toBe(true);
   });
 
   it("reports `lastOwner` on a 0-row delete WITHOUT a vanished-vs-blocked re-check (membership is proven live)", async () => {
