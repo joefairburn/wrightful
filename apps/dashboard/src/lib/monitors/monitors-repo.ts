@@ -15,7 +15,7 @@ import type {
   CreateMonitorInput,
   UpdateMonitorInput,
 } from "@/lib/monitors/monitor-schemas";
-import type { ExecutionResult, MonitorType } from "@/lib/monitors/types";
+import type { ExecutionResult } from "@/lib/monitors/types";
 import { lockTeamForChildMutation } from "@/lib/team-lock";
 
 /**
@@ -321,26 +321,22 @@ export async function setMonitorAlertsEnabled(
 }
 
 /**
- * Count of monitors in the project — for per-project cap enforcement. With a
- * `type`, counts only that kind: browser, http, and tcp have SEPARATE caps
+ * Count of every monitor in the project, for the list header.
+ *
+ * This is NOT the cap check. The per-type caps
  * (`WRIGHTFUL_MONITOR_MAX_PER_PROJECT` / `WRIGHTFUL_HTTP_MONITOR_MAX_PER_PROJECT`
- * / `WRIGHTFUL_TCP_MONITOR_MAX_PER_PROJECT`) because a container run, a plain
- * `fetch()`, and a raw socket `connect()` have very different costs, so a project
- * can hold many cheap uptime checks without eating its browser budget. Without a
- * `type` (the list header) it counts all monitors in the project.
+ * / `WRIGHTFUL_TCP_MONITOR_MAX_PER_PROJECT` — separate because a container run, a
+ * plain `fetch()`, and a raw socket `connect()` have very different costs) are
+ * enforced inside `createMonitor`'s transaction, which locks the owning project
+ * row before counting rows of that one type. A count read here could not do
+ * that: it would be a check-then-write race where two concurrent creates both
+ * observe headroom.
  */
-export async function countMonitors(
-  scope: TenantScope,
-  type?: MonitorType,
-): Promise<number> {
+export async function countMonitors(scope: TenantScope): Promise<number> {
   const rows = await db
     .select({ count: numericSql(sql`count(*)`) })
     .from(monitors)
-    .where(
-      type
-        ? and(eq(monitors.projectId, scope.projectId), eq(monitors.type, type))
-        : childProjectScopeWhere(monitors.projectId, scope),
-    );
+    .where(childProjectScopeWhere(monitors.projectId, scope));
   return rows[0]?.count ?? 0;
 }
 

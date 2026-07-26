@@ -132,3 +132,54 @@ describe("POST /api/runs quota ordering", () => {
     expect(c._headers.get("X-Wrightful-Quota-Warning")).toBe("runs 8/10");
   });
 });
+
+describe("POST /api/runs terminal-idempotency conflict", () => {
+  // Reopening a key that already belongs to a completed execution is refused
+  // rather than rearming the run. The 409 is the public contract the reporter
+  // reads to tell "your CI re-run reused a key" apart from a transient failure.
+  it("returns 409 with the runId when the key is already terminal", async () => {
+    checkQuota.mockResolvedValue({
+      status: "ok",
+      dimension: "runs",
+      used: 3,
+      limit: 10,
+    });
+    openRun.mockResolvedValue({
+      runId: "run-done",
+      duplicate: true,
+      terminalDuplicate: true,
+    });
+
+    const response = await invokePost(context(), { body: payload });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error:
+        "This idempotency key already belongs to a completed execution. Use a unique key for each CI run attempt.",
+      runId: "run-done",
+    });
+  });
+
+  it("takes precedence over the soft-limit warning header", async () => {
+    // The conflict returns before the softWarn branch, so a terminal duplicate
+    // that also trips the soft limit must NOT advertise quota headroom for a
+    // request that opened nothing.
+    checkQuota.mockResolvedValue({
+      status: "softWarn",
+      dimension: "runs",
+      used: 8,
+      limit: 10,
+    });
+    openRun.mockResolvedValue({
+      runId: "run-done",
+      duplicate: true,
+      terminalDuplicate: true,
+    });
+    const c = context();
+
+    const response = await invokePost(c, { body: payload });
+
+    expect(response.status).toBe(409);
+    expect(c._headers.get("X-Wrightful-Quota-Warning")).toBeNull();
+  });
+});

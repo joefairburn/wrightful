@@ -11,7 +11,7 @@ import {
   bumpTeamActivity,
   reconcileAndBroadcast,
   summaryFromBatchResults,
-} from "./primitives";
+} from "./write-and-publish";
 
 export type CompleteRunOutcome =
   | { kind: "ok"; status: string }

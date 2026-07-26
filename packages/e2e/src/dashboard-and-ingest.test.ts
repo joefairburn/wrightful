@@ -206,6 +206,8 @@ describe("Dashboard and ingest E2E", () => {
     }
 
     it("lands every shard on one run and aggregates the suite total", async () => {
+      // Shard 2 wins the open race — deliberately NOT shard 1, so nothing
+      // accidentally depends on the opener being the first shard.
       const first = await openShard(2);
       expect(first.status).toBe(201);
       runId = ((await first.json()) as { runId: string }).runId;

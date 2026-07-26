@@ -3,7 +3,7 @@ import { logger } from "void/log";
 import { runs } from "@schema";
 import { staleRunFilter } from "@/lib/scope";
 import { finalizeStaleRun } from "./finalization";
-import { chunkBySize } from "./primitives";
+import { chunkBySize } from "@/lib/db/chunk";
 
 export interface SweepStaleRunsResult {
   found: number;

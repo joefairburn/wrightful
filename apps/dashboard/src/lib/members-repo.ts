@@ -8,6 +8,7 @@ import {
 } from "@schema";
 import type { BatchExecutor } from "@/lib/db/batch";
 import { ASSIGNABLE_ROLES } from "@/lib/roles";
+import { lockTeamForChildMutation } from "@/lib/team-lock";
 
 /**
  * Membership mutations (roadmap 3.1: role editing + removal) and the one
@@ -26,6 +27,15 @@ import { ASSIGNABLE_ROLES } from "@/lib/roles";
  *    `db.transaction` before the guarded write on that same `tx`: the second
  *    caller blocks until the first commits, then sees the post-commit count.
  *    Same lock-then-write shape as `appendRunResults` in `src/lib/ingest.ts`.
+ *
+ * Every transaction here additionally opens with `lockTeamForChildMutation`
+ * (`src/lib/team-lock.ts`), which is the global parent-before-child order shared
+ * with invites, groups, projects, and monitors. Membership rows are children of
+ * `teams`, and these transactions also write `memberGroupMembers`
+ * (`removeTeamGroupLinks`), so without the parent lock a remove holding owner
+ * rows and waiting on group links can deadlock with a team teardown holding the
+ * cascaded group links and waiting on the owner rows. The parent lock makes the
+ * two conflict on `teams` first, before either holds a child row.
  *
  * Callers read `.returning()` to detect a guard-blocked write and surface the
  * inline error. The role validator + guard live here (a tiny repo seam) so they
@@ -130,6 +140,13 @@ export async function setMemberRole(
   role: MembershipRole,
 ): Promise<GuardedWriteResult> {
   return db.transaction(async (tx) => {
+    // Parent-before-child (see module doc). A lost race means teardown removed
+    // the team and cascaded this membership, which is the same observable state
+    // as the row having vanished.
+    if (!(await lockTeamForChildMutation(tx, teamId))) {
+      return { ok: false, reason: "noop" };
+    }
+
     // Only demoting away from owner can strand the team, so only it needs the
     // lock; promoting to/keeping owner never reduces the count and is safe to race.
     if (role !== "owner") await lockOwnerRows(tx, teamId);
@@ -179,6 +196,13 @@ export async function removeMemberGuarded(
   targetUserId: string,
 ): Promise<GuardedWriteResult> {
   return db.transaction(async (tx) => {
+    // Parent-before-child (see module doc). This transaction goes on to write
+    // `memberGroupMembers`, so the parent lock is what keeps it off the teardown
+    // cascade's lock cycle. Team gone → the membership cascaded with it.
+    if (!(await lockTeamForChildMutation(tx, teamId))) {
+      return { ok: false, reason: "noop" };
+    }
+
     await lockOwnerRows(tx, teamId);
 
     const deleted = await tx
@@ -230,6 +254,15 @@ export async function leaveTeamGuarded(
   userId: string,
 ): Promise<LeaveTeamResult> {
   return db.transaction(async (tx) => {
+    // Parent-before-child (see module doc). This result type has no `noop` arm,
+    // but it does not need one: if teardown removed the team, the actor's row
+    // cascaded with it and the delete below would have matched zero rows and
+    // returned `lastOwner` anyway. Mapping the lost lock to the same outcome
+    // keeps the observable behaviour identical.
+    if (!(await lockTeamForChildMutation(tx, teamId))) {
+      return { ok: false, reason: "lastOwner" };
+    }
+
     await lockOwnerRows(tx, teamId);
 
     const deleted = await tx

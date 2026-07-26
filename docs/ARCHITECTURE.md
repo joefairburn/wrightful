@@ -62,7 +62,7 @@ Void file-based routing. API handlers in `apps/dashboard/routes/`, pages in `app
 
 Cross-cutting middleware: `00.errors` (error → page/redirect), `01.context` (tenant bundle) / `01.head` (theme), `02.api-auth` (Bearer key on ingest), `03.rate-limit` (per-surface Cloudflare rate-limiter bindings — `AUTH` / `API` / `QUERY` / `ARTIFACT` / `INGEST_IP`; runs after auth so it can key by resolved `apiKey.id`).
 
-**Ingest pipeline.** `routes/api/runs/*` handlers are auth + translation only; the verify-ownership → batch (`db.transaction`) → summary → activity-bump → broadcast pipeline lives behind `openRun` / `appendRunResults` / `completeRun` in `src/lib/ingest.ts`.
+**Ingest pipeline.** `routes/api/runs/*` handlers are auth + translation only; the verify-ownership → batch (`db.transaction`) → summary → activity-bump → broadcast pipeline lives behind `openRun` / `appendRunResults` / `completeRun`, implemented under `src/lib/ingest/` (`lifecycle.ts`, `results.ts`, `finalization.ts`, `stale-runs.ts`, plus the shared `write-and-publish.ts`). `src/lib/ingest.ts` re-exports only that public surface; the statement builders and broadcast helpers stay internal because they are only valid inside a specific `runBatch` or after a committed write.
 
 ## Background work (crons + queues)
 

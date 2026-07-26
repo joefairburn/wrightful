@@ -18,7 +18,7 @@ import {
   resolveTestResultIds,
   summaryFromBatchResults,
   type ResultMapping,
-} from "./primitives";
+} from "./write-and-publish";
 
 export type AppendRunResultsOutcome =
   | { kind: "ok"; mapping: ResultMapping[] }
@@ -67,7 +67,19 @@ export async function appendRunResults(
     | { kind: "rowCapExceeded"; limit: number; count: number }
     | undefined;
 
+  // testResults usage is deliberately NOT metered here. It used to upsert the
+  // single `usageCounters` (teamId, month) row inside THIS transaction, which
+  // serialized every concurrent /results flush across the WHOLE team on that one
+  // row — the ingest hot-path contention ceiling. testResults is never
+  // quota-gated (only `runs` at run-open and `artifactBytes` in
+  // `registerArtifacts` are), so its count is derived on read
+  // (`countTeamTestResults` → `loadTeamUsage`) and re-based by the
+  // `rollup-usage` cron; no live counter is needed. See the 2026-06-22 worklog.
+  // Adding a usage bump here would reintroduce that ceiling.
   const summary = await db.transaction(async (tx) => {
+    // Serialize concurrent /results flushes for THIS run (see the docstring).
+    // Scoped to the single run row via runByIdWhere (projectId + id), not a
+    // table lock; sibling runs and other projects are unaffected.
     const lockedRows = await tx
       .select({ id: runs.id, totalTests: runs.totalTests })
       .from(runs)
@@ -94,7 +106,6 @@ export async function appendRunResults(
       runId,
       results,
       nowSeconds,
-      resolved.existingIds,
       resolved.assignedIds,
       tx,
     );

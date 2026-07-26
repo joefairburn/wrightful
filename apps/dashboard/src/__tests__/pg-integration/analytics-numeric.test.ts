@@ -45,8 +45,9 @@ const { runRows } = await import("@/lib/runs/db");
 const { bucketExpr } = await import("@/lib/analytics/bucketing-sql");
 const { numericSql } = await import("@/lib/db/sql-ops");
 const { latestPerTestRn } = await import("@/lib/analytics/per-test");
-const { chunkByParams, mergeRunStatus, mergeRunStatusSql } =
-  await import("@/lib/ingest");
+const { chunkByParams } = await import("@/lib/db/chunk");
+const { mergeRunStatus, mergeRunStatusSql } =
+  await import("@/lib/ingest/finalization");
 const { makeTenantScope } = await import("@/lib/scope");
 const { httpResponseTimeBuckets, monitorUptimeWindows } =
   await import("@/lib/monitors/http/uptime-analytics");

@@ -190,7 +190,9 @@ vi.mock("@/realtime/publish", () => ({
 // read, no GitHub call), keeping these ingest-pipeline assertions unchanged.
 vi.mock("void/env", () => ({ env: {} }));
 
-const { openRun, appendRunResults, completeRun } = await import("@/lib/ingest");
+const { completeRun } = await import("@/lib/ingest/finalization");
+const { openRun } = await import("@/lib/ingest/lifecycle");
+const { appendRunResults } = await import("@/lib/ingest/results");
 
 const scope: TenantScope = {
   teamId: "team-1" as AuthorizedTeamId,

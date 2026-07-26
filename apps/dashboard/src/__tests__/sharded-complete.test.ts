@@ -52,8 +52,9 @@ vi.mock("@/realtime/publish", () => ({
   broadcastProjectRoom: () => Promise.resolve(),
 }));
 
-const { completeRun, finalizeStaleRun, reopenRunForWrites } =
-  await import("@/lib/ingest");
+const { completeRun, finalizeStaleRun } =
+  await import("@/lib/ingest/finalization");
+const { reopenRunForWrites } = await import("@/lib/ingest/lifecycle");
 const { makeTenantScope } = await import("@/lib/scope");
 const { runs, runShards, teams, testResults } = await import("../../db/schema");
 const { and, eq } = await import("void/_db");

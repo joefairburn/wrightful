@@ -59,6 +59,10 @@ function MonitorDetailView({
   const status = monitorDisplayStatus(monitor);
   const isHttp = monitor.type === "http";
   const isTcp = monitor.type === "tcp" || monitor.type === "ping";
+  // Members get a read-only detail view; only owners can edit/pause/delete (the
+  // actions are owner-gated server-side). ANDing `isOwner` here also defends
+  // against a member hand-typing `?edit=1`: the edit modal is only rendered for
+  // owners, so a non-owner cannot open it regardless of the URL flag.
   const isOwner = project.role === "owner";
   const editingOpen = isOwner && editing;
   const recipientsFields = (

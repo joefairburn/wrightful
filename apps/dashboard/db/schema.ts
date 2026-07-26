@@ -1221,10 +1221,12 @@ export const testOwners = pgTable(
  *    when the team itself is deleted there is no longer anyone who could read
  *    its log (the viewer page is owner-only and the team's memberships cascade
  *    away too), so retaining orphaned audit rows for a dead team buys nothing.
- *    Cascade is therefore both acceptable AND the simplest choice. The
- *    `team.delete` row is still captured: `recordAudit` is awaited SYNCHRONOUSLY
- *    *before* the delete batch runs, so the actor/target context is persisted
- *    and (briefly) readable up to the moment the cascade removes the whole team.
+ *    Cascade is therefore both acceptable AND the simplest choice. Team deletion
+ *    is consequently NOT audited: a pre-delete `team.delete` row would
+ *    necessarily cascade away on success, while SURVIVING a failed teardown and
+ *    recording a deletion that never happened — strictly worse than no row. That
+ *    write was removed; durable deletion audit would need a separate,
+ *    non-cascading sink outside this table.
  *
  *  - `projectId` → projects `onDelete: "set null"` (NULLABLE). A project delete
  *    must NOT cascade-delete the audit rows that record it — the "project
@@ -1255,7 +1257,7 @@ export const auditLog = pgTable(
     actorUserId: text("actorUserId").notNull(),
     /**
      * Stable enum-ish action string (e.g. "invite.mint", "member.role_change",
-     * "key.revoke", "team.delete", "project.create"). The canonical set lives in
+     * "key.revoke", "team.rename", "project.create"). The canonical set lives in
      * `AUDIT_ACTIONS` (`src/lib/audit.ts`) so call sites don't stringly-drift.
      */
     action: text("action").notNull(),

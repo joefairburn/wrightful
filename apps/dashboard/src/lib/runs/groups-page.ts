@@ -1,7 +1,7 @@
-import { and, asc, db, desc, eq, isNull, or, sql } from "void/db";
+import { and, asc, db, desc, eq, inArray, isNull, or, sql } from "void/db";
 import { runs, testResults } from "@schema";
 import type { GroupByAxis, StatusFilterValue } from "@/lib/group-tests-by-file";
-import { STATUS_BUCKET_MEMBERS, statusMatchSql } from "@/lib/ingest";
+import { STATUS_BUCKET_MEMBERS } from "@/lib/status-buckets";
 import { decodeKeyset, encodeKeyset } from "@/lib/keyset-cursor";
 import { numericSql } from "@/lib/db/sql-ops";
 import { escapeLike, likeEscaped } from "@/lib/runs/filters-where";
@@ -220,7 +220,7 @@ export function testSearchPredicate(search: string | null): SqlFragment | null {
 /** The `count(*) FILTER (WHERE status IN <bucket>)` fragment for one bucket. */
 function bucketCount(bucket: keyof typeof STATUS_BUCKET_MEMBERS) {
   return numericSql(
-    sql`count(*) filter (where ${statusMatchSql(STATUS_BUCKET_MEMBERS[bucket])})`,
+    sql`count(*) filter (where ${inArray(testResults.status, [...STATUS_BUCKET_MEMBERS[bucket]])})`,
   );
 }
 
@@ -228,7 +228,7 @@ function bucketCount(bucket: keyof typeof STATUS_BUCKET_MEMBERS) {
  * The "group skeleton" for a run's Tests tab: one worst-first-ordered header
  * per group (file / Playwright project / shard) with its 4-bucket counts,
  * computed by a single `GROUP BY <axis>` over the run's rows. The counts reuse
- * `STATUS_BUCKET_MEMBERS` / `statusMatchSql` verbatim so they can never drift
+ * `STATUS_BUCKET_MEMBERS` verbatim so they can never drift
  * from the run-level aggregate (`aggregateRecomputeStatement`) the filter chips
  * read. Rides `testResults_project_runId_idx` (projectId, runId): the seek
  * narrows to one run's partition, then a HashAggregate collapses it to the
@@ -256,7 +256,9 @@ export async function loadRunGroupSkeleton(
     childByRunWhere(testResults, scope, runId),
   ];
   if (opts.status) {
-    conditions.push(statusMatchSql(statusFilterMembers(opts.status)));
+    conditions.push(
+      inArray(testResults.status, [...statusFilterMembers(opts.status)]),
+    );
   }
   const search = testSearchPredicate(opts.search);
   if (search) conditions.push(search);
@@ -266,11 +268,7 @@ export async function loadRunGroupSkeleton(
   // failed), desc; the group key breaks ties (asc) for a stable, deterministic
   // order. This is the authoritative display order — the client renders the
   // skeleton verbatim, it does not re-sort groups.
-  const severity = sql`count(*) filter (where ${statusMatchSql(
-    STATUS_BUCKET_MEMBERS.failed,
-  )}) * ${sql.raw(String(SEVERITY_FAILED_WEIGHT))} + count(*) filter (where ${statusMatchSql(
-    STATUS_BUCKET_MEMBERS.flaky,
-  )}) * ${sql.raw(String(SEVERITY_FLAKY_WEIGHT))}`;
+  const severity = sql`count(*) filter (where ${inArray(testResults.status, [...STATUS_BUCKET_MEMBERS.failed])}) * ${sql.raw(String(SEVERITY_FAILED_WEIGHT))} + count(*) filter (where ${inArray(testResults.status, [...STATUS_BUCKET_MEMBERS.flaky])}) * ${sql.raw(String(SEVERITY_FLAKY_WEIGHT))}`;
 
   // Keyset pagination on `(severity DESC, key ASC NULLS LAST)` via HAVING (the
   // cursor references the aggregate, which WHERE can't). The key tiebreak must

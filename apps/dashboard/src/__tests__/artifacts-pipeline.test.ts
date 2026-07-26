@@ -60,10 +60,12 @@ function makeBuilder(kind: string): BuilderNode {
   ] as const) {
     node[m] = chain;
   }
-  // Direct-R2 finalization revalidates and key-share-locks the live project
-  // before minting a capability. This orchestration suite mocks the DB boundary;
-  // the real lock ordering has a dedicated Postgres integration regression.
-  node.for = () => Promise.resolve([{ id: "proj-1" }]);
+  // `.for(...)` is a lock MODIFIER, not a terminal: it chains like `.where`, so
+  // the row-locking selects (the team key-share lock and the live-project probe
+  // in `finalizeUploads`) draw from the same `awaitResults` FIFO as every other
+  // statement. Returning a hardcoded non-empty row here instead would make both
+  // fail-closed guards permanently true and silently unfalsifiable.
+  node.for = chain;
   node.then = (onFulfilled?: (value: unknown) => unknown) => {
     const rows = awaitResults.shift() ?? [];
     return Promise.resolve(onFulfilled ? onFulfilled(rows) : rows);
@@ -696,6 +698,9 @@ describe("registerArtifacts", () => {
       [{ id: "tr-1" }],
       [],
       [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [], // artifacts INSERT
+      [{ id: "team-1" }], // lockTeamForChildMutation
+      [{ id: "proj-1" }], // live-project revalidation
     ];
     const signPut = vi.fn(
       async (
@@ -751,6 +756,10 @@ describe("registerArtifacts", () => {
           contentType: "image/png",
         },
       ],
+      // Pure reuse takes the early return, so there is no INSERT — just the two
+      // locks `finalizeUploads` holds while minting the capability.
+      [{ id: "team-1" }], // lockTeamForChildMutation
+      [{ id: "proj-1" }], // live-project revalidation
     ];
     const signPut = vi.fn(
       async (
@@ -792,6 +801,9 @@ describe("registerArtifacts", () => {
       [{ id: "tr-1" }],
       [],
       [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [], // artifacts INSERT
+      [{ id: "team-1" }], // lockTeamForChildMutation
+      [{ id: "proj-1" }], // live-project revalidation
     ];
     const signPut = vi.fn(async () => "https://r2/url");
     const payload: RegisterArtifactsPayload = {
@@ -812,6 +824,59 @@ describe("registerArtifacts", () => {
       contentType: "image/png",
       contentLength: 100,
     });
+  });
+
+  // Both fail-closed guards in `finalizeUploads`. A presigned PUT stays usable
+  // after its artifact row is gone, so losing either lock must return NO url
+  // rather than one pointing at a deleted project's prefix. Each asserts the
+  // signer was never invoked — a returned `runNotFound` with a minted-but-
+  // discarded URL would still have leaked the capability.
+  it("returns runNotFound WITHOUT signing when teardown already removed the team", async () => {
+    awaitResults = [
+      [{ id: "run-1" }],
+      [{ id: "tr-1" }],
+      [],
+      [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [], // artifacts INSERT
+      [], // lockTeamForChildMutation → team gone
+      // A LIVE project deliberately follows. The team guard must short-circuit
+      // before this is ever read; without it the flow would fall through to a
+      // live project and mint a URL, so this row is what makes the team guard
+      // independently falsifiable rather than masked by the project guard.
+      [{ id: "proj-1" }],
+    ];
+    const signPut = vi.fn(async () => "https://r2/url");
+    const result = await registerArtifacts(
+      scope,
+      { runId: "run-1", artifacts: [artifact()] },
+      MAX_BYTES,
+      NOW,
+      signPut,
+    );
+    expect(result).toEqual({ kind: "runNotFound" });
+    expect(signPut).not.toHaveBeenCalled();
+  });
+
+  it("returns runNotFound WITHOUT signing when the project vanished under the lock", async () => {
+    awaitResults = [
+      [{ id: "run-1" }],
+      [{ id: "tr-1" }],
+      [],
+      [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [], // artifacts INSERT
+      [{ id: "team-1" }], // team lock held
+      [], // live-project revalidation → project gone
+    ];
+    const signPut = vi.fn(async () => "https://r2/url");
+    const result = await registerArtifacts(
+      scope,
+      { runId: "run-1", artifacts: [artifact()] },
+      MAX_BYTES,
+      NOW,
+      signPut,
+    );
+    expect(result).toEqual({ kind: "runNotFound" });
+    expect(signPut).not.toHaveBeenCalled();
   });
 
   it("de-dupes identical artifacts within one request to a single inserted row", async () => {

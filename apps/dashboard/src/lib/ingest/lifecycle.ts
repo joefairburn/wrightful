@@ -4,6 +4,7 @@ import { env } from "void/env";
 import { logger } from "void/log";
 import { runs } from "@schema";
 import { isForeignKeyViolation, isUniqueViolation } from "@/lib/db/batch";
+import { setCodeownersFile } from "@/lib/owners-repo";
 import { runByIdWhere, type TenantScope } from "@/lib/scope";
 import {
   monthStartSeconds,
@@ -18,9 +19,29 @@ import {
   buildQueuePrefillStatements,
   buildTestCatalogUpsertStatements,
   bumpTeamActivity,
-  maybeUpdateCodeowners,
   type RunAggregateSummary,
-} from "./primitives";
+} from "./write-and-publish";
+
+/**
+ * Best-effort CODEOWNERS capture from an `openRun` payload. Failures are logged
+ * and swallowed on purpose: ownership metadata is a convenience for the run
+ * views, and a codeowners write must never fail the run open that carries it.
+ */
+async function maybeUpdateCodeowners(
+  scope: TenantScope,
+  codeowners: string | undefined,
+  nowSeconds: number,
+): Promise<void> {
+  if (typeof codeowners !== "string" || codeowners.trim().length === 0) return;
+  try {
+    await setCodeownersFile(scope, codeowners, nowSeconds);
+  } catch (err) {
+    logger.error("update codeowners from ingest failed", {
+      projectId: scope.projectId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 export interface OpenRunResult {
   runId: string;

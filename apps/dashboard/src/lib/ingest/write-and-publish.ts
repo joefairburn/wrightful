@@ -1,6 +1,23 @@
+/**
+ * The statement builders and the commit-then-publish tail shared by the three
+ * ingest stages (`lifecycle`, `results`, `finalization`).
+ *
+ * Everything here is INTERNAL to the pipeline and is not re-exported from
+ * `@/lib/ingest`. Two reasons, both load-bearing:
+ *
+ *  - the statement builders emit SQL that is only correct inside a specific
+ *    `runBatch` — e.g. `aggregateRecomputeStatement` must be the LAST statement
+ *    in its transaction, because `reconcileAndBroadcast` reads its `.returning()`
+ *    row as the summary it publishes;
+ *  - the broadcast helpers must run only AFTER a committed write, so calling
+ *    them from a route would publish state the database may never have.
+ *
+ * Generic Postgres chunking lives in `@/lib/db/chunk.ts` and the status→bucket
+ * taxonomy in `@/lib/status-buckets.ts`; neither is ingest-specific and neither
+ * belongs here.
+ */
 import { ulid } from "ulid";
 import { and, db, eq, inArray, sql } from "void/db";
-import { logger } from "void/log";
 import {
   runs,
   testAnnotations,
@@ -12,14 +29,18 @@ import {
 } from "@schema";
 import type { BatchExecutor } from "@/lib/db/batch";
 import { changedRows, runBatch } from "@/lib/db/batch";
-import { setCodeownersFile } from "@/lib/owners-repo";
+import {
+  chunkBySize,
+  chunkInsertRows,
+  PG_MAX_BOUND_PARAMS,
+} from "@/lib/db/chunk";
 import {
   childByTestResultsWhere,
   childProjectScopeWhere,
   runByIdWhere,
   type TenantScope,
 } from "@/lib/scope";
-import { STATUS_BUCKETS, WIRE_INVISIBLE_STATUSES } from "@/lib/status-buckets";
+import { STATUS_BUCKET_MEMBERS, statusBucket } from "@/lib/status-buckets";
 import { broadcastProjectRoom, broadcastRunRoom } from "@/realtime/publish";
 import type { TestResultInput } from "@/lib/schemas";
 import type {
@@ -42,33 +63,6 @@ export const AGGREGATE_SUMMARY_COLUMNS = {
 } as const;
 
 export type RunAggregateSummary = RunProgressEvent["summary"];
-
-/** Postgres's per-statement bound-parameter ceiling. */
-export const PG_MAX_BOUND_PARAMS = 65_535;
-
-export function chunkBySize<T>(items: T[], size: number): T[][] {
-  const step = Math.max(1, size);
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += step) {
-    chunks.push(items.slice(i, i + step));
-  }
-  return chunks;
-}
-
-export function chunkByParams<T>(
-  rows: T[],
-  columnsPerRow: number,
-  maxParams: number = PG_MAX_BOUND_PARAMS,
-): T[][] {
-  return chunkBySize(rows, Math.floor(maxParams / columnsPerRow));
-}
-
-export function chunkInsertRows<T extends Record<string, unknown>>(
-  rows: T[],
-): T[][] {
-  if (rows.length === 0) return [];
-  return chunkByParams(rows, Object.keys(rows[0]).length);
-}
 
 export interface ResultMapping {
   clientKey: string;
@@ -161,6 +155,20 @@ export function buildTestCatalogUpsertStatements(
     byTestId.set(entry.testId, { title: entry.title, file: entry.file });
   }
   const rows = [...byTestId]
+    // Sort by `testId` (projectId is constant per statement) so EVERY concurrent
+    // writer touching this project's catalog acquires rows in one global order
+    // and cannot AB/BA deadlock on the per-row locks Postgres takes for the
+    // upsert: these `(projectId, testId)` rows are shared by ALL of a project's
+    // runs, while the ingest transaction only locks its own run row.
+    //
+    // Plain code-unit comparison, NOT `localeCompare` — that is locale-dependent,
+    // so two processes could disagree on the order and re-open the cycle. Do not
+    // "simplify" this to a bare `.sort()` either: the default comparator is
+    // lexicographic over UTF-16 code units, which happens to agree today, but
+    // the explicit comparator is what documents that the ORDER is the invariant.
+    //
+    // The dedup above already collapsed same-testId entries, so reordering
+    // distinct ids cannot change which rows are written.
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([testId, { title, file }]) => ({
       id: ulid(),
@@ -186,6 +194,15 @@ export function buildTestCatalogUpsertStatements(
   );
 }
 
+/**
+ * The upsert `SET` for a re-reported test result.
+ *
+ * `createdAt` is omitted DELIBERATELY — it is insert-only. On a retry or a late
+ * shard the row already exists, and the first report's timestamp is what run
+ * ordering and the results feed sort by; copying `excluded."createdAt"` would
+ * silently re-date the row on every re-report. Adding it here to "match the
+ * insert" looks like a consistency fix and is a regression.
+ */
 function resultUpsertSet() {
   return {
     title: sql`excluded."title"`,
@@ -207,7 +224,6 @@ export function buildResultInsertStatements(
   runId: string,
   results: TestResultInput[],
   nowSeconds: number,
-  _existingIds: Map<string, string>,
   assignedIds: Map<string, string>,
   exec: BatchExecutor,
 ) {
@@ -326,29 +342,6 @@ export interface AggregateDelta {
   skipped: number;
 }
 
-export const STATUS_BUCKET_MEMBERS = {
-  passed: STATUS_BUCKETS.passed.filter((s) => !WIRE_INVISIBLE_STATUSES.has(s)),
-  failed: STATUS_BUCKETS.failed.filter((s) => !WIRE_INVISIBLE_STATUSES.has(s)),
-  flaky: STATUS_BUCKETS.flaky.filter((s) => !WIRE_INVISIBLE_STATUSES.has(s)),
-  skipped: STATUS_BUCKETS.skipped.filter(
-    (s) => !WIRE_INVISIBLE_STATUSES.has(s),
-  ),
-} satisfies Record<
-  Exclude<keyof AggregateDelta, "totalTests">,
-  readonly string[]
->;
-
-const STATUS_TO_BUCKET: ReadonlyMap<string, keyof AggregateDelta> = new Map(
-  Object.entries(STATUS_BUCKET_MEMBERS).flatMap(([bucket, statuses]) =>
-    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- Object.entries erases literal key types
-    statuses.map((status) => [status, bucket as keyof AggregateDelta] as const),
-  ),
-);
-
-export function statusBucket(status: string): keyof AggregateDelta | null {
-  return STATUS_TO_BUCKET.get(status) ?? null;
-}
-
 export function computeAggregateDelta(
   results: ReadonlyArray<{ testId: string; status: string }>,
   prevStatusByTestId: ReadonlyMap<string, string>,
@@ -419,13 +412,6 @@ export function activityBumpStatement(
     .returning(AGGREGATE_SUMMARY_COLUMNS);
 }
 
-export function statusMatchSql(statuses: readonly string[]) {
-  const list = statuses.map((status) => `'${status}'`).join(", ");
-  return statuses.length === 1
-    ? sql.raw(`"status" = ${list}`)
-    : sql.raw(`"status" IN (${list})`);
-}
-
 export function aggregateRecomputeStatement(
   scope: { projectId: string },
   runId: string,
@@ -433,7 +419,7 @@ export function aggregateRecomputeStatement(
 ) {
   const projectId = scope.projectId;
   const bucketCount = (statuses: readonly string[]) =>
-    sql`(SELECT COUNT(*) FROM "testResults" WHERE "projectId" = ${projectId} AND "runId" = ${runId} AND ${statusMatchSql(statuses)})`;
+    sql`(SELECT COUNT(*) FROM "testResults" WHERE "projectId" = ${projectId} AND "runId" = ${runId} AND ${inArray(testResults.status, [...statuses])})`;
   return exec
     .update(runs)
     .set({
@@ -457,8 +443,6 @@ export function summaryFromBatchResults(
   return rows?.[0] ?? null;
 }
 
-export const statementChangedRows = changedRows;
-
 export async function reconcileAndBroadcast(
   runId: string,
   buildStatusUpdate: (exec: BatchExecutor) => PromiseLike<unknown>,
@@ -470,29 +454,13 @@ export async function reconcileAndBroadcast(
     aggregateRecomputeStatement(recomputeScope, runId, tx),
   ]);
   const summary = summaryFromBatchResults(batchResults);
-  if (opts?.requireStatusFlip && statementChangedRows(batchResults[0]) === 0) {
+  if (opts?.requireStatusFlip && changedRows(batchResults[0]) === 0) {
     return summary;
   }
   if (summary) {
     await broadcastRunProgress(runId, recomputeScope.projectId, summary);
   }
   return summary;
-}
-
-export async function maybeUpdateCodeowners(
-  scope: TenantScope,
-  codeowners: string | undefined,
-  nowSeconds: number,
-): Promise<void> {
-  if (typeof codeowners !== "string" || codeowners.trim().length === 0) return;
-  try {
-    await setCodeownersFile(scope, codeowners, nowSeconds);
-  } catch (err) {
-    logger.error("update codeowners from ingest failed", {
-      projectId: scope.projectId,
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
 }
 
 export async function bumpTeamActivity(

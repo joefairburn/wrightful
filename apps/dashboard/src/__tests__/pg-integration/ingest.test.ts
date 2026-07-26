@@ -53,12 +53,11 @@ vi.mock("void/env", () => ({
 
 const { resetTables } = await import("./harness");
 const { runBatch } = await import("@/lib/db/batch");
-const {
-  appendRunResults,
-  applyShardExpectedTests,
-  buildRunInsertValues,
-  buildTestCatalogUpsertStatements,
-} = await import("@/lib/ingest");
+const { applyShardExpectedTests, buildRunInsertValues } =
+  await import("@/lib/ingest/lifecycle");
+const { buildTestCatalogUpsertStatements } =
+  await import("@/lib/ingest/write-and-publish");
+const { appendRunResults } = await import("@/lib/ingest/results");
 const { makeTenantScope } = await import("@/lib/scope");
 const { loadTestResultChildren } = await import("@/lib/test-result-children");
 const { buildTestSearchWhere } = await import("@/lib/command-search");

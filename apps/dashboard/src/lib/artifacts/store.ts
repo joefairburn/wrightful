@@ -5,11 +5,8 @@ import { storage } from "void/storage";
 import { artifacts, projects, runs, testResults } from "@schema";
 import { safeContentType } from "@/lib/content-types";
 import { isUniqueViolation } from "@/lib/db/batch";
-import {
-  chunkInsertRows,
-  RUN_WRITE_GUARD_COLUMNS,
-  runClosedForWrites,
-} from "@/lib/ingest";
+import { chunkInsertRows } from "@/lib/db/chunk";
+import { RUN_WRITE_GUARD_COLUMNS, runClosedForWrites } from "@/lib/ingest";
 import {
   childByIdWhere,
   childByRunWhere,
@@ -62,7 +59,7 @@ class ArtifactQuotaOvershootError extends Error {
 // list stays well under Postgres's 65535 ceiling. 99 is a conservative slice
 // that matches the ingest read cadence (a /results batch is ≤5000 ids, so this
 // is one small round-trip in practice). The hard cap itself lives in
-// `PG_MAX_BOUND_PARAMS` (ingest.ts) — this value is only a per-read slice size.
+// `PG_MAX_BOUND_PARAMS` (`db/chunk.ts`) — this value is only a per-read slice size.
 const MAX_IN_ARRAY_IDS = 99;
 
 /**
