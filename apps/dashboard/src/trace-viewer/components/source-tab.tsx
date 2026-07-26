@@ -140,6 +140,26 @@ export function SourceTab({
   );
 }
 
+/**
+ * Bound a source blob to what the preview is willing to render: `renderChars`
+ * of text, then `renderLines` of lines. `truncated` reports whether either cap
+ * dropped content, which drives the truncation notice under the last line.
+ */
+export function boundSourcePreview(content: string): {
+  lines: string[];
+  truncated: boolean;
+} {
+  const boundedContent = content.slice(0, SOURCE_PREVIEW_LIMITS.renderChars);
+  const boundedLines = boundedContent.split("\n");
+  const lines = boundedLines.slice(0, SOURCE_PREVIEW_LIMITS.renderLines);
+  return {
+    lines,
+    truncated:
+      boundedContent.length < content.length ||
+      lines.length < boundedLines.length,
+  };
+}
+
 /** Reject oversized source blobs before UTF-8 decoding allocates their text. */
 async function readSourcePreviewBlob(blob: Blob): Promise<string> {
   if (
@@ -239,12 +259,7 @@ function SourceLines({
   file: string;
   targetLine: number | undefined;
 }): React.ReactElement {
-  const boundedContent = content.slice(0, SOURCE_PREVIEW_LIMITS.renderChars);
-  const allBoundedLines = boundedContent.split("\n");
-  const lines = allBoundedLines.slice(0, SOURCE_PREVIEW_LIMITS.renderLines);
-  const truncated =
-    boundedContent.length < content.length ||
-    lines.length < allBoundedLines.length;
+  const { lines, truncated } = boundSourcePreview(content);
   const tokenLines = useMemo(
     () =>
       content.length <= SOURCE_PREVIEW_LIMITS.highlightChars

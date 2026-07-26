@@ -10,6 +10,7 @@ import {
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
+  boundSourcePreview,
   SOURCE_PREVIEW_LIMITS,
   SourceTab,
 } from "@/trace-viewer/components/source-tab";
@@ -221,23 +222,6 @@ describe("SourceTab", () => {
     expect(text).not.toHaveBeenCalled();
   });
 
-  it("caps rendered source lines below the fetch limit", () => {
-    const content = Array.from(
-      { length: SOURCE_PREVIEW_LIMITS.renderLines + 1 },
-      (_, index) => `line-${index + 1}`,
-    ).join("\n");
-    const { container } = render(
-      <SourceTab {...propsWithSpecContent(content)} />,
-    );
-
-    const lineNumbers = container.querySelectorAll("[data-line-number]");
-    expect(lineNumbers).toHaveLength(SOURCE_PREVIEW_LIMITS.renderLines);
-    expect(lineNumbers.item(lineNumbers.length - 1).textContent).toBe(
-      String(SOURCE_PREVIEW_LIMITS.renderLines),
-    );
-    expect(screen.getByText("… source preview truncated")).toBeTruthy();
-  });
-
   it("caps rendered source characters below the fetch limit", () => {
     const content = "x".repeat(SOURCE_PREVIEW_LIMITS.renderChars + 1);
     const { container } = render(
@@ -271,5 +255,34 @@ describe("SourceTab", () => {
       beyond.container.querySelector('[data-line-number="1"] + span')
         ?.textContent,
     ).toHaveLength(SOURCE_PREVIEW_LIMITS.highlightChars + 1);
+  });
+});
+
+/**
+ * The line cap is asserted against the pure bounding helper rather than a
+ * render: mounting `renderLines + 1` lines costs ~20k happy-dom nodes, which
+ * ran past the 5s test timeout under coverage in CI. The character-cap test
+ * above covers the same helper's wiring into the rendered `<pre>` — bounded
+ * text plus the truncation notice — at one line's worth of DOM.
+ */
+describe("boundSourcePreview", () => {
+  it("caps lines at renderLines and reports the truncation", () => {
+    const content = Array.from(
+      { length: SOURCE_PREVIEW_LIMITS.renderLines + 1 },
+      (_, index) => `line-${index + 1}`,
+    ).join("\n");
+
+    const { lines, truncated } = boundSourcePreview(content);
+
+    expect(lines).toHaveLength(SOURCE_PREVIEW_LIMITS.renderLines);
+    expect(lines.at(-1)).toBe(`line-${SOURCE_PREVIEW_LIMITS.renderLines}`);
+    expect(truncated).toBe(true);
+  });
+
+  it("leaves content within both caps untouched", () => {
+    const { lines, truncated } = boundSourcePreview(SPEC_CONTENT);
+
+    expect(lines).toEqual(SPEC_CONTENT.split("\n"));
+    expect(truncated).toBe(false);
   });
 });
