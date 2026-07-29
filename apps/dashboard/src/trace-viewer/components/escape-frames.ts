@@ -1,5 +1,8 @@
 "use client";
 
+import { snapshotDom } from "./snapshot-dom";
+import type { SnapshotDom } from "./snapshot-dom";
+
 /**
  * Close-on-Escape across ALL of a snapshot iframe's same-origin frames.
  * DOM snapshots are SW-rendered same-origin documents that can contain
@@ -8,9 +11,14 @@
  * be swallowed. Bind the handler on the given window AND every reachable
  * same-origin descendant frame, re-binding as frames are added or
  * re-navigated during a scrub (each frame's `load` + a `MutationObserver`
- * per document). Every access is guarded — a cross-origin frame throws and
- * is skipped, and any failure degrades to the Dialog's own Escape/backdrop
- * handling. Idempotent, keyed on `Document` rather than `Window`: a frame's
+ * per document). Every access is guarded and realm-safe (`snapshotDom`) — a
+ * cross-origin frame is skipped, a snapshot that shadows `querySelectorAll` /
+ * `documentElement` with named elements cannot throw out of here, and any
+ * failure degrades to the Dialog's own Escape/backdrop handling. That matters
+ * beyond Escape itself: this runs first in the snapshot iframe's `onLoad`, so a
+ * throw here would also skip the back-buffer promotion and the script-less
+ * visibility fixup that follow it. Idempotent, keyed on `Document` rather than
+ * `Window`: a frame's
  * `contentWindow` is a stable WindowProxy across same-origin navigations,
  * but `keydown` listeners live on the per-navigation inner window/document —
  * keying the guard on the window would silently stop re-binding after a
@@ -27,7 +35,7 @@ export function bindEscapeAcrossFrames(
 ): () => void {
   const cleanups: Array<() => void> = [];
   const boundDocs = new WeakSet<Document>();
-  const boundFrames = new WeakSet<HTMLIFrameElement>();
+  const boundFrames = new WeakSet<Element>();
   const observedDocs = new WeakSet<Document>();
 
   const onKey = (e: KeyboardEvent): void => {
@@ -35,15 +43,15 @@ export function bindEscapeAcrossFrames(
   };
 
   function bindWindow(win: Window): void {
-    let doc: Document;
+    const dom = snapshotDom(win);
+    if (!dom) return; // cross-origin frame — unreachable, skip
+    if (boundDocs.has(dom.document)) return;
+    boundDocs.add(dom.document);
     try {
-      doc = win.document;
-    } catch {
-      return; // cross-origin frame — unreachable, skip
-    }
-    if (boundDocs.has(doc)) return;
-    boundDocs.add(doc);
-    try {
+      // Plain access is fine at WINDOW scope, unlike on the document: a global's
+      // own interface members win over its named-property object, so an
+      // `<iframe name="addEventListener">` in the snapshot cannot shadow this
+      // (measured in Chromium). Only document/element reads need `dom`.
       win.addEventListener("keydown", onKey);
     } catch {
       return; // window already torn down mid-access
@@ -55,25 +63,32 @@ export function bindEscapeAcrossFrames(
         /* window already torn down */
       }
     });
-    scanDoc(doc);
+    scanDoc(dom);
   }
 
-  function scanDoc(doc: Document): void {
-    for (const frame of Array.from(doc.querySelectorAll("iframe"))) {
+  function scanDoc(dom: SnapshotDom): void {
+    // Every read below goes through `dom`, not the document, because a snapshot
+    // is attacker-craftable and `Document` has [LegacyOverrideBuiltIns] — an
+    // `<img name="querySelectorAll">` would otherwise throw a TypeError here,
+    // and `<img name="documentElement">` would silently redirect the observer
+    // onto an attacker-chosen element. Measured in Chromium; see snapshot-dom.ts.
+    for (const frame of dom.queryAll("iframe")) {
       if (boundFrames.has(frame)) continue;
       boundFrames.add(frame);
       const onFrameLoad = (): void => {
-        const cw = frame.contentWindow;
+        const cw = (frame as HTMLIFrameElement).contentWindow;
         if (cw) bindWindow(cw);
       };
       frame.addEventListener("load", onFrameLoad);
       cleanups.push(() => frame.removeEventListener("load", onFrameLoad));
       onFrameLoad(); // bind whatever's currently loaded
     }
-    if (observedDocs.has(doc)) return;
-    observedDocs.add(doc);
-    const observer = new MutationObserver(() => scanDoc(doc));
-    observer.observe(doc.documentElement, { childList: true, subtree: true });
+    if (observedDocs.has(dom.document)) return;
+    const root = dom.documentElement();
+    if (!root) return; // nothing to observe (never happens for a parsed document)
+    observedDocs.add(dom.document);
+    const observer = new MutationObserver(() => scanDoc(dom));
+    observer.observe(root, { childList: true, subtree: true });
     cleanups.push(() => observer.disconnect());
   }
 

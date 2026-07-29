@@ -167,11 +167,22 @@ function artifactMeta(
     downloadUrlExpiresInSeconds,
   };
   if (isReplayTraceArtifact(artifact)) {
-    // Our SELF-HOSTED viewer (same-origin) — the trace stays on this dashboard,
-    // never the third-party trace.playwright.dev.
-    meta.traceViewerUrl = selfHostedTraceViewerUrl(downloadUrl);
-    meta.hint =
-      "Open traceViewerUrl in a browser (self-hosted — the trace stays on this dashboard), or run: npx playwright show-trace <downloadUrl>";
+    // Our SELF-HOSTED viewer — the trace stays on this dashboard, never the
+    // third-party trace.playwright.dev. Only offered when a cookieless viewer
+    // origin is configured: that stock SPA frames snapshots with a hardcoded
+    // `allow-scripts` sandbox, and trace bytes are attacker-craftable, so the
+    // dashboard origin deliberately 404s it (see
+    // `middleware/00.defensive-headers.ts`). `show-trace` is the safe fallback —
+    // it renders on the user's own localhost, which holds no dashboard session.
+    const traceViewerUrl = selfHostedTraceViewerUrl(downloadUrl);
+    if (traceViewerUrl !== undefined) {
+      meta.traceViewerUrl = traceViewerUrl;
+      meta.hint =
+        "Open traceViewerUrl in a browser (self-hosted — the trace stays on this dashboard), or run: npx playwright show-trace <downloadUrl>";
+    } else {
+      meta.hint =
+        "Run: npx playwright show-trace <downloadUrl> (renders locally in your own browser). This dashboard does not serve the scripted trace-viewer shell on its session origin; a replay viewer is built into the dashboard UI.";
+    }
   }
   return meta;
 }

@@ -39,7 +39,6 @@ test.describe("Test Replay (embedded trace viewer)", () => {
     for (const path of [
       "/trace-viewer/sw.bundle.js",
       "/trace-viewer/bridge.html",
-      "/trace-viewer/index.html", // official-viewer fallback, still vendored
     ]) {
       const res = await page.request.get(path);
       expect(res.status(), path).toBe(200);
@@ -51,6 +50,21 @@ test.describe("Test Replay (embedded trace viewer)", () => {
         "frame-ancestors 'self'",
       );
       expect(h["service-worker-allowed"], path).toBe("/trace-viewer/");
+    }
+
+    // Playwright's own HTML shells frame snapshots with a HARDCODED
+    // `sandbox="allow-same-origin allow-scripts"` that we cannot override, and
+    // trace bytes are attacker-craftable — so on any origin that is not a
+    // configured cookieless viewer host they are refused outright, not merely
+    // unlinked. They stay vendored because they ARE the full-fidelity viewer on
+    // that host. These are static assets, so a 404 here is the only real
+    // boundary; gating the links that point at them is not one.
+    for (const path of [
+      "/trace-viewer/index.html",
+      "/trace-viewer/snapshot.html",
+      "/trace-viewer/uiMode.html",
+    ]) {
+      expect((await page.request.get(path)).status(), path).toBe(404);
     }
 
     // Every other route keeps the strict global policy — the relaxation must

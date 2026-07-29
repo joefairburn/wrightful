@@ -140,3 +140,88 @@ describe("snapshot CSP origin gating (worker responses)", () => {
     ).toBe(TRACE_VIEWER_CONTENT_SECURITY_POLICY);
   });
 });
+
+/**
+ * Playwright's stock HTML shells (`index.html`, `snapshot.html`, `uiMode.html`)
+ * frame DOM snapshots with a HARDCODED `sandbox="allow-same-origin
+ * allow-scripts"` we cannot override. Trace bytes are attacker-craftable, so on
+ * the session origin that shell is a stored-XSS path — and because these are
+ * static assets, reachable by typing the URL, refusing to serve them is the only
+ * real boundary (gating the MCP link / the pane popout removes the invitation,
+ * not the path). They stay vendored: on a cookieless viewer host they ARE the
+ * full-fidelity viewer.
+ */
+describe("scripted snapshot shells are refused off the viewer host", () => {
+  afterEach(() => {
+    config.VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN = undefined;
+  });
+
+  /** Run the middleware for `url`, reporting whether the asset was served. */
+  async function statusFor(
+    url: string,
+  ): Promise<{ status: number; servedAsset: boolean }> {
+    const middleware = defensiveHeaders as unknown as (
+      c: unknown,
+      next: () => Promise<void>,
+    ) => Promise<void>;
+    let servedAsset = false;
+    const c = {
+      req: { path: new URL(url).pathname, url },
+      res: undefined as Response | undefined,
+    };
+    await middleware(c, async () => {
+      servedAsset = true;
+      c.res = new Response("<html>stock viewer</html>", {
+        headers: { "Content-Type": "text/html" },
+      });
+    });
+    return { status: c.res?.status ?? 0, servedAsset };
+  }
+
+  const SHELLS = [
+    "/trace-viewer/index.html",
+    "/trace-viewer/snapshot.html",
+    "/trace-viewer/uiMode.html",
+  ];
+
+  it("same-origin mode: 404s every shell without reaching the asset layer", async () => {
+    for (const path of SHELLS) {
+      const result = await statusFor(`https://dash.example.com${path}`);
+      expect(result.status, path).toBe(404);
+      // Short-circuited: the bytes are never even fetched.
+      expect(result.servedAsset, path).toBe(false);
+    }
+  });
+
+  it("separate mode: the DASHBOARD origin still 404s them", async () => {
+    config.VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN = "https://traces.example.com";
+    for (const path of SHELLS) {
+      expect(
+        (await statusFor(`https://dash.example.com${path}`)).status,
+        path,
+      ).toBe(404);
+    }
+  });
+
+  it("separate mode: the cookieless viewer host serves them (full-fidelity replay)", async () => {
+    config.VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN = "https://traces.example.com";
+    for (const path of SHELLS) {
+      const result = await statusFor(`https://traces.example.com${path}`);
+      expect(result.status, path).toBe(200);
+      expect(result.servedAsset, path).toBe(true);
+    }
+  });
+
+  it("leaves the files our own viewer depends on alone", async () => {
+    for (const path of [
+      "/trace-viewer/bridge.html",
+      "/trace-viewer/sw.bundle.js",
+      "/trace-viewer/snapshot/p1",
+    ]) {
+      expect(
+        (await statusFor(`https://dash.example.com${path}`)).status,
+        path,
+      ).toBe(200);
+    }
+  });
+});

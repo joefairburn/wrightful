@@ -4,12 +4,13 @@ import { describe, it, expect, vi } from "vite-plus/test";
 
 // Deterministic secret so sign/verify share a key without the void runtime.
 const TEST_SECRET = "test-secret-at-least-32-characters-long-000";
-vi.mock("void/env", () => ({
-  env: {
-    BETTER_AUTH_SECRET: "test-secret-at-least-32-characters-long-000",
-    ARTIFACT_TOKEN_SECRET: undefined,
-  },
+// Mutable so the viewer-link tests can toggle trace-viewer origin isolation.
+const config = vi.hoisted(() => ({
+  BETTER_AUTH_SECRET: "test-secret-at-least-32-characters-long-000",
+  ARTIFACT_TOKEN_SECRET: undefined as string | undefined,
+  VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN: undefined as string | undefined,
 }));
+vi.mock("void/env", () => ({ env: config }));
 
 const {
   ARTIFACT_TOKEN_TTL_SECONDS,
@@ -129,23 +130,36 @@ describe("artifact download URL builders", () => {
     );
   });
 
-  it("wraps an absolute download URL in a same-origin self-hosted viewer link", () => {
-    const downloadUrl =
-      "https://wrightful.example/api/artifacts/art_123/download?t=tok";
-    expect(selfHostedTraceViewerUrl(downloadUrl)).toBe(
-      "https://wrightful.example/trace-viewer/index.html?trace=" +
-        encodeURIComponent(downloadUrl),
-    );
+  // `TRACE_VIEWER_PATH` is Playwright's STOCK SPA, which frames snapshots with a
+  // hardcoded `allow-scripts` sandbox. Trace bytes are attacker-craftable, so
+  // that shell is only safe on a cookieless viewer origin — and
+  // `middleware/00.defensive-headers.ts` 404s it on every other origin. No link
+  // may be handed out pointing at a path we deliberately block.
+  it("offers no self-hosted viewer link without a configured viewer origin", () => {
+    expect(
+      selfHostedTraceViewerUrl(
+        "https://wrightful.example/api/artifacts/art_123/download?t=tok",
+      ),
+    ).toBeUndefined();
   });
 
-  it("keeps the viewer link on the download URL's own origin (never a third party)", () => {
-    const viewer = selfHostedTraceViewerUrl(
-      "https://wrightful.example/api/artifacts/art_1/download?t=abc",
-    );
-    expect(viewer.startsWith("https://wrightful.example/trace-viewer/")).toBe(
-      true,
-    );
-    expect(viewer).not.toContain("trace.playwright.dev");
+  it("builds the viewer link on the configured cookieless origin, not the download origin", () => {
+    config.VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN = "https://traces.example.com";
+    try {
+      const downloadUrl =
+        "https://wrightful.example/api/artifacts/art_123/download?t=tok";
+      // Deriving the origin from `downloadUrl` would point the scripted SPA back
+      // at the session origin — defeating the isolation this env var buys.
+      expect(selfHostedTraceViewerUrl(downloadUrl)).toBe(
+        "https://traces.example.com/trace-viewer/index.html?trace=" +
+          encodeURIComponent(downloadUrl),
+      );
+      expect(selfHostedTraceViewerUrl(downloadUrl)).not.toContain(
+        "trace.playwright.dev",
+      );
+    } finally {
+      config.VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN = undefined;
+    }
   });
 });
 

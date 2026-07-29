@@ -1,5 +1,7 @@
 "use client";
 
+import { snapshotDom } from "./snapshot-dom";
+
 /**
  * Exact contents of the guard `<style>` Playwright prepends to every rendered
  * DOM snapshot. Kept as a literal (not a pattern) so a Playwright upgrade that
@@ -8,21 +10,6 @@
  */
 export const SNAPSHOT_VISIBILITY_GUARD_CSS =
   "*,*::before,*::after { visibility: hidden }";
-
-/**
- * A snapshot frame's own realm. Every DOM call below goes through these
- * constructors' prototypes rather than through the document, because a
- * snapshot document is reconstructed from attacker-craftable trace bytes and
- * `Document` has `[LegacyOverrideBuiltIns]`: an `<img name="querySelector">`
- * or `<img name="addEventListener">` in the captured page shadows the real
- * method, so `doc.querySelector(...)` throws `TypeError: not a function`.
- * Named properties cannot shadow a global's own interface objects, so
- * `win.Document` / `win.EventTarget` stay trustworthy.
- */
-type SnapshotRealm = Window & {
-  readonly Document: typeof Document;
-  readonly EventTarget: typeof EventTarget;
-};
 
 /** Named, not inline, so a repeated `load` registers one listener rather than N. */
 function suppressNavigation(event: Event): void {
@@ -70,28 +57,20 @@ function suppressNavigation(event: Event): void {
  * the frame (measured), and scrolling is the only way left to see below the
  * fold once scroll restoration is gone.
  *
- * Never throws. The whole reach-in is guarded because a snapshot frame that
- * navigated itself is cross-origin (reading `win.document` throws
- * `SecurityError`) and because the document is hostile input; callers run this
- * from an `onLoad` handler that has its own bookkeeping to finish.
+ * Never throws, and never trusts the document's own DOM methods — it reaches in
+ * through `snapshotDom`, which resolves them from the frame's realm prototypes
+ * and returns `null` for an unreachable frame. Callers run this from an
+ * `onLoad` handler that has its own bookkeeping to finish.
  */
 export function prepareScriptlessSnapshot(win: Window): void {
-  try {
-    const realm = win as SnapshotRealm;
-    const doc = realm.document;
+  // Realm-safe throughout, and `null` for an unreachable (cross-origin) frame —
+  // see `snapshot-dom.ts` for why the document's own methods aren't trusted.
+  const dom = snapshotDom(win);
+  if (!dom) return;
 
-    realm.EventTarget.prototype.addEventListener.call(
-      doc,
-      "click",
-      suppressNavigation,
-      true,
-    );
+  dom.listen(dom.document, "click", suppressNavigation, true);
 
-    const guard = realm.Document.prototype.querySelector.call(doc, "style");
-    if (guard?.textContent !== SNAPSHOT_VISIBILITY_GUARD_CSS) return;
-    guard.remove();
-  } catch {
-    // Cross-origin frame, or a document we cannot read. Nothing to reveal, and
-    // never the caller's problem.
-  }
+  const guard = dom.query("style");
+  if (guard?.textContent !== SNAPSHOT_VISIBILITY_GUARD_CSS) return;
+  guard.remove();
 }

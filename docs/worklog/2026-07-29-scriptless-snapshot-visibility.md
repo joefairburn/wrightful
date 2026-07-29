@@ -19,8 +19,19 @@ attacker-craftable, so snapshot script under the session origin is stored XSS.
 
 What it missed is that Playwright's snapshot renderer emits every snapshot as:
 
-```
-<!DOCTYPE …><style>*,*::before,*::after { visibility: hidden }</style><script>…</script>…
+```html
+<!DOCTYPE …>
+<style>
+  *,
+  *::before,
+  *::after {
+    visibility: hidden;
+  }
+</style>
+<script>
+  …
+</script>
+…
 ```
 
 The guard stylesheet hides the entire document so the raw serialized DOM never
@@ -83,18 +94,64 @@ Reimplementing those in the parent would be a standing maintenance burden
 against Playwright internals for a mode that is explicitly the reduced-fidelity
 fallback.
 
-## Popout
+## Playwright's own HTML shells (scripted-snapshot surface)
 
-The **"open snapshot in a new tab"** control is now hidden in same-origin mode
-(`snapshot-pane.tsx`). It renders through Playwright's vendored `snapshot.html`,
-whose iframe hardcodes `sandbox="allow-same-origin allow-scripts"` — we cannot
-drop the flag there the way `snapshotSandbox` does for the embedded pane, and
-its path (`/trace-viewer/snapshot.html`) does not match the middleware's
-`/trace-viewer/snapshot/` prefix. Same-origin, that executed attacker-craftable
-snapshot HTML against the session cookies: the exact stored-XSS path the
-isolation model exists to close. Unrelated to the blank pane — the popout was
-full-fidelity precisely _because_ its bootstrap ran — but found while
-documenting the fix, and left unfixed it made the surrounding docs false.
+Unrelated to the blank pane — these paths were full-fidelity precisely _because_
+their bootstrap ran — but found while documenting the fix, and left unfixed they
+made the surrounding docs false.
+
+Three vendored shells frame a snapshot with a **hardcoded**
+`sandbox="allow-same-origin allow-scripts"` we cannot override: `index.html` (the
+stock SPA, on its own two snapshot iframes), `snapshot.html` (the popout target)
+and `uiMode.html`. On the session origin each executes attacker-craftable
+snapshot HTML against the login cookies — the exact stored-XSS path
+`snapshotSandbox` exists to close for our own pane.
+
+Hiding the links is **not** a boundary. `/trace-viewer/*` is static output, so
+anyone can reach `index.html` by typing the URL — no auth, no MCP token. And it
+was never just the popout: `artifactMeta()` handed authenticated MCP users a
+`traceViewerUrl` pointing straight at that SPA, and `selfHostedTraceViewerUrl()`
+derived its origin from the _download URL_, so even a deployment that had
+configured `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` got a link aiming the scripted
+shell back at the session origin — defeating the isolation it had just paid for.
+
+So the fix is a refusal, in the only layer that can refuse. Void routes every
+request through the Worker (`run_worker_first`) and serves assets from inside the
+Hono app, so `middleware/00.defensive-headers.ts` now returns **404** for all
+three shells unless `isTraceViewerHost(pageOrigin)`. They stay vendored: on the
+cookieless host they _are_ the full-fidelity viewer, and there
+`snapshotScriptsEnabled()` is already true. Our own viewer needs neither
+`index.html` nor `snapshot.html` — it registers the SW from `bridge.html` and
+points its iframes at the SW-synthesized `/trace-viewer/snapshot/*` — so
+same-origin loses nothing but the stock-viewer fallback. `snapshotPopoutUrl` and
+`traceViewerUrl` are gated to match so nothing advertises a blocked path; MCP's
+hint now steers to `npx playwright show-trace`, which renders on the user's own
+localhost.
+
+Note the vendor script's comment calling `snapshot.html` "the nested snapshot
+frame the SW hydrates" was wrong — the SW never references it — and is probably
+why this surface was assumed load-bearing. Corrected.
+
+## Hostile-input hardening (`snapshot-dom.ts`)
+
+Reaching into a snapshot means calling DOM methods on attacker-controlled
+objects, and `Document` has `[LegacyOverrideBuiltIns]`: a named element shadows
+the real interface member. Measured in Chromium against a real
+`sandbox="allow-same-origin"` frame — `querySelector`, `querySelectorAll`,
+`addEventListener` and `documentElement` all clobber via `<img name="…">` /
+`<iframe name="…">`; `documentElement` silently yields an attacker-chosen element
+rather than throwing. Window-scope access does **not** clobber (a global's own
+interface members beat its named-property object), so it is left plain.
+
+`snapshotDom(win)` is now the single guarded entry point: it resolves the methods
+from the frame's own `Document`/`EventTarget` prototypes and returns `null` for
+an unreachable (cross-origin) frame. Both consumers use it — the visibility
+fixup, and `bindEscapeAcrossFrames`, whose `doc.querySelectorAll("iframe")` and
+`observer.observe(doc.documentElement, …)` were the remaining unguarded reads.
+That last one mattered more than it looks: escape binding runs FIRST in the
+snapshot iframe's `onLoad`, so a throw there would have skipped the back-buffer
+promotion and the visibility fixup that follow it — one hostile trace could have
+wedged the pane.
 
 ## Verification
 

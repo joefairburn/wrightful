@@ -31,10 +31,15 @@ const TARGET = at("public/trace-viewer");
 const STAMP = `${TARGET}/.vendored-version`;
 
 // Files that MUST exist in the source bundle — our replay surface depends on each:
-//   index.html   — the standalone SPA, served for the "open in the self-hosted
-//                  viewer" link (the MCP `traceViewerUrl`) + a layout canary
+//   index.html   — the standalone stock SPA: the full-fidelity viewer on a
+//                  cookieless viewer origin (the MCP `traceViewerUrl`), plus a
+//                  layout canary. Like snapshot.html below, 404'd on every other
+//                  origin — its snapshot iframes hardcode `allow-scripts`.
 //   sw.bundle.js  — the snapshot-serving service worker our bridge registers
-//   snapshot.html — the nested snapshot frame the SW hydrates
+//   snapshot.html — the popout target on a cookieless viewer origin. NOT used by
+//                  our own viewer or the SW (neither references it); the worker
+//                  404s it on every other origin, since its iframe hardcodes
+//                  `allow-scripts`.
 const REQUIRED = ["index.html", "sw.bundle.js", "snapshot.html"];
 
 function fail(msg) {
