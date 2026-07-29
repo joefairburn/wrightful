@@ -3,25 +3,21 @@
 /**
  * Realm-safe DOM access for snapshot documents.
  *
- * A DOM snapshot is reconstructed from **attacker-craftable** trace bytes (any
+ * A DOM snapshot is reconstructed from attacker-craftable trace bytes (any
  * project ingest-key holder can upload an arbitrary trace), and `Document` has
  * `[LegacyOverrideBuiltIns]`: a named element in the captured page shadows the
  * real interface member. Playwright's serializer strips `<script>` and `on*`
  * attributes but leaves `name` alone, so `<img name="querySelectorAll">`
- * survives into the rendered snapshot — and then the obvious
- * `doc.querySelectorAll(…)` throws `TypeError: not a function`.
+ * survives into the rendered snapshot and the obvious `doc.querySelectorAll(…)`
+ * throws. Measured in Chromium: `querySelector`, `querySelectorAll`,
+ * `addEventListener` and `documentElement` all clobber this way (the last
+ * silently yields an attacker-chosen element instead of throwing).
  *
- * Measured in Chromium against a real `sandbox="allow-same-origin"` frame:
- * `querySelector`, `querySelectorAll`, `addEventListener` and `documentElement`
- * all clobber this way (the last one silently yields an attacker-chosen element
- * rather than throwing). The frame's own `Window` interface objects —
- * `win.Document`, `win.EventTarget` — do **not**, because a global's own
- * properties win over its named-property object. So resolve the methods through
- * those prototypes once, then call them on the document.
- *
- * Everything the parent frame does to a snapshot goes through here, so the
- * hostile-input reasoning lives in one place rather than being re-derived at
- * each call site.
+ * The frame's own `Window` interface objects — `win.Document`,
+ * `win.EventTarget` — do not, because a global's own properties win over its
+ * named-property object. So resolve the methods through those prototypes once
+ * and call them on the document. Everything the parent frame does to a snapshot
+ * goes through here, so the reasoning lives in one place.
  */
 
 type SnapshotRealm = Window & {
@@ -31,15 +27,12 @@ type SnapshotRealm = Window & {
 
 /** Realm-safe handle on one snapshot frame's document. */
 export type SnapshotDom = {
-  readonly window: Window;
   readonly document: Document;
-  /** First match, resolved through the realm's `Document.prototype`. */
-  query(selectors: string): Element | null;
+  query<E extends Element = Element>(selectors: string): E | null;
   /** All matches, as a snapshot array (safe to mutate the DOM while iterating). */
-  queryAll(selectors: string): Element[];
+  queryAll<E extends Element = Element>(selectors: string): E[];
   /** The document element, reached via `:root` rather than the clobberable getter. */
   documentElement(): Element | null;
-  /** Add a listener without trusting the target's own `addEventListener`. */
   listen(
     target: EventTarget,
     type: string,
@@ -58,16 +51,14 @@ export function snapshotDom(win: Window): SnapshotDom | null {
   try {
     const realm = win as SnapshotRealm;
     const document = realm.document;
-    // Hold the prototypes, not the methods: every use below immediately `.call`s
-    // through the member expression, so `this` is always supplied explicitly.
     const docProto = realm.Document.prototype;
     const eventTargetProto = realm.EventTarget.prototype;
     return {
-      window: win,
       document,
-      query: (selectors) => docProto.querySelector.call(document, selectors),
-      queryAll: (selectors) =>
-        Array.from(docProto.querySelectorAll.call(document, selectors)),
+      query: <E extends Element>(selectors: string) =>
+        docProto.querySelector.call(document, selectors) as E | null,
+      queryAll: <E extends Element>(selectors: string) =>
+        Array.from(docProto.querySelectorAll.call(document, selectors)) as E[],
       documentElement: () => docProto.querySelector.call(document, ":root"),
       listen: (target, type, listener, capture = false) => {
         eventTargetProto.addEventListener.call(target, type, listener, capture);

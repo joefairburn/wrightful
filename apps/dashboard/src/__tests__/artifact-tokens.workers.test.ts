@@ -130,11 +130,10 @@ describe("artifact download URL builders", () => {
     );
   });
 
-  // `TRACE_VIEWER_PATH` is Playwright's STOCK SPA, which frames snapshots with a
+  // `TRACE_VIEWER_PATH` is Playwright's stock SPA, which frames snapshots with a
   // hardcoded `allow-scripts` sandbox. Trace bytes are attacker-craftable, so
-  // that shell is only safe on a cookieless viewer origin — and
-  // `middleware/00.defensive-headers.ts` 404s it on every other origin. No link
-  // may be handed out pointing at a path we deliberately block.
+  // that shell only ships on a cookieless viewer origin (pruned at build time by
+  // `scripts/vendor-trace-viewer.mjs`) — no link may point at a missing file.
   it("offers no self-hosted viewer link without a configured viewer origin", () => {
     expect(
       selfHostedTraceViewerUrl(

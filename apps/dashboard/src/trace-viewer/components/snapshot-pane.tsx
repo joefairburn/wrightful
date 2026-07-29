@@ -83,16 +83,13 @@ export function SnapshotPane({
 
   const info = useSnapshotInfo(bridge, activeSnapshot);
 
-  // The popout renders the snapshot through Playwright's vendored
-  // `snapshot.html`, whose iframe hardcodes
-  // `sandbox="allow-same-origin allow-scripts"`. We cannot drop `allow-scripts`
-  // there the way `snapshotSandbox` does for the embedded pane, and the snapshot
-  // document carries no CSP of ours either — the service worker synthesizes it
-  // locally, so `/trace-viewer/snapshot/*` never reaches our middleware. On the
-  // same-origin default that would execute attacker-craftable snapshot HTML
-  // against the session cookies: exactly the stored-XSS path the isolation model
-  // exists to close. So the control only exists where snapshot scripts are
-  // already safe by construction.
+  // The popout goes through Playwright's vendored `snapshot.html`, whose iframe
+  // hardcodes `allow-scripts` — we cannot drop it the way `snapshotSandbox`
+  // does for the embedded pane, and the SW synthesizes the snapshot document
+  // locally, so our middleware never gets to attach a CSP either. On the
+  // same-origin default that would run attacker-craftable HTML against the
+  // session cookies, so the control only exists where snapshot scripts are
+  // already safe.
   const popoutOffered = snapshotScriptsEnabled();
 
   // Absolute URL of the currently rendered snapshot iframe, resolved against
@@ -140,11 +137,10 @@ export function SnapshotPane({
         </TabBar>
         <div className="mb-1 flex shrink-0 items-center gap-1">
           <PlaybackControls playback={playback} />
-          {/* The popout is absent, not disabled, in same-origin mode: unlike
-           * "no snapshot on this action" it can never become available within a
-           * session (the viewer origin is baked in at build time), so a
-           * permanently dead control promising a tab that never opens is worse
-           * than a narrower toolbar. */}
+          {/* Absent rather than disabled in same-origin mode: unlike "no
+           * snapshot on this action", this can never become available within a
+           * session, so a permanently dead control is worse than a narrower
+           * toolbar. */}
           {popoutOffered ? (
             <>
               <div className="mx-0.5 h-5 w-px shrink-0 bg-line-1" aria-hidden />

@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vite-plus/test";
+import { afterAll, describe, expect, it } from "vite-plus/test";
 import { SNAPSHOT_VISIBILITY_GUARD_CSS } from "@/trace-viewer/components/scriptless-snapshot";
 import { VENDORED_PLAYWRIGHT_VERSION } from "@/trace-viewer/vendor/version";
 
@@ -186,10 +186,9 @@ describe("scripted trace-viewer shells are only vendored for a cookieless origin
     expect(engineFilesPresent).toBe(true);
   });
 
-  // Leave the working tree in the safe default the rest of the repo expects.
-  it("restores the pruned default for subsequent runs", () => {
-    expect(
-      vendorWith({ VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN: "" }).present,
-    ).toEqual([]);
+  // The second case leaves the shells on disk; re-vendor so the working tree
+  // ends in the safe default the rest of the repo expects.
+  afterAll(() => {
+    vendorWith({ VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN: "" });
   });
 });

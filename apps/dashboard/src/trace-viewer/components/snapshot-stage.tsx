@@ -283,11 +283,9 @@ function SnapshotFrame({
       }}
       onLoad={(e) => {
         const win = e.currentTarget.contentWindow;
-        // Bookkeeping first, snapshot content last. The call below reaches into
-        // a document reconstructed from hostile bytes, so keeping the escape
-        // binding and the back-buffer promotion hook ahead of it means no
-        // snapshot can wedge the pane by making a DOM call fail
-        // (`prepareScriptlessSnapshot` also swallows its own errors).
+        // Bookkeeping first, snapshot content last: reaching into the hostile
+        // document is the only step that can fail, so no snapshot can wedge the
+        // pane by starving the escape binding or the back-buffer promotion.
         escapeCleanupRef.current?.();
         escapeCleanupRef.current = null;
         if (onEscape && win) {

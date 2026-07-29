@@ -44,19 +44,11 @@ const TRACE_VIEWER_HEADERS: Readonly<Record<string, string>> = {
 };
 
 /**
- * NOTE for anyone tempted to police `/trace-viewer/*` paths from here: this
- * middleware does NOT run for static assets. Verified against a production
- * `vp preview` — an early return for `/trace-viewer/index.html` never fires and
- * the file is served 200, while a path with no file 404s. The relaxed
- * `/trace-viewer/*` headers those responses DO carry come from
- * `public/_headers` + `void.json` `routing.headers`, not from this file.
- *
- * So Playwright's scripted HTML shells (`index.html`, `snapshot.html`,
- * `uiMode.html`), whose snapshot iframes hardcode `allow-scripts`, are kept off
- * the session origin at BUILD time instead — `scripts/vendor-trace-viewer.mjs`
- * simply doesn't vendor them unless a cookieless viewer origin is configured.
- * The policy below still applies to worker-served responses under that prefix
- * (e.g. the SW-less fallback for `/trace-viewer/snapshot/*`).
+ * Only worker-served responses reach this middleware; static assets under
+ * `/trace-viewer/` are served straight from disk with the `public/_headers` +
+ * `void.json` rules. Gating a static path from here would silently do nothing —
+ * Playwright's scripted shells are instead pruned at build time by
+ * `scripts/vendor-trace-viewer.mjs`.
  */
 export default defineMiddleware(async (c, next) => {
   const pageOrigin = new URL(c.req.url).origin;

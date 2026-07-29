@@ -128,24 +128,20 @@ export const TRACE_VIEWER_PATH = "/trace-viewer/index.html";
  * Wrap an ABSOLUTE signed download URL in our SELF-HOSTED trace-viewer link, or
  * return `undefined` when there is nowhere safe to serve it from.
  *
- * `TRACE_VIEWER_PATH` is Playwright's STOCK SPA, which frames DOM snapshots with
- * a hardcoded `allow-scripts` sandbox we cannot override. Trace bytes are
- * attacker-craftable, so that shell is only safe on a cookieless viewer origin —
- * and `middleware/00.defensive-headers.ts` 404s it everywhere else. Emitting a
- * link to a path we deliberately block would be worse than emitting none, hence
- * `undefined` in same-origin mode; callers fall back to
- * `npx playwright show-trace <downloadUrl>`, which renders on the user's own
- * localhost and holds no dashboard session.
+ * `TRACE_VIEWER_PATH` is Playwright's stock SPA, which frames DOM snapshots
+ * with a hardcoded `allow-scripts` sandbox we cannot override. Trace bytes are
+ * attacker-craftable, so that shell only ships on a cookieless viewer origin
+ * (`scripts/vendor-trace-viewer.mjs` prunes it otherwise) — hence `undefined`
+ * in same-origin mode rather than a link to a file that isn't there. Callers
+ * fall back to `npx playwright show-trace <downloadUrl>`, which renders on the
+ * user's own localhost and holds no dashboard session.
  *
- * The origin therefore comes from `traceViewerOrigin()`, NOT from the download
- * URL. Those differ in the case that matters: a deployment that has configured
- * isolation would otherwise get a link pointing the scripted SPA back at the
- * session origin, defeating the isolation it just paid for.
- *
- * The trace itself still comes from the (dashboard-origin) download URL, so the
- * bytes never reach the third-party trace.playwright.dev. The one place that
- * deliberately opts into that is the dialog's "Public viewer" button, which
- * builds the cross-origin URL itself.
+ * The origin comes from `traceViewerOrigin()`, NOT from the download URL, so a
+ * deployment that has configured isolation doesn't get the scripted SPA pointed
+ * back at its session origin. The trace bytes still come from the
+ * dashboard-origin download URL and never reach trace.playwright.dev; the one
+ * place that deliberately opts into that is the dialog's "Public viewer"
+ * button, which builds the cross-origin URL itself.
  */
 export function selfHostedTraceViewerUrl(
   absoluteDownloadUrl: string,

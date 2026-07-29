@@ -54,11 +54,9 @@ test.describe("Test Replay (embedded trace viewer)", () => {
 
     // Playwright's own HTML shells frame snapshots with a HARDCODED
     // `sandbox="allow-same-origin allow-scripts"` that we cannot override, and
-    // trace bytes are attacker-craftable — so on any origin that is not a
-    // configured cookieless viewer host they are refused outright, not merely
-    // unlinked. They stay vendored because they ARE the full-fidelity viewer on
-    // that host. These are static assets, so a 404 here is the only real
-    // boundary; gating the links that point at them is not one.
+    // trace bytes are attacker-craftable — so without a configured cookieless
+    // viewer origin they are not vendored at all. These are static assets, so
+    // absence is the only real boundary; unlinking them is not one.
     for (const path of [
       "/trace-viewer/index.html",
       "/trace-viewer/snapshot.html",

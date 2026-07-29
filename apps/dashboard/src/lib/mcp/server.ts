@@ -168,12 +168,9 @@ function artifactMeta(
   };
   if (isReplayTraceArtifact(artifact)) {
     // Our SELF-HOSTED viewer — the trace stays on this dashboard, never the
-    // third-party trace.playwright.dev. Only offered when a cookieless viewer
-    // origin is configured: that stock SPA frames snapshots with a hardcoded
-    // `allow-scripts` sandbox, and trace bytes are attacker-craftable, so the
-    // dashboard origin deliberately 404s it (see
-    // `middleware/00.defensive-headers.ts`). `show-trace` is the safe fallback —
-    // it renders on the user's own localhost, which holds no dashboard session.
+    // third-party trace.playwright.dev. Only offered where the stock SPA is
+    // served (a cookieless viewer origin), since it runs attacker-craftable
+    // snapshot scripts; `show-trace` is the safe fallback everywhere else.
     const traceViewerUrl = selfHostedTraceViewerUrl(downloadUrl);
     if (traceViewerUrl !== undefined) {
       meta.traceViewerUrl = traceViewerUrl;

@@ -80,14 +80,10 @@ export function traceViewerBridgeOrigin(pageOrigin: string): string {
 
 /**
  * True when a snapshot document is allowed to run its own scripts — only ever
- * when the viewer is isolated from the session on a cookieless origin.
- *
- * The single source of that decision. `snapshotSandbox` builds the iframe's
- * sandbox from it, the pane gates its script-less fixup path on its negation,
- * and the popout shell (which cannot drop `allow-scripts` — the sandbox is
- * hardcoded in Playwright's vendored `snapshot.html`) is only offered when it
- * is true. Deriving all three from one predicate is what keeps them from
- * drifting apart; each failure direction is silent.
+ * when the viewer is isolated from the session on a cookieless origin. The
+ * single source of that decision: the iframe sandbox, the script-less fixup
+ * path, and the popout control all derive from it, and every way they could
+ * drift apart fails silently.
  */
 export function snapshotScriptsEnabled(
   pageOrigin = currentPageOrigin(),
@@ -95,7 +91,6 @@ export function snapshotScriptsEnabled(
   return isSeparateTraceViewerOrigin(pageOrigin);
 }
 
-/** Enable snapshot scripts only when the viewer is isolated from the session. */
 export function snapshotSandbox(pageOrigin = currentPageOrigin()): string {
   return snapshotScriptsEnabled(pageOrigin)
     ? "allow-same-origin allow-scripts"

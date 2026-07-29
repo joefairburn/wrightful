@@ -4,9 +4,8 @@
 // viewer (`src/trace-viewer/`) drives that SW through a hidden bridge iframe
 // (`bridge.html`), so a test's trace bytes replay in-dashboard and never bounce
 // out to the public trace.playwright.dev. Playwright's own HTML shells (its
-// standalone SPA + snapshot popout) are a separate matter — see
-// SCRIPTED_SHELLS below; they only ship on a cookieless viewer origin.
-// The bundle ships inside `playwright-core` as a
+// standalone SPA + snapshot popout) only ship on a cookieless viewer origin —
+// see SCRIPTED_SHELLS below. The bundle ships inside `playwright-core` as a
 // position-independent Vite build (relative asset refs, a scope-relative service
 // worker), so a plain recursive copy into a subdir Just Works (see the worklog
 // + plan for why no rewrites/scope headers are needed).
@@ -33,31 +32,20 @@ const at = (rel) => `${root}/${rel}`;
 const TARGET = at("public/trace-viewer");
 const STAMP = `${TARGET}/.vendored-version`;
 
-// Playwright's own HTML shells. Each frames a DOM snapshot with a HARDCODED
-// `sandbox="allow-same-origin allow-scripts"` we cannot override: index.html's
-// SPA sets it on its two snapshot iframes, snapshot.html on its single one.
-// Trace bytes are attacker-craftable, so on the dashboard's session origin that
-// is a stored-XSS path — exactly what `snapshotSandbox` exists to close for our
-// OWN embedded viewer.
-//
-// They are only safe on a cookieless viewer origin, so when none is configured
-// we do not ship them at all. That is deliberately a BUILD-time decision: these
-// are static assets, and static assets are served without running the Hono
-// middleware (verified against a production `vp preview`: a middleware early
-// return never fires for them, while a path with no file 404s). So "not on disk"
-// is the only enforceable answer — runtime gating would be theatre.
-//
-// Our own viewer needs none of them: it registers the service worker from
-// bridge.html and points its iframes at the SW-synthesized
-// /trace-viewer/snapshot/*. The popout (snapshot.html) and the MCP
-// `traceViewerUrl` (index.html) are gated on the same configured-origin check,
-// so nothing ever links a file we pruned.
+// Playwright's own HTML shells frame their snapshot iframes with a HARDCODED
+// `sandbox="allow-same-origin allow-scripts"` we cannot override. Trace bytes
+// are attacker-craftable, so on the dashboard's session origin that is a
+// stored-XSS path — exactly what `snapshotSandbox` closes for our OWN embedded
+// viewer. They only ship on a cookieless viewer origin, and pruning them here
+// is the only enforceable answer: static assets never run the Hono middleware.
+// Nothing links them otherwise — our viewer drives the SW from bridge.html, and
+// the popout + MCP `traceViewerUrl` are gated on the same configured origin.
 const SCRIPTED_SHELLS = ["index.html", "snapshot.html", "uiMode.html"];
 
 // Resolve the viewer origin the way VITE does when it inlines the value into the
 // client bundle (`.env`, `.env.local`, prefixed `process.env`) — reading only
-// `process.env` here would miss a self-hoster's `.env.local` and prune the
-// shells out from under a deployment that HAS configured isolation.
+// `process.env` here would prune the shells out from under a self-hoster whose
+// isolation is configured in `.env.local`.
 const viewerOrigin = (
   loadEnv("production", root, "VITE_").VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN ?? ""
 ).trim();
@@ -104,17 +92,14 @@ for (const f of REQUIRED) {
   }
 }
 
-// Beyond "the files exist": the snapshot pane depends on a specific STRING
-// inside sw.bundle.js. Playwright renders every snapshot behind a
+// Beyond "the files exist": Playwright renders every snapshot behind a
 // `visibility: hidden` guard stylesheet that its inline bootstrap lifts on
-// load, but same-origin snapshot iframes run without `allow-scripts` (uploaded
-// trace bytes are attacker-craftable), so the bootstrap is blocked and
-// `prepareScriptlessSnapshot` lifts the guard from the parent by exact text. A
-// Playwright bump that rewords it breaks that match and blanks every replay
-// with nothing else failing — and `deploy:cf` runs this script but NOT the test
-// suite, so checking it only in vitest would still let a self-hoster ship the
-// blank pane. Read the expected text out of the module that consumes it, so
-// there is exactly one copy of the literal.
+// load. Same-origin snapshot iframes run without `allow-scripts`, so that
+// bootstrap never runs and `prepareScriptlessSnapshot` lifts the guard from the
+// parent by exact text instead. A Playwright bump that rewords it blanks every
+// replay with nothing else failing, and `deploy:cf` runs this script but not
+// the test suite — so the drift check belongs here. The expected text is read
+// out of the module that consumes it, keeping one copy of the literal.
 const GUARD_MODULE = at("src/trace-viewer/components/scriptless-snapshot.ts");
 const guardMatch =
   /^export const SNAPSHOT_VISIBILITY_GUARD_CSS =\s*"((?:[^"\\]|\\.)*)";$/m.exec(
@@ -127,17 +112,13 @@ if (!guardMatch) {
 }
 // The renderer builds each snapshot as `[guard, bootstrap].join("")`, so the
 // guard leading that array literal is what puts it first in the parsed
-// document — which is the position `prepareScriptlessSnapshot` relies on.
+// document — the position `prepareScriptlessSnapshot` relies on.
 const guardStyle = `<style>${guardMatch[1]}</style>`;
 if (
   !readFileSync(`${src}/sw.bundle.js`, "utf8").includes(`["${guardStyle}",`)
 ) {
   fail(
-    `playwright-core v${version} no longer opens its rendered snapshots with ${guardStyle}.\n` +
-      `  Same-origin snapshot iframes run without \`allow-scripts\`, so\n` +
-      `  src/trace-viewer/components/scriptless-snapshot.ts is what makes their DOM visible.\n` +
-      `  Re-derive SNAPSHOT_VISIBILITY_GUARD_CSS from this version's snapshot renderer\n` +
-      `  (and check it is still emitted first), or replay renders a blank pane.`,
+    `playwright-core v${version} no longer opens its rendered snapshots with ${guardStyle}. Re-derive SNAPSHOT_VISIBILITY_GUARD_CSS from this version's snapshot renderer (and check it is still emitted first), or replay renders a blank pane.`,
   );
 }
 
@@ -186,11 +167,9 @@ console.log(
   ),
 );
 console.log(
-  shellsServed
-    ? pc.dim(
-        `[vendor-trace-viewer] serving Playwright's scripted shells (${SCRIPTED_SHELLS.join(", ")}) — trace-viewer origin is ${viewerOrigin}`,
-      )
-    : pc.dim(
-        `[vendor-trace-viewer] pruned Playwright's scripted shells (${SCRIPTED_SHELLS.join(", ")}) — no VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN, so snapshot scripts must not run on the session origin`,
-      ),
+  pc.dim(
+    shellsServed
+      ? `[vendor-trace-viewer] serving Playwright's scripted shells (${SCRIPTED_SHELLS.join(", ")}) — viewer origin is ${viewerOrigin}`
+      : `[vendor-trace-viewer] pruned Playwright's scripted shells (${SCRIPTED_SHELLS.join(", ")}) — no VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN`,
+  ),
 );

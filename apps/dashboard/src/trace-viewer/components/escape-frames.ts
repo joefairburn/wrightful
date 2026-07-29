@@ -12,13 +12,12 @@ import type { SnapshotDom } from "./snapshot-dom";
  * same-origin descendant frame, re-binding as frames are added or
  * re-navigated during a scrub (each frame's `load` + a `MutationObserver`
  * per document). Every access is guarded and realm-safe (`snapshotDom`) — a
- * cross-origin frame is skipped, a snapshot that shadows `querySelectorAll` /
- * `documentElement` with named elements cannot throw out of here, and any
- * failure degrades to the Dialog's own Escape/backdrop handling. That matters
- * beyond Escape itself: this runs first in the snapshot iframe's `onLoad`, so a
- * throw here would also skip the back-buffer promotion and the script-less
- * visibility fixup that follow it. Idempotent, keyed on `Document` rather than
- * `Window`: a frame's
+ * cross-origin frame is skipped, a snapshot cannot throw out of here by
+ * shadowing DOM members, and any failure degrades to the Dialog's own
+ * Escape/backdrop handling. That matters beyond Escape itself: this runs first
+ * in the snapshot iframe's `onLoad`, so a throw here would also skip the
+ * back-buffer promotion and the script-less visibility fixup that follow it.
+ * Idempotent, keyed on `Document` rather than `Window`: a frame's
  * `contentWindow` is a stable WindowProxy across same-origin navigations,
  * but `keydown` listeners live on the per-navigation inner window/document —
  * keying the guard on the window would silently stop re-binding after a
@@ -35,7 +34,7 @@ export function bindEscapeAcrossFrames(
 ): () => void {
   const cleanups: Array<() => void> = [];
   const boundDocs = new WeakSet<Document>();
-  const boundFrames = new WeakSet<Element>();
+  const boundFrames = new WeakSet<HTMLIFrameElement>();
   const observedDocs = new WeakSet<Document>();
 
   const onKey = (e: KeyboardEvent): void => {
@@ -48,10 +47,9 @@ export function bindEscapeAcrossFrames(
     if (boundDocs.has(dom.document)) return;
     boundDocs.add(dom.document);
     try {
-      // Plain access is fine at WINDOW scope, unlike on the document: a global's
-      // own interface members win over its named-property object, so an
-      // `<iframe name="addEventListener">` in the snapshot cannot shadow this
-      // (measured in Chromium). Only document/element reads need `dom`.
+      // Plain access is safe at WINDOW scope — a global's own interface members
+      // win over its named-property object, so only document and element reads
+      // need `dom` (see snapshot-dom.ts).
       win.addEventListener("keydown", onKey);
     } catch {
       return; // window already torn down mid-access
@@ -67,16 +65,14 @@ export function bindEscapeAcrossFrames(
   }
 
   function scanDoc(dom: SnapshotDom): void {
-    // Every read below goes through `dom`, not the document, because a snapshot
-    // is attacker-craftable and `Document` has [LegacyOverrideBuiltIns] — an
-    // `<img name="querySelectorAll">` would otherwise throw a TypeError here,
-    // and `<img name="documentElement">` would silently redirect the observer
-    // onto an attacker-chosen element. Measured in Chromium; see snapshot-dom.ts.
-    for (const frame of dom.queryAll("iframe")) {
+    // Reads go through `dom` rather than the document itself: a snapshot can
+    // shadow `querySelectorAll` or `documentElement` with a named element (see
+    // snapshot-dom.ts).
+    for (const frame of dom.queryAll<HTMLIFrameElement>("iframe")) {
       if (boundFrames.has(frame)) continue;
       boundFrames.add(frame);
       const onFrameLoad = (): void => {
-        const cw = (frame as HTMLIFrameElement).contentWindow;
+        const cw = frame.contentWindow;
         if (cw) bindWindow(cw);
       };
       frame.addEventListener("load", onFrameLoad);
