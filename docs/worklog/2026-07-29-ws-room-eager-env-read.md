@@ -20,8 +20,57 @@ Cloudflare evaluates the worker's top level to validate an upload, with no
 request in flight. Both `.ws.ts` rooms passed `publicUrl: env.WRIGHTFUL_PUBLIC_URL`
 into `defineGuardedRoom` — and `defineRoom(defineGuardedRoom({…}))` is a
 module-scope call, so that read happened during exactly that evaluation.
-`WRIGHTFUL_PUBLIC_URL` is a secret (`void secret put`, see `env.ts`), so it has
-no build-time value to fall back on and void's env proxy throws.
+
+### Why it only failed sometimes
+
+This line shipped in `dda1c4e` and deployed fine for weeks, then flapped
+fail → pass → fail across three consecutive commits. That is not noise to wave
+away; it is the shape of the bug. void's raw env resolver (`void@0.10.10`,
+`env-raw`) is:
+
+```js
+var cloudflareEnv;
+if (
+  typeof navigator !== "undefined" &&
+  navigator.userAgent === "Cloudflare-Workers"
+)
+  import("cloudflare:workers")
+    .then((mod) => {
+      cloudflareEnv = asEnv(mod.env) ?? void 0;
+    })
+    .catch(() => {});
+
+function getRawRuntimeEnv() {
+  return (
+    envContext.getStore() ?? // AsyncLocalStorage — populated per request
+    getNuxtEnv() ?? // globalThis.__env__ — n/a here
+    cloudflareEnv ?? // ← assigned ASYNCHRONOUSLY, in a .then()
+    (() => {
+      throw new Error("env: Cloudflare env is unavailable…");
+    })()
+  );
+}
+```
+
+At module scope the first two are empty by definition, so an eager read falls
+through to `cloudflareEnv` — a variable assigned on a **microtask** from a
+dynamic `import("cloudflare:workers")`. The read therefore races that
+assignment: lose the race and the deploy dies with 10021, win it and the deploy
+passes. Same source, same bundle, different day.
+
+Confirmed by building `c2be11f` (Workers Build: success) and `5afc742`
+(failure). Both emit `publicUrl: env$1.WRIGHTFUL_PUBLIC_URL` at the _same_ lines
+(27342 / 27367) of the same eagerly-imported `virtual_void-routes` chunk — which
+the entry imports statically, because it re-exports the `WsRunRunIdWs` /
+`WsProjectProjectIdWs` Durable Object classes. Nothing in the repo distinguishes
+the passing build from the failing one.
+
+The precise lever that flips the race is NOT pinned down. The obvious candidate
+— a top-level `await` in the eager graph draining microtasks mid-evaluation — is
+absent from both the entry and the routes chunk. Left open: whether
+`navigator.userAgent === "Cloudflare-Workers"` holds in the validation isolate
+under a given compat date, and workerd-side module-init scheduling. None of it
+matters for the fix: this code has no business racing that assignment at all.
 
 The sibling field `internalSecret` was already a thunk, and its doc comment
 already spelled out the rule ("called per publish request … NOT at wiring
@@ -62,7 +111,11 @@ room cannot reintroduce the bug without changing the signature.
   `runPgMigrations(env, …)`, where `env` is a function parameter, not the proxy.
 - `pnpm check`: 0 errors, 154 warnings (unchanged). Dashboard node 767 passed /
   8 skipped, workers 1,413 passed. `pnpm build` exit 0.
+- Workers Build went green on `51b088f`. Treat that as CORROBORATION, NOT proof:
+  the failure is a race, and the immediately preceding green (`c2be11f`) carried
+  the bug untouched. The load-bearing evidence is structural — `getRawRuntimeEnv`
+  is no longer reached during module evaluation at all, so there is no longer a
+  race to lose. A single green deploy could never have shown that.
 
-**Not run:** the deploy itself — this sandbox has no Cloudflare credentials, and
-the wrangler session on the developer's machine is expired. Cloudflare's Workers
-Build on the next push is the real confirmation.
+**Not run:** the deploy from here — this sandbox has no Cloudflare credentials,
+and the wrangler session on the developer's machine is expired.
