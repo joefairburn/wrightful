@@ -322,7 +322,8 @@ describe("MCP endpoint E2E", () => {
       id: string;
       downloadUrl: string;
       downloadUrlExpiresInSeconds: number;
-      traceViewerUrl: string;
+      traceViewerUrl?: string;
+      hint: string;
       note: string;
     }>(
       await rpcResult<ToolResult>(
@@ -334,12 +335,20 @@ describe("MCP endpoint E2E", () => {
     );
     expect(traceMeta.id).toBe(traceUpload.artifactId);
     expect(traceMeta.note).toContain("downloadUrl");
-    const traceViewerUrl = new URL(traceMeta.traceViewerUrl);
-    expect(traceViewerUrl.origin).toBe(new URL(DASHBOARD_URL).origin);
-    expect(traceViewerUrl.pathname).toBe("/trace-viewer/index.html");
-    expect(traceViewerUrl.searchParams.get("trace")).toBe(
-      traceMeta.downloadUrl,
+    // No `traceViewerUrl`: this dashboard runs same-origin (no
+    // VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN), and that link points at
+    // Playwright's stock SPA, whose snapshot iframes hardcode
+    // `allow-scripts`. Trace bytes are attacker-craftable, so the shell is
+    // not vendored at all on the session origin (see
+    // `apps/dashboard/scripts/vendor-trace-viewer.mjs`) — hence the 404 below,
+    // and a hint steering to `show-trace`, which renders on the caller's own
+    // localhost instead.
+    expect(traceMeta.traceViewerUrl).toBeUndefined();
+    expect(traceMeta.hint).toContain("npx playwright show-trace");
+    const shell = await fetch(
+      new URL("/trace-viewer/index.html", DASHBOARD_URL),
     );
+    expect(shell.status).toBe(404);
     const download = await fetch(traceMeta.downloadUrl);
     expect(download.status).toBe(200);
     expect(new TextDecoder().decode(await download.arrayBuffer())).toBe(
