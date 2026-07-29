@@ -238,6 +238,58 @@ describe("completeRun — sharded deferred finalize", () => {
     });
   });
 
+  it("a late last shard cannot downgrade the watchdog's 'interrupted'", async () => {
+    // The watchdog force-finalizes a run whose shards went quiet, writing
+    // `interrupted` to the RUN row only — it never touches `runShards`. If the
+    // missing shard then reports in (still inside the 30-minute
+    // `runClosedForWrites` grace, so the write is accepted), the shard rows all
+    // say `passed`, and an unconditional `set({ status: finalStatus })` would
+    // hand the user a green run that in fact lost a shard.
+    const NOW = Math.floor(Date.now() / 1000);
+    await seedRun("run-late-shard", 2);
+    await completeShard("run-late-shard", 1, 2, "passed", NOW - 120);
+    expect((await readRun("run-late-shard")).status).toBe("running");
+
+    await finalizeStaleRun(
+      {
+        id: "run-late-shard",
+        projectId: SCOPE.projectId,
+        teamId: SCOPE.teamId,
+      },
+      NOW - 60,
+    );
+    expect((await readRun("run-late-shard")).status).toBe("interrupted");
+
+    // Shard 2 finally lands. It completes the shard set, so the run finalizes —
+    // but `interrupted` outranks the shards' `passed` and must survive.
+    const late = await completeShard(
+      "run-late-shard",
+      2,
+      2,
+      "passed",
+      NOW - 30,
+    );
+    expect(late.kind).toBe("ok");
+    expect((await readRun("run-late-shard")).status).toBe("interrupted");
+    expect(await shardCount("run-late-shard")).toBe(2);
+  });
+
+  it("a late last shard still ESCALATES past 'interrupted' when it failed", async () => {
+    // The merge is worst-wins, not stored-wins: a shard reporting `failed`
+    // (severity 4) must still overwrite the watchdog's `interrupted` (3).
+    const NOW = Math.floor(Date.now() / 1000);
+    await seedRun("run-late-fail", 2);
+    await completeShard("run-late-fail", 1, 2, "passed", NOW - 120);
+    await finalizeStaleRun(
+      { id: "run-late-fail", projectId: SCOPE.projectId, teamId: SCOPE.teamId },
+      NOW - 60,
+    );
+    expect((await readRun("run-late-fail")).status).toBe("interrupted");
+
+    await completeShard("run-late-fail", 2, 2, "failed", NOW - 30);
+    expect((await readRun("run-late-fail")).status).toBe("failed");
+  });
+
   it("does NOT wait on shards for a non-sharded run (legacy immediate finalize)", async () => {
     await seedRun("run-d", null);
     // No shard field, expectedShards null → the run flips on this single

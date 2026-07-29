@@ -186,3 +186,101 @@ not run in that sandbox.
   regression), both `finalizeUploads` guards, and the 409 branch.
 
 **Not run:** the Playwright dashboard suite and the full-stack E2E harness.
+
+## 2026-07-29 — PR #72 bot-review triage
+
+A second pass over the CodeRabbit / Codex comments on PR #72. Eleven findings;
+seven were real and are fixed below, four were wrong and are recorded with the
+evidence so the next reader does not re-litigate them.
+
+### Fixed
+
+**Unicode group keys 500 the groups paginator.** `encodeKeyset` called
+`btoa(segments.join(":"))`, and `btoa` throws for any code point above U+00FF.
+Group keys are raw file paths and project names, so a spec file named
+`テスト.spec.ts` made "next page" a 500. The codec now base64s the UTF-8 bytes
+in both directions, with `TextDecoder(…, {fatal: true})` so corrupt bytes reach
+the existing malformed→null path instead of decoding to mojibake. ASCII encodes
+identically, so cursors already in flight keep working — pinned by a test.
+
+**A late shard could downgrade the watchdog's `interrupted`.** The sharded
+`completeRun` done-branch wrote `status: finalStatus` computed from `runShards`
+alone, while the non-sharded sibling merged through `mergeRunStatusSql`. The
+stale-run watchdog writes `interrupted` to the _run_ row and never touches a
+shard row, so a missing shard reporting `passed` inside the 30-minute
+`runClosedForWrites` grace turned a run that lost a shard green. Now merged, as
+the sibling path already was. Two tests: the downgrade must not happen, and a
+late `failed` shard must still escalate past `interrupted` (worst-wins, not
+stored-wins). Mutation-checked — reverting the fix fails the first.
+
+**Direct-R2 cleanup could still orphan an in-flight upload.** A presigned PUT's
+expiry is checked when R2 _receives_ the request, not when the body finishes, so
+an upload starting a second before the 15-minute TTL may still be streaming long
+after. The 60-second grace was beaten by any large artifact on a slow uplink,
+and the final sweep then deleted the outbox row while the object was still
+landing. The grace is now 30 minutes, which covers the default 50 MiB
+`WRIGHTFUL_MAX_ARTIFACT_BYTES` cap at ~230 Kbit/s. The derived window is
+exported as `CLEANUP_FINALIZE_AFTER_SECONDS` so the tests advance the clock past
+the real value instead of a hand-copied literal that would quietly stop
+exercising the final verification pass.
+
+**Cleanup retries could crowd out newer deletions.** The sweep takes the four
+oldest due jobs every five minutes, and the first error retry was 60 seconds —
+so a failing cohort stayed eligible on consecutive ticks. Two changes: the first
+retry is now 6 minutes (longer than the cron interval, so a retry always skips a
+tick), and the sweep orders by `nextAttemptAt` rather than `createdAt`, i.e.
+longest-overdue first. A job that just ran now yields to one that has been
+waiting. That is also the `projectArtifactCleanupJobs_due_idx` column order, so
+the sort reads off the index instead of sorting. Mutation-checked against the
+old ordering.
+
+**`PG_TEST_URL` was echoed into two error messages.** A rejected connection
+string routinely carries a password and these errors land in CI logs. The
+database name — the part that makes the failure actionable — is still reported;
+the URL is not. A test now asserts neither the URL nor the password appears in
+either rejection path.
+
+**The primary invite-accept path swallowed unexpected failures.** Only the
+unique-violation branch was handled; a genuine transaction failure redirected
+with a generic flash and left nothing in Cloudflare Tail. Now routed through
+`logMutationFailure`, as the sibling settings actions already are.
+
+**`chunkBySize` returned zero chunks for a `NaN` size.** `Math.max(1, NaN)` is
+`NaN`, so the loop's first comparison was false and every row the caller meant
+to write was dropped silently. Normalized to a finite integer ≥ 1. Defensive
+rather than a live bug, but the failure mode was silent data loss.
+
+### Rejected, with evidence
+
+**"CircleCI reruns reuse the idempotency key" (Codex, P1).** The premise is
+false: rerunning a CircleCI workflow allocates a _new_ `CIRCLE_WORKFLOW_ID` —
+that is exactly why `CIRCLE_WORKFLOW_WORKSPACE_ID` exists as the stable
+identifier across reruns. `ciBuildId` reads `CIRCLE_WORKFLOW_ID`, so a rerun
+already keys distinctly and never hits the new 409.
+
+**"Playwright already gives reporters the selected projects" (CodeRabbit).**
+Empirically false. Running a three-project config with `--project=beta` and a
+reporter that prints `config.projects` yields `["alpha","beta","gamma"]` — the
+list is _unfiltered_. The `cliProjectFilters` parsing this asked us to delete is
+load-bearing for the idempotency key. Its variadic consumption of trailing
+positionals also mirrors Playwright's own commander parsing, so it is consistent
+rather than brittle.
+
+**"`vp pack` does not accept `--tsconfig`" (CodeRabbit).** `vp pack --help`
+lists `--tsconfig <tsconfig>`, and `packages/reporter/tsconfig.build.json`
+exists. The web search this was based on was wrong on both counts.
+
+**"Seed `teams`/`projects` before inserting `runs`" (CodeRabbit).** The suite
+passes 18/18 as written: the pg-integration harness creates only the tables a
+file touches, so the FK to `teams` is never created for this file.
+
+## Verification
+
+- `pnpm check`: **0 errors**, 148 warnings — unchanged from `9e9c816`.
+- Dashboard node 750 passed / 8 skipped, dashboard workers 1,412 passed,
+  reporter 326 passed.
+- Playwright project-filtering claim tested against real Playwright 1.61.1.
+- Mutation-checked: the sharded status merge and the sweep ordering both fail
+  their new tests when reverted.
+
+**Not run:** the Playwright dashboard suite and the full-stack E2E harness.

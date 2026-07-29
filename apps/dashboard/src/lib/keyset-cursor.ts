@@ -9,9 +9,36 @@
  * (`Number.isFinite`) and final-segment semantics.
  */
 
+/**
+ * base64 over the UTF-8 bytes, NOT over the code units. `btoa` only accepts
+ * code points ≤ U+00FF, so encoding straight from the joined string throws for
+ * any cursor carrying a non-Latin-1 group key — a spec file named
+ * `テスト.spec.ts`, a project named `Chrome 移动端` — and paging that group
+ * would 500. ASCII bytes are identical either way, so cursors already in flight
+ * keep decoding.
+ */
+function encodeUtf8Base64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/**
+ * Inverse of {@link encodeUtf8Base64}. `fatal` so a cursor whose bytes are not
+ * valid UTF-8 throws here and reaches the caller's malformed→null path, rather
+ * than silently decoding to U+FFFD mojibake that would never match a real
+ * group key.
+ */
+function decodeUtf8Base64(encoded: string): string {
+  const binary = atob(encoded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
 /** Encode cursor segments as an opaque base64 `a:b[:c…]` string. */
 export function encodeKeyset(segments: readonly string[]): string {
-  return btoa(segments.join(":"));
+  return encodeUtf8Base64(segments.join(":"));
 }
 
 /**
@@ -36,7 +63,7 @@ export function decodeKeyset(
   if (!raw) return null;
   let decoded: string;
   try {
-    decoded = atob(raw);
+    decoded = decodeUtf8Base64(raw);
   } catch {
     return null;
   }

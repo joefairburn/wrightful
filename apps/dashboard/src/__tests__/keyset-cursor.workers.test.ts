@@ -52,4 +52,33 @@ describe("keyset-cursor codec", () => {
     expect(decodeKeyset(btoa("42:a:b:c"), 2)).toEqual(["42", "a:b:c"]);
     expect(decodeKeyset(btoa("0:42:a:b:c"), 3)).toEqual(["0", "42", "a:b:c"]);
   });
+
+  it("round-trips segments above U+00FF instead of throwing", () => {
+    // Group keys are raw file paths and project names, so a non-Latin-1 one is
+    // ordinary user data. `btoa` on the joined string throws for these, which
+    // used to 500 the page rather than return the next page of groups.
+    for (const key of ["テスト.spec.ts", "Chrome 移动端", "e2e/café.spec.ts"]) {
+      expect(decodeKeyset(encodeKeyset(["4", "value", key]), 3)).toEqual([
+        "4",
+        "value",
+        key,
+      ]);
+    }
+  });
+
+  it("keeps decoding pure-ASCII cursors minted before the UTF-8 change", () => {
+    // UTF-8 and Latin-1 agree on ASCII, so cursors already in flight when this
+    // shipped must still decode — otherwise every open paginator resets.
+    expect(decodeKeyset(btoa("4:value:e2e/login.spec.ts"), 3)).toEqual([
+      "4",
+      "value",
+      "e2e/login.spec.ts",
+    ]);
+  });
+
+  it("degrades base64 that is not valid UTF-8 to null", () => {
+    // A lone continuation byte. Without `fatal` this would decode to U+FFFD
+    // mojibake and be compared against real group keys as if it were genuine.
+    expect(decodeKeyset(btoa("4:value:\u0080"), 3)).toBeNull();
+  });
 });

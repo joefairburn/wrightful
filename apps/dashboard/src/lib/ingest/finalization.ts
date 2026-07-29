@@ -184,7 +184,13 @@ async function completeShardedRun(
       await tx
         .update(runs)
         .set({
-          status: finalStatus,
+          // Merge rather than overwrite, exactly as the non-sharded path above
+          // does. `finalStatus` is derived from the shard rows alone, and the
+          // stale-run watchdog writes `interrupted` to the RUN row without
+          // touching any shard row. A last shard reporting `passed` inside the
+          // 30-minute `runClosedForWrites` grace would otherwise downgrade that
+          // terminal marker back to `passed`.
+          status: mergeRunStatusSql(finalStatus),
           durationMs: maxDuration,
           completedAt: maxCompletedAt,
           lastActivityAt: nowSeconds,

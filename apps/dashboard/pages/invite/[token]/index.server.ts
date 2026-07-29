@@ -2,6 +2,7 @@ import { defineHandler, type InferProps } from "void";
 import { getSession, requireAuth } from "void/auth";
 import { and, db, eq, gt } from "void/db";
 import { memberships, teamInvites, teams, type MembershipRole } from "@schema";
+import { logMutationFailure } from "@/lib/action-errors";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { isUniqueViolation } from "@/lib/db/batch";
 import { inviteIsDirected, inviteMatchesUser } from "@/lib/invite-identity";
@@ -167,6 +168,13 @@ export const action = defineHandler(async (c) => {
     // the pre-existing behavior: redirect as a member without burning this
     // open link when our membership insert did not win.
     if (isUniqueViolation(err)) return c.redirect(`/t/${invite.teamSlug}`);
+    // Anything else is a real transaction failure on the primary accept path.
+    // The user only ever sees the generic flash below, so without this the
+    // failure leaves no trace anywhere Cloudflare Tail can see it.
+    logMutationFailure("accept invite failed", err, {
+      teamId: invite.teamId,
+      inviteId: invite.id,
+    });
     return c.redirect(
       `${here}?error=${encodeURIComponent(
         "Could not join the team — please try again.",

@@ -17,15 +17,20 @@
 export const PG_MAX_BOUND_PARAMS = 65_535;
 
 /**
- * Slice `items` into consecutive sub-arrays of at most `size` (always ≥1, so a
- * pathological `size <= 0` still makes progress one item at a time rather than
- * looping forever). The single home for fixed-size chunking — both the
- * param-cap chunker ({@link chunkByParams}) and the watchdog's
+ * Slice `items` into consecutive sub-arrays of at most `size` (always a finite
+ * integer ≥1, so a pathological `size <= 0` still makes progress one item at a
+ * time rather than looping forever). The single home for fixed-size chunking —
+ * both the param-cap chunker ({@link chunkByParams}) and the watchdog's
  * bounded-concurrency drain (`drainStaleRuns`) compute their per-chunk count and
  * hand it here.
+ *
+ * `NaN` normalizes to 1 rather than falling through `Math.max`, which returns
+ * `NaN` and makes the loop's first comparison false — yielding zero chunks for
+ * a non-empty input, so every row the caller meant to write is dropped with no
+ * error. A degenerate size should be slow, never silent.
  */
 export function chunkBySize<T>(items: T[], size: number): T[][] {
-  const step = Math.max(1, size);
+  const step = Number.isFinite(size) ? Math.max(1, Math.floor(size)) : 1;
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += step) {
     chunks.push(items.slice(i, i + step));

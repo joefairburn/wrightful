@@ -52,6 +52,24 @@ describe("assertDisposableTestDatabase", () => {
     );
   });
 
+  it("never echoes the connection string, which carries the password", () => {
+    // Both rejection paths land in CI logs. Reporting the database name is the
+    // whole point; reporting the URL would publish the credential with it.
+    const secret = "hunter2";
+    for (const url of [
+      `postgres://u:${secret}@host:5432/wrightful_prod`,
+      `not-a-url://u:${secret}@`,
+    ]) {
+      expect(() => assertDisposableTestDatabase(url)).toThrow();
+      try {
+        assertDisposableTestDatabase(url);
+      } catch (err) {
+        expect((err as Error).message).not.toContain(secret);
+        expect((err as Error).message).not.toContain(url);
+      }
+    }
+  });
+
   it("decodes a percent-encoded database name before matching", () => {
     // A URL-encoded name must not sneak past the suffix check either way.
     expect(() =>

@@ -64,8 +64,11 @@ export function assertDisposableTestDatabase(url: string): void {
   try {
     database = decodeURIComponent(new URL(url).pathname).replace(/^\//, "");
   } catch {
+    // Never interpolate the URL itself into these messages — a connection
+    // string routinely carries a password, and both errors land in CI logs.
+    // The database name is the only part worth reporting, and it is safe.
     throw new Error(
-      `PG_TEST_URL is not a valid URL: ${url}\n` +
+      "PG_TEST_URL is not a valid URL.\n" +
         "Expected something like postgres://user@localhost:5432/wrightful_test",
     );
   }
@@ -74,7 +77,6 @@ export function assertDisposableTestDatabase(url: string): void {
       `Refusing to run pg-integration against database "${database || "(none)"}".\n` +
         "These suites DROP every table they touch, so the database name must end " +
         'in "_test" (or be exactly "test") to confirm it is disposable.\n' +
-        `Got PG_TEST_URL=${url}\n` +
         "Create a throwaway database instead, e.g. `createdb wrightful_test`.",
     );
   }

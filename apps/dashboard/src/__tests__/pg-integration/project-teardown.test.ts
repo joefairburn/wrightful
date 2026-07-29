@@ -27,11 +27,13 @@ const { resetTables } = await import("./harness");
 const { teardownProject, teardownTeamRows } =
   await import("@/lib/project-teardown");
 const {
+  CLEANUP_FINALIZE_AFTER_SECONDS,
   EAGER_TEAM_CLEANUP_LIMIT,
   processProjectArtifactCleanup,
   projectArtifactCleanupJobValues,
   scheduleProjectArtifactCleanup,
   scheduleTeamArtifactCleanup,
+  sweepProjectArtifactCleanup,
 } = await import("@/lib/project-artifact-cleanup");
 const {
   auditLog,
@@ -309,7 +311,12 @@ describe("scheduleProjectArtifactCleanup", () => {
     await expect(
       processProjectArtifactCleanup(
         PROJECT_ONE,
-        Math.max(failed!.nextAttemptAt, failed!.createdAt + 1_000),
+        Math.max(
+          failed!.nextAttemptAt,
+          // Past the presigned-PUT hold, so this pass is allowed to finalize
+          // rather than parking the job for the final verification sweep.
+          failed!.createdAt + CLEANUP_FINALIZE_AFTER_SECONDS,
+        ),
       ),
     ).resolves.toEqual({ kind: "complete", deleted: 7 });
     await expect(
@@ -350,7 +357,10 @@ describe("scheduleProjectArtifactCleanup", () => {
     await expect(
       processProjectArtifactCleanup(
         PROJECT_ONE,
-        Math.max(pending!.nextAttemptAt, pending!.createdAt + 1_000),
+        Math.max(
+          pending!.nextAttemptAt,
+          pending!.createdAt + CLEANUP_FINALIZE_AFTER_SECONDS,
+        ),
       ),
     ).resolves.toEqual({ kind: "complete", deleted: 1_000 });
   });
@@ -419,9 +429,51 @@ describe("scheduleProjectArtifactCleanup", () => {
     const [pending] = await h.db.select().from(projectArtifactCleanupJobs);
     expect(pending).toMatchObject({
       attempts: 1,
-      nextAttemptAt: finishedAt + 60,
+      // The point of the assertion is the BASE, not the offset: the retry is
+      // measured from when the attempt finished, not from the stale `claimAt`
+      // this pass was handed. 360s is the first-attempt backoff, deliberately
+      // longer than the five-minute cron interval.
+      nextAttemptAt: finishedAt + 360,
       updatedAt: finishedAt,
     });
+  });
+});
+
+describe("sweepProjectArtifactCleanup — batch fairness", () => {
+  it("serves the longest-overdue jobs, so a retry cohort cannot hold the batch", async () => {
+    // SWEEP_JOB_LIMIT is 4. Seed five jobs: four OLD ones that already ran and
+    // are only just due again, plus one NEWER job that has been due far longer.
+    // Ordering by createdAt would hand every slot to the old cohort on every
+    // tick and starve the newer deletion indefinitely; ordering by how overdue
+    // each job is lets the waiting one through.
+    const now = Math.floor(Date.now() / 1000);
+    const retried = ["r1", "r2", "r3", "r4"];
+    await h.db.insert(projectArtifactCleanupJobs).values([
+      ...retried.map((projectId) => ({
+        ...projectArtifactCleanupJobValues("t1", projectId, now - 10_000),
+        attempts: 3,
+        // Backed off repeatedly and became due one second ago.
+        nextAttemptAt: now - 1,
+      })),
+      // Created later, but never worked, so it has been due for an hour.
+      projectArtifactCleanupJobValues("t1", "starved", now - 3_600),
+    ]);
+    h.deleteSpy.mockResolvedValue({ deleted: 0, complete: true });
+
+    const result = await sweepProjectArtifactCleanup(now);
+
+    // Four of the five jobs are worked, and a worked-to-completion job deletes
+    // its own row — so whatever is left over is precisely the job that missed
+    // the batch.
+    expect(result.claimed).toBe(4);
+    const leftover = await h.db
+      .select({ projectId: projectArtifactCleanupJobs.projectId })
+      .from(projectArtifactCleanupJobs);
+    expect(leftover).toHaveLength(1);
+    // The one that waited its turn is a member of the retry cohort, NOT the
+    // longer-overdue `starved` job. Under the old createdAt ordering the four
+    // older rows took every slot and `starved` was the leftover on every tick.
+    expect(retried).toContain(leftover[0]!.projectId);
   });
 });
 

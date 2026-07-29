@@ -9,7 +9,33 @@ const ATTEMPT_PAGE_LIMIT = 100;
 const CLAIM_LEASE_SECONDS = 10 * 60;
 const INCOMPLETE_RETRY_SECONDS = 60;
 const MAX_RETRY_SECONDS = 6 * 60 * 60;
-const DIRECT_UPLOAD_EXPIRY_GRACE_SECONDS = 60;
+// First error retry. Deliberately longer than the five-minute cron interval so
+// a cohort of failing jobs always skips at least one tick: the sweep takes only
+// SWEEP_JOB_LIMIT jobs, so a 60-second first retry let the same failures stay
+// eligible on consecutive ticks and crowd out newer deletions.
+const BASE_RETRY_SECONDS = 6 * 60;
+/**
+ * How long after a presigned PUT would expire the job must survive.
+ *
+ * A presigned URL's expiry is checked when R2 receives the request, NOT when
+ * the body finishes, so an upload starting a second before the 15-minute TTL
+ * lapses may still be streaming long afterwards — and the object only appears
+ * under the prefix when it completes. The grace therefore has to cover a whole
+ * slow upload of the largest artifact we accept, not just clock skew: at the
+ * default 50 MiB cap (`WRIGHTFUL_MAX_ARTIFACT_BYTES`), thirty minutes still
+ * covers a link as slow as ~230 Kbit/s. The one-minute value this replaced was
+ * beaten by any large artifact on a slow CI uplink, which left the object
+ * orphaned under a deleted project's prefix with no durable job to remove it.
+ */
+const DIRECT_UPLOAD_EXPIRY_GRACE_SECONDS = 30 * 60;
+/**
+ * Age at which a job whose prefix reads empty may finally be deleted, measured
+ * from `createdAt`. Exported so tests advance the clock past the real window
+ * instead of a hand-copied literal that silently stops exercising the final
+ * verification pass when either constant above moves.
+ */
+export const CLEANUP_FINALIZE_AFTER_SECONDS =
+  ARTIFACT_PRESIGNED_PUT_TTL_SECONDS + DIRECT_UPLOAD_EXPIRY_GRACE_SECONDS;
 // Four worst-case attempts consume at most 800 R2 list/delete subrequests,
 // leaving margin below the Workers limit for the claim/result DB operations.
 const SWEEP_JOB_LIMIT = 4;
@@ -57,7 +83,7 @@ export type ProjectArtifactCleanupResult =
 function retryDelaySeconds(attempts: number): number {
   return Math.min(
     MAX_RETRY_SECONDS,
-    60 * 2 ** Math.min(Math.max(attempts - 1, 0), 8),
+    BASE_RETRY_SECONDS * 2 ** Math.min(Math.max(attempts - 1, 0), 8),
   );
 }
 
@@ -124,14 +150,12 @@ export async function processProjectArtifactCleanup(
       return { kind: "incomplete", deleted: result.deleted };
     }
 
-    // A direct-R2 PUT minted immediately before deletion remains valid for up
-    // to 15 minutes. Keep the job through that window and verify the prefix one
-    // final time, otherwise a late upload could recreate an undiscoverable
-    // orphan immediately after an apparently successful sweep.
-    const finalizableAt =
-      job.createdAt +
-      ARTIFACT_PRESIGNED_PUT_TTL_SECONDS +
-      DIRECT_UPLOAD_EXPIRY_GRACE_SECONDS;
+    // A direct-R2 PUT minted immediately before deletion stays usable for the
+    // presigned TTL, and its body can still be streaming well after that (see
+    // CLEANUP_FINALIZE_AFTER_SECONDS). Keep the job through that whole window
+    // and verify the prefix one final time, otherwise a late upload could
+    // recreate an undiscoverable orphan right after an apparently clean sweep.
+    const finalizableAt = job.createdAt + CLEANUP_FINALIZE_AFTER_SECONDS;
     if (finishedAt < finalizableAt) {
       const updated = await db
         .update(projectArtifactCleanupJobs)
@@ -235,7 +259,17 @@ export async function sweepProjectArtifactCleanup(
     .select({ projectId: projectArtifactCleanupJobs.projectId })
     .from(projectArtifactCleanupJobs)
     .where(lte(projectArtifactCleanupJobs.nextAttemptAt, nowSeconds))
-    .orderBy(asc(projectArtifactCleanupJobs.createdAt))
+    // Longest-overdue first, not oldest-created first. A job that just ran
+    // carries a later `nextAttemptAt`, so it yields to jobs that have been due
+    // longer instead of a slow or failing cohort holding the head of a
+    // SWEEP_JOB_LIMIT batch forever. Never-worked jobs still order by their
+    // creation time, since insertion sets `nextAttemptAt = createdAt`. This is
+    // also the `projectArtifactCleanupJobs_due_idx` column order, so the sort
+    // now reads straight off the index.
+    .orderBy(
+      asc(projectArtifactCleanupJobs.nextAttemptAt),
+      asc(projectArtifactCleanupJobs.createdAt),
+    )
     .limit(SWEEP_JOB_LIMIT);
   const tally: ProjectArtifactCleanupSweepResult = {
     claimed: 0,
