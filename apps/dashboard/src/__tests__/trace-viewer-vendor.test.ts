@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -126,5 +127,69 @@ describe("trace-viewer vendored source", () => {
       // appended to the doctype, so the guard leading that array literal is
       // what puts it first in the parsed document.
     ).toContain(`["${guardStyle}",`);
+  });
+});
+
+/**
+ * The scripted-shell prune is the ONLY enforceable control over Playwright's
+ * `index.html` / `snapshot.html` / `uiMode.html`, whose snapshot iframes hardcode
+ * `sandbox="allow-same-origin allow-scripts"`. Static assets are served without
+ * running the Hono middleware (verified against a production `vp preview`), so
+ * "not vendored" is what keeps them off the session origin — there is no runtime
+ * gate to fall back on. Exercise the real script rather than re-deriving its
+ * logic, so a refactor that drops the prune fails here.
+ */
+describe("scripted trace-viewer shells are only vendored for a cookieless origin", () => {
+  const SHELLS = ["index.html", "snapshot.html", "uiMode.html"];
+  const script = join(packageRoot, "scripts/vendor-trace-viewer.mjs");
+
+  /** Run the vendor script with `env` and report which shells it left on disk. */
+  function vendorWith(env: Record<string, string>): {
+    present: string[];
+    engineFilesPresent: boolean;
+  } {
+    const result = spawnSync(process.execPath, [script], {
+      cwd: packageRoot,
+      encoding: "utf8",
+      // The script stamps a policy into `.vendored-version`, so a plain re-run
+      // re-vendors when the policy changes — no cleanup needed between cases.
+      env: { ...process.env, ...env },
+    });
+    if (result.status !== 0) {
+      throw new Error(
+        `vendor-trace-viewer.mjs failed: ${result.stdout}${result.stderr}`,
+      );
+    }
+    const target = join(packageRoot, "public/trace-viewer");
+    return {
+      present: SHELLS.filter((f) => existsSync(join(target, f))),
+      // The files our OWN viewer needs must survive either way.
+      engineFilesPresent: ["sw.bundle.js", "bridge.html"].every((f) =>
+        existsSync(join(target, f)),
+      ),
+    };
+  }
+
+  it("prunes every scripted shell when no viewer origin is configured", () => {
+    const { present, engineFilesPresent } = vendorWith({
+      VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN: "",
+    });
+    expect(present).toEqual([]);
+    expect(engineFilesPresent).toBe(true);
+  });
+
+  it("vendors them once a cookieless viewer origin IS configured", () => {
+    const { present, engineFilesPresent } = vendorWith({
+      VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN: "https://traces.example.com",
+    });
+    expect(present.sort()).toEqual([...SHELLS].sort());
+    expect(engineFilesPresent).toBe(true);
+  });
+
+  // Leave the working tree in the safe default the rest of the repo expects.
+  it("restores the pruned default for subsequent runs", () => {
+    expect(
+      vendorWith({ VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN: "" }).present,
+    ).toEqual([]);
   });
 });

@@ -44,59 +44,22 @@ const TRACE_VIEWER_HEADERS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Playwright's own HTML shells inside the vendored bundle. Each frames a DOM
- * snapshot with a HARDCODED `sandbox="allow-same-origin allow-scripts"` that we
- * cannot override — `index.html`'s SPA sets it on its two snapshot iframes,
- * `snapshot.html` on its single one. On the cookieless viewer host that is the
- * point (that is what full-fidelity replay buys). On any other origin — the
- * dashboard included — it would execute attacker-craftable snapshot HTML with
- * the session cookies, which is exactly what `snapshotSandbox` exists to
- * prevent for our own embedded viewer.
+ * NOTE for anyone tempted to police `/trace-viewer/*` paths from here: this
+ * middleware does NOT run for static assets. Verified against a production
+ * `vp preview` — an early return for `/trace-viewer/index.html` never fires and
+ * the file is served 200, while a path with no file 404s. The relaxed
+ * `/trace-viewer/*` headers those responses DO carry come from
+ * `public/_headers` + `void.json` `routing.headers`, not from this file.
  *
- * These are static assets, so they are reachable by typing the URL: gating the
- * links that point at them (MCP's `traceViewerUrl`, the pane's popout) removes
- * the invitation but is not a boundary. This is, because Void routes every
- * request through the Worker (`run_worker_first`) and serves assets from inside
- * the Hono app, so a 404 here wins.
- *
- * Our own viewer needs neither file: it registers the service worker from
- * `bridge.html` and points its iframes at the SW-synthesized
- * `/trace-viewer/snapshot/*`. `uiMode.html` has no `?trace=` entry point at all
- * (it wants a Playwright test-server WebSocket) and is blocked for hygiene.
+ * So Playwright's scripted HTML shells (`index.html`, `snapshot.html`,
+ * `uiMode.html`), whose snapshot iframes hardcode `allow-scripts`, are kept off
+ * the session origin at BUILD time instead — `scripts/vendor-trace-viewer.mjs`
+ * simply doesn't vendor them unless a cookieless viewer origin is configured.
+ * The policy below still applies to worker-served responses under that prefix
+ * (e.g. the SW-less fallback for `/trace-viewer/snapshot/*`).
  */
-const SCRIPTED_SNAPSHOT_SHELLS: readonly string[] = [
-  "/trace-viewer/index.html",
-  "/trace-viewer/snapshot.html",
-  "/trace-viewer/uiMode.html",
-];
-
-function servesScriptedSnapshotShell(
-  path: string,
-  pageOrigin: string,
-): boolean {
-  return (
-    SCRIPTED_SNAPSHOT_SHELLS.includes(path) && !isTraceViewerHost(pageOrigin)
-  );
-}
-
 export default defineMiddleware(async (c, next) => {
   const pageOrigin = new URL(c.req.url).origin;
-
-  // Refuse before `next()`, so the asset layer never even reads the bytes.
-  if (servesScriptedSnapshotShell(c.req.path, pageOrigin)) {
-    replaceResponse(
-      c,
-      withDefensiveHeaders(
-        new Response("Not Found", {
-          status: 404,
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        }),
-        c.req.path,
-        pageOrigin,
-      ),
-    );
-    return;
-  }
 
   try {
     await next();

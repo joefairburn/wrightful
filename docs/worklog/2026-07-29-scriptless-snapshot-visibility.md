@@ -115,18 +115,36 @@ derived its origin from the _download URL_, so even a deployment that had
 configured `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` got a link aiming the scripted
 shell back at the session origin — defeating the isolation it had just paid for.
 
-So the fix is a refusal, in the only layer that can refuse. Void routes every
-request through the Worker (`run_worker_first`) and serves assets from inside the
-Hono app, so `middleware/00.defensive-headers.ts` now returns **404** for all
-three shells unless `isTraceViewerHost(pageOrigin)`. They stay vendored: on the
-cookieless host they _are_ the full-fidelity viewer, and there
-`snapshotScriptsEnabled()` is already true. Our own viewer needs neither
-`index.html` nor `snapshot.html` — it registers the SW from `bridge.html` and
+The fix is to **stop shipping them**, decided at build time.
+
+Blocking at runtime does not work, and it is worth recording why so nobody
+retries it: static assets are served WITHOUT running the Hono middleware. An
+early return in `00.defensive-headers.ts` for `/trace-viewer/index.html` never
+fires — measured against a production `vp preview`, the file still came back 200,
+while a path with no file 404s. (The relaxed `/trace-viewer/*` headers those
+responses do carry come from `public/_headers` + `void.json` `routing.headers`,
+which is what made the middleware look like it was in the path.) The first
+attempt at this shipped exactly that dead check and CI caught it.
+
+So `scripts/vendor-trace-viewer.mjs` now prunes all three shells from
+`public/trace-viewer/` unless `VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN` is set,
+resolved through Vite's own `loadEnv` so a self-hoster's `.env.local` is honoured
+and the build cannot disagree with what `traceViewerOrigin()` sees at runtime.
+The shell policy is part of the `.vendored-version` stamp, so toggling isolation
+re-vendors even when playwright-core is unchanged. Source-layout checks still
+cover all three, so a Playwright reshuffle fails loudly either way.
+
+Our own viewer needs none of them — it registers the SW from `bridge.html` and
 points its iframes at the SW-synthesized `/trace-viewer/snapshot/*` — so
-same-origin loses nothing but the stock-viewer fallback. `snapshotPopoutUrl` and
-`traceViewerUrl` are gated to match so nothing advertises a blocked path; MCP's
-hint now steers to `npx playwright show-trace`, which renders on the user's own
-localhost.
+same-origin loses only the stock-viewer fallback. `snapshotPopoutUrl` and
+`traceViewerUrl` are gated on the same condition, so nothing links a file that
+isn't there; MCP's hint steers to `npx playwright show-trace`, which renders on
+the caller's own localhost.
+
+Residual, now documented in SELF-HOSTING.md: once isolation IS configured the
+shells exist, and the same Worker serves both hostnames, so they are fetchable by
+URL on the dashboard hostname. Nothing links them there. Closing that needs an
+edge rule, because the worker demonstrably cannot.
 
 Note the vendor script's comment calling `snapshot.html` "the nested snapshot
 frame the SW hydrates" was wrong — the SW never references it — and is probably

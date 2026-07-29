@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Vendor the official Playwright Trace Viewer bundle into `public/trace-viewer/`
-// so we serve its service worker + snapshot shell (and the standalone SPA) from
-// our OWN origin. Our native React trace viewer (`src/trace-viewer/`) drives
-// that SW through a hidden bridge iframe (`bridge.html`), so a test's trace
-// bytes replay in-dashboard and never bounce out to the public
-// trace.playwright.dev. The bundle ships inside `playwright-core` as a
+// so we serve its service worker from our OWN origin. Our native React trace
+// viewer (`src/trace-viewer/`) drives that SW through a hidden bridge iframe
+// (`bridge.html`), so a test's trace bytes replay in-dashboard and never bounce
+// out to the public trace.playwright.dev. Playwright's own HTML shells (its
+// standalone SPA + snapshot popout) are a separate matter — see
+// SCRIPTED_SHELLS below; they only ship on a cookieless viewer origin.
+// The bundle ships inside `playwright-core` as a
 // position-independent Vite build (relative asset refs, a scope-relative service
 // worker), so a plain recursive copy into a subdir Just Works (see the worklog
 // + plan for why no rewrites/scope headers are needed).
@@ -24,22 +26,53 @@ import {
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
+import { loadEnv } from "vite";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const at = (rel) => `${root}/${rel}`;
 const TARGET = at("public/trace-viewer");
 const STAMP = `${TARGET}/.vendored-version`;
 
-// Files that MUST exist in the source bundle — our replay surface depends on each:
+// Playwright's own HTML shells. Each frames a DOM snapshot with a HARDCODED
+// `sandbox="allow-same-origin allow-scripts"` we cannot override: index.html's
+// SPA sets it on its two snapshot iframes, snapshot.html on its single one.
+// Trace bytes are attacker-craftable, so on the dashboard's session origin that
+// is a stored-XSS path — exactly what `snapshotSandbox` exists to close for our
+// OWN embedded viewer.
+//
+// They are only safe on a cookieless viewer origin, so when none is configured
+// we do not ship them at all. That is deliberately a BUILD-time decision: these
+// are static assets, and static assets are served without running the Hono
+// middleware (verified against a production `vp preview`: a middleware early
+// return never fires for them, while a path with no file 404s). So "not on disk"
+// is the only enforceable answer — runtime gating would be theatre.
+//
+// Our own viewer needs none of them: it registers the service worker from
+// bridge.html and points its iframes at the SW-synthesized
+// /trace-viewer/snapshot/*. The popout (snapshot.html) and the MCP
+// `traceViewerUrl` (index.html) are gated on the same configured-origin check,
+// so nothing ever links a file we pruned.
+const SCRIPTED_SHELLS = ["index.html", "snapshot.html", "uiMode.html"];
+
+// Resolve the viewer origin the way VITE does when it inlines the value into the
+// client bundle (`.env`, `.env.local`, prefixed `process.env`) — reading only
+// `process.env` here would miss a self-hoster's `.env.local` and prune the
+// shells out from under a deployment that HAS configured isolation.
+const viewerOrigin = (
+  loadEnv("production", root, "VITE_").VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN ?? ""
+).trim();
+const shellsServed = viewerOrigin !== "";
+// Part of the stamp: toggling isolation must invalidate the vendored output even
+// when the playwright-core version is unchanged.
+const stampValue = shellsServed ? "with-shells" : "no-shells";
+
+// Files that MUST exist in the SOURCE bundle. Checked as a layout canary even
+// for the shells we may not ship, so a Playwright reshuffle still fails loudly:
 //   index.html   — the standalone stock SPA: the full-fidelity viewer on a
-//                  cookieless viewer origin (the MCP `traceViewerUrl`), plus a
-//                  layout canary. Like snapshot.html below, 404'd on every other
-//                  origin — its snapshot iframes hardcode `allow-scripts`.
+//                  cookieless viewer origin (the MCP `traceViewerUrl`)
 //   sw.bundle.js  — the snapshot-serving service worker our bridge registers
 //   snapshot.html — the popout target on a cookieless viewer origin. NOT used by
-//                  our own viewer or the SW (neither references it); the worker
-//                  404s it on every other origin, since its iframe hardcodes
-//                  `allow-scripts`.
+//                  our own viewer or the SW (neither references it).
 const REQUIRED = ["index.html", "sw.bundle.js", "snapshot.html"];
 
 function fail(msg) {
@@ -121,12 +154,16 @@ function copyBridge() {
   cpSync(BRIDGE_SRC, `${TARGET}/bridge.html`);
 }
 
-// Idempotent: skip the playwright copy when the vendored bundle already
-// matches the installed version (keeps `predev` snappy on every boot).
-if (existsSync(STAMP) && readFileSync(STAMP, "utf8").trim() === version) {
+// Idempotent: skip the playwright copy when the vendored bundle already matches
+// the installed version AND the same shell policy (keeps `predev` snappy on
+// every boot, while toggling the viewer origin still forces a re-vendor).
+const stamp = `${version} ${stampValue}`;
+if (existsSync(STAMP) && readFileSync(STAMP, "utf8").trim() === stamp) {
   copyBridge();
   console.log(
-    pc.dim(`[vendor-trace-viewer] up to date (playwright-core ${version})`),
+    pc.dim(
+      `[vendor-trace-viewer] up to date (playwright-core ${version}, ${stampValue})`,
+    ),
   );
   process.exit(0);
 }
@@ -135,9 +172,25 @@ rmSync(TARGET, { recursive: true, force: true });
 mkdirSync(TARGET, { recursive: true });
 cpSync(src, TARGET, { recursive: true });
 copyBridge();
-writeFileSync(STAMP, `${version}\n`);
+
+// Prune AFTER the copy so the source-layout canary above still sees them.
+if (!shellsServed) {
+  for (const shell of SCRIPTED_SHELLS) {
+    rmSync(`${TARGET}/${shell}`, { force: true });
+  }
+}
+writeFileSync(STAMP, `${stamp}\n`);
 console.log(
   pc.green(
     `[vendor-trace-viewer] vendored playwright-core ${version} → public/trace-viewer/`,
   ),
+);
+console.log(
+  shellsServed
+    ? pc.dim(
+        `[vendor-trace-viewer] serving Playwright's scripted shells (${SCRIPTED_SHELLS.join(", ")}) — trace-viewer origin is ${viewerOrigin}`,
+      )
+    : pc.dim(
+        `[vendor-trace-viewer] pruned Playwright's scripted shells (${SCRIPTED_SHELLS.join(", ")}) — no VITE_WRIGHTFUL_TRACE_VIEWER_ORIGIN, so snapshot scripts must not run on the session origin`,
+      ),
 );
