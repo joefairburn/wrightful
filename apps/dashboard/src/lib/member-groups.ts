@@ -87,19 +87,22 @@ export async function listUserIdsInGroups(
   return [...new Set(rows.map((r) => r.userId))];
 }
 
-/** Create a group and set its initial members (intersected with live members). */
+/**
+ * Create a group and set its initial members (intersected with live members).
+ * Returns the new id, or null when concurrent team teardown already removed the
+ * parent — the same "already gone" outcome {@link updateGroup} reports as
+ * `false`, not a retryable failure.
+ */
 export async function createGroup(
   teamId: string,
   name: string,
   userIds: string[],
   createdBy: string,
   now: number,
-): Promise<string> {
+): Promise<string | null> {
   const id = ulid();
-  await db.transaction(async (tx) => {
-    if (!(await lockTeamForChildMutation(tx, teamId))) {
-      throw new Error("team not found");
-    }
+  const created = await db.transaction(async (tx) => {
+    if (!(await lockTeamForChildMutation(tx, teamId))) return false;
     await tx.insert(memberGroups).values({
       id,
       teamId,
@@ -109,8 +112,9 @@ export async function createGroup(
       updatedAt: now,
     });
     await replaceMembers(tx, teamId, id, userIds);
+    return true;
   });
-  return id;
+  return created ? id : null;
 }
 
 /** Atomically rename a group and replace its complete member set. */

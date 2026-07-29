@@ -105,6 +105,43 @@ describe("createMonitor quota serialization", () => {
   });
 });
 
+describe("createMonitor parent lock", () => {
+  it("reports a torn-down team as null rather than raising", async () => {
+    // No `teams` row = teardown already committed, which is exactly what the
+    // parent key-share lock observes. The caller needs this apart from the
+    // limit/duplicate errors: those invite a corrected retry, this one is
+    // permanent and must surface as a 404.
+    const gone = makeTenantScope({
+      teamId: "t-gone",
+      projectId: "p-gone",
+      teamSlug: "gone",
+      projectSlug: "gone",
+    });
+    await expect(
+      createMonitor(
+        gone,
+        {
+          type: "browser",
+          name: "orphan",
+          source:
+            "import { test } from '@playwright/test'; test('x', () => {});",
+          intervalSeconds: 300,
+          enabled: true,
+        },
+        "u1",
+        1_700_000_000,
+        { limit: 1 },
+      ),
+    ).resolves.toBeNull();
+    expect(
+      await h.db
+        .select({ id: monitors.id })
+        .from(monitors)
+        .where(eq(monitors.projectId, "p-gone")),
+    ).toEqual([]);
+  });
+});
+
 afterAll(async () => {
   await h.client.close();
 });

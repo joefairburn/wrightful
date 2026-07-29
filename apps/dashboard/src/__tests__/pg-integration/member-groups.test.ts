@@ -12,7 +12,7 @@ vi.mock("void/db", async () => {
 });
 
 const { resetTables } = await import("./harness");
-const { listGroups, listUserIdsInGroups, updateGroup } =
+const { createGroup, listGroups, listUserIdsInGroups, updateGroup } =
   await import("@/lib/member-groups");
 const { removeMemberGuarded } = await import("@/lib/members-repo");
 const { memberGroupMembers, memberGroups, memberships, teams } =
@@ -112,5 +112,22 @@ describe("updateGroup", () => {
       },
     ]);
     expect(await listUserIdsInGroups("t1", ["g1"])).toEqual([]);
+  });
+});
+
+describe("createGroup", () => {
+  it("returns null instead of raising when the team is already torn down", async () => {
+    // A missing `teams` row is what the parent key-share lock sees once
+    // teardown commits. `updateGroup` already reports that as `false`; the
+    // create path must not present it as a retryable save failure.
+    await expect(
+      createGroup("t-gone", "Ghosts", ["old"], "owner", 3),
+    ).resolves.toBeNull();
+    expect(
+      await h.db
+        .select({ id: memberGroups.id })
+        .from(memberGroups)
+        .where(eq(memberGroups.teamId, "t-gone")),
+    ).toEqual([]);
   });
 });

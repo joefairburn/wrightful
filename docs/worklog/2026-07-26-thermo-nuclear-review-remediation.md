@@ -274,7 +274,7 @@ exists. The web search this was based on was wrong on both counts.
 passes 18/18 as written: the pg-integration harness creates only the tables a
 file touches, so the FK to `teams` is never created for this file.
 
-## Verification
+### Verification (PR #72 triage)
 
 - `pnpm check`: **0 errors**, 148 warnings — unchanged from `9e9c816`.
 - Dashboard node 750 passed / 8 skipped, dashboard workers 1,412 passed,
@@ -282,5 +282,63 @@ file touches, so the FK to `teams` is never created for this file.
 - Playwright project-filtering claim tested against real Playwright 1.61.1.
 - Mutation-checked: the sharded status merge and the sweep ordering both fail
   their new tests when reverted.
+
+**Not run:** the Playwright dashboard suite and the full-stack E2E harness.
+
+## 2026-07-29 — PR #72 second triage: lost parent locks
+
+Five more comments on the same PR. Four were real; the fifth is answered rather
+than changed.
+
+### Fixed
+
+**Three lost-parent-lock branches did not follow the guardrail.** AGENTS.md
+requires a failed `lockTeamForChildMutation` to map to the caller's existing
+"already gone" outcome, because a lost lock means teardown committed and no
+retry can ever succeed. Three callers still treated it as an operational error:
+
+- `createMonitor` threw `Error("team not found")`, which the create action fed
+  to `mutationErrorMessage` as "Could not create monitor — please try again."
+  It now returns `null` — the same gone signal the other scoped repo functions
+  use — and the action 404s, matching what `updateMonitor` already does for a
+  monitor that vanished.
+- `createGroup` threw the same string and surfaced "Could not save the group.
+  Please try again." It now returns `null`, mirroring the `false` its sibling
+  `updateGroup` already returns; the action falls through to its redirect and
+  the loader reports the missing team.
+- `acceptDirectedInvite`'s already-a-member cleanup discarded the lock result
+  and then returned `{ok: true}` carrying the deleted team's slug, sending the
+  user to a team that no longer exists. It now returns the existing 404.
+
+Each has a pg-integration test: a missing `teams` row is precisely what the
+key-share lock observes post-teardown, and the invite case drops the team
+between the two transactions with a `db.transaction` spy.
+
+### Answered, not changed
+
+**"Preserve or version legacy non-ASCII keyset cursors" (CodeRabbit, major).**
+The premise is right: a cursor minted before the UTF-8 change over a Latin-1
+key (`btoa("4:value:café")` wrote a bare `0xE9`) no longer decodes. The
+prescription is not. A Latin-1 fallback would still mis-read a legacy key whose
+bytes happen to be valid UTF-8 (`"Ã©"` → `"é"`), so it trades a first-page reset
+for a silently wrong page boundary; only a version tag is complete, and that is
+permanent surface area for a window that closes the next time anyone clicks
+"next page". These cursors are query params on an open paginator, and the
+malformed→null fallback the codec already documents is a first-page reset, not
+data loss. Policy recorded in the codec's doc comment and pinned by a test that
+asserts the legacy `café` cursor expires.
+
+**Duplicate `## Verification` heading (CodeRabbit, MD024).** Real; the earlier
+PR-72 section's heading is now `### Verification (PR #72 triage)`, nested under
+the dated section it belongs to.
+
+### Verification
+
+- `pnpm check`: **0 errors**, 154 warnings — byte-identical to the stashed
+  tree, so this pass adds none.
+- Dashboard node 766 passed / 8 skipped, dashboard workers 1,413 passed. The
+  pg-integration additions ran under pglite (`PG_TEST_URL` unset here).
+- Mutation-checked: all three lock branches fail their new tests when reverted
+  to the throwing / discarding form.
 
 **Not run:** the Playwright dashboard suite and the full-stack E2E harness.

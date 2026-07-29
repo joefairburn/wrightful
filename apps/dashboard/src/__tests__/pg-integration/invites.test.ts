@@ -160,6 +160,46 @@ describe("acceptDirectedInvite", () => {
     expect(await inviteExists("inv2")).toBe(false);
   });
 
+  it("already-member acceptance reports gone when teardown removes the team before the invite cleanup", async () => {
+    await seedTeam("t7", "eta");
+    await h.db.insert(memberships).values({
+      id: "m-eta",
+      userId: "u7",
+      teamId: "t7",
+      role: "member",
+      createdAt: NOW,
+    });
+    await seedInvite("inv7", "t7", "u7", FUTURE);
+
+    // Two transactions run: the membership insert (which hits the 23505 and is
+    // treated as an idempotent accept) and the cleanup that retires the now
+    // redundant invite. Drop the team between them — the cleanup's parent lock
+    // then finds nothing, meaning teardown won.
+    const realTx = h.db.transaction.bind(h.db);
+    let opened = 0;
+    vi.spyOn(h.db, "transaction").mockImplementation(((
+      cb: (tx: unknown) => Promise<unknown>,
+    ) => {
+      opened += 1;
+      if (opened === 1) return realTx(cb as never);
+      return h.db
+        .delete(teams)
+        .where(eq(teams.id, "t7"))
+        .then(() => realTx(cb as never));
+    }) as never);
+
+    const res = await acceptDirectedInvite(ctx, "u7", "inv7");
+
+    // NOT `{ok: true, teamSlug: "eta"}` — that slug now resolves to nothing, so
+    // the caller would redirect into a dead team it was told it had joined.
+    expect(res).toEqual({
+      ok: false,
+      status: 404,
+      error: "Invite not found or expired",
+    });
+    expect(opened).toBe(2);
+  });
+
   it("revoked between read and write: an invite deleted in the SELECT→write window grants NO membership (in-transaction re-check)", async () => {
     await seedTeam("t3", "gamma");
     await seedInvite("inv3", "t3", "u3", FUTURE);

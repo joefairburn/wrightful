@@ -145,8 +145,12 @@ export async function acceptDirectedInvite(
     });
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;
-    await db.transaction(async (tx) => {
-      if (!(await lockTeamForChildMutation(tx, invite.teamId))) return;
+    // Already a member, so the accept is idempotent — retire the now-redundant
+    // invite. A lost parent lock means teardown removed the team, cascading
+    // both that membership and this invite, so report the same gone outcome as
+    // a missing invite instead of a success carrying the dead team's slug.
+    const teamSurvived = await db.transaction(async (tx) => {
+      if (!(await lockTeamForChildMutation(tx, invite.teamId))) return false;
       await tx
         .delete(teamInvites)
         .where(
@@ -156,7 +160,11 @@ export async function acceptDirectedInvite(
             matchConds,
           ),
         );
+      return true;
     });
+    if (!teamSurvived) {
+      return { ok: false, status: 404, error: "Invite not found or expired" };
+    }
     return { ok: true, teamId: invite.teamId, teamSlug: invite.teamSlug };
   }
 

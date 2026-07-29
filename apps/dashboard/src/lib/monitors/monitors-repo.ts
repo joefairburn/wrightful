@@ -98,6 +98,10 @@ export class MonitorLimitExceededError extends Error {
  * `lastEnqueuedAt`/`lastRunAt`/`lastStatus` are null until the first execution.
  * The `(projectId, name)` unique index rejects a duplicate name with a Postgres
  * constraint error the caller maps to a form error.
+ *
+ * Returns null when concurrent team teardown already removed the parent — the
+ * same "gone" signal the other scoped repo functions return, distinct from the
+ * limit/duplicate errors that mean "try again differently".
  */
 export async function createMonitor(
   scope: TenantScope,
@@ -105,7 +109,7 @@ export async function createMonitor(
   createdBy: string,
   now: number,
   opts: { limit?: number } = {},
-): Promise<Monitor> {
+): Promise<Monitor | null> {
   const id = ulid();
   const row = {
     id,
@@ -135,13 +139,16 @@ export async function createMonitor(
     createdAt: now,
     updatedAt: now,
   };
-  await db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     // Team teardown takes the parent update lock before cascading projects and
     // monitors. Take the compatible child-writer lock before the project quota
     // lock so neither side can hold one row while waiting on the other.
-    if (!(await lockTeamForChildMutation(tx, scope.teamId))) {
-      throw new Error("team not found");
-    }
+    //
+    // A lost lock is not an operational failure: teardown won, so the project
+    // this monitor would belong to is gone too. Report it as the repo's
+    // "already gone" null rather than raising, so the caller 404s instead of
+    // inviting a retry that can never succeed.
+    if (!(await lockTeamForChildMutation(tx, scope.teamId))) return false;
     if (opts.limit !== undefined && Number.isFinite(opts.limit)) {
       // Every type-specific create locks the same project row before counting.
       // Concurrent differently-named inserts therefore serialize instead of
@@ -171,8 +178,9 @@ export async function createMonitor(
       }
     }
     await tx.insert(monitors).values(row);
+    return true;
   });
-  return row as Monitor;
+  return created ? (row as Monitor) : null;
 }
 
 /** All monitors in the project, newest first (matches the list page order). */

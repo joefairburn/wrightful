@@ -76,6 +76,15 @@ describe("keyset-cursor codec", () => {
     ]);
   });
 
+  it("expires a pre-UTF-8 cursor over a Latin-1 key rather than mis-reading it", () => {
+    // `btoa("4:value:café")` used to succeed, writing é as a bare 0xE9. That
+    // byte is not valid UTF-8, so such a cursor now expires to first page. This
+    // is the deliberate compatibility policy (see the codec's doc comment), not
+    // an accident: the codec is unversioned, so an in-flight legacy cursor is
+    // retired rather than guessed at.
+    expect(decodeKeyset(btoa("4:value:café"), 3)).toBeNull();
+  });
+
   it("degrades base64 that is not valid UTF-8 to null", () => {
     // A lone continuation byte. Without `fatal` this would decode to U+FFFD
     // mojibake and be compared against real group keys as if it were genuine.

@@ -29,6 +29,16 @@ function encodeUtf8Base64(text: string): string {
  * valid UTF-8 throws here and reaches the caller's malformed→null path, rather
  * than silently decoding to U+FFFD mojibake that would never match a real
  * group key.
+ *
+ * Deliberately UNVERSIONED, which expires the one class of cursor this cannot
+ * read: a pre-UTF-8 cursor over a Latin-1 key (`btoa("4:value:café")` wrote a
+ * bare 0xE9). Those decode to null and the paginator falls back to first page —
+ * the same degradation every malformed cursor already gets, and a cursor only
+ * lives as long as an open page. The alternative, a Latin-1 fallback decoder,
+ * would still mis-read a legacy key whose bytes happen to be valid UTF-8
+ * (`"Ã©"` → `"é"`), so it buys a wrong page boundary rather than a right one.
+ * A version tag is the only complete fix and is not worth carrying forever for
+ * a window that closes on the next click. Pinned by the tests.
  */
 function decodeUtf8Base64(encoded: string): string {
   const binary = atob(encoded);

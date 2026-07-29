@@ -69,6 +69,10 @@ export const actions = {
     }
     const now = Math.floor(Date.now() / 1000);
     try {
+      // A null result means team teardown won between the owner check and the
+      // insert. Fall through to the redirect so the loader reports the missing
+      // team, exactly as `saveGroup` does for a group that vanished — the flash
+      // below is for failures a retry could actually fix.
       await createGroup(team.id, name, checkedMembers(form), user.id, now);
     } catch (err) {
       return GROUPS_FLASH.fail(

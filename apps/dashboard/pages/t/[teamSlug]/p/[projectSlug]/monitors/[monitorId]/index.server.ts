@@ -321,8 +321,13 @@ export const actions = {
       const monitor = await createMonitor(scope, parsed.data, user.id, now, {
         limit: cap,
       });
+      // null = team teardown won between the tenant resolve and the insert, so
+      // this project is gone too. 404 like the detail actions do for a vanished
+      // monitor, rather than offering a retry that can never succeed.
+      if (!monitor) throw new Response("Not Found", { status: 404 });
       monitorId = monitor.id;
     } catch (err) {
+      if (err instanceof Response) throw err;
       if (err instanceof MonitorLimitExceededError) {
         const kind =
           type === "http" ? "uptime" : type === "tcp" ? "TCP" : "browser";
