@@ -1,29 +1,43 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
+import { SNAPSHOT_VISIBILITY_GUARD_CSS } from "@/trace-viewer/components/scriptless-snapshot";
 import { VENDORED_PLAYWRIGHT_VERSION } from "@/trace-viewer/vendor/version";
 
 // `playwright-core` is a direct dashboard dependency because both build scripts
 // consume its private trace-viewer assets. Resolve that declared contract
 // directly; pnpm now enforces its presence instead of us reaching through
-// @playwright/test's transitive node_modules tree.
-function installedPlaywrightCoreVersion(): string {
-  const packagePath = fileURLToPath(
-    import.meta.resolve("playwright-core/package.json"),
+// @playwright/test's transitive node_modules tree. Resolved once at module
+// scope — `scripts/vendor-trace-viewer.mjs` makes the same two assumptions
+// (package root, `lib/vite/traceViewer` layout), so keep them to one place here.
+const playwrightCorePackagePath = fileURLToPath(
+  import.meta.resolve("playwright-core/package.json"),
+);
+const traceViewerAssetDir = join(
+  dirname(playwrightCorePackagePath),
+  "lib/vite/traceViewer",
+);
+
+function readInstalledPlaywrightCoreVersion(): string {
+  const parsed: unknown = JSON.parse(
+    readFileSync(playwrightCorePackagePath, "utf8"),
   );
-  const parsed: unknown = JSON.parse(readFileSync(packagePath, "utf8"));
   if (
     typeof parsed !== "object" ||
     parsed === null ||
     !("version" in parsed) ||
     typeof parsed.version !== "string"
   ) {
-    throw new Error(`${packagePath} does not contain a string version.`);
+    throw new Error(
+      `${playwrightCorePackagePath} does not contain a string version.`,
+    );
   }
   return parsed.version;
 }
+
+const installedPlaywrightCoreVersion = readInstalledPlaywrightCoreVersion();
 
 // Dashboard package root (this file lives at src/__tests__/). Under vitest's
 // module runner `import.meta.url` is a plain filesystem path, not a `file:`
@@ -35,7 +49,7 @@ const packageRoot = join(testFilePath, "..", "..", "..");
 
 describe("trace-viewer vendored source", () => {
   it("matches the installed playwright-core version", () => {
-    const installed = installedPlaywrightCoreVersion();
+    const installed = installedPlaywrightCoreVersion;
     expect(
       installed,
       `playwright-core was bumped to ${installed} but src/trace-viewer/vendor/ ` +
@@ -77,5 +91,40 @@ describe("trace-viewer vendored source", () => {
           `rewrites the file AND refreshes the manifest).`,
       ).toBe(expected);
     }
+  });
+
+  // Drift canary for the script-less snapshot pane. `prepareScriptlessSnapshot`
+  // lifts the guard by matching the document's FIRST `<style>` against
+  // SNAPSHOT_VISIBILITY_GUARD_CSS, so it needs two things from Playwright that
+  // nothing else in the suite would notice losing: the exact text, and the
+  // leading position. Assert the position too — a bump that kept the literal
+  // but emitted anything ahead of it (a theme sheet, a `<link>`) would leave a
+  // text-only check green while every same-origin replay went back to blank.
+  it("still emits the snapshot visibility guard first, as the script-less pane assumes", () => {
+    const swBundlePath = join(traceViewerAssetDir, "sw.bundle.js");
+    // Read explicitly rather than inside `expect(...)`: an ENOENT thrown while
+    // building the assertion would replace the remediation message below with a
+    // bare stack trace, in exactly the upgrade this canary exists to explain.
+    expect(
+      existsSync(swBundlePath),
+      `no sw.bundle.js at ${swBundlePath}. Playwright's asset layout changed ` +
+        `in v${installedPlaywrightCoreVersion} — update traceViewerAssetDir ` +
+        `here and the matching path in scripts/vendor-trace-viewer.mjs.`,
+    ).toBe(true);
+
+    const guardStyle = `<style>${SNAPSHOT_VISIBILITY_GUARD_CSS}</style>`;
+    expect(
+      readFileSync(swBundlePath, "utf8"),
+      `playwright-core v${installedPlaywrightCoreVersion} no longer opens its ` +
+        `rendered snapshots with ${guardStyle}. Same-origin snapshot iframes ` +
+        `run without \`allow-scripts\`, so ` +
+        `src/trace-viewer/components/scriptless-snapshot.ts is what makes ` +
+        `their DOM visible — re-derive SNAPSHOT_VISIBILITY_GUARD_CSS from ` +
+        `this version's snapshot renderer (and check it is still emitted ` +
+        `first), or replay renders a blank pane.`,
+      // The renderer builds each snapshot as `[guard, bootstrap].join("")`
+      // appended to the doctype, so the guard leading that array literal is
+      // what puts it first in the parsed document.
+    ).toContain(`["${guardStyle}",`);
   });
 });

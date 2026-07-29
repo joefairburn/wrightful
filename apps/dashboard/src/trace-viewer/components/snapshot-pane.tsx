@@ -20,6 +20,7 @@ import {
   snapshotPopoutUrl,
   snapshotViewport,
 } from "../model";
+import { snapshotScriptsEnabled } from "../origin";
 import { useBridgeFetch } from "../use-bridge-fetch";
 import type { TraceBridge } from "../use-trace-model";
 import type { ActionTraceEventInContext } from "../vendor/model-util";
@@ -82,16 +83,28 @@ export function SnapshotPane({
 
   const info = useSnapshotInfo(bridge, activeSnapshot);
 
+  // The popout renders the snapshot through Playwright's vendored
+  // `snapshot.html`, whose iframe hardcodes
+  // `sandbox="allow-same-origin allow-scripts"`. We cannot drop `allow-scripts`
+  // there the way `snapshotSandbox` does for the embedded pane, and the snapshot
+  // document carries no CSP of ours either — the service worker synthesizes it
+  // locally, so `/trace-viewer/snapshot/*` never reaches our middleware. On the
+  // same-origin default that would execute attacker-craftable snapshot HTML
+  // against the session cookies: exactly the stored-XSS path the isolation model
+  // exists to close. So the control only exists where snapshot scripts are
+  // already safe by construction.
+  const popoutOffered = snapshotScriptsEnabled();
+
   // Absolute URL of the currently rendered snapshot iframe, resolved against
   // the page origin for the popout shell. `window` is safe here: this pane
   // only ever mounts after the bridge posts a model, which requires a
   // client-side effect — it never server-renders.
   const popoutHref = useMemo(() => {
-    if (!activeSnapshot) return undefined;
+    if (!activeSnapshot || !popoutOffered) return undefined;
     const relativeUrl = snapshotIframeUrl(traceUrl, activeSnapshot);
     const absoluteUrl = new URL(relativeUrl, window.location.origin).href;
     return snapshotPopoutUrl(traceUrl, absoluteUrl);
-  }, [traceUrl, activeSnapshot]);
+  }, [traceUrl, activeSnapshot, popoutOffered]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -127,33 +140,46 @@ export function SnapshotPane({
         </TabBar>
         <div className="mb-1 flex shrink-0 items-center gap-1">
           <PlaybackControls playback={playback} />
-          <div className="mx-0.5 h-5 w-px shrink-0 bg-line-1" aria-hidden />
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  // No rendered snapshot to open → disabled (rather than
-                  // hidden) so the control's slot stays put across
-                  // action/tab switches. The `render` prop swaps the
-                  // underlying element to an anchor once a href exists —
-                  // one Button, two arms.
-                  disabled={!popoutHref}
-                  aria-label="Open snapshot in a new tab"
-                  size="icon-xs"
-                  variant="ghost"
-                  className="text-fg-4 hover:bg-bg-2 hover:text-fg-2"
+          {/* The popout is absent, not disabled, in same-origin mode: unlike
+           * "no snapshot on this action" it can never become available within a
+           * session (the viewer origin is baked in at build time), so a
+           * permanently dead control promising a tab that never opens is worse
+           * than a narrower toolbar. */}
+          {popoutOffered ? (
+            <>
+              <div className="mx-0.5 h-5 w-px shrink-0 bg-line-1" aria-hidden />
+              <Tooltip>
+                <TooltipTrigger
                   render={
-                    popoutHref ? (
-                      <a href={popoutHref} target="_blank" rel="noreferrer" />
-                    ) : undefined
+                    <Button
+                      // No rendered snapshot to open → disabled (rather than
+                      // hidden) so the control's slot stays put across
+                      // action/tab switches. The `render` prop swaps the
+                      // underlying element to an anchor once a href exists —
+                      // one Button, two arms.
+                      disabled={!popoutHref}
+                      aria-label="Open snapshot in a new tab"
+                      size="icon-xs"
+                      variant="ghost"
+                      className="text-fg-4 hover:bg-bg-2 hover:text-fg-2"
+                      render={
+                        popoutHref ? (
+                          <a
+                            href={popoutHref}
+                            target="_blank"
+                            rel="noreferrer"
+                          />
+                        ) : undefined
+                      }
+                    >
+                      <ExternalLink className="size-3.5" />
+                    </Button>
                   }
-                >
-                  <ExternalLink className="size-3.5" />
-                </Button>
-              }
-            />
-            <TooltipPopup>Open snapshot in a new tab</TooltipPopup>
-          </Tooltip>
+                />
+                <TooltipPopup>Open snapshot in a new tab</TooltipPopup>
+              </Tooltip>
+            </>
+          ) : null}
         </div>
       </div>
       <SnapshotUrlBar url={info?.url} />

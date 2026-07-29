@@ -66,6 +66,43 @@ for (const f of REQUIRED) {
   }
 }
 
+// Beyond "the files exist": the snapshot pane depends on a specific STRING
+// inside sw.bundle.js. Playwright renders every snapshot behind a
+// `visibility: hidden` guard stylesheet that its inline bootstrap lifts on
+// load, but same-origin snapshot iframes run without `allow-scripts` (uploaded
+// trace bytes are attacker-craftable), so the bootstrap is blocked and
+// `prepareScriptlessSnapshot` lifts the guard from the parent by exact text. A
+// Playwright bump that rewords it breaks that match and blanks every replay
+// with nothing else failing — and `deploy:cf` runs this script but NOT the test
+// suite, so checking it only in vitest would still let a self-hoster ship the
+// blank pane. Read the expected text out of the module that consumes it, so
+// there is exactly one copy of the literal.
+const GUARD_MODULE = at("src/trace-viewer/components/scriptless-snapshot.ts");
+const guardMatch =
+  /^export const SNAPSHOT_VISIBILITY_GUARD_CSS =\s*"((?:[^"\\]|\\.)*)";$/m.exec(
+    existsSync(GUARD_MODULE) ? readFileSync(GUARD_MODULE, "utf8") : "",
+  );
+if (!guardMatch) {
+  fail(
+    `could not read SNAPSHOT_VISIBILITY_GUARD_CSS from ${GUARD_MODULE}. If that export moved or changed shape, update this check — it is what keeps a Playwright bump from silently blanking the replay pane.`,
+  );
+}
+// The renderer builds each snapshot as `[guard, bootstrap].join("")`, so the
+// guard leading that array literal is what puts it first in the parsed
+// document — which is the position `prepareScriptlessSnapshot` relies on.
+const guardStyle = `<style>${guardMatch[1]}</style>`;
+if (
+  !readFileSync(`${src}/sw.bundle.js`, "utf8").includes(`["${guardStyle}",`)
+) {
+  fail(
+    `playwright-core v${version} no longer opens its rendered snapshots with ${guardStyle}.\n` +
+      `  Same-origin snapshot iframes run without \`allow-scripts\`, so\n` +
+      `  src/trace-viewer/components/scriptless-snapshot.ts is what makes their DOM visible.\n` +
+      `  Re-derive SNAPSHOT_VISIBILITY_GUARD_CSS from this version's snapshot renderer\n` +
+      `  (and check it is still emitted first), or replay renders a blank pane.`,
+  );
+}
+
 // Our custom viewer's SW bridge (see src/trace-viewer/bridge.html) must live
 // INSIDE the /trace-viewer/ service-worker scope, i.e. inside this generated
 // dir — so it's copied here on every run (cheap, and unlike the playwright

@@ -128,11 +128,39 @@ test.describe("Test Replay (embedded trace viewer)", () => {
 
     // …and the DOM snapshot iframes are served by the SW from the trace
     // (up to three stacked, one per Before/Action/After — see snapshot-pane).
-    await expect(
-      dialog.locator('iframe[title^="DOM snapshot"]').first(),
-    ).toHaveAttribute("src", /\/trace-viewer\/snapshot\/.+\?.*trace=/, {
-      timeout: 30_000,
-    });
+    const snapshotFrame = dialog
+      .locator('iframe[title^="DOM snapshot"]')
+      .first();
+    await expect(snapshotFrame).toHaveAttribute(
+      "src",
+      /\/trace-viewer\/snapshot\/.+\?.*trace=/,
+      { timeout: 30_000 },
+    );
+
+    // A correct `src` is NOT enough. Playwright renders every snapshot behind a
+    // `visibility: hidden` guard stylesheet that its inline bootstrap lifts on
+    // load — and same-origin snapshot iframes deliberately run without
+    // `allow-scripts`, so that bootstrap is blocked and
+    // `prepareScriptlessSnapshot` has to lift the guard from the parent
+    // instead. When that path breaks the pane renders fully blank while the
+    // `src` assertion above stays green: exactly how the blank-pane regression
+    // shipped. Assert what the user actually sees.
+    const snapshotBody = snapshotFrame.contentFrame().locator("body");
+    await expect(snapshotBody).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(
+        () =>
+          snapshotBody.evaluate(
+            (body) => getComputedStyle(body).visibility === "visible",
+          ),
+        {
+          timeout: 30_000,
+          message:
+            "snapshot body is still `visibility: hidden` — Playwright's guard " +
+            "stylesheet was never lifted, so replay renders a blank pane",
+        },
+      )
+      .toBe(true);
 
     // Parity-pass chrome renders alongside the workbench: the action search
     // box, the Call detail tab, and the timeline strip above the panes.
