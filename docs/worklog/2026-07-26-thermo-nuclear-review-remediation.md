@@ -342,3 +342,101 @@ the dated section it belongs to.
   to the throwing / discarding form.
 
 **Not run:** the Playwright dashboard suite and the full-stack E2E harness.
+
+## 2026-07-30 — PR #72 third triage: the artifact write transaction
+
+An independent re-audit of the branch's own lock guardrail. Three fixes plus
+the missing release metadata.
+
+### The guardrail did not hold for `artifacts`
+
+`AGENTS.md` names `artifacts` in the parent-first list, but only the PRESIGN
+transaction in `registerArtifacts` took `lockTeamForChildMutation`. The write
+transaction — inserts/updates on `artifacts`, then the `usageCounters` upsert —
+took no parent lock at all.
+
+That is a real 40P01, and the reason it is easy to miss is that neither lock in
+the cycle is written down. Both are IMPLICIT FK locks:
+
+- `INSERT artifacts` fires `artifacts_projectId_projects_id_fk` → `FOR KEY
+SHARE` on the **project** row.
+- `INSERT usageCounters` fires `usageCounters_teamId_teams_id_fk` → `FOR KEY
+SHARE` on the **team** row.
+
+So the transaction acquired project-then-team, the exact inverse of teardown,
+which holds `teams FOR UPDATE` and cascades down through `projects`. Comparing
+the two CHILD tables' cascade order — the obvious way to check — says there is
+no cycle, and is the wrong frame; the parents are what deadlock.
+
+The window is narrow: `ON CONFLICT DO UPDATE` does not re-fire the team FK, so
+it opens on a team's first metered artifact write of a UTC month. Narrow enough
+to survive testing indefinitely, which is the point.
+
+Fixed by opening the write transaction with `lockTeamForChildMutation`, mapping
+a lost lock to the `runNotFound` the presign path already returns.
+
+Two regressions, because the two failure modes are distinct:
+
+- `artifacts-pipeline.test.ts` covers the GUARD (lost lock → no write, no
+  signing). Its FIFO deliberately lets everything downstream succeed, so
+  `signPut` never being called is what isolates it — an earlier draft passed
+  under mutation because the project guard masked it.
+- `artifact-presign-teardown.test.ts` covers the ORDERING against real
+  Postgres. `resetTables` omits FKs and indexes, so this case recreates the two
+  FK constraints that form the cycle — without them the pre-fix code passes and
+  the test proves nothing. Mutation-checked: deleting the lock line makes the
+  writer hold the project row while parked on `teams`, and the blocker's
+  `for update nowait` on `projects` raises 55P03.
+
+### `readArtifact` trusted a second evaluator over R2
+
+`read.ts` asks R2 to apply preconditions via `onlyIf`, then re-derives the
+reason in JS so a bodyless reply can be reported as 304 vs 412. When those
+disagreed — no body, but the re-derivation says "body" — the outcome was
+`"body"`, which serves `Response(null, 200)` still carrying the object's
+`content-length`. A malformed 200 where the pre-split code unconditionally
+returned 304.
+
+Now a disagreement falls back to `not-modified`. No trigger was constructible
+(both implementations key on `uploaded` and follow RFC 9110 order), so this is
+a latent hazard, not a live bug — but the safe default is the total one.
+
+`readArtifact` had no unit coverage at all; the new
+`artifact-read-adapter.workers.test.ts` mocks `void/storage` and pins six
+cases, including that the fallback does NOT bleed into the HEAD path (a plain
+HEAD is a 200).
+
+### `leaveTeamGuarded` reported a lost lock as "last owner"
+
+A lost parent lock mapped to `{reason: "lastOwner"}`, on the argument that the
+zero-row delete would have returned the same value. True of the return value,
+but the caller renders it as **"You're the last owner — delete the team
+instead"** — false, and an instruction to do something impossible for a team
+that no longer exists. `LeaveTeamResult` now has a `gone` arm and the action
+redirects to `/` without the audit write (the team's `auditLog` cascaded too).
+
+### Release metadata
+
+The reporter's user-visible changes shipped with no changeset, so merging would
+have left npm on `0.2.1`. Added one at **minor** (`0.3.0`): pre-1.0 that is the
+breaking tier, and `^0.2.1` cannot cross it, so no consumer is silently
+auto-upgraded into the new idempotency contract.
+
+**Still open — needs a product decision, not a patch.** A `0.2.x` reporter
+derives its key from `GITHUB_RUN_ID`, which is stable across reruns, so once
+the dashboard ships the 409 every rerun on an old reporter is refused and
+reports nothing (the reporter warns and disables streaming; the CI job stays
+green). Nothing gates the 409 on `reporterVersion` — it is stored but never
+read. Either gate it, or accept it and communicate the upgrade ordering.
+
+### Verification
+
+- `pnpm check`: **0 errors**, 154 warnings — unchanged.
+- Against real Postgres 17 (`PG_TEST_URL` set, so pg-integration ran rather
+  than skipped): dashboard node 773 passed / 4 skipped, dashboard workers 1,419
+  passed, reporter 326 passed.
+- Mutation-checked: the write-tx guard (unit), the write-tx lock ordering
+  (Postgres, 55P03), and the `readArtifact` 304 fallback each fail their test
+  when reverted.
+
+**Not run:** the Playwright dashboard suite and the full-stack E2E harness.

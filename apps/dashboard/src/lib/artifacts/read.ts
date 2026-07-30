@@ -184,10 +184,21 @@ export async function readArtifact(
   });
   if (!object) return null;
   const body = "body" in object ? object.body : null;
-  const outcome =
-    body === null
-      ? artifactConditionalOutcome(reqHeaders, object.httpEtag, object.uploaded)
-      : "body";
+  let outcome: ArtifactRead["outcome"] = "body";
+  if (body === null) {
+    // R2 withheld the body, so this is a 304 or a 412 and we re-derive which.
+    // R2 owns that decision; this is a second, independent implementation of
+    // the same rules, so treat a DISAGREEMENT as 304 rather than trusting it.
+    // "body" here would mean serving `Response(null, 200)` still carrying the
+    // object's content-length — a malformed response — where 304 is what this
+    // branch returned unconditionally before the outcomes were split apart.
+    const derived = artifactConditionalOutcome(
+      reqHeaders,
+      object.httpEtag,
+      object.uploaded,
+    );
+    outcome = derived === "body" ? "not-modified" : derived;
+  }
   return mapR2ObjectToRead(
     object,
     reqHeaders.get("range") !== null,

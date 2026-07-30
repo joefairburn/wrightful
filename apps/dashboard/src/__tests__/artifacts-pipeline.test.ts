@@ -617,7 +617,8 @@ describe("registerArtifacts", () => {
   it("refreshes a reused row's size/type on a re-run (fresh trace bytes accepted)", async () => {
     // [0] ownerRun found; [1] testResults validation → tr-1 valid;
     // [2] existing-artifacts SELECT → identity match at the OLD size;
-    // [3] usage-quota SELECT (net-positive delta → a quota check runs).
+    // [3] usage-quota SELECT (net-positive delta → a quota check runs);
+    // [4] the write transaction's parent lock.
     awaitResults = [
       [{ id: "run-1" }],
       [{ id: "tr-1" }],
@@ -642,6 +643,7 @@ describe("registerArtifacts", () => {
           artifactBytes: 0,
         },
       ],
+      [{ id: "team-1" }], // write-tx lockTeamForChildMutation
     ];
     const payload: RegisterArtifactsPayload = {
       runId: "run-1",
@@ -666,12 +668,14 @@ describe("registerArtifacts", () => {
 
   it("inserts a fresh row with a tenant-prefixed key and returns its upload", async () => {
     // [0] ownerRun found; [1] testResults validation → tr-1 valid;
-    // [2] existing-artifacts SELECT → none; [3] usage-quota SELECT → free, unused.
+    // [2] existing-artifacts SELECT → none; [3] usage-quota SELECT → free,
+    // unused; [4] the write transaction's parent lock.
     awaitResults = [
       [{ id: "run-1" }],
       [{ id: "tr-1" }],
       [],
       [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [{ id: "team-1" }], // write-tx lockTeamForChildMutation
     ];
     const payload: RegisterArtifactsPayload = {
       runId: "run-1",
@@ -698,6 +702,7 @@ describe("registerArtifacts", () => {
       [{ id: "tr-1" }],
       [],
       [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [{ id: "team-1" }], // write-tx lockTeamForChildMutation
       [], // artifacts INSERT
       [{ id: "team-1" }], // lockTeamForChildMutation
       [{ id: "proj-1" }], // live-project revalidation
@@ -801,6 +806,7 @@ describe("registerArtifacts", () => {
       [{ id: "tr-1" }],
       [],
       [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [{ id: "team-1" }], // write-tx lockTeamForChildMutation
       [], // artifacts INSERT
       [{ id: "team-1" }], // lockTeamForChildMutation
       [{ id: "proj-1" }], // live-project revalidation
@@ -837,6 +843,7 @@ describe("registerArtifacts", () => {
       [{ id: "tr-1" }],
       [],
       [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [{ id: "team-1" }], // write-tx lockTeamForChildMutation
       [], // artifacts INSERT
       [], // lockTeamForChildMutation → team gone
       // A LIVE project deliberately follows. The team guard must short-circuit
@@ -863,9 +870,43 @@ describe("registerArtifacts", () => {
       [{ id: "tr-1" }],
       [],
       [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [{ id: "team-1" }], // write-tx lockTeamForChildMutation
       [], // artifacts INSERT
       [{ id: "team-1" }], // team lock held
       [], // live-project revalidation → project gone
+    ];
+    const signPut = vi.fn(async () => "https://r2/url");
+    const result = await registerArtifacts(
+      scope,
+      { runId: "run-1", artifacts: [artifact()] },
+      MAX_BYTES,
+      NOW,
+      signPut,
+    );
+    expect(result).toEqual({ kind: "runNotFound" });
+    expect(signPut).not.toHaveBeenCalled();
+  });
+
+  // The WRITE transaction's parent lock, which is a separate guard from the two
+  // above: it runs on the worker-proxied path too (no signer), and it is what
+  // keeps this transaction's two implicit FK locks — the project row via
+  // `artifacts`, the team row via `usageCounters` — in teardown's order. Losing
+  // it must abandon the write rather than insert children under a team that
+  // teardown has already committed to deleting.
+  it("returns runNotFound WITHOUT writing when the write-tx parent lock is lost", async () => {
+    awaitResults = [
+      [{ id: "run-1" }],
+      [{ id: "tr-1" }],
+      [],
+      [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [], // write-tx lockTeamForChildMutation → team gone
+      // Everything downstream deliberately succeeds: an INSERT, then BOTH
+      // `finalizeUploads` locks live. Without the write-tx guard the flow runs
+      // to completion and mints a URL, so `signPut` not being called is what
+      // isolates this guard instead of letting the project guard mask it.
+      [], // artifacts INSERT
+      [{ id: "team-1" }], // finalizeUploads team lock
+      [{ id: "proj-1" }], // live-project revalidation
     ];
     const signPut = vi.fn(async () => "https://r2/url");
     const result = await registerArtifacts(
@@ -885,6 +926,7 @@ describe("registerArtifacts", () => {
       [{ id: "tr-1" }],
       [],
       [{ tier: "free", runsCount: 0, artifactBytes: 0 }],
+      [{ id: "team-1" }], // write-tx lockTeamForChildMutation
     ];
     const payload: RegisterArtifactsPayload = {
       runId: "run-1",

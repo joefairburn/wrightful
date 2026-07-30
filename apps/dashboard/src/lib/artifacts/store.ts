@@ -527,7 +527,20 @@ export async function registerArtifacts(
     }
 
     try {
-      await db.transaction(async (tx) => {
+      // Parent-before-child (AGENTS.md). This transaction writes two
+      // team-owned children whose FKs take IMPLICIT key-share locks on
+      // different parents: `artifacts` locks the project row
+      // (artifacts_projectId_projects_id_fk) and `usageCounters` locks the
+      // team row (usageCounters_teamId_teams_id_fk) on the period's first
+      // insert. Unlocked, that pair is acquired project-then-team, the exact
+      // inverse of teardown — which holds `teams FOR UPDATE` and cascades down
+      // through `projects` — so the two deadlock (40P01). The window is
+      // narrow (an ON CONFLICT update does not re-fire the team FK, so it
+      // opens on a team's first metered artifact write of a UTC month) which
+      // is precisely why it would survive testing. Taking the parent first
+      // collapses both implicit locks into the one global order.
+      const teamGone = await db.transaction(async (tx) => {
+        if (!(await lockTeamForChildMutation(tx, scope.teamId))) return true;
         for (const chunk of chunkInsertRows(rowsToInsert)) {
           await tx.insert(artifacts).values(chunk);
         }
@@ -559,7 +572,12 @@ export async function registerArtifacts(
           );
           if (bump) await bump;
         }
+        return false;
       });
+      // A lost parent lock means teardown committed, so the run these
+      // artifacts belong to is gone too — the same outcome `finalizeUploads`
+      // already reports for the presign path.
+      if (teamGone) return { kind: "runNotFound" };
       const finalized = await finalizeUploads(uploads);
       return finalized
         ? { kind: "ok", uploads: finalized }

@@ -330,11 +330,12 @@ describe("lockTeamForChildMutation — parent-before-child order", () => {
 
   it("leaveTeamGuarded short-circuits when teardown already removed the team", async () => {
     resultQueue = [[]];
-    // No `noop` arm on this result type, and none is needed: the actor's row
-    // cascaded with the team, so the delete would have matched zero rows and
-    // reported `lastOwner` anyway.
+    // Reported as `gone`, NOT `lastOwner`. The zero-row delete would produce
+    // the same shape, but the caller renders `lastOwner` as "you're the last
+    // owner — delete the team instead" — false, and an instruction to do
+    // something impossible for a team that no longer exists.
     const result = await leaveTeamGuarded("team_1", "user_2");
-    expect(result).toEqual({ ok: false, reason: "lastOwner" });
+    expect(result).toEqual({ ok: false, reason: "gone" });
     expect(calls).toHaveLength(1);
   });
 });

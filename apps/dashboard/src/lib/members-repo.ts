@@ -237,7 +237,9 @@ export async function removeMemberGuarded(
 }
 
 /** Outcome of the self-leave guarded delete — narrower than {@link GuardedWriteResult}. */
-export type LeaveTeamResult = { ok: true } | { ok: false; reason: "lastOwner" };
+export type LeaveTeamResult =
+  | { ok: true }
+  | { ok: false; reason: "lastOwner" | "gone" };
 
 /**
  * Remove the actor's OWN membership from `teamId`, guarded so the last owner
@@ -254,13 +256,14 @@ export async function leaveTeamGuarded(
   userId: string,
 ): Promise<LeaveTeamResult> {
   return db.transaction(async (tx) => {
-    // Parent-before-child (see module doc). This result type has no `noop` arm,
-    // but it does not need one: if teardown removed the team, the actor's row
-    // cascaded with it and the delete below would have matched zero rows and
-    // returned `lastOwner` anyway. Mapping the lost lock to the same outcome
-    // keeps the observable behaviour identical.
+    // Parent-before-child (see module doc). A lost lock means teardown removed
+    // the team, so this needs its OWN arm rather than folding into `lastOwner`:
+    // the zero-row delete would return the same value, but the caller renders
+    // that as "you're the last owner — delete the team instead", which is both
+    // false and an instruction to do something impossible for a team that no
+    // longer exists.
     if (!(await lockTeamForChildMutation(tx, teamId))) {
-      return { ok: false, reason: "lastOwner" };
+      return { ok: false, reason: "gone" };
     }
 
     await lockOwnerRows(tx, teamId);
