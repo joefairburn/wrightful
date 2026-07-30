@@ -39,8 +39,8 @@
     "provenance": true
   },
   "scripts": {
-    "build": "vp pack",
-    "dev": "vp pack --watch",
+    "build": "vp pack --tsconfig tsconfig.build.json",
+    "dev": "vp pack --tsconfig tsconfig.build.json --watch",
     "test": "vp test run",
     "test:watch": "vp test",
     "test:coverage": "vp test run --coverage",
