@@ -422,12 +422,29 @@ have left npm on `0.2.1`. Added one at **minor** (`0.3.0`): pre-1.0 that is the
 breaking tier, and `^0.2.1` cannot cross it, so no consumer is silently
 auto-upgraded into the new idempotency contract.
 
-**Still open — needs a product decision, not a patch.** A `0.2.x` reporter
-derives its key from `GITHUB_RUN_ID`, which is stable across reruns, so once
-the dashboard ships the 409 every rerun on an old reporter is refused and
-reports nothing (the reporter warns and disables streaming; the CI job stays
-green). Nothing gates the 409 on `reporterVersion` — it is stored but never
-read. Either gate it, or accept it and communicate the upgrade ordering.
+**Decided: accept the skew, do NOT gate the 409 on `reporterVersion`.** A
+`0.2.x` reporter keys off `GITHUB_RUN_ID`, which is stable across reruns, so in
+principle every rerun on an old reporter is refused and reports nothing (the
+reporter warns and disables streaming; the CI job stays green). That window is
+currently empty and cheap to keep empty:
+
+- There are no external consumers yet, and this repo's own suites take the
+  reporter as `workspace:*`, so the dogfood stream always moves in lockstep with
+  the dashboard. There is no version to skew against.
+- No workflow here shards (`--shard` appears nowhere), which makes the
+  fail-closed native-shard rerun gate and the late-shard-past-`interrupted`
+  case both unreachable.
+- No step-level retry action, so the one non-sharded path that would still 409
+  under the NEW reporter does not occur either. A plain "Re-run all jobs"
+  increments `GITHUB_RUN_ATTEMPT` into a fresh key and works.
+
+The changeset is the safety net that makes this the cheap option rather than a
+gamble: at **minor**, `^0.2.1` cannot resolve into `0.3.0`, so a future consumer
+cannot be auto-upgraded into the new contract — they opt in and read the note.
+
+Revisit if the reporter gains consumers on a pinned `0.2.x` **or** if any
+workflow adopts native sharding. Gating on `reporterVersion` stays the fallback;
+the field is already persisted, just never read.
 
 ### Verification
 
