@@ -123,9 +123,10 @@ const TestResultSchema = z.object({
   errorMessage: truncatedText(MAX.MESSAGE),
   errorStack: truncatedText(MAX.STACK),
   workerIndex: z.number().int().min(0).optional(),
-  // 1-based Playwright shard that ran this test; null on a non-sharded run.
-  // Lets the run-detail Tests tab group rows by shard. `.optional()` keeps
-  // pre-shard-aware reporters (which omit it) parsing clean.
+  // 1-based shard that ran this test (`--shard` or the reporter's env-declared
+  // coordinates); null on a non-sharded run. Lets the run-detail Tests tab
+  // group rows by shard. `.optional()` keeps pre-shard-aware reporters (which
+  // omit it) parsing clean.
   shardIndex: z.number().int().min(1).nullable().optional(),
   tags: z.array(z.string().min(1).max(MAX.TAG)).max(MAX_TAGS).default([]),
   annotations: z
@@ -189,7 +190,9 @@ const RunMetaCommon = {
 const BackdateSeconds = z.number().int().min(0).optional();
 
 /**
- * Playwright shard coordinates (`config.shard`), sent on `/api/runs` (open) and
+ * Shard coordinates — Playwright's `config.shard`, or the reporter's
+ * env-declared `WRIGHTFUL_SHARD_INDEX`/`_TOTAL` for a matrix that slices the
+ * suite itself — sent on `/api/runs` (open) and
  * `/api/runs/:id/complete`. Present only for a sharded suite — all shards share
  * one `idempotencyKey` (so they land on one run), and `total` is the count of
  * shards the run must wait for before it may finalize. `index` (1-based) is the

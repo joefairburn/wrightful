@@ -56,9 +56,10 @@ export interface RunMeta {
   origin?: "ci" | "synthetic";
   monitorId?: string | null;
   /**
-   * Playwright shard coordinates for a sharded suite. When set, rides at the
-   * TOP LEVEL of the open payload (mirrors the reporter), so the dashboard
-   * records `expectedShards` and defers finalize. Omitted → non-sharded.
+   * Shard coordinates for a sharded suite (`--shard` or env-declared). When
+   * set, rides at the TOP LEVEL of the open payload (mirrors the reporter), so
+   * the dashboard records `expectedShards` and defers finalize. Omitted →
+   * non-sharded.
    */
   shard?: ShardInfo;
 }

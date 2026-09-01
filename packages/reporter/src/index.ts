@@ -27,6 +27,7 @@ import {
   detectCI,
   generateIdempotencyKey,
   resolveCIExecutionPolicy,
+  resolveShardIdentity,
   type CIInfo,
 } from "./ci.js";
 import { AuthError, StreamClient } from "./client.js";
@@ -228,10 +229,12 @@ export default class WrightfulReporter implements Reporter {
   private ci: CIInfo | null = null;
   private projectNames: string[] = [];
   /**
-   * Playwright shard coordinates (`config.shard`) for a sharded run, else null.
-   * Captured at `onBegin`, sent on the open payload AND the final `/complete` so
-   * the dashboard keeps the run at status='running' until every shard has
-   * reported (rather than finalizing on the first shard's /complete).
+   * Shard coordinates for a sharded run — Playwright's `config.shard`, or the
+   * env-declared equivalent for a self-slicing CI matrix — else null. Captured
+   * at `onBegin`, sent on the open payload AND the final `/complete` so the
+   * dashboard keeps the run at status='running' until every shard has reported
+   * (rather than finalizing on the first shard's /complete), and stamped on
+   * every test row so the dashboard can group results by shard.
    */
   private shard: ShardInfo | null = null;
   private batcher: Batcher<EnqueuedTest> | null = null;
@@ -290,13 +293,12 @@ export default class WrightfulReporter implements Reporter {
     // this shard. A shard or grep can contain no tests (or only one project's
     // slice), but every shard still needs the complete selected project set.
     this.projectNames = selectedProjectNames(config);
-    // Playwright sets `config.shard` only under `--shard`; remap its
-    // `{ current, total }` to the wire's `{ index, total }`. Null for a
-    // non-sharded run, which keeps the open/complete payloads at their legacy
-    // shape and the dashboard on the finalize-on-first-complete path.
-    this.shard = config.shard
-      ? { index: config.shard.current, total: config.shard.total }
-      : null;
+    // `--shard`, or the env declaration a self-slicing matrix supplies in its
+    // place (see `resolveShardIdentity`). Null for a genuinely single run,
+    // which keeps the open/complete payloads at their legacy shape and the
+    // dashboard on the finalize-on-first-complete path.
+    const shardIdentity = resolveShardIdentity(config.shard);
+    this.shard = shardIdentity.shard;
 
     const baseUrl = this.baseUrl;
     const token = this.token;
@@ -305,10 +307,15 @@ export default class WrightfulReporter implements Reporter {
       return;
     }
 
+    // Below the streaming guard, like every other diagnostic in onBegin: a
+    // reporter with no URL/token is a no-op, and a stale WRIGHTFUL_SHARD_*
+    // in a local shell shouldn't lecture it about dashboard finalization.
+    if (shardIdentity.warning) warn(shardIdentity.warning);
+
     const ci = detectCI();
     this.ci = ci;
     const executionPolicy = resolveCIExecutionPolicy(ci, {
-      nativeSharded: this.shard !== null,
+      shardSource: shardIdentity.source,
       hasExplicitIdempotencyKey: Boolean(process.env.WRIGHTFUL_IDEMPOTENCY_KEY),
     });
     if (executionPolicy.status === "blocked") {
@@ -847,10 +854,14 @@ export default class WrightfulReporter implements Reporter {
     runStatus: "passed" | "failed" | "timedout" | "interrupted",
     durationMs: number,
   ): Promise<void> {
-    if (this.shard) {
+    // total > 1: the dashboard only defers finalization when expectedShards
+    // exceeds one, so a 1-of-1 declaration is an ordinary single run — there
+    // is no aggregate comment to defer to, and skipping here would silently
+    // turn PR comments off (e.g. a matrix filtered down to one leg).
+    if (this.shard && this.shard.total > 1) {
       if (this.options.postPrComment) {
         warn(
-          "PR comment skipped for a native shard; enable the Wrightful GitHub App for aggregate sharded-run comments.",
+          "PR comment skipped for a shard of a merged run; enable the Wrightful GitHub App for aggregate sharded-run comments.",
         );
       }
       return;

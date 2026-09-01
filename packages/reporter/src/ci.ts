@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
+import type { ShardInfo } from "./types.js";
 
 // CI environment detection. Reads standard env vars on GitHub Actions,
 // GitLab CI, and CircleCI; falls back to a `CI=true` generic case. Commit
@@ -273,7 +274,11 @@ export interface IdempotencyDiscriminators {
   /**
    * Selected Playwright projects. GitHub's GITHUB_JOB is the matrix job id,
    * not its expanded display name, so project matrices otherwise collapse
-   * into one run. Every native shard of one suite must receive the same set.
+   * into one run. Every `--shard` slice of one suite must receive the same
+   * set. Env-declared shards (one `--project` per leg) deliberately do NOT:
+   * their per-leg sets diverge the derived key, which is why merging them
+   * requires an explicit shared WRIGHTFUL_IDEMPOTENCY_KEY (see
+   * ENV_SHARDS_WITHOUT_KEY_WARNING).
    */
   projectNames?: ReadonlyArray<string | null>;
   /** Explicit discriminator for matrix axes Playwright cannot observe. */
@@ -281,8 +286,12 @@ export interface IdempotencyDiscriminators {
 }
 
 export interface CIExecutionContext {
-  /** Whether Playwright is running one slice of a native sharded suite. */
-  nativeSharded: boolean;
+  /**
+   * How this process learned it is one shard of a larger suite: Playwright's
+   * `--shard` ("cli"), a `WRIGHTFUL_SHARD_INDEX`/`_TOTAL` declaration ("env"),
+   * or not at all ("none"). See `resolveShardIdentity`.
+   */
+  shardSource: ShardSource;
   /** An orchestrator-supplied key bypasses provider-derived identity. */
   hasExplicitIdempotencyKey: boolean;
 }
@@ -305,60 +314,116 @@ export type CIExecutionPolicy =
       reason: string;
     };
 
+/**
+ * An explicit key with no shard coordinates on a detected CI provider is the
+ * one combination that promises "these jobs are one run" without telling the
+ * dashboard how many to wait for — the run then finalizes on the first job's
+ * /complete and 409s the rest. The reporter cannot see whether the key is
+ * actually shared, so this also fires for a correct single-job key; the
+ * phrasing is conditional for that reason. Synthetic-monitor executions are
+ * excluded explicitly via WRIGHTFUL_RUN_ORIGIN rather than by assuming
+ * `detectCI` is null — a sandbox base image may export CI=true.
+ */
+const VERBATIM_KEY_WITHOUT_SHARDS_WARNING =
+  "WRIGHTFUL_IDEMPOTENCY_KEY is used verbatim, replacing every derived discriminator. " +
+  "If several jobs or matrix legs share this key they merge into one dashboard run that " +
+  "finalizes on the first leg's /complete and rejects later legs — declare " +
+  "WRIGHTFUL_SHARD_INDEX/WRIGHTFUL_SHARD_TOTAL so the run waits for every leg.";
+
+/**
+ * The inverse misconfiguration: env-declared shard coordinates without a
+ * shared key. The derived key folds in the selected project set, so legs
+ * sliced with `--project` derive different keys and each opens its own run
+ * declaring `total` shards — every one of them hangs at `running` until the
+ * dashboard watchdog sweeps it. Same-project slicing (a grep) does converge,
+ * hence a warning rather than a block.
+ */
+const ENV_SHARDS_WITHOUT_KEY_WARNING =
+  "WRIGHTFUL_SHARD_INDEX/WRIGHTFUL_SHARD_TOTAL are declared without WRIGHTFUL_IDEMPOTENCY_KEY. " +
+  "Legs of a self-sharded matrix usually derive different keys (the selected project set is a " +
+  "discriminator), so they may open separate runs that each wait for the full shard total and " +
+  "never finalize — set one WRIGHTFUL_IDEMPOTENCY_KEY shared by every leg of this execution.";
+
+function appendWarning(
+  current: string | null,
+  addition: string,
+): string | null {
+  return current ? `${current} ${addition}` : addition;
+}
+
 export function resolveCIExecutionPolicy(
   ci: CIInfo | null,
   context: CIExecutionContext,
   env: NodeJS.ProcessEnv = process.env,
 ): CIExecutionPolicy {
+  const sharded = context.shardSource !== "none";
   if (context.hasExplicitIdempotencyKey) {
-    return { status: "ready", runAttempt: null, warning: null };
+    const synthetic = env.WRIGHTFUL_RUN_ORIGIN === "synthetic";
+    return {
+      status: "ready",
+      runAttempt: null,
+      warning:
+        ci !== null && !sharded && !synthetic
+          ? VERBATIM_KEY_WITHOUT_SHARDS_WARNING
+          : null,
+    };
   }
 
-  switch (ci?.ciProvider) {
-    case "github-actions": {
-      const isRerun =
-        ci.ciRunAttempt !== null &&
-        ci.ciRunAttempt !== "" &&
-        ci.ciRunAttempt !== "1";
-      if (context.nativeSharded && isRerun) {
-        return {
-          status: "blocked",
-          reason:
-            "GitHub Actions cannot tell reporters whether a native-shard rerun includes every shard. " +
-            "Streaming this rerun would risk an incomplete dashboard run. Rerun the full workflow with " +
-            "WRIGHTFUL_IDEMPOTENCY_KEY set to one new value shared by every shard.",
-        };
-      }
-      return {
-        status: "ready",
-        runAttempt: ci.ciRunAttempt,
-        warning: null,
-      };
-    }
-    case "gitlab-ci":
-      if (context.nativeSharded) {
+  const policy = ((): CIExecutionPolicy => {
+    switch (ci?.ciProvider) {
+      case "github-actions": {
+        const isRerun =
+          ci.ciRunAttempt !== null &&
+          ci.ciRunAttempt !== "" &&
+          ci.ciRunAttempt !== "1";
+        if (sharded && isRerun) {
+          return {
+            status: "blocked",
+            reason:
+              "GitHub Actions cannot tell reporters whether a sharded rerun includes every shard or matrix leg. " +
+              "Streaming this rerun would risk an incomplete dashboard run. Rerun the full workflow with " +
+              "WRIGHTFUL_IDEMPOTENCY_KEY set to one new value shared by every shard.",
+          };
+        }
         return {
           status: "ready",
-          runAttempt: null,
-          warning:
-            "GitLab native-shard job retries cannot be identified as one complete retry set. " +
-            "Retry the full pipeline instead of an individual shard.",
+          runAttempt: ci.ciRunAttempt,
+          warning: null,
         };
       }
-      // CI_JOB_ID changes when GitLab retries a job, but is stable for all
-      // transport retries performed inside that job.
-      return {
-        status: "ready",
-        runAttempt: env.CI_JOB_ID ?? null,
-        warning: null,
-      };
-    default:
-      return {
-        status: "ready",
-        runAttempt: ci?.ciRunAttempt ?? null,
-        warning: null,
-      };
+      case "gitlab-ci":
+        if (sharded) {
+          return {
+            status: "ready",
+            runAttempt: null,
+            warning:
+              "GitLab job retries within a sharded suite cannot be identified as one complete retry set. " +
+              "Retry the full pipeline instead of an individual shard.",
+          };
+        }
+        // CI_JOB_ID changes when GitLab retries a job, but is stable for all
+        // transport retries performed inside that job.
+        return {
+          status: "ready",
+          runAttempt: env.CI_JOB_ID ?? null,
+          warning: null,
+        };
+      default:
+        return {
+          status: "ready",
+          runAttempt: ci?.ciRunAttempt ?? null,
+          warning: null,
+        };
+    }
+  })();
+
+  if (policy.status === "blocked" || context.shardSource !== "env") {
+    return policy;
   }
+  return {
+    ...policy,
+    warning: appendWarning(policy.warning, ENV_SHARDS_WITHOUT_KEY_WARNING),
+  };
 }
 
 // Mirror of the dashboard's `idempotencyKey` cap (MAX.ID in
@@ -423,4 +488,110 @@ export function generateIdempotencyKey(
     parts.push(`matrix-${shortHash(discriminators.matrixKey)}`);
   }
   return boundedDerivedKey(parts);
+}
+
+const SHARD_INDEX_ENV = "WRIGHTFUL_SHARD_INDEX";
+const SHARD_TOTAL_ENV = "WRIGHTFUL_SHARD_TOTAL";
+
+/** Where this process's shard coordinates came from, if anywhere. */
+export type ShardSource = "none" | "cli" | "env";
+
+export interface ShardResolution {
+  /** Coordinates for a sharded execution; null for a plain single run. */
+  shard: ShardInfo | null;
+  /** Which mechanism supplied the coordinates. */
+  source: ShardSource;
+  /** Misconfiguration to surface on stderr; null when there is nothing to say. */
+  warning: string | null;
+}
+
+/**
+ * The dashboard stores shard coordinates in int4 columns
+ * (`runs.expectedShards`, `runShards.shardIndex`/`shardTotal`). An oversized
+ * value passes the wire schema (`.int().min(1)`, no max) and then 500s the
+ * insert, losing the whole run — reject it here with a message instead. A CI
+ * expression accidentally wired to a run id is the realistic way to hit this.
+ */
+const MAX_SHARD_COORDINATE = 2_147_483_647;
+
+/**
+ * Parse one 1-based shard coordinate from an already-trimmed value. The regex
+ * rejects anything that isn't a run of digits (a float, a CI expression that
+ * never expanded); `isSafeInteger` rejects a digit run too long to survive
+ * `Number`; `>= 1` rejects a 0-based index; the cap keeps the value inside
+ * the dashboard's int4 columns.
+ */
+function parseShardCoordinate(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) &&
+    value >= 1 &&
+    value <= MAX_SHARD_COORDINATE
+    ? value
+    : null;
+}
+
+/**
+ * Shard identity for this reporter process.
+ *
+ * Playwright sets `config.shard` only under `--shard`. A CI matrix that slices
+ * the suite some other way — one `--project` per leg, spec paths, a grep —
+ * looks like a plain single run, so a matrix that also shares one
+ * `WRIGHTFUL_IDEMPOTENCY_KEY` used to open a merged run that finalized on the
+ * first leg's /complete. `WRIGHTFUL_SHARD_INDEX` (1-based) and
+ * `WRIGHTFUL_SHARD_TOTAL` let such a leg declare the coordinates Playwright
+ * cannot see; `--shard` always wins when both are present.
+ *
+ * A declaration must be complete and consistent (`1 <= index <= total`, both
+ * inside int4). Anything else warns and reports no shard rather than guessing
+ * — while a leg that declares nothing at all is the ordinary single-run case
+ * and stays silent. Note the fallback is only genuinely "a whole run" when
+ * this leg does NOT share an idempotency key: a shardless leg on a shared run
+ * either finalizes it early (if it completes first) or contributes no
+ * `runShards` row and leaves the run to the dashboard watchdog, so the
+ * warning escalates when an explicit key is present.
+ */
+export function resolveShardIdentity(
+  configShard: { current: number; total: number } | null,
+  env: NodeJS.ProcessEnv = process.env,
+): ShardResolution {
+  const rawIndex = env[SHARD_INDEX_ENV]?.trim() ?? "";
+  const rawTotal = env[SHARD_TOTAL_ENV]?.trim() ?? "";
+  const declared = rawIndex !== "" || rawTotal !== "";
+
+  if (configShard) {
+    return {
+      shard: { index: configShard.current, total: configShard.total },
+      source: "cli",
+      warning: declared
+        ? `${SHARD_INDEX_ENV}/${SHARD_TOTAL_ENV} ignored — Playwright's --shard takes precedence ` +
+          `(running shard ${configShard.current}/${configShard.total}).`
+        : null,
+    };
+  }
+
+  if (!declared) return { shard: null, source: "none", warning: null };
+
+  // One rejection for every bad declaration, echoing both raw values: a half
+  // declaration shows up as an empty string, so the same sentence covers the
+  // missing variable, the unexpanded expression, and the 0-based index.
+  const index = parseShardCoordinate(rawIndex);
+  const total = parseShardCoordinate(rawTotal);
+  if (index === null || total === null || index > total) {
+    const sharedKeyHazard = env.WRIGHTFUL_IDEMPOTENCY_KEY
+      ? " This leg shares WRIGHTFUL_IDEMPOTENCY_KEY, so a shardless report can finalize the" +
+        " shared run early or leave it waiting for a shard that never arrives — fix the" +
+        " declaration before relying on the merged run."
+      : "";
+    return {
+      shard: null,
+      source: "none",
+      warning:
+        `${SHARD_INDEX_ENV}="${rawIndex}" ${SHARD_TOTAL_ENV}="${rawTotal}" does not address a shard ` +
+        `(both must be whole numbers with 1 <= index <= total). Reporting this leg as a whole run.` +
+        sharedKeyHazard,
+    };
+  }
+
+  return { shard: { index, total }, source: "env", warning: null };
 }
