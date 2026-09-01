@@ -58,7 +58,8 @@ unrelated jobs:
 
 - The base identity is the provider's build id plus its job name.
 - On GitHub Actions, `GITHUB_RUN_ATTEMPT` is included automatically for
-  non-sharded runs. A native-shard rerun is fail-closed because GitHub does not
+  non-sharded runs. A sharded rerun (`--shard` or env-declared coordinates)
+  is fail-closed because GitHub does not
   expose whether the user reran every shard or only one failed job: attempt 2+
   does not stream unless `WRIGHTFUL_IDEMPOTENCY_KEY` is explicitly shared by
   the complete shard set. This prevents a one-shard rerun from opening a
@@ -69,19 +70,19 @@ unrelated jobs:
   not expose a retry generation shared by a complete shard set, so retry the
   full pipeline rather than an individual sharded job.
 - The selected Playwright project-name set is included automatically, even for
-  native shards and empty/filtered suites. This keeps independent project
+  `--shard` slices and empty/filtered suites. This keeps independent project
   matrices separate even though `GITHUB_JOB` is the same unexpanded job id in
   every leg, while shards of the same selected project set still share one key.
 - Set `WRIGHTFUL_MATRIX_KEY` to a stable serialization of any non-shard matrix
   axes the reporter cannot observe, such as an operating system or Node
-  version. It must have the same value in every native shard that should merge.
+  version. It must have the same value in every shard that should merge.
 
 `WRIGHTFUL_IDEMPOTENCY_KEY` is the escape hatch for orchestrators such as
 synthetic monitors. It is used verbatim, without the automatic discriminators.
 Keep it constant across retries and shards of one in-progress execution, but
 use a new value for every new logical execution. Reusing a key after its run is
 terminal is rejected rather than reopening and overwriting the stored result.
-For a complete GitHub native-shard rerun, set it at the job level to a value
+For a complete GitHub sharded rerun, set it at the job level to a value
 that contains the run id, run attempt, and every non-shard matrix coordinate
 (but not the shard index), for example:
 
@@ -91,12 +92,78 @@ env:
     ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.project }}-${{ matrix.os }}
 ```
 
-| environment variable        | handling                                                                                                     |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `GITHUB_RUN_ATTEMPT`        | Auto-detected rerun attempt. Native-shard attempts after the first require an explicit complete-set key.     |
-| `CI_JOB_ID`                 | Auto-detected GitLab retry identity for non-sharded jobs; intentionally excluded from native-shard identity. |
-| `WRIGHTFUL_MATRIX_KEY`      | Optional discriminator for non-shard matrix axes that auto-detection cannot distinguish.                     |
-| `WRIGHTFUL_IDEMPOTENCY_KEY` | Full explicit override; must be unique per execution and shared by every native shard in that execution.     |
+If you set `WRIGHTFUL_IDEMPOTENCY_KEY` to work around the pre-0.3.0 rerun
+collision (keys derived from `GITHUB_RUN_ID` alone were stable across reruns),
+remove it: the derived key now folds in the run attempt and the selected
+project set, and an explicit key _replaces_ those discriminators — including
+the project-set hash that keeps `--project` matrix legs apart.
+
+### Matrices that shard the suite themselves
+
+A note on the word "shard": in this document it means one slice of a single
+Playwright suite — declared with `--shard`, or with the variables below — not
+what many CI setups loosely call their matrix jobs. Playwright
+sets `config.shard` only under `--shard`. A matrix that slices the suite some
+other way — one `--project` per leg, or spec paths, or a grep — looks like a
+plain single run to the reporter, even when every leg shares one
+`WRIGHTFUL_IDEMPOTENCY_KEY` and therefore one dashboard run. The dashboard then
+finalizes that run on the **first** leg's `/complete`: it goes terminal (status
+decided by whichever leg happened to finish first, run glyph no longer showing
+progress) while the slower legs are still streaming into it, and any leg whose
+`openRun` lands after that point is rejected with `409 ... already belongs to a
+completed execution` and drops every result it has.
+
+Declare the shard coordinates so those legs are treated as shards of one run:
+
+```yaml
+- name: Run Playwright tests
+  # bash is pinned because windows runners default to pwsh, where `export`
+  # and $(( )) are syntax errors. `strategy.job-index` is 0-based and GitHub
+  # expressions have no arithmetic, so the 1-based coordinate is computed in
+  # the shell. `github.job` keeps a second reporter-using matrix job in the
+  # same workflow from colliding onto this run.
+  shell: bash
+  run: |
+    export WRIGHTFUL_SHARD_INDEX=$((JOB_INDEX + 1))
+    npx playwright test --project=${{ matrix.project }}
+  env:
+    JOB_INDEX: ${{ strategy.job-index }}
+    WRIGHTFUL_SHARD_TOTAL: ${{ strategy.job-total }}
+    WRIGHTFUL_IDEMPOTENCY_KEY: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
+```
+
+The run then stays `running` until every leg has reported, its final status is
+the worst leg's rather than the first's, `expectedTotalTests` sums across legs,
+and each test row records the leg that produced it. Both variables are
+required, with `1 <= index <= total`; a partial or nonsensical declaration
+warns on stderr and reports the leg without shard coordinates. Note that
+fallback is only a clean single run when the leg does not also share an
+idempotency key — a shardless leg on a shared run can finalize it early or
+leave it waiting for a shard that never arrives, which is why the warning
+escalates in that case: fix the declaration rather than relying on the
+fallback. Playwright's `--shard` always takes precedence. The shared
+`WRIGHTFUL_IDEMPOTENCY_KEY` is required too — without it each leg derives its
+own key (the selected project set is a discriminator) and opens its own run
+that waits for the full shard total forever; the reporter warns about either
+half of the pairing used alone. Declared coordinates also join the GitHub
+rerun fail-close: attempt ≥ 2 without a fresh explicit key does not stream,
+exactly as for `--shard`.
+
+Every leg must report for the run to finalize. A leg killed by a job timeout or
+cancellation still posts its own `interrupted` completion; one lost to `SIGKILL`
+leaves the run `running` until the dashboard watchdog sweeps it. Use GitHub's
+"Re-run all jobs", not "Re-run failed jobs": a partial rerun opens a fresh run
+(new attempt, new key) that declares the full shard total but only ever hears
+from the re-run legs, and hangs the same way until the watchdog closes it.
+
+| environment variable        | handling                                                                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_RUN_ATTEMPT`        | Auto-detected rerun attempt. Sharded attempts after the first require an explicit complete-set key.              |
+| `CI_JOB_ID`                 | Auto-detected GitLab retry identity for non-sharded jobs; intentionally excluded from sharded identity.          |
+| `WRIGHTFUL_MATRIX_KEY`      | Optional discriminator for non-shard matrix axes that auto-detection cannot distinguish.                         |
+| `WRIGHTFUL_IDEMPOTENCY_KEY` | Full explicit override; must be unique per execution and shared by every shard in that execution.                |
+| `WRIGHTFUL_SHARD_INDEX`     | 1-based shard coordinate for a matrix that shards the suite without `--shard`. Requires `WRIGHTFUL_SHARD_TOTAL`. |
+| `WRIGHTFUL_SHARD_TOTAL`     | How many legs the shared run must wait for before it may finalize. Requires `WRIGHTFUL_SHARD_INDEX`.             |
 
 ## Fail-closed semantics
 

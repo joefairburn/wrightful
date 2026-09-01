@@ -55,7 +55,8 @@ export interface TestResultPayload {
   errorStack: string | null;
   workerIndex: number;
   /**
-   * Playwright shard that ran this test (`config.shard.current`, 1-based), or
+   * Shard that ran this test (1-based) — `config.shard.current`, or the
+   * env-declared `WRIGHTFUL_SHARD_INDEX` for a self-slicing matrix — or
    * `null` for a non-sharded run. Unlike the run-level `shard` on open/complete
    * (which is omitted when non-sharded), this is always present so the dashboard
    * can group each test row by its shard. Mirrors the nullable `shardIndex` on
@@ -76,8 +77,10 @@ export interface PlannedTestDescriptor {
 }
 
 /**
- * Playwright shard coordinates from `config.shard` (`{ current, total }`),
- * remapped to `{ index, total }`. Sent on open + complete only for a sharded
+ * Shard coordinates: Playwright's `config.shard` (`{ current, total }`)
+ * remapped to `{ index, total }`, or the `WRIGHTFUL_SHARD_INDEX`/`_TOTAL`
+ * declaration a self-slicing CI matrix supplies instead (see
+ * `resolveShardIdentity` in ci.ts). Sent on open + complete only for a sharded
  * suite. All shards of one suite share an idempotencyKey (→ one run); `total`
  * tells the dashboard how many shards to wait for before the run may finalize,
  * and `index` (1-based) identifies the completing shard. Omitted on a
@@ -90,7 +93,7 @@ export interface ShardInfo {
 
 export interface OpenRunPayload {
   idempotencyKey: string;
-  /** Present only when `config.shard` is set (a sharded suite). */
+  /** Present only for a sharded suite (`--shard`, or an env-declared shard). */
   shard?: ShardInfo;
   /**
    * The repo's CODEOWNERS file contents (roadmap 2.3). The reporter reads it
@@ -139,7 +142,7 @@ export interface CompleteRunPayload {
   status: "passed" | "failed" | "timedout" | "interrupted";
   durationMs: number;
   /**
-   * Present only for a sharded suite (`config.shard` set). Lets the dashboard
+   * Present only for a sharded suite (see {@link ShardInfo}). Lets the dashboard
    * record this shard's completion and defer the run's terminal status until
    * every shard has reported — see `completeRun` in the dashboard's ingest.
    */

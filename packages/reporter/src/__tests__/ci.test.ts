@@ -16,8 +16,12 @@ vi.mock("node:child_process", () => ({
 }));
 
 // Re-import after the mock so the module picks it up.
-const { detectCI, generateIdempotencyKey, resolveCIExecutionPolicy } =
-  await import("../ci.js");
+const {
+  detectCI,
+  generateIdempotencyKey,
+  resolveCIExecutionPolicy,
+  resolveShardIdentity,
+} = await import("../ci.js");
 
 // Env vars that any of the branches care about. Cleared before each test
 // and restored after so the detection logic sees a deterministic state.
@@ -519,7 +523,7 @@ describe("resolveCIExecutionPolicy", () => {
     process.env.GITHUB_RUN_ATTEMPT = "2";
     expect(
       resolveCIExecutionPolicy(detectCI(), {
-        nativeSharded: true,
+        shardSource: "cli",
         hasExplicitIdempotencyKey: false,
       }),
     ).toMatchObject({ status: "blocked" });
@@ -530,7 +534,7 @@ describe("resolveCIExecutionPolicy", () => {
     process.env.GITHUB_RUN_ATTEMPT = "2";
     expect(
       resolveCIExecutionPolicy(detectCI(), {
-        nativeSharded: true,
+        shardSource: "cli",
         hasExplicitIdempotencyKey: true,
       }),
     ).toEqual({ status: "ready", runAttempt: null, warning: null });
@@ -541,7 +545,7 @@ describe("resolveCIExecutionPolicy", () => {
     process.env.CI_JOB_ID = "job-99";
     expect(
       resolveCIExecutionPolicy(detectCI(), {
-        nativeSharded: false,
+        shardSource: "none",
         hasExplicitIdempotencyKey: false,
       }),
     ).toEqual({ status: "ready", runAttempt: "job-99", warning: null });
@@ -551,13 +555,117 @@ describe("resolveCIExecutionPolicy", () => {
     process.env.GITLAB_CI = "true";
     process.env.CI_JOB_ID = "one-shard-only";
     const policy = resolveCIExecutionPolicy(detectCI(), {
-      nativeSharded: true,
+      shardSource: "cli",
       hasExplicitIdempotencyKey: false,
     });
     expect(policy).toMatchObject({ status: "ready", runAttempt: null });
     expect(policy.status === "ready" && policy.warning).toContain(
       "Retry the full pipeline",
     );
+  });
+
+  // The combination that silently lost a fork's matrix results for two months:
+  // an explicit key shared by N legs with nothing telling the dashboard N, so
+  // the run finalized on the first leg's /complete. The key's other uses stay
+  // silent: an orchestrator outside CI (monitors — detectCI() is null), and a
+  // sharded execution where the coordinates make the key safe.
+  it("warns when an explicit key has no shard coordinates on a detected CI provider", () => {
+    process.env.GITHUB_ACTIONS = "true";
+    const policy = resolveCIExecutionPolicy(detectCI(), {
+      shardSource: "none",
+      hasExplicitIdempotencyKey: true,
+    });
+    expect(policy).toMatchObject({ status: "ready", runAttempt: null });
+    expect(policy.status === "ready" && policy.warning).toContain(
+      "WRIGHTFUL_SHARD_INDEX/WRIGHTFUL_SHARD_TOTAL",
+    );
+  });
+
+  it("stays silent for an explicit key outside CI (a monitor container)", () => {
+    expect(
+      resolveCIExecutionPolicy(null, {
+        shardSource: "none",
+        hasExplicitIdempotencyKey: true,
+      }),
+    ).toEqual({ status: "ready", runAttempt: null, warning: null });
+  });
+
+  // A monitor image may export CI=true (detectCI → "unknown" provider), so the
+  // synthetic origin is the exclusion, not the absence of CI env.
+  it("stays silent for a synthetic-monitor execution even when the image sets CI=true", () => {
+    process.env.CI = "true";
+    expect(
+      resolveCIExecutionPolicy(
+        detectCI(),
+        {
+          shardSource: "none",
+          hasExplicitIdempotencyKey: true,
+        },
+        { ...process.env, WRIGHTFUL_RUN_ORIGIN: "synthetic" },
+      ),
+    ).toEqual({ status: "ready", runAttempt: null, warning: null });
+  });
+
+  it("stays silent for an explicit key with env-declared shard coordinates", () => {
+    process.env.GITHUB_ACTIONS = "true";
+    expect(
+      resolveCIExecutionPolicy(detectCI(), {
+        shardSource: "env",
+        hasExplicitIdempotencyKey: true,
+      }),
+    ).toEqual({ status: "ready", runAttempt: null, warning: null });
+  });
+
+  // The inverse misconfiguration: env-declared coordinates without a shared
+  // key. Legs sliced with --project derive different keys (the project-set
+  // hash), so each opens its own run declaring `total` shards and hangs.
+  it("warns when env-declared shards have no explicit shared key", () => {
+    process.env.GITHUB_ACTIONS = "true";
+    process.env.GITHUB_RUN_ATTEMPT = "1";
+    const policy = resolveCIExecutionPolicy(detectCI(), {
+      shardSource: "env",
+      hasExplicitIdempotencyKey: false,
+    });
+    expect(policy).toMatchObject({ status: "ready" });
+    expect(policy.status === "ready" && policy.warning).toContain(
+      "set one WRIGHTFUL_IDEMPOTENCY_KEY",
+    );
+  });
+
+  it("does not add the shared-key warning for a native --shard run", () => {
+    process.env.GITHUB_ACTIONS = "true";
+    process.env.GITHUB_RUN_ATTEMPT = "1";
+    expect(
+      resolveCIExecutionPolicy(detectCI(), {
+        shardSource: "cli",
+        hasExplicitIdempotencyKey: false,
+      }),
+    ).toEqual({ status: "ready", runAttempt: "1", warning: null });
+  });
+
+  it("appends the shared-key warning after GitLab's retry limitation", () => {
+    process.env.GITLAB_CI = "true";
+    const policy = resolveCIExecutionPolicy(detectCI(), {
+      shardSource: "env",
+      hasExplicitIdempotencyKey: false,
+    });
+    expect(policy.status === "ready" && policy.warning).toContain(
+      "Retry the full pipeline",
+    );
+    expect(policy.status === "ready" && policy.warning).toContain(
+      "set one WRIGHTFUL_IDEMPOTENCY_KEY",
+    );
+  });
+
+  it("still blocks an ambiguous GitHub rerun of env-declared shards", () => {
+    process.env.GITHUB_ACTIONS = "true";
+    process.env.GITHUB_RUN_ATTEMPT = "2";
+    expect(
+      resolveCIExecutionPolicy(detectCI(), {
+        shardSource: "env",
+        hasExplicitIdempotencyKey: false,
+      }),
+    ).toMatchObject({ status: "blocked" });
   });
 });
 
@@ -664,5 +772,114 @@ describe("generateIdempotencyKey", () => {
     expect(key).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
+  });
+});
+
+describe("resolveShardIdentity", () => {
+  const env = (index?: string, total?: string): NodeJS.ProcessEnv => ({
+    ...(index === undefined ? {} : { WRIGHTFUL_SHARD_INDEX: index }),
+    ...(total === undefined ? {} : { WRIGHTFUL_SHARD_TOTAL: total }),
+  });
+
+  it("reports no shard for a plain single run", () => {
+    expect(resolveShardIdentity(null, env())).toEqual({
+      shard: null,
+      source: "none",
+      warning: null,
+    });
+  });
+
+  it("remaps Playwright's --shard coordinates", () => {
+    expect(resolveShardIdentity({ current: 3, total: 7 }, env())).toEqual({
+      shard: { index: 3, total: 7 },
+      source: "cli",
+      warning: null,
+    });
+  });
+
+  it("adopts an env-declared shard when Playwright is not sharding", () => {
+    expect(resolveShardIdentity(null, env("14", "20"))).toEqual({
+      shard: { index: 14, total: 20 },
+      source: "env",
+      warning: null,
+    });
+  });
+
+  it.each([
+    ["first leg", "1", "20", { index: 1, total: 20 }],
+    ["last leg", "20", "20", { index: 20, total: 20 }],
+    ["a single-leg matrix", "1", "1", { index: 1, total: 1 }],
+    [
+      "whitespace from a CI expression",
+      " 14 ",
+      " 20 ",
+      { index: 14, total: 20 },
+    ],
+  ])("accepts %s", (_case, index, total, expected) => {
+    expect(resolveShardIdentity(null, env(index, total)).shard).toEqual(
+      expected,
+    );
+  });
+
+  it("lets --shard win over a declaration, and says so", () => {
+    const resolved = resolveShardIdentity(
+      { current: 1, total: 2 },
+      env("14", "20"),
+    );
+    expect(resolved.shard).toEqual({ index: 1, total: 2 });
+    expect(resolved.warning).toContain("--shard takes precedence");
+  });
+
+  // Silence would read as "this leg is a whole run" — the bug being fixed — so
+  // every rejection must warn as well as resolve to no shard.
+  it.each([
+    ["a missing total", "14", undefined],
+    ["a missing index", undefined, "20"],
+    ["an empty total", "14", ""],
+    ["a 0-based index", "0", "20"],
+    ["an index past the end", "21", "20"],
+    ["a fractional index", "1.5", "20"],
+    ["a non-numeric index", "abc", "20"],
+    ["a negative index", "-1", "20"],
+    ["a zero total", "14", "0"],
+    ["a total past int4 (would 500 the insert)", "1", "2147483648"],
+    ["an unexpanded CI expression", "${{ strategy.job-index }}", "20"],
+  ])("refuses %s", (_case, index, total) => {
+    const resolved = resolveShardIdentity(null, env(index, total));
+    expect(resolved.shard).toBeNull();
+    expect(resolved.warning).toContain("does not address a shard");
+  });
+
+  it("echoes both raw values so the offending one is visible", () => {
+    expect(resolveShardIdentity(null, env("14")).warning).toContain(
+      'WRIGHTFUL_SHARD_INDEX="14" WRIGHTFUL_SHARD_TOTAL=""',
+    );
+  });
+
+  it("treats empty declarations as absent, not malformed", () => {
+    expect(resolveShardIdentity(null, env("", ""))).toEqual({
+      shard: null,
+      source: "none",
+      warning: null,
+    });
+  });
+
+  // A shardless fallback on a SHARED run is not a clean single run — it can
+  // finalize the merged run early or strand it for the watchdog — so the
+  // rejection escalates when the leg also carries an explicit key.
+  it("escalates a malformed declaration when the leg shares an explicit key", () => {
+    const resolved = resolveShardIdentity(null, {
+      ...env("0", "20"),
+      WRIGHTFUL_IDEMPOTENCY_KEY: "42-1",
+    });
+    expect(resolved.shard).toBeNull();
+    expect(resolved.warning).toContain("does not address a shard");
+    expect(resolved.warning).toContain("shares WRIGHTFUL_IDEMPOTENCY_KEY");
+  });
+
+  it("keeps the plain rejection when no explicit key is involved", () => {
+    const resolved = resolveShardIdentity(null, env("0", "20"));
+    expect(resolved.warning).toContain("does not address a shard");
+    expect(resolved.warning).not.toContain("WRIGHTFUL_IDEMPOTENCY_KEY");
   });
 });
